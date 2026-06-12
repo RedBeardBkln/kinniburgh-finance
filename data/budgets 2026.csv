@@ -1,0 +1,54 @@
+NAME,Budgeted,EXPENSE,Scheduled,Rollover,Available
+"Arbor Retreat / Electricity",100,0,0,0,100
+"Arbor Retreat / Home Goods",250,0,0,0,250
+"Arbor Retreat / Home Insurance",168,0,0,0,168
+"Arbor Retreat / Household Supplies",150,0,0,0,150
+"Arbor Retreat / Internet",66,0,0,0,66
+"Arbor Retreat / Oil",240,0,0,495.45,735.45
+"Arbor Retreat / Property Taxes",275,0,0,-266.95,8.05
+"Arbor Retreat / Repairs & Maintenance",150,0,0,0,150
+"Business Ventures",50,0,0,0,50
+"Entertainment / Misc Entertainment",150,0,0,0,150
+"Food & Drink / Bakeries & Coffee Shops",50,0,0,0,50
+"Food & Drink / Groceries",1200,410.75,0,0,859.7
+"Food & Drink / Restaurants & Bars / Restaurants & Bars - Both",400,0,0,0,400
+"Food & Drink / Restaurants & Bars / Restaurants & Bars - Eric",150,0,0,0,150
+"Food & Drink / Restaurants & Bars / Restaurants & Bars - Eva",150,0,0,0,150
+"Home & Property / Home Improvements",400,0,0,0,300
+"Home & Property / Home Repair",800,0,0,0,600
+"Home & Property / Landscaping & Gardening",200,0,0,0,150
+"Home & Property / Lawn Care",250,0,0,0,250
+"Household Goods / Home Stores",200,0,0,0,150
+"Household Goods / Online Stores",200,41.47,0,0,158.53
+"Household Goods / Target - CVS - Walgreens",400,0,0,0,300
+"Insurance / Auto Insurance",120,0,0,399,519
+"Insurance / Northwestern Mutual",760,760.19,0,393.69,393.5
+Investments,100,0,0,0,100
+"Medical & Health / Medical - Eric",60,0,0,0,45
+"Medical & Health / Medical - Eva",60,0,0,0,45
+"Medical & Health / Therapy",140,0,0,0,140
+"Memberships / Google Play",36,23.63,0,0,12.37
+"Memberships / Streaming",60,0,0,0,60
+"Memberships / Subscriptions",60,15.15,0,0,44.85
+"Misc. / Donation",80,0,0,0,80
+"Misc. / Gifts",50,0,0,0,50
+"Personal Wellbeing / Beauty Regiment - Eric",60,0,0,0,60
+"Personal Wellbeing / Beauty Regiment - Eva",100,69.13,0,0,75
+"Personal Wellbeing / Clothes",100,0,0,0,100
+"Personal Wellbeing / Personal - Eric",75,0,0,0,75
+"Personal Wellbeing / Personal - Eva",75,0,0,0,75
+"Pet / Dog Food Ingredients",125,0,0,0,125
+"Pet / Doggy Daycare",268,0,0,0,268
+"Pet / Doggy Insurance",205,0,0,0,205
+"Transportation / Auto Expenses / Car Payment",1500,250,0,0,1250
+"Transportation / Auto Expenses / Gas",200,144.09,0,0,136.25
+"Transportation / Auto Expenses / Vehicle Repair & Maintenance",250,0,0,0,250
+"Utilities / Cell Phones",40,0,0,0,40
+"Utilities / Electric (Eversource)",172,0,0,-1147.09,86
+"Utilities / Firewood",80,0,0,-190,40
+"Utilities / Internet",100,0,0,0,100
+"Utilities / Mortgage",4700,4335.69,0,0,364.31
+"Utilities / Oil",308,0,0,737.25,1045.25
+"Utilities / Sewer",50,0,0,0,50
+"Utilities / Solar",506,0,0,0,506
+"Utilities / Water",50,0,0,0,50
