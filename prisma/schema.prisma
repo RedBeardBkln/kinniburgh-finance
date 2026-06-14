@@ -1,0 +1,441 @@
+// Money is stored as NUMERIC(14,2) — never floats.
+// All dates stored UTC. Soft-delete via archivedAt on tax-relevant records.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+model User {
+  id                  String    @id @default(uuid())
+  name                String
+  email               String    @unique
+  passwordHash        String
+  role                String    @default("owner")
+  totpSecret          String?   // encrypted; null = MFA not yet enrolled
+  totpVerified        Boolean   @default(false)
+  notificationPrefs   Json      @default("{}")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  sessions            Session[]
+  notificationUsers   NotificationUser[]
+  auditLogs           AuditLog[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Core financial entities ─────────────────────────────────────────────────
+
+model Entity {
+  id             String    @id @default(uuid())
+  name           String    @unique
+  dbaName        String?
+  type           String    // personal | business
+  foundedDate    DateTime?
+  taxStatusNotes String?
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  accounts       Account[]
+  transactions   Transaction[]
+  budgets        Budget[]
+  receipts       Receipt[]
+  glCodes        GlCode[]
+  documents      Document[]
+  scheduledBills ScheduledBill[]
+  notifications  Notification[]
+  incomeSources  IncomeSource[]
+  taxWorkspaces  TaxWorkspace[]
+}
+
+model Institution {
+  id                  String    @id @default(uuid())
+  name                String    @unique
+  plaidInstitutionId  String?   // Plaid's institution_id, populated on first connect attempt
+  plaidCoverageNotes  String?   // supported | unsupported | requires_fallback
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  accounts  Account[]
+}
+
+model Account {
+  id                 String      @id @default(uuid())
+  institutionId      String
+  entityId           String
+  nickname           String
+  mask               String?     // last 4 digits
+  accountType        String      // checking | savings | credit_card | mortgage | loan | investment | insurance
+  minimumBalance     Decimal?    @db.Decimal(14, 2)
+  minimumBalanceFee  Decimal?    @db.Decimal(14, 2)
+  integrationMode    String      @default("manual_entry") // plaid | manual_import | manual_entry
+  currency           String      @default("USD")
+  plaidItemId        String?     // references PlaidItem.itemId
+  plaidAccountId     String?     // Plaid's per-account account_id
+  currentBalance     Decimal?    @db.Decimal(14, 2) // manually set or Plaid-synced
+  currentBalanceAt   DateTime?                       // when currentBalance was last set
+  archivedAt         DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  institution              Institution        @relation(fields: [institutionId], references: [id])
+  entity                   Entity             @relation(fields: [entityId], references: [id])
+  plaidItem                PlaidItem?         @relation(fields: [plaidItemId], references: [itemId])
+  transactions             Transaction[]
+  budgets                  Budget[]
+  scheduledTransfersFrom   ScheduledTransfer[] @relation("FromAccount")
+  scheduledTransfersTo     ScheduledTransfer[] @relation("ToAccount")
+  scheduledBills           ScheduledBill[]
+  accrualEnvelopes         AccrualEnvelope[]
+  tagRules                 TagRule[]
+  incomeSources            IncomeSource[]
+
+  @@unique([entityId, nickname])
+}
+
+// ─── Transactions ─────────────────────────────────────────────────────────────
+
+model Transaction {
+  id                 String    @id @default(uuid())
+  accountId          String
+  entityId           String
+  postedAt           DateTime
+  amount             Decimal   @db.Decimal(14, 2) // negative = outflow
+  payeeRaw           String?
+  payeeNormalized    String?
+  description        String?
+  source             String    // plaid | import | manual | receipt
+  plaidTransactionId String?   @unique
+  pending            Boolean   @default(false)
+  transferPairId     String?   // links the two legs of an internal transfer
+  receiptId          String?
+  glCodeId           String?
+  archivedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  account     Account          @relation(fields: [accountId], references: [id])
+  entity      Entity           @relation(fields: [entityId], references: [id])
+  tags        TransactionTag[]
+  receipt     Receipt?         @relation(fields: [receiptId], references: [id])
+  glCode      GlCode?          @relation(fields: [glCodeId], references: [id])
+  auditLogs   AuditLog[]
+}
+
+// ─── Tags ─────────────────────────────────────────────────────────────────────
+
+model Tag {
+  id        String    @id @default(uuid())
+  name      String    @unique // full path: "Food & Drink / Groceries"
+  shortName String    // leaf segment only
+  parentId  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  parent       Tag?             @relation("TagHierarchy", fields: [parentId], references: [id])
+  children     Tag[]            @relation("TagHierarchy")
+  transactions TransactionTag[]
+  budgets      Budget[]
+  tagRules     TagRule[]
+}
+
+model TransactionTag {
+  id            String      @id @default(uuid())
+  transactionId String
+  tagId         String
+  createdAt     DateTime    @default(now())
+
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tag           Tag         @relation(fields: [tagId], references: [id])
+
+  @@unique([transactionId, tagId])
+}
+
+// ─── Budgets ──────────────────────────────────────────────────────────────────
+
+model Budget {
+  id              String   @id @default(uuid())
+  tagId           String
+  entityId        String
+  accountId       String
+  period          String   // YYYY-MM
+  budgeted        Decimal  @db.Decimal(14, 2)
+  rolloverEnabled Boolean  @default(false)
+  rolloverAmount  Decimal? @db.Decimal(14, 2)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tag     Tag     @relation(fields: [tagId], references: [id])
+  entity  Entity  @relation(fields: [entityId], references: [id])
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@unique([tagId, entityId, period])
+}
+
+// ─── Envelope automation ──────────────────────────────────────────────────────
+
+model ScheduledTransfer {
+  id            String   @id @default(uuid())
+  fromAccountId String
+  toAccountId   String
+  amount        Decimal  @db.Decimal(14, 2)
+  cadence       String   // weekly | semi_monthly | monthly
+  dayRules      Json     // e.g. {"dayOfWeek": 1} or {"daysOfMonth": [1, 15]}
+  purpose       String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  fromAccount Account @relation("FromAccount", fields: [fromAccountId], references: [id])
+  toAccount   Account @relation("ToAccount", fields: [toAccountId], references: [id])
+}
+
+model ScheduledBill {
+  id             String   @id @default(uuid())
+  accountId      String
+  entityId       String
+  payee          String
+  amountType     String   // static | fluctuating | accrued
+  expectedAmount Decimal? @db.Decimal(14, 2)
+  autopayDay     Int?     // day of month
+  annualBudget   Decimal? @db.Decimal(14, 2)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id])
+  entity  Entity  @relation(fields: [entityId], references: [id])
+}
+
+model AccrualEnvelope {
+  id                 String   @id @default(uuid())
+  accountId          String
+  name               String
+  targetAnnualAmount Decimal  @db.Decimal(14, 2)
+  fundingTransferId  String?
+  currentBalance     Decimal  @db.Decimal(14, 2) @default(0)
+  expectedDrawMonths Json     // [10, 11, 12, 1, 2, 3] = Oct–Mar for oil
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id])
+}
+
+// ─── Receipts ─────────────────────────────────────────────────────────────────
+
+model Receipt {
+  id          String    @id @default(uuid())
+  uploadedBy  String    // user id
+  fileKey     String    // object storage key (encrypted at rest)
+  capturedAt  DateTime
+  ocrStatus   String    @default("pending") // pending | complete | failed
+  vendor      String?
+  receiptDate DateTime?
+  total       Decimal?  @db.Decimal(14, 2)
+  description String?
+  glCode        String?   // freeform until GL chart is imported (Phase 5)
+  ocrRaw        Json?     // raw Claude extraction response
+  confirmedAt   DateTime?
+  confirmedById String?   // user id (plain string, same pattern as uploadedBy)
+  entityId      String
+  archivedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  entity       Entity        @relation(fields: [entityId], references: [id])
+  transactions Transaction[]
+}
+
+// ─── GL codes (chart of accounts, imported from QB/CPA in Phase 5) ────────────
+
+model GlCode {
+  id        String   @id @default(uuid())
+  entityId  String
+  code      String
+  name      String
+  type      String   // asset | liability | equity | income | expense
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entity       Entity        @relation(fields: [entityId], references: [id])
+  transactions Transaction[]
+
+  @@unique([entityId, code])
+}
+
+// ─── Documents (tax vault) ────────────────────────────────────────────────────
+
+// Tax-related records are NEVER hard-deleted; archivedAt only.
+model Document {
+  id         String    @id @default(uuid())
+  entityId   String
+  taxYear    Int?
+  docType    String    // w2 | 1099 | k1 | extension | property_tax | mortgage_interest | policy | statement | other
+  fileKey    String    // object storage key (encrypted)
+  metadata   Json?
+  notes      String?
+  archivedAt DateTime? // archive only; hard delete is forbidden
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  entity Entity @relation(fields: [entityId], references: [id])
+}
+
+// ─── Tax workspaces ───────────────────────────────────────────────────────────
+
+// Tax-related records are NEVER hard-deleted.
+model TaxWorkspace {
+  id        String    @id @default(uuid())
+  entityId  String
+  taxYear   Int
+  status    String    @default("in_progress") // in_progress | extended | filed
+  deadline  DateTime?
+  filedAt   DateTime?
+  notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  entity         Entity             @relation(fields: [entityId], references: [id])
+  checklistItems TaxChecklistItem[]
+
+  @@unique([entityId, taxYear])
+}
+
+model TaxChecklistItem {
+  id          String    @id @default(uuid())
+  workspaceId String
+  label       String
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace TaxWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// ─── Projects (Slush Funds envelopes) ─────────────────────────────────────────
+
+model Project {
+  id           String    @id @default(uuid())
+  name         String
+  targetAmount Decimal   @db.Decimal(14, 2)
+  savedAmount  Decimal   @db.Decimal(14, 2) @default(0)
+  targetDate   DateTime?
+  status       String    @default("active") // active | completed | paused
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// ─── Tag rules (payee → tag learning) ────────────────────────────────────────
+
+model TagRule {
+  id             String   @id @default(uuid())
+  payeePattern   String?  // normalized payee matcher (exact or prefix)
+  amountMin      Decimal? @db.Decimal(14, 2)
+  amountMax      Decimal? @db.Decimal(14, 2)
+  accountId      String?
+  tagId          String
+  confidence     Float    @default(1.0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tag     Tag      @relation(fields: [tagId], references: [id])
+  account Account? @relation(fields: [accountId], references: [id])
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String    @id @default(uuid())
+  entityId  String?
+  type      String    // overspend | low_balance | accrual_shortfall | bill_due | anomaly
+  payload   Json
+  sentAt    DateTime?
+  channel   String    // push | email | in_app
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  entity Entity?            @relation(fields: [entityId], references: [id])
+  users  NotificationUser[]
+}
+
+model NotificationUser {
+  id             String       @id @default(uuid())
+  notificationId String
+  userId         String
+  readAt         DateTime?
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([notificationId, userId])
+}
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id            String   @id @default(uuid())
+  transactionId String?
+  changedBy     String   // user id
+  changeType    String   // entity_change | tag_change | category_change
+  before        Json?
+  after         Json?
+  createdAt     DateTime @default(now())
+
+  transaction Transaction? @relation(fields: [transactionId], references: [id])
+  user        User         @relation(fields: [changedBy], references: [id])
+}
+
+// ─── Income sources (for cash-flow forecast) ─────────────────────────────────
+
+model IncomeSource {
+  id          String   @id @default(uuid())
+  entityId    String
+  accountId   String   // deposits arrive in this account
+  description String   // e.g. "Eric payroll", "Eva paycheck"
+  cadence     String   // semi_monthly | biweekly | monthly | weekly
+  dayRules    Json     // semi_monthly: {"daysOfMonth":[15,30]}
+                       // biweekly: {"intervalDays":14,"anchorDate":"2026-01-03"}
+  amount      Decimal  @db.Decimal(14, 2)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  entity  Entity  @relation(fields: [entityId], references: [id])
+  account Account @relation(fields: [accountId], references: [id])
+}
+
+// ─── Plaid items (one per institution login) ──────────────────────────────────
+
+model PlaidItem {
+  id                   String    @id @default(uuid())
+  itemId               String    @unique // Plaid's item_id
+  accessTokenEncrypted String            // AES-256-GCM encrypted access token
+  institutionId        String?           // Plaid institution_id
+  institutionName      String?
+  status               String    @default("active") // active | requires_login | error
+  lastSyncedAt         DateTime?
+  cursorEncrypted      String?           // encrypted transactions/sync cursor
+  consentExpiresAt     DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  accounts Account[]
+}

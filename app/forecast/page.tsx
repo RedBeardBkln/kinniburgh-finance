@@ -1,0 +1,412 @@
+import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { db } from "@/lib/db";
+import { AppShell } from "@/components/app-shell";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  generateTransferOccurrences,
+  generateIncomeOccurrences,
+  buildAccountForecast,
+  findBreachDays,
+} from "@/lib/forecast";
+import { formatUSD, decimalToNumber } from "@/lib/utils";
+import { Prisma } from "@prisma/client";
+import { setAccountBalance, upsertIncomeSource } from "@/actions/envelope";
+import { BalanceChart } from "@/components/forecast/balance-chart";
+
+export default async function ForecastPage() {
+  const session = await auth();
+  if (!session?.user) redirect("/login");
+
+  const now = new Date();
+  const forecastStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const forecastEnd30 = new Date(forecastStart.getTime() + 30 * 86400000);
+  const forecastEnd14 = new Date(forecastStart.getTime() + 14 * 86400000);
+
+  // Load TD checking accounts (the ones with a minimum balance rule)
+  const tdAccounts = await db.account.findMany({
+    where: {
+      archivedAt: null,
+      accountType: "checking",
+      minimumBalance: { not: null },
+    },
+    include: { institution: true },
+    orderBy: { nickname: "asc" },
+  });
+
+  // Load all active scheduled transfers + income sources
+  const [transfers, incomeSources] = await Promise.all([
+    db.scheduledTransfer.findMany({
+      where: { active: true },
+      include: { fromAccount: true, toAccount: true },
+    }),
+    db.incomeSource.findMany({
+      where: { active: true },
+      include: { account: true, entity: true },
+    }),
+  ]);
+
+  // Load entities for the income source form
+  const entities = await db.entity.findMany({
+    where: { archivedAt: null },
+    orderBy: { name: "asc" },
+  });
+
+  // Build forecast for each TD checking account
+  const accountForecasts = tdAccounts.map((acct) => {
+    const startBal = acct.currentBalance
+      ? new Prisma.Decimal(acct.currentBalance)
+      : new Prisma.Decimal(0);
+    const minBal = acct.minimumBalance
+      ? new Prisma.Decimal(acct.minimumBalance)
+      : null;
+
+    // Gather events for this account
+    const transferEvents = transfers.flatMap((t) =>
+      generateTransferOccurrences(t, forecastStart, forecastEnd30)
+    ).filter((e) => e.accountId === acct.id);
+
+    const incomeEvents = incomeSources.flatMap((s) =>
+      generateIncomeOccurrences(s, forecastStart, forecastEnd30)
+    ).filter((e) => e.accountId === acct.id);
+
+    const allEvents = [...transferEvents, ...incomeEvents];
+    const forecast = buildAccountForecast(startBal, allEvents, minBal, forecastStart, forecastEnd30);
+    const breaches = findBreachDays(forecast);
+
+    const chartData = forecast.map((day) => ({
+      label: day.date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+      balance: day.balanceAfter.toNumber(),
+      isBreachDay: day.isBreachDay,
+    }));
+
+    return { acct, forecast, breaches, chartData, startBal, minBal };
+  });
+
+  // 14-day schedule for Primary Checking
+  const primaryAcct = tdAccounts.find((a) => a.nickname === "Primary Checking");
+  const schedule14: { date: string; description: string; amount: number; type: string }[] = [];
+
+  if (primaryAcct) {
+    const xferEvents = transfers.flatMap((t) =>
+      generateTransferOccurrences(t, forecastStart, forecastEnd14)
+    ).filter((e) => e.accountId === primaryAcct.id);
+
+    const incEvents = incomeSources.flatMap((s) =>
+      generateIncomeOccurrences(s, forecastStart, forecastEnd14)
+    ).filter((e) => e.accountId === primaryAcct.id);
+
+    for (const ev of [...xferEvents, ...incEvents].sort((a, b) => a.date.getTime() - b.date.getTime())) {
+      schedule14.push({
+        date: ev.date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }),
+        description: ev.description,
+        amount: ev.amount.toNumber(),
+        type: ev.type,
+      });
+    }
+  }
+
+  const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  return (
+    <AppShell userName={session.user.name ?? undefined}>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold">Cash Flow Forecast</h1>
+          <p className="text-sm text-muted-foreground">
+            30-day projection based on scheduled transfers, bills, and income
+          </p>
+        </div>
+
+        {/* ── Balance entry panel ──────────────────────────────────────── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Set Current Balances</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-3 text-sm text-muted-foreground">
+              Enter today's balance for each account to generate an accurate forecast.
+              These will be updated automatically once bank accounts are connected.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {tdAccounts.map((acct) => (
+                <form
+                  key={acct.id}
+                  action={async (formData: FormData) => {
+                    "use server";
+                    await setAccountBalance(acct.id, formData.get("balance") as string);
+                  }}
+                  className="space-y-1"
+                >
+                  <label className="text-xs font-medium">
+                    {acct.nickname} ···{acct.mask}
+                  </label>
+                  <div className="flex gap-1">
+                    <input
+                      name="balance"
+                      type="number"
+                      step="0.01"
+                      defaultValue={
+                        acct.currentBalance
+                          ? decimalToNumber(new Prisma.Decimal(acct.currentBalance)).toFixed(2)
+                          : ""
+                      }
+                      placeholder="0.00"
+                      className="w-28 rounded border px-2 py-1 text-sm"
+                    />
+                    <button type="submit" className="text-xs text-primary hover:underline">
+                      Set
+                    </button>
+                  </div>
+                  {acct.currentBalanceAt && (
+                    <p className="text-xs text-muted-foreground">
+                      As of {new Date(acct.currentBalanceAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </p>
+                  )}
+                </form>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ── Breach warnings ──────────────────────────────────────────── */}
+        {accountForecasts.some((af) => af.breaches.length > 0) && (
+          <div className="space-y-2">
+            <h2 className="text-base font-semibold text-destructive">⚠ Projected Minimum Balance Breaches</h2>
+            <p className="text-xs text-muted-foreground">
+              TD Bank accounts must stay ≥ $250 at all times. A dip below triggers a $15 service fee.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {accountForecasts
+                .filter((af) => af.breaches.length > 0)
+                .map(({ acct, breaches, minBal }) => (
+                  <Card key={acct.id} className="border-destructive/50 bg-destructive/5">
+                    <CardContent className="pt-4">
+                      <p className="font-medium text-destructive">
+                        {acct.nickname} ···{acct.mask}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {breaches.length} day{breaches.length !== 1 ? "s" : ""} projected below ${minBal?.toNumber() ?? 250}
+                      </p>
+                      <p className="text-sm">
+                        First breach:{" "}
+                        <span className="font-medium text-destructive">
+                          {breaches[0]!.date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                        </span>
+                        {" "}— projected balance{" "}
+                        <span className="font-medium text-destructive">
+                          {formatUSD(breaches[0]!.balanceAfter.toNumber())}
+                        </span>
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Per-account balance charts ────────────────────────────────── */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          {accountForecasts.map(({ acct, chartData, minBal }) => (
+            <Card key={acct.id}>
+              <CardContent className="pt-4">
+                {acct.currentBalance ? (
+                  <BalanceChart
+                    data={chartData}
+                    minimumBalance={minBal?.toNumber() ?? null}
+                    accountName={`${acct.nickname} ···${acct.mask}`}
+                  />
+                ) : (
+                  <div className="py-4 text-center text-sm text-muted-foreground">
+                    <p className="font-medium">{acct.nickname} ···{acct.mask}</p>
+                    <p className="mt-1">Set current balance above to see projection</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* ── 14-day schedule for Primary Checking ────────────────────── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Next 14 Days — Primary Checking</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {schedule14.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-muted-foreground">
+                No scheduled events in the next 14 days
+              </p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">Date</th>
+                    <th className="px-4 py-2 font-medium">Description</th>
+                    <th className="px-4 py-2 font-medium text-right">Amount</th>
+                    <th className="px-4 py-2 font-medium">Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {schedule14.map((ev, i) => (
+                    <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-4 py-2 text-muted-foreground">{ev.date}</td>
+                      <td className="px-4 py-2">{ev.description}</td>
+                      <td className={`px-4 py-2 text-right font-mono font-medium ${ev.amount < 0 ? "text-destructive" : "text-green-600"}`}>
+                        {ev.amount < 0 ? "-" : "+"}
+                        {formatUSD(Math.abs(ev.amount))}
+                      </td>
+                      <td className="px-4 py-2">
+                        <Badge variant="outline" className="text-xs">
+                          {ev.type.replace("_", " ")}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Income sources ────────────────────────────────────────────── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Income Sources</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {incomeSources.length > 0 && (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-0 py-2 font-medium">Description</th>
+                    <th className="px-4 py-2 font-medium">Cadence</th>
+                    <th className="px-4 py-2 font-medium text-right">Amount</th>
+                    <th className="px-4 py-2 font-medium">Account</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {incomeSources.map((s) => {
+                    const rules = s.dayRules as Record<string, unknown>;
+                    let cadenceLabel = s.cadence;
+                    if (s.cadence === "semi_monthly") {
+                      const days = rules["daysOfMonth"] as number[] | undefined;
+                      cadenceLabel = `Semi-monthly (${days?.join(" & ")})`;
+                    } else if (s.cadence === "biweekly") {
+                      cadenceLabel = "Biweekly";
+                    }
+                    return (
+                      <tr key={s.id} className="border-b last:border-0">
+                        <td className="px-0 py-2 font-medium">{s.description}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{cadenceLabel}</td>
+                        <td className="px-4 py-2 text-right text-green-600 font-medium">
+                          +{formatUSD(decimalToNumber(new Prisma.Decimal(s.amount)))}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground">
+                          {s.account.nickname} ···{s.account.mask}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+
+            {/* Add income source form */}
+            <div className="border-t pt-4">
+              <p className="mb-3 text-sm font-medium">Add income source</p>
+              <form
+                action={async (formData: FormData) => {
+                  "use server";
+                  const cadence = formData.get("cadence") as string;
+                  let dayRules: Record<string, unknown>;
+                  if (cadence === "semi_monthly") {
+                    dayRules = { daysOfMonth: [15, 30] };
+                  } else if (cadence === "biweekly") {
+                    const anchor = formData.get("anchorDate") as string;
+                    dayRules = { intervalDays: 14, anchorDate: anchor };
+                  } else {
+                    dayRules = { daysOfMonth: [1] };
+                  }
+                  await upsertIncomeSource({
+                    entityId: formData.get("entityId") as string,
+                    accountId: formData.get("accountId") as string,
+                    description: formData.get("description") as string,
+                    cadence: cadence as "semi_monthly" | "biweekly" | "monthly" | "weekly",
+                    dayRules,
+                    amount: formData.get("amount") as string,
+                    active: true,
+                  });
+                }}
+                className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+              >
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Description</label>
+                  <input
+                    name="description"
+                    placeholder="e.g. Eric payroll"
+                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Cadence</label>
+                  <select name="cadence" className="w-full rounded border px-2 py-1.5 text-sm" required>
+                    <option value="semi_monthly">Semi-monthly (15th & 30th)</option>
+                    <option value="biweekly">Biweekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Amount</label>
+                  <input
+                    name="amount"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    className="w-full rounded border px-2 py-1.5 text-sm"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">First paycheck date (biweekly only)</label>
+                  <input
+                    name="anchorDate"
+                    type="date"
+                    className="w-full rounded border px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Entity</label>
+                  <select name="entityId" className="w-full rounded border px-2 py-1.5 text-sm" required>
+                    {entities.map((e) => (
+                      <option key={e.id} value={e.id}>{e.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Deposits into</label>
+                  <select name="accountId" className="w-full rounded border px-2 py-1.5 text-sm" required>
+                    {tdAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.nickname} ···{a.mask}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="lg:col-span-3">
+                  <button
+                    type="submit"
+                    className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                  >
+                    Add Income Source
+                  </button>
+                </div>
+              </form>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </AppShell>
+  );
+}

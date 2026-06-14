@@ -1,0 +1,283 @@
+"use server";
+
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
+import { normalizePayee } from "@/lib/tags";
+import { uploadReceiptFile, downloadReceiptFile } from "@/lib/supabase-storage";
+import { extractReceiptData } from "@/lib/receipt-extract";
+import { updateTransactionTags } from "@/actions/transactions";
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
+function requireAuth() {
+  return auth().then((session) => {
+    if (!session?.user?.id) throw new Error("Unauthorized");
+    return session.user;
+  });
+}
+
+const ALLOWED_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+]);
+
+const EXT_MAP: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "application/pdf": "pdf",
+};
+
+// ── Upload & extract ──────────────────────────────────────────────────────────
+
+export async function uploadAndExtractReceipt(
+  formData: FormData
+): Promise<{ receiptId: string }> {
+  const user = await requireAuth();
+
+  const file = formData.get("file");
+  const entityId = formData.get("entityId");
+  const capturedAt = formData.get("capturedAt");
+
+  if (!(file instanceof File)) throw new Error("No file provided");
+  if (typeof entityId !== "string") throw new Error("entityId required");
+  if (typeof capturedAt !== "string") throw new Error("capturedAt required");
+
+  const mimeType = file.type;
+  if (!ALLOWED_TYPES.has(mimeType)) {
+    throw new Error("Unsupported file type. Upload JPEG, PNG, WebP, or PDF.");
+  }
+  if (file.size > 10 * 1024 * 1024) throw new Error("File too large (max 10MB)");
+
+  const receiptId = crypto.randomUUID();
+  const ext = EXT_MAP[mimeType] ?? "bin";
+  const fileKey = `${receiptId}.${ext}`;
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  await uploadReceiptFile(buffer, fileKey, mimeType);
+
+  await db.receipt.create({
+    data: {
+      id: receiptId,
+      uploadedBy: user.id!,
+      fileKey,
+      capturedAt: new Date(capturedAt),
+      ocrStatus: "pending",
+      entityId,
+    },
+  });
+
+  let extracted;
+  try {
+    extracted = await extractReceiptData(buffer, mimeType);
+  } catch {
+    await db.receipt.update({
+      where: { id: receiptId },
+      data: { ocrStatus: "failed" },
+    });
+    revalidatePath("/receipts");
+    return { receiptId };
+  }
+
+  const totalDecimal =
+    extracted.totalDollars != null
+      ? new Prisma.Decimal(extracted.totalDollars)
+      : null;
+
+  const receiptDate =
+    extracted.receiptDate != null
+      ? new Date(`${extracted.receiptDate}T00:00:00Z`)
+      : null;
+
+  await db.receipt.update({
+    where: { id: receiptId },
+    data: {
+      ocrStatus: extracted.vendor != null ? "complete" : "failed",
+      vendor: extracted.vendor,
+      receiptDate,
+      total: totalDecimal,
+      description: extracted.description,
+      glCode: extracted.glCode,
+      ocrRaw: extracted.raw as unknown as Prisma.InputJsonValue,
+    },
+  });
+
+  revalidatePath("/receipts");
+  return { receiptId };
+}
+
+// ── Confirm receipt ───────────────────────────────────────────────────────────
+
+const confirmSchema = z.object({
+  receiptId: z.string().uuid(),
+  vendor: z.string().min(1).max(255),
+  receiptDate: z.string().min(1),
+  total: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  description: z.string().max(500).optional(),
+  glCode: z.string().max(100).optional(),
+  transactionId: z.string().uuid().optional(),
+  tagIds: z.array(z.string().uuid()).default([]),
+});
+
+export async function confirmReceipt(
+  input: z.input<typeof confirmSchema>
+): Promise<void> {
+  const user = await requireAuth();
+  const data = confirmSchema.parse(input);
+
+  const receipt = await db.receipt.findUnique({ where: { id: data.receiptId } });
+  if (!receipt) throw new Error("Receipt not found");
+
+  await db.receipt.update({
+    where: { id: data.receiptId },
+    data: {
+      vendor: data.vendor,
+      receiptDate: new Date(`${data.receiptDate}T00:00:00Z`),
+      total: new Prisma.Decimal(data.total),
+      description: data.description ?? null,
+      glCode: data.glCode ?? null,
+      confirmedAt: new Date(),
+      confirmedById: user.id!,
+    },
+  });
+
+  if (data.transactionId) {
+    await db.transaction.update({
+      where: { id: data.transactionId },
+      data: { receiptId: data.receiptId },
+    });
+
+    if (data.tagIds.length > 0) {
+      await updateTransactionTags(data.transactionId, data.tagIds);
+    }
+  }
+
+  // Upsert one TagRule per tag for this vendor
+  if (data.tagIds.length > 0 && data.vendor) {
+    const pattern = normalizePayee(data.vendor);
+    for (const tagId of data.tagIds) {
+      const existing = await db.tagRule.findFirst({
+        where: { payeePattern: pattern, tagId },
+      });
+      if (!existing) {
+        await db.tagRule.create({
+          data: { payeePattern: pattern, tagId, confidence: 0.8 },
+        });
+      }
+    }
+  }
+
+  revalidatePath("/receipts");
+  revalidatePath("/transactions");
+}
+
+// ── Find matching transactions ────────────────────────────────────────────────
+
+export interface MatchCandidate {
+  id: string;
+  postedAt: Date;
+  amount: string;
+  payeeRaw: string | null;
+  accountNickname: string;
+}
+
+export async function findMatchingTransactions(
+  receiptId: string
+): Promise<MatchCandidate[]> {
+  await requireAuth();
+
+  const receipt = await db.receipt.findUnique({ where: { id: receiptId } });
+  if (!receipt || !receipt.total || !receipt.receiptDate) return [];
+
+  const total = new Prisma.Decimal(receipt.total);
+  const absMax = total.times("1.02");
+  const absMin = total.times("0.98");
+
+  const dateFrom = new Date(receipt.receiptDate);
+  dateFrom.setUTCDate(dateFrom.getUTCDate() - 7);
+  const dateTo = new Date(receipt.receiptDate);
+  dateTo.setUTCDate(dateTo.getUTCDate() + 7);
+
+  const rows = await db.transaction.findMany({
+    where: {
+      entityId: receipt.entityId,
+      receiptId: null,
+      archivedAt: null,
+      transferPairId: null,
+      postedAt: { gte: dateFrom, lte: dateTo },
+      OR: [
+        // Outflow: amount is between -absMax and -absMin
+        {
+          amount: {
+            gte: absMax.negated(),
+            lte: absMin.negated(),
+          },
+        },
+        // Income: amount is between absMin and absMax
+        {
+          amount: {
+            gte: absMin,
+            lte: absMax,
+          },
+        },
+      ],
+    },
+    include: { account: true },
+    orderBy: { postedAt: "desc" },
+    take: 5,
+  });
+
+  return rows.map((tx) => ({
+    id: tx.id,
+    postedAt: tx.postedAt,
+    amount: tx.amount.toString(),
+    payeeRaw: tx.payeeRaw,
+    accountNickname: tx.account.nickname,
+  }));
+}
+
+// ── Delete receipt ────────────────────────────────────────────────────────────
+
+export async function deleteReceipt(receiptId: string): Promise<void> {
+  await requireAuth();
+  await db.receipt.update({
+    where: { id: receiptId },
+    data: { archivedAt: new Date() },
+  });
+  revalidatePath("/receipts");
+}
+
+// ── List receipts ─────────────────────────────────────────────────────────────
+
+export async function listReceipts(filters: {
+  entityId?: string;
+  tab?: "review" | "confirmed" | "all";
+  page?: number;
+}) {
+  await requireAuth();
+
+  const { entityId, tab = "all", page = 1 } = filters;
+  const pageSize = 25;
+
+  const where: Prisma.ReceiptWhereInput = {
+    archivedAt: null,
+    ...(entityId && { entityId }),
+    ...(tab === "review" && { ocrStatus: "complete", confirmedAt: null }),
+    ...(tab === "confirmed" && { confirmedAt: { not: null } }),
+  };
+
+  const [receipts, total] = await Promise.all([
+    db.receipt.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    db.receipt.count({ where }),
+  ]);
+
+  return { receipts, total, pageSize };
+}
