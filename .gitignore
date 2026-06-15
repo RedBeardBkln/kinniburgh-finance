@@ -19,6 +19,9 @@ build/
 # Prisma
 prisma/migrations/
 
+# Private reference files (real financial documents — never commit)
+data/private/
+
 # Misc
 .DS_Store
 *.pem

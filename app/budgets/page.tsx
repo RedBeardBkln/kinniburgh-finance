@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { PeriodPicker } from "@/components/period-picker";
 import { exportBudgetCsv } from "@/actions/reports";
 import { ExportCsvButton } from "@/components/export-csv-button";
+import { BudgetLineEditor } from "@/components/budgets/budget-line-editor";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; period?: string }>;
@@ -180,7 +181,10 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
                         <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30">
                           <td className="px-4 py-2 font-medium">{b.tag.shortName}</td>
                           <td className="px-4 py-2 text-right">
-                            {formatUSD(decimalToNumber(summary.budgeted))}
+                            <BudgetLineEditor
+                              budgetId={b.id}
+                              currentBudgeted={decimalToNumber(summary.budgeted)}
+                            />
                           </td>
                           <td className={`px-4 py-2 text-right text-xs ${summary.rolloverAmount.isNegative() ? "text-destructive" : summary.rolloverAmount.isZero() ? "text-muted-foreground" : "text-green-600"}`}>
                             {summary.rolloverAmount.isZero()

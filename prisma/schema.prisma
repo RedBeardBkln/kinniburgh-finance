@@ -64,6 +64,8 @@ model Entity {
   incomeSources     IncomeSource[]
   taxWorkspaces     TaxWorkspace[]
   insurancePolicies InsurancePolicy[]
+  mileageEntries    MileageEntry[]
+  taxDeadlines      TaxDeadline[]
 }
 
 model Institution {
@@ -548,4 +550,40 @@ model PlaidItem {
   updatedAt            DateTime  @updatedAt
 
   accounts Account[]
+}
+
+// ─── Mileage log (business deduction tracking) ───────────────────────────────
+
+model MileageEntry {
+  id          String    @id @default(uuid())
+  entityId    String
+  date        DateTime
+  miles       Int                            // whole miles per trip
+  purpose     String                         // "Client meeting — Hartford"
+  billable    Boolean   @default(false)
+  ratePerMile Decimal   @db.Decimal(5, 3) @default(0.700) // IRS rate at time of entry
+  notes       String?
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  entity Entity @relation(fields: [entityId], references: [id])
+}
+
+// ─── Tax deadlines (quarterly estimates + annual filings) ─────────────────────
+
+// Tax-related records are NEVER hard-deleted; archivedAt only.
+model TaxDeadline {
+  id         String    @id @default(uuid())
+  entityId   String
+  label      String                         // "2025 Schedule C — extended"
+  dueDate    DateTime
+  type       String                         // quarterly_est | annual | extension | other
+  status     String    @default("upcoming") // upcoming | filed | waived
+  notes      String?
+  archivedAt DateTime?                      // never hard-delete tax records
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  entity Entity @relation(fields: [entityId], references: [id])
 }

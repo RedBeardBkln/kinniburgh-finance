@@ -287,6 +287,49 @@ export interface PayoffScenario {
   payoffDate: string; // YYYY-MM-DD
 }
 
+// ── Credit card payoff math ───────────────────────────────────────────────────
+
+export function computeCCPayoff(
+  balanceCents: number,
+  annualRate: number,           // e.g. 0.2499 for 24.99% APR
+  monthlyPaymentCents: number   // minimum payment entered by user
+): PayoffScenario[] {
+  const extras = [0, 5000, 10000, 25000, 50000]; // $0, $50, $100, $250, $500 extra
+
+  return extras.map((extra) => {
+    const monthlyRate = annualRate / 12;
+    const payment = monthlyPaymentCents + extra;
+    let balance = balanceCents;
+    let months = 0;
+    let totalInterest = 0;
+
+    while (balance > 0 && months < 600) {
+      const interestThisMonth = Math.round(balance * monthlyRate);
+      totalInterest += interestThisMonth;
+      const principal = Math.min(payment - interestThisMonth, balance);
+      if (principal <= 0) {
+        // Payment doesn't cover interest — would never pay off
+        months = 600;
+        break;
+      }
+      balance -= principal;
+      months++;
+    }
+
+    const payoffDate = new Date();
+    payoffDate.setMonth(payoffDate.getMonth() + months);
+
+    return {
+      extraMonthlyPaymentCents: extra,
+      monthsRemaining: months,
+      totalInterestCents: totalInterest,
+      payoffDate: payoffDate.toISOString().slice(0, 10),
+    };
+  });
+}
+
+// ── Mortgage payoff math ──────────────────────────────────────────────────────
+
 export function computePayoffScenarios(
   principalCents: number,
   annualRate: number,

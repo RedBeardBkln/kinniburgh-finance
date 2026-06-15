@@ -1,9 +1,13 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { db } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { listTaxWorkspaces } from "@/actions/tax";
+import { listTaxDeadlines } from "@/actions/tax-deadlines";
+import { MarkFiledButton } from "@/components/tax/deadline-actions";
+import { AddDeadlineForm } from "@/components/tax/add-deadline-form";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -11,7 +15,11 @@ export default async function TaxPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const workspaces = await listTaxWorkspaces();
+  const [workspaces, deadlines, allEntities] = await Promise.all([
+    listTaxWorkspaces(),
+    listTaxDeadlines(),
+    db.entity.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  ]);
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
@@ -94,9 +102,85 @@ export default async function TaxPage() {
             );
           })}
         </div>
+
+        {/* Tax Deadlines */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Deadlines</h2>
+            <AddDeadlineForm entities={allEntities} />
+          </div>
+          {deadlines.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No upcoming deadlines.</p>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-2 font-medium">Entity</th>
+                      <th className="px-4 py-2 font-medium">Label</th>
+                      <th className="px-4 py-2 font-medium">Type</th>
+                      <th className="px-4 py-2 font-medium">Due Date</th>
+                      <th className="px-4 py-2 font-medium">Status</th>
+                      <th className="px-4 py-2 font-medium" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deadlines.map((d) => {
+                      const info = getDeadlineInfo(d.dueDate);
+                      return (
+                        <tr key={d.id} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="px-4 py-2 text-xs text-muted-foreground">
+                            {d.entity.name.split(",")[0]}
+                          </td>
+                          <td className="px-4 py-2 font-medium">{d.label}</td>
+                          <td className="px-4 py-2 text-xs">
+                            <span className="rounded-full bg-muted px-2 py-0.5">
+                              {TYPE_LABELS[d.type] ?? d.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 tabular-nums">
+                            {d.dueDate.toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                              timeZone: "America/New_York",
+                            })}
+                            <span className={`ml-2 text-xs font-medium ${info.overdue ? "text-destructive" : info.soon ? "text-amber-600" : "text-muted-foreground"}`}>
+                              {info.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2">
+                            <DeadlineStatusBadge status={d.status} />
+                          </td>
+                          <td className="px-4 py-2">
+                            {d.status === "upcoming" && <MarkFiledButton id={d.id} />}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
     </AppShell>
   );
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  quarterly_est: "Quarterly Est.",
+  annual: "Annual",
+  extension: "Extension",
+  other: "Other",
+};
+
+function DeadlineStatusBadge({ status }: { status: string }) {
+  if (status === "filed") return <Badge variant="outline" className="border-green-300 text-green-700">Filed</Badge>;
+  if (status === "waived") return <Badge variant="secondary">Waived</Badge>;
+  return <Badge variant="secondary">Upcoming</Badge>;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -105,13 +189,14 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant="secondary">In Progress</Badge>;
 }
 
-function getDeadlineInfo(deadline: Date): { label: string; overdue: boolean } {
+function getDeadlineInfo(deadline: Date): { label: string; overdue: boolean; soon: boolean } {
   const now = new Date();
   const diff = deadline.getTime() - now.getTime();
   const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
 
-  if (days < 0) return { label: `${Math.abs(days)} days overdue`, overdue: true };
-  if (days === 0) return { label: "Due today!", overdue: true };
-  if (days === 1) return { label: "Due tomorrow", overdue: false };
-  return { label: `${days} days remaining`, overdue: false };
+  if (days < 0) return { label: `${Math.abs(days)} days overdue`, overdue: true, soon: false };
+  if (days === 0) return { label: "Due today!", overdue: true, soon: false };
+  if (days === 1) return { label: "Due tomorrow", overdue: false, soon: true };
+  if (days <= 30) return { label: `${days} days remaining`, overdue: false, soon: true };
+  return { label: `${days} days remaining`, overdue: false, soon: false };
 }

@@ -40,6 +40,15 @@ export function AppSidebar() {
     { label: "Taxes", base: "/tax", href: buildHref("/tax") },
   ];
 
+  const personalItems = [
+    { label: "Net Worth", base: "/personal/net-worth", href: "/personal/net-worth" as Route },
+    { label: "Mortgage", base: "/personal/mortgage", href: "/personal/mortgage" as Route },
+    { label: "Debt-Free", base: "/personal/debt-free", href: "/personal/debt-free" as Route },
+    { label: "Retirement", base: "/personal/retirement", href: "/personal/retirement" as Route },
+    { label: "Insurance", base: "/personal/insurance", href: "/personal/insurance" as Route },
+    { label: "Projects", base: "/personal/projects", href: "/personal/projects" as Route },
+  ];
+
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r bg-background">
       <nav className="flex-1 overflow-y-auto py-4">
@@ -59,6 +68,31 @@ export function AppSidebar() {
               </Link>
             </li>
           ))}
+
+          {!isBusinessBucket && (
+            <>
+              <li className="pt-4 pb-1">
+                <span className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  Personal
+                </span>
+              </li>
+              {personalItems.map(({ label, base, href }) => (
+                <li key={base}>
+                  <Link
+                    href={href}
+                    className={cn(
+                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                      isActive(base)
+                        ? "bg-accent font-medium text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    )}
+                  >
+                    {label}
+                  </Link>
+                </li>
+              ))}
+            </>
+          )}
 
           {isBusinessBucket && (
             <>

@@ -143,6 +143,34 @@ export async function exportPlCsv(entityId: string, startDate: string, endDate: 
   return [header, ...rows].join("\n");
 }
 
+// ── Balance Sheet CSV export ──────────────────────────────────────────────────
+
+export async function exportBalanceSheetCsv(entityId: string): Promise<string> {
+  await requireAuth();
+
+  const { computeBalanceSheet } = await import("@/lib/reports");
+  const bs = await computeBalanceSheet(entityId, new Date());
+
+  function fmtDollars(cents: number) {
+    return (cents / 100).toFixed(2);
+  }
+
+  const header = toCsvRow(["Section", "Account", "Mask", "Amount"]);
+  const assetRows = bs.assets.map((a) =>
+    toCsvRow(["Asset", a.label, a.mask ?? "", fmtDollars(a.amountCents)])
+  );
+  const liabilityRows = bs.liabilities.map((l) =>
+    toCsvRow(["Liability", l.label, l.mask ?? "", fmtDollars(l.amountCents)])
+  );
+  const totals = [
+    toCsvRow(["", "Total Assets", "", fmtDollars(bs.totalAssetsCents)]),
+    toCsvRow(["", "Total Liabilities", "", fmtDollars(bs.totalLiabilitiesCents)]),
+    toCsvRow(["", "Equity", "", fmtDollars(bs.equityCents)]),
+  ];
+
+  return [header, ...assetRows, ...liabilityRows, ...totals].join("\n");
+}
+
 // ── CPA bundle manifest ────────────────────────────────────────────────────────
 
 export async function exportCpaBundle(

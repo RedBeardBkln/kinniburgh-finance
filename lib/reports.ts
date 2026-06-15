@@ -87,16 +87,23 @@ export async function computePL(
   };
 }
 
-export interface BalanceSheetAsset {
-  accountId: string;
-  nickname: string;
+const LIABILITY_TYPES = new Set(["credit_card", "mortgage", "loan"]);
+const ASSET_TYPES = new Set(["checking", "savings", "investment"]);
+
+export interface BalanceSheetLine {
+  id: string;
+  label: string;
   mask: string | null;
-  balance: Prisma.Decimal;
+  amountCents: number;
+  isLiability: boolean;
 }
 
 export interface BalanceSheetReport {
-  assets: BalanceSheetAsset[];
-  totalAssets: Prisma.Decimal;
+  assets: BalanceSheetLine[];
+  liabilities: BalanceSheetLine[];
+  totalAssetsCents: number;
+  totalLiabilitiesCents: number;
+  equityCents: number;
   asOfDate: Date;
 }
 
@@ -108,20 +115,39 @@ export async function computeBalanceSheet(
     where: {
       entityId,
       archivedAt: null,
-      accountType: { in: ["checking", "savings", "investment"] },
+      currentBalance: { not: null },
     },
   });
 
-  const assets: BalanceSheetAsset[] = accounts
-    .filter((a) => a.currentBalance !== null)
-    .map((a) => ({
-      accountId: a.id,
-      nickname: a.nickname,
-      mask: a.mask,
-      balance: a.currentBalance as Prisma.Decimal,
-    }));
+  const assets: BalanceSheetLine[] = [];
+  const liabilities: BalanceSheetLine[] = [];
 
-  const totalAssets = assets.reduce((s, a) => s.add(a.balance), new Prisma.Decimal(0));
+  for (const acct of accounts) {
+    const balance = acct.currentBalance as Prisma.Decimal;
+    const amountCents = Math.round(balance.abs().toNumber() * 100);
+    const line: BalanceSheetLine = {
+      id: acct.id,
+      label: acct.nickname,
+      mask: acct.mask,
+      amountCents,
+      isLiability: LIABILITY_TYPES.has(acct.accountType),
+    };
+    if (ASSET_TYPES.has(acct.accountType)) {
+      assets.push(line);
+    } else if (LIABILITY_TYPES.has(acct.accountType)) {
+      liabilities.push(line);
+    }
+  }
 
-  return { assets, totalAssets, asOfDate };
+  const totalAssetsCents = assets.reduce((s, a) => s + a.amountCents, 0);
+  const totalLiabilitiesCents = liabilities.reduce((s, l) => s + l.amountCents, 0);
+
+  return {
+    assets,
+    liabilities,
+    totalAssetsCents,
+    totalLiabilitiesCents,
+    equityCents: totalAssetsCents - totalLiabilitiesCents,
+    asOfDate,
+  };
 }

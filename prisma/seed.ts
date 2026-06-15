@@ -550,6 +550,7 @@ async function main() {
   });
 
   await seedPhase5(db, { suddenValley, ekConsulting, mezzo });
+  await seedPhase9(db, { personal, ekConsulting, suddenValley });
 
   console.log(
     "Seed complete.\n" +
@@ -678,6 +679,70 @@ async function seedPhase5(
     await db.taxChecklistItem.createMany({
       data: svItems.map((label) => ({ workspaceId: svWorkspace.id, label })),
     });
+  }
+}
+
+async function seedPhase9(
+  db: PrismaClient,
+  entities: {
+    personal: { id: string };
+    ekConsulting: { id: string };
+    suddenValley: { id: string };
+  }
+) {
+  console.log("Seeding Phase 9: tax deadlines…");
+
+  const deadlines: Array<{
+    entityId: string;
+    label: string;
+    dueDate: Date;
+    type: string;
+    notes?: string;
+  }> = [
+    // Personal quarterly estimated taxes
+    {
+      entityId: entities.personal.id,
+      label: "2026 Q2 estimated tax",
+      dueDate: new Date("2026-06-16T04:00:00Z"), // June 16 2026 (June 15 is Sunday)
+      type: "quarterly_est",
+    },
+    {
+      entityId: entities.personal.id,
+      label: "2026 Q3 estimated tax",
+      dueDate: new Date("2026-09-15T04:00:00Z"),
+      type: "quarterly_est",
+    },
+    {
+      entityId: entities.personal.id,
+      label: "2026 Q4 estimated tax",
+      dueDate: new Date("2027-01-15T05:00:00Z"),
+      type: "quarterly_est",
+    },
+    // EK Consulting — extended filing (matches TaxWorkspace deadline)
+    {
+      entityId: entities.ekConsulting.id,
+      label: "2025 Schedule C — extended filing",
+      dueDate: new Date("2026-10-15T04:00:00Z"),
+      type: "extension",
+      notes: "Extension filed. Confirm exact date with CPA before relying on it.",
+    },
+    // Sudden Valley — first annual filing
+    {
+      entityId: entities.suddenValley.id,
+      label: "2026 Schedule E — first annual filing",
+      dueDate: new Date("2027-04-15T04:00:00Z"),
+      type: "annual",
+      notes: "Entity founded February 2026. First tax year.",
+    },
+  ];
+
+  for (const d of deadlines) {
+    const existing = await db.taxDeadline.findFirst({
+      where: { entityId: d.entityId, label: d.label },
+    });
+    if (!existing) {
+      await db.taxDeadline.create({ data: d });
+    }
   }
 }
 

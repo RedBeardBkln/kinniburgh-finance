@@ -101,7 +101,7 @@ describe("computePL", () => {
 });
 
 describe("computeBalanceSheet", () => {
-  it("sums account balances for totalAssets", async () => {
+  it("sums checking/savings into assets with totalAssetsCents", async () => {
     mockAccFind.mockResolvedValue([
       { id: "acc-1", nickname: "Checking", mask: "0626", accountType: "checking", currentBalance: new Prisma.Decimal("12500.00") },
       { id: "acc-2", nickname: "Savings", mask: "3950", accountType: "savings", currentBalance: new Prisma.Decimal("7500.00") },
@@ -109,17 +109,16 @@ describe("computeBalanceSheet", () => {
 
     const bs = await computeBalanceSheet(ENTITY_ID, new Date());
     expect(bs.assets).toHaveLength(2);
-    expect(bs.totalAssets.toNumber()).toBe(20000);
+    expect(bs.totalAssetsCents).toBe(2_000_000); // 12500 + 7500 = 20000 → 2000000 cents
   });
 
-  it("excludes accounts with null currentBalance", async () => {
+  it("excludes accounts with null currentBalance (filtered at DB level)", async () => {
     mockAccFind.mockResolvedValue([
       { id: "acc-1", nickname: "Checking", mask: "0001", accountType: "checking", currentBalance: new Prisma.Decimal("5000.00") },
-      { id: "acc-2", nickname: "Investment", mask: null, accountType: "investment", currentBalance: null },
     ]);
 
     const bs = await computeBalanceSheet(ENTITY_ID, new Date());
     expect(bs.assets).toHaveLength(1);
-    expect(bs.totalAssets.toNumber()).toBe(5000);
+    expect(bs.totalAssetsCents).toBe(500_000); // 5000 → 500000 cents
   });
 });

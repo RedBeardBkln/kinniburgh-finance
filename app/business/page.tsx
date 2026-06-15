@@ -117,6 +117,18 @@ export default async function BusinessPage() {
                       P&amp;L Report →
                     </Link>
                     <Link
+                      href={`/business/${b.slug}/balance-sheet` as Route}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Balance Sheet →
+                    </Link>
+                    <Link
+                      href={`/business/${b.slug}/mileage` as Route}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Mileage Log →
+                    </Link>
+                    <Link
                       href={`/business/${b.slug}/gl` as Route}
                       className="text-sm text-primary hover:underline"
                     >
