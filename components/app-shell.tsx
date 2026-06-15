@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import { AppHeader } from "./app-header";
 import { AppSidebar } from "./app-sidebar";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
 
 const BUCKETS = [
   { slug: "personal", label: "Personal" },
@@ -23,11 +25,16 @@ interface AppShellProps {
   userName?: string;
 }
 
-export function AppShell({ children, userName }: AppShellProps) {
+export async function AppShell({ children, userName }: AppShellProps) {
+  const session = await auth();
+  const unreadCount = session?.user?.id
+    ? await db.notificationUser.count({ where: { userId: session.user.id, readAt: null } })
+    : 0;
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <Suspense fallback={<div className="h-14 border-b bg-background" />}>
-        <AppHeader userName={userName} />
+        <AppHeader userName={userName} unreadCount={unreadCount} />
       </Suspense>
       <div className="flex flex-1 overflow-hidden">
         <Suspense fallback={<div className="w-56 shrink-0 border-r" />}>

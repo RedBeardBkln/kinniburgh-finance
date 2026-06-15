@@ -41,6 +41,11 @@ export default async function SettingsPage() {
             description="Workspace checklists and filing deadlines for each entity and tax year."
             href="/tax"
           />
+          <SettingsCard
+            title="Notification Preferences"
+            description="Configure budget alerts, low-balance warnings, bill reminders, and push notifications."
+            href={"/settings/notifications" as Route}
+          />
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">GL Codes</CardTitle>

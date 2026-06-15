@@ -5,6 +5,7 @@ import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 const BUCKETS = [
   { slug: "personal", label: "Personal" },
@@ -15,9 +16,10 @@ const BUCKETS = [
 
 interface AppHeaderProps {
   userName?: string;
+  unreadCount?: number;
 }
 
-export function AppHeader({ userName }: AppHeaderProps) {
+export function AppHeader({ userName, unreadCount = 0 }: AppHeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -51,7 +53,8 @@ export function AppHeader({ userName }: AppHeaderProps) {
             </button>
           ))}
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2">
+          <NotificationBell initialUnreadCount={unreadCount} />
           {userName && (
             <span className="hidden text-sm text-muted-foreground sm:block">
               {userName}
