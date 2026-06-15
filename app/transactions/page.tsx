@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { deleteTransaction } from "@/actions/transactions";
+import { exportTransactionsCsv } from "@/actions/reports";
+import { ExportCsvButton } from "@/components/export-csv-button";
 import type { Route } from "next";
 
 interface PageProps {
@@ -104,7 +106,17 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
               {total} transactions · {entityName}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <ExportCsvButton
+              filename={`transactions-${bucket}-${new Date().toISOString().slice(0, 10)}.csv`}
+              action={exportTransactionsCsv.bind(null, {
+                entityId: entity?.id,
+                accountId: params.accountId,
+                startDate: params.dateFrom,
+                endDate: params.dateTo,
+                tagId: params.tagId,
+              })}
+            />
             <Link
               href={`/transactions/import?bucket=${bucket}`}
               className="inline-flex items-center justify-center rounded-md border border-input bg-background px-3 text-xs h-9 font-medium hover:bg-accent hover:text-accent-foreground"

@@ -7,6 +7,8 @@ import { computeBudgetSummary } from "@/lib/budget";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import { PeriodPicker } from "@/components/period-picker";
+import { exportBudgetCsv } from "@/actions/reports";
+import { ExportCsvButton } from "@/components/export-csv-button";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; period?: string }>;
@@ -96,7 +98,13 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
               {entityName} · {formatPeriod(period)}
             </p>
           </div>
-          <PeriodPicker period={period} bucket={bucket} options={periodOptions} />
+          <div className="flex items-center gap-2">
+            <ExportCsvButton
+              filename={`budget-${period}-${bucket}.csv`}
+              action={exportBudgetCsv.bind(null, period)}
+            />
+            <PeriodPicker period={period} bucket={bucket} options={periodOptions} />
+          </div>
         </div>
 
         {/* Summary totals */}

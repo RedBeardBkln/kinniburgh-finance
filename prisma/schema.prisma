@@ -53,16 +53,17 @@ model Entity {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  accounts       Account[]
-  transactions   Transaction[]
-  budgets        Budget[]
-  receipts       Receipt[]
-  glCodes        GlCode[]
-  documents      Document[]
-  scheduledBills ScheduledBill[]
-  notifications  Notification[]
-  incomeSources  IncomeSource[]
-  taxWorkspaces  TaxWorkspace[]
+  accounts          Account[]
+  transactions      Transaction[]
+  budgets           Budget[]
+  receipts          Receipt[]
+  glCodes           GlCode[]
+  documents         Document[]
+  scheduledBills    ScheduledBill[]
+  notifications     Notification[]
+  incomeSources     IncomeSource[]
+  taxWorkspaces     TaxWorkspace[]
+  insurancePolicies InsurancePolicy[]
 }
 
 model Institution {
@@ -280,22 +281,85 @@ model GlCode {
   @@unique([entityId, code])
 }
 
-// ─── Documents (tax vault) ────────────────────────────────────────────────────
+// ─── Documents (tax vault + document intelligence) ───────────────────────────
 
 // Tax-related records are NEVER hard-deleted; archivedAt only.
 model Document {
-  id         String    @id @default(uuid())
-  entityId   String
-  taxYear    Int?
-  docType    String    // w2 | 1099 | k1 | extension | property_tax | mortgage_interest | policy | statement | other
-  fileKey    String    // object storage key (encrypted)
-  metadata   Json?
-  notes      String?
-  archivedAt DateTime? // archive only; hard delete is forbidden
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id                String    @id @default(uuid())
+  entityId          String
+  taxYear           Int?
+  docType           String    // w2 | 1099 | k1 | extension | property_tax | mortgage_interest | policy | statement | bank_statement | mortgage_statement | insurance_policy | utility_bill | other
+  fileKey           String    // object storage key (encrypted)
+  metadata          Json?
+  notes             String?
+  extractionStatus  String?   // pending | processing | complete | failed | skipped
+  extractionData    Json?     // structured output from Claude extraction
+  extractionModel   String?
+  extractedAt       DateTime?
+  archivedAt        DateTime? // archive only; hard delete is forbidden
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  entity Entity @relation(fields: [entityId], references: [id])
+  entity          Entity           @relation(fields: [entityId], references: [id])
+  insurancePolicy InsurancePolicy?
+  solarEntries    SolarEntry[]
+}
+
+// ─── Insurance policies ───────────────────────────────────────────────────────
+
+model InsurancePolicy {
+  id                  String    @id @default(uuid())
+  entityId            String
+  documentId          String?   @unique // linked source Document (NWM policy upload)
+  policyType          String    // term | whole | ul | property | auto | motorcycle | other
+  insurer             String
+  policyNumber        String?
+  faceAmountCents     Int?      // cents — never float
+  monthlyPremiumCents Int?      // cents ($755/mo for NWM = 75500)
+  effectiveDate       DateTime?
+  expiryDate          DateTime?
+  notes               String?
+  archivedAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  entity           Entity            @relation(fields: [entityId], references: [id])
+  document         Document?         @relation(fields: [documentId], references: [id])
+  cashValueEntries PolicyCashValue[]
+}
+
+model PolicyCashValue {
+  id             String          @id @default(uuid())
+  policyId       String
+  asOf           DateTime
+  cashValueCents Int             // cents
+  notes          String?
+  createdAt      DateTime        @default(now())
+
+  policy InsurancePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+}
+
+// ─── Solar ROI tracker ────────────────────────────────────────────────────────
+
+model SolarEntry {
+  id              String   @id @default(uuid())
+  period          String   // YYYY-MM
+  billAmountCents Int      // cents
+  usageKwh        Decimal? @db.Decimal(10, 2)
+  gridCreditCents Int?     // cents
+  documentId      String?  // linked utility_bill Document
+  createdAt       DateTime @default(now())
+
+  document Document? @relation(fields: [documentId], references: [id])
+}
+
+// ─── Monthly household review ─────────────────────────────────────────────────
+
+model MonthlyReview {
+  id        String   @id @default(uuid())
+  period    String   @unique // YYYY-MM
+  data      Json     // full summary: spend, budget health, upcoming, account snapshot
+  createdAt DateTime @default(now())
 }
 
 // ─── Tax workspaces ───────────────────────────────────────────────────────────

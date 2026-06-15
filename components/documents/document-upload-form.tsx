@@ -7,14 +7,19 @@ import { Input } from "@/components/ui/input";
 import { uploadDocument } from "@/actions/documents";
 
 const DOC_TYPES = [
+  { value: "bank_statement", label: "Bank Statement (AI extraction)" },
+  { value: "mortgage_statement", label: "Mortgage Statement (AI extraction)" },
+  { value: "insurance_policy", label: "Insurance Policy (AI extraction)" },
+  { value: "utility_bill", label: "Utility Bill (AI extraction)" },
+  { value: "tax_return", label: "Tax Return (AI extraction)" },
   { value: "w2", label: "W-2" },
   { value: "1099", label: "1099" },
   { value: "k1", label: "K-1" },
   { value: "extension", label: "Extension" },
   { value: "property_tax", label: "Property Tax" },
   { value: "mortgage_interest", label: "Mortgage Interest (1098)" },
-  { value: "policy", label: "Insurance Policy" },
-  { value: "statement", label: "Bank/Account Statement" },
+  { value: "policy", label: "Insurance Policy (manual)" },
+  { value: "statement", label: "Bank/Account Statement (manual)" },
   { value: "other", label: "Other" },
 ] as const;
 

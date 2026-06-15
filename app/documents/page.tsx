@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DocumentUploadForm } from "@/components/documents/document-upload-form";
 import { listDocuments, getDocumentSignedUrl, archiveDocument } from "@/actions/documents";
+import Link from "next/link";
 import type { Route } from "next";
 
 interface PageProps {
@@ -13,6 +14,11 @@ interface PageProps {
 }
 
 const DOC_TYPE_LABELS: Record<string, string> = {
+  bank_statement: "Bank Statement",
+  mortgage_statement: "Mortgage Statement",
+  insurance_policy: "Insurance Policy",
+  utility_bill: "Utility Bill",
+  tax_return: "Tax Return",
   w2: "W-2",
   "1099": "1099",
   k1: "K-1",
@@ -22,6 +28,18 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   policy: "Policy",
   statement: "Statement",
   other: "Other",
+};
+
+const EXTRACTION_TYPES = new Set([
+  "bank_statement", "mortgage_statement", "insurance_policy", "utility_bill", "tax_return",
+]);
+
+const EXTRACTION_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  pending:    { label: "Pending", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  processing: { label: "Processing", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+  complete:   { label: "Extracted", cls: "bg-green-50 text-green-700 border-green-200" },
+  failed:     { label: "Failed", cls: "bg-red-50 text-red-700 border-red-200" },
+  skipped:    { label: "Skipped", cls: "bg-muted text-muted-foreground border-border" },
 };
 
 const DOC_TYPE_COLORS: Record<string, string> = {
@@ -101,6 +119,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                   <th className="px-4 py-3 font-medium">Entity</th>
                   <th className="px-4 py-3 font-medium">Year</th>
                   <th className="px-4 py-3 font-medium">Notes</th>
+                  <th className="px-4 py-3 font-medium">Extraction</th>
                   <th className="px-4 py-3 font-medium">Uploaded</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -108,38 +127,63 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
               <tbody>
                 {docs.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                       No documents yet. Upload one above.
                     </td>
                   </tr>
                 )}
-                {docs.map((doc) => (
-                  <tr key={doc.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-2">
-                      <span className={`inline-block rounded border px-2 py-0.5 text-xs font-medium ${DOC_TYPE_COLORS[doc.docType] ?? DOC_TYPE_COLORS.other}`}>
-                        {DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground">
-                      {doc.entity.name.split(",")[0]}
-                    </td>
-                    <td className="px-4 py-2 text-xs">
-                      {doc.taxYear ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground max-w-xs truncate">
-                      {doc.notes ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                      {doc.createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" })}
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="flex items-center gap-2 justify-end">
-                        <ViewLink documentId={doc.id} />
-                        <ArchiveButton documentId={doc.id} />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {docs.map((doc) => {
+                  const extractable = EXTRACTION_TYPES.has(doc.docType);
+                  const statusInfo = doc.extractionStatus ? EXTRACTION_STATUS_BADGE[doc.extractionStatus] : null;
+                  return (
+                    <tr key={doc.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-4 py-2">
+                        <span className={`inline-block rounded border px-2 py-0.5 text-xs font-medium ${DOC_TYPE_COLORS[doc.docType] ?? DOC_TYPE_COLORS.other}`}>
+                          {DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground">
+                        {doc.entity.name.split(",")[0]}
+                      </td>
+                      <td className="px-4 py-2 text-xs">
+                        {doc.taxYear ?? "—"}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground max-w-xs truncate">
+                        {doc.notes ?? "—"}
+                      </td>
+                      <td className="px-4 py-2 text-xs">
+                        {extractable ? (
+                          statusInfo ? (
+                            <span className={`inline-block rounded border px-2 py-0.5 text-xs font-medium ${statusInfo.cls}`}>
+                              {statusInfo.label}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                        {doc.createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" })}
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-2 justify-end">
+                          {extractable && (
+                            <Link
+                              href={`/documents/${doc.id}/review` as Route}
+                              className="text-xs text-primary hover:underline"
+                            >
+                              Review
+                            </Link>
+                          )}
+                          <ViewLink documentId={doc.id} />
+                          <ArchiveButton documentId={doc.id} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </CardContent>
