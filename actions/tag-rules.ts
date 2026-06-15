@@ -156,3 +156,31 @@ export async function applyRulesToTransaction(
 
   return [matched];
 }
+
+// ── Bulk apply rules ──────────────────────────────────────────────────────────
+
+export async function applyAllRules(
+  entityId?: string
+): Promise<{ processed: number; tagged: number }> {
+  await requireAuth();
+
+  const transactions = await db.transaction.findMany({
+    where: {
+      archivedAt: null,
+      pending: false,
+      transferPairId: null,
+      tags: { none: {} },
+      ...(entityId ? { entityId } : {}),
+    },
+    select: { id: true },
+    take: 500,
+  });
+
+  let tagged = 0;
+  for (const tx of transactions) {
+    const applied = await applyRulesToTransaction(tx.id);
+    if (applied.length > 0) tagged++;
+  }
+
+  return { processed: transactions.length, tagged };
+}

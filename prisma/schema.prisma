@@ -107,6 +107,7 @@ model Account {
   accrualEnvelopes         AccrualEnvelope[]
   tagRules                 TagRule[]
   incomeSources            IncomeSource[]
+  projects                 Project[]
 
   @@unique([entityId, nickname])
 }
@@ -399,13 +400,44 @@ model TaxChecklistItem {
 
 model Project {
   id           String    @id @default(uuid())
+  accountId    String?   // optional link to Slush Funds (x3612) account
   name         String
+  description  String?
   targetAmount Decimal   @db.Decimal(14, 2)
   savedAmount  Decimal   @db.Decimal(14, 2) @default(0)
   targetDate   DateTime?
   status       String    @default("active") // active | completed | paused
+  archivedAt   DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+
+  account      Account?  @relation(fields: [accountId], references: [id])
+}
+
+// ─── Manual assets (property, vehicle — user-entered values only) ──────────────
+
+model ManualAsset {
+  id         String    @id @default(uuid())
+  name       String    // "Sudden Valley property", "Toyota Tacoma 1999"
+  category   String    // real_estate | vehicle | other
+  valueCents Int       // cents — never float; user-entered or approved estimates only
+  asOf       DateTime  // date of estimate
+  notes      String?
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+// ─── Net worth snapshots ───────────────────────────────────────────────────────
+
+model NetWorthSnapshot {
+  id                    String   @id @default(uuid())
+  date                  DateTime @unique
+  totalAssetsCents      Int
+  totalLiabilitiesCents Int
+  netWorthCents         Int
+  data                  Json     // { accounts[], manualAssets[], cashValues[], liabilities[] }
+  createdAt             DateTime @default(now())
 }
 
 // ─── Tag rules (payee → tag learning) ────────────────────────────────────────

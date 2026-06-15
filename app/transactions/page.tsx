@@ -9,6 +9,7 @@ import Link from "next/link";
 import { deleteTransaction } from "@/actions/transactions";
 import { exportTransactionsCsv } from "@/actions/reports";
 import { ExportCsvButton } from "@/components/export-csv-button";
+import { ApplyRulesButton } from "@/components/transactions/apply-rules-button";
 import type { Route } from "next";
 
 interface PageProps {
@@ -133,28 +134,35 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b">
-          {[
-            { slug: "all", label: "All" },
-            { slug: "review", label: "Needs Review" },
-          ].map(({ slug, label }) => (
-            <Link
-              key={slug}
-              href={buildTabUrl(slug)}
-              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                tab === slug
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {label}
-              {slug === "review" && reviewCount > 0 && (
-                <span className="rounded-full bg-primary px-1.5 py-0.5 text-xs font-semibold text-primary-foreground">
-                  {reviewCount}
-                </span>
-              )}
-            </Link>
-          ))}
+        <div className="flex items-center justify-between border-b">
+          <div className="flex gap-1">
+            {[
+              { slug: "all", label: "All" },
+              { slug: "review", label: "Needs Review" },
+            ].map(({ slug, label }) => (
+              <Link
+                key={slug}
+                href={buildTabUrl(slug)}
+                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  tab === slug
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {label}
+                {slug === "review" && reviewCount > 0 && (
+                  <span className="rounded-full bg-primary px-1.5 py-0.5 text-xs font-semibold text-primary-foreground">
+                    {reviewCount}
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+          {tab === "review" && (
+            <div className="pb-1">
+              <ApplyRulesButton entityId={entity?.id} />
+            </div>
+          )}
         </div>
 
         <Card>
@@ -192,7 +200,12 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                           {formatDate(tx.postedAt)}
                         </td>
                         <td className="px-4 py-2">
-                          <span className="font-medium">{tx.payeeRaw ?? tx.payeeNormalized ?? "—"}</span>
+                          <Link
+                            href={`/transactions/${tx.id}` as Route}
+                            className="font-medium hover:underline"
+                          >
+                            {tx.payeeRaw ?? tx.payeeNormalized ?? "—"}
+                          </Link>
                           {tx.description && (
                             <p className="text-xs text-muted-foreground truncate max-w-xs">
                               {tx.description}
