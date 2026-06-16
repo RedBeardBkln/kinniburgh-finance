@@ -9,6 +9,7 @@ import {
   createGlCode,
   deleteGlCode,
   assignGlCode,
+  importGlCodes,
 } from "@/actions/gl-codes";
 
 const GL_TYPES = ["income", "expense", "asset", "liability", "equity"] as const;
@@ -58,6 +59,11 @@ export function GlPageClient({ entityId, glCodes: initialCodes, uncodedTransacti
   const [isAssigning, startAssign] = useTransition();
   const [assigningId, setAssigningId] = useState<string | null>(null);
 
+  const [showImport, setShowImport] = useState(false);
+  const [importRows, setImportRows] = useState<{ code: string; name: string; type: string }[]>([]);
+  const [importResult, setImportResult] = useState<{ imported: number; errors: string[] } | null>(null);
+  const [isImporting, startImport] = useTransition();
+
   function handleCreate() {
     if (!newCode.trim()) { setFormError("Code is required"); return; }
     if (!newName.trim()) { setFormError("Name is required"); return; }
@@ -85,6 +91,37 @@ export function GlPageClient({ entityId, glCodes: initialCodes, uncodedTransacti
       } catch (e) {
         alert(e instanceof Error ? e.message : "Delete failed");
       }
+    });
+  }
+
+  function handleCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      const rows: { code: string; name: string; type: string }[] = [];
+      for (const line of lines) {
+        const parts = line.split(",").map((s) => s.trim());
+        const [code, name, type] = parts;
+        if (!code || code.toLowerCase() === "code") continue;
+        if (code && name && type) rows.push({ code, name, type: type.toLowerCase() });
+      }
+      setImportRows(rows);
+      setImportResult(null);
+    };
+    reader.readAsText(file);
+  }
+
+  function handleImport() {
+    startImport(async () => {
+      const result = await importGlCodes(
+        entityId,
+        importRows as { code: string; name: string; type: GlType }[]
+      );
+      setImportResult(result);
+      if (result.imported > 0) setImportRows([]);
     });
   }
 
@@ -148,6 +185,76 @@ export function GlPageClient({ entityId, glCodes: initialCodes, uncodedTransacti
             </CardContent>
           </Card>
         )}
+
+        {/* CSV Import */}
+        <div className="space-y-2">
+          <button
+            onClick={() => { setShowImport(!showImport); setImportRows([]); setImportResult(null); }}
+            className="text-xs text-primary hover:underline"
+          >
+            {showImport ? "Hide CSV import" : "Import from CSV"}
+          </button>
+
+          {showImport && (
+            <Card>
+              <CardContent className="pt-4 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Upload a CSV with columns: <code className="font-mono bg-muted px-1 rounded">code,name,type</code>.
+                  Type must be one of: {GL_TYPES.join(", ")}.
+                </p>
+                <input
+                  type="file"
+                  accept=".csv,.txt"
+                  onChange={handleCsvFile}
+                  className="text-xs file:mr-2 file:text-xs file:rounded file:border file:px-2 file:py-0.5"
+                />
+                {importRows.length > 0 && (
+                  <>
+                    <p className="text-xs font-medium">
+                      {importRows.length} row{importRows.length !== 1 ? "s" : ""} parsed
+                      {importRows.length > 10 ? " (showing first 10)" : ""}
+                    </p>
+                    <table className="w-full text-xs rounded border">
+                      <thead>
+                        <tr className="border-b text-left text-muted-foreground">
+                          <th className="px-2 py-1">Code</th>
+                          <th className="px-2 py-1">Name</th>
+                          <th className="px-2 py-1">Type</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importRows.slice(0, 10).map((r, i) => (
+                          <tr key={i} className="border-b last:border-0">
+                            <td className="px-2 py-1 font-mono">{r.code}</td>
+                            <td className="px-2 py-1">{r.name}</td>
+                            <td className="px-2 py-1">{r.type}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <button
+                      onClick={handleImport}
+                      disabled={isImporting}
+                      className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground px-3 h-8 text-xs font-medium hover:bg-primary/90 disabled:opacity-60"
+                    >
+                      {isImporting ? "Importing…" : `Import ${importRows.length} code${importRows.length !== 1 ? "s" : ""}`}
+                    </button>
+                  </>
+                )}
+                {importResult && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-green-600">
+                      Imported {importResult.imported} code{importResult.imported !== 1 ? "s" : ""}.
+                    </p>
+                    {importResult.errors.map((e, i) => (
+                      <p key={i} className="text-xs text-destructive">{e}</p>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
 
         <Card>
           <CardContent className="p-0">

@@ -157,6 +157,68 @@ export async function applyRulesToTransaction(
   return [matched];
 }
 
+// ── Dry run: preview rule matches without writing ─────────────────────────────
+
+export async function dryRunTagRules(entityId?: string): Promise<{
+  total: number;
+  willTag: number;
+  previews: Array<{ payeeRaw: string; tagShortName: string }>;
+  unmatched: number;
+}> {
+  await requireAuth();
+
+  const transactions = await db.transaction.findMany({
+    where: {
+      archivedAt: null,
+      pending: false,
+      transferPairId: null,
+      tags: { none: {} },
+      ...(entityId ? { entityId } : {}),
+    },
+    select: {
+      id: true,
+      payeeRaw: true,
+      payeeNormalized: true,
+      amount: true,
+      accountId: true,
+    },
+    take: 500,
+  });
+
+  const rules = await db.tagRule.findMany({ include: { tag: true } });
+  const tagById = new Map(rules.map((r) => [r.tagId, r.tag.shortName]));
+  const candidates = rules.map((r) => ({
+    tagId: r.tagId,
+    payeePattern: r.payeePattern,
+    amountMin: r.amountMin ? r.amountMin.toNumber() : null,
+    amountMax: r.amountMax ? r.amountMax.toNumber() : null,
+    accountId: r.accountId,
+  }));
+
+  const previews: Array<{ payeeRaw: string; tagShortName: string }> = [];
+  let willTag = 0;
+
+  for (const tx of transactions) {
+    const normalizedPayee = tx.payeeNormalized ?? normalizePayee(tx.payeeRaw ?? "");
+    const amount = tx.amount.abs().toNumber();
+    const matched = matchTagRule(candidates, { normalizedPayee, amount, accountId: tx.accountId });
+    if (matched) {
+      willTag++;
+      previews.push({
+        payeeRaw: tx.payeeRaw ?? tx.payeeNormalized ?? "",
+        tagShortName: tagById.get(matched) ?? matched,
+      });
+    }
+  }
+
+  return {
+    total: transactions.length,
+    willTag,
+    previews: previews.slice(0, 10),
+    unmatched: transactions.length - willTag,
+  };
+}
+
 // ── Bulk apply rules ──────────────────────────────────────────────────────────
 
 export async function applyAllRules(

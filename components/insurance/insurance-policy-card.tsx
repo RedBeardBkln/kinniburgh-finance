@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { addCashValueEntry } from "@/actions/insurance";
 
@@ -34,6 +35,10 @@ const POLICY_TYPE_LABELS: Record<string, string> = {
 };
 
 export function InsurancePolicyCard({ policy }: { policy: Policy }) {
+  const daysUntilExpiry = policy.expiryDate
+    ? Math.ceil((policy.expiryDate.getTime() - Date.now()) / 86400000)
+    : null;
+
   const [showAddCV, setShowAddCV] = useState(false);
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
   const [cashValue, setCashValue] = useState("");
@@ -109,6 +114,29 @@ export function InsurancePolicyCard({ policy }: { policy: Policy }) {
                 : "—"}
             </p>
           </div>
+          {policy.expiryDate && (
+            <div className="col-span-2">
+              <p className="text-xs text-muted-foreground">Expires</p>
+              <div className="flex items-center gap-2">
+                <p className="font-medium">
+                  {policy.expiryDate.toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                </p>
+                {daysUntilExpiry !== null && daysUntilExpiry <= 60 && (
+                  daysUntilExpiry < 0 ? (
+                    <Badge variant="destructive">Expired</Badge>
+                  ) : daysUntilExpiry <= 30 ? (
+                    <Badge variant="destructive">
+                      Expires in {daysUntilExpiry} day{daysUntilExpiry === 1 ? "" : "s"}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="border-amber-300 text-amber-600">
+                      Expires in {daysUntilExpiry} days
+                    </Badge>
+                  )
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {policy.notes && (

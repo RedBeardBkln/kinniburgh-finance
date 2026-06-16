@@ -5,6 +5,8 @@ import {
   checkAccrualShortfall,
   checkBillReminders,
   checkAnomalies,
+  checkDocumentExpiry,
+  checkLargeSpend,
   dispatchPending,
 } from "@/lib/notifications";
 
@@ -18,18 +20,20 @@ export async function GET(request: NextRequest) {
   const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 
   try {
-    const [overspend, lowBal, accrual, bills, anomalies] = await Promise.all([
+    const [overspend, lowBal, accrual, bills, anomalies, policyExpiry, largeSpend] = await Promise.all([
       checkBudgetOverspend(period),
       checkLowBalance(),
       checkAccrualShortfall(),
       checkBillReminders(),
       checkAnomalies(period),
+      checkDocumentExpiry(),
+      checkLargeSpend(),
     ]);
 
     await dispatchPending();
 
-    const generated = overspend + lowBal + accrual + bills + anomalies;
-    return NextResponse.json({ generated, overspend, lowBal, accrual, bills, anomalies });
+    const generated = overspend + lowBal + accrual + bills + anomalies + policyExpiry + largeSpend;
+    return NextResponse.json({ generated, overspend, lowBal, accrual, bills, anomalies, policyExpiry, largeSpend });
   } catch (err) {
     console.error("[cron/notifications]", err);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });

@@ -10,6 +10,7 @@ import { deleteTransaction } from "@/actions/transactions";
 import { exportTransactionsCsv } from "@/actions/reports";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { ApplyRulesButton } from "@/components/transactions/apply-rules-button";
+import { DryRunButton } from "@/components/transactions/dry-run-button";
 import type { Route } from "next";
 
 interface PageProps {
@@ -159,7 +160,8 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
             ))}
           </div>
           {tab === "review" && (
-            <div className="pb-1">
+            <div className="pb-1 flex items-start gap-2">
+              <DryRunButton entityId={entity?.id} />
               <ApplyRulesButton entityId={entity?.id} />
             </div>
           )}

@@ -54,6 +54,41 @@ export async function deleteGlCode(id: string) {
   revalidatePath("/business");
 }
 
+const ImportRowSchema = z.object({
+  code: z.string().min(1).max(20),
+  name: z.string().min(1).max(100),
+  type: z.enum(GL_TYPES),
+});
+
+export async function importGlCodes(
+  entityId: string,
+  rows: z.infer<typeof ImportRowSchema>[]
+): Promise<{ imported: number; errors: string[] }> {
+  await requireAuth();
+  z.string().uuid().parse(entityId);
+
+  const errors: string[] = [];
+  let imported = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const result = ImportRowSchema.safeParse(rows[i]);
+    if (!result.success) {
+      errors.push(`Row ${i + 1}: ${result.error.issues.map((e) => e.message).join(", ")}`);
+      continue;
+    }
+    const { code, name, type } = result.data;
+    await db.glCode.upsert({
+      where: { entityId_code: { entityId, code } },
+      update: { name, type },
+      create: { entityId, code, name, type },
+    });
+    imported++;
+  }
+
+  revalidatePath("/business");
+  return { imported, errors };
+}
+
 export async function assignGlCode(transactionId: string, glCodeId: string | null) {
   const user = await requireAuth();
   await db.transaction.update({ where: { id: transactionId }, data: { glCodeId } });

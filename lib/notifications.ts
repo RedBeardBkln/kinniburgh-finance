@@ -370,6 +370,120 @@ export async function checkAnomalies(period: string): Promise<number> {
   return generated;
 }
 
+// ── Check: Document expiry ────────────────────────────────────────────────────
+
+export async function checkDocumentExpiry(): Promise<number> {
+  const policies = await db.insurancePolicy.findMany({
+    where: { archivedAt: null, expiryDate: { not: null } },
+  });
+
+  const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
+  let generated = 0;
+  const now = Date.now();
+
+  for (const policy of policies) {
+    const daysUntilExpiry = Math.ceil((policy.expiryDate!.getTime() - now) / 86400000);
+    if (daysUntilExpiry > 30) continue;
+
+    const existing = await db.notification.findFirst({
+      where: {
+        type: "policy_expiry",
+        payload: { path: ["policyId"], equals: policy.id },
+      },
+    });
+    if (existing) continue;
+
+    const eligibleUserIds = users
+      .filter((u) => {
+        const prefs = (u.notificationPrefs ?? {}) as Record<string, unknown>;
+        const p = prefs["policy_expiry"] as { enabled?: boolean } | undefined;
+        return p?.enabled !== false;
+      })
+      .map((u) => u.id);
+
+    if (eligibleUserIds.length === 0) continue;
+
+    const label =
+      daysUntilExpiry < 0
+        ? "has expired"
+        : `expires in ${daysUntilExpiry} day${daysUntilExpiry === 1 ? "" : "s"}`;
+    const title = `Policy expiring soon: ${policy.insurer}`;
+    const body = `${policy.insurer} ${policy.policyType} policy ${label}.`;
+
+    await createNotification({
+      type: "policy_expiry",
+      payload: { title, body, policyId: policy.id, insurer: policy.insurer, daysUntilExpiry },
+      userIds: eligibleUserIds,
+    });
+    generated++;
+  }
+
+  return generated;
+}
+
+// ── Check: Large spend ────────────────────────────────────────────────────────
+
+export async function checkLargeSpend(): Promise<number> {
+  const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
+  const since = new Date(Date.now() - 86400000);
+
+  const transactions = await db.transaction.findMany({
+    where: { archivedAt: null, transferPairId: null, postedAt: { gte: since } },
+    include: {
+      account: { select: { nickname: true } },
+      entity: { select: { name: true } },
+    },
+  });
+
+  let generated = 0;
+
+  for (const user of users) {
+    const prefs = (user.notificationPrefs ?? {}) as Record<string, unknown>;
+    const largePref = prefs["large_spend"] as
+      | { enabled?: boolean; thresholdCents?: number }
+      | undefined;
+    if (largePref?.enabled === false) continue;
+    const thresholdCents = largePref?.thresholdCents ?? 50000;
+
+    for (const tx of transactions) {
+      const amountCents = Math.round(Math.abs(tx.amount.toNumber()) * 100);
+      if (amountCents < thresholdCents) continue;
+
+      const existing = await db.notification.findFirst({
+        where: {
+          type: "large_spend",
+          payload: { path: ["transactionId"], equals: tx.id },
+          users: { some: { userId: user.id } },
+        },
+      });
+      if (existing) continue;
+
+      const payee = tx.payeeRaw ?? tx.payeeNormalized ?? "Unknown";
+      const amtStr = `$${(amountCents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+      const title = "Large transaction posted";
+      const body = `${amtStr} at ${payee} on ${tx.account.nickname}.`;
+
+      await createNotification({
+        type: "large_spend",
+        entityId: tx.entityId,
+        payload: {
+          title,
+          body,
+          transactionId: tx.id,
+          amountCents,
+          payeeRaw: payee,
+          accountNickname: tx.account.nickname,
+          entityName: tx.entity.name,
+        },
+        userIds: [user.id],
+      });
+      generated++;
+    }
+  }
+
+  return generated;
+}
+
 // ── Dispatch pending push notifications ───────────────────────────────────────
 
 export async function dispatchPending(): Promise<void> {

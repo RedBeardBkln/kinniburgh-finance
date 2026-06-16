@@ -9,6 +9,8 @@ const PREF_TYPES = [
   { key: "accrual_shortfall" as const, label: "Accrual shortfall", description: "Alert when an accrual envelope is underfunded before its draw season." },
   { key: "bill_due" as const, label: "Bill reminders", description: "Alert a few days before a scheduled bill autopays." },
   { key: "anomaly" as const, label: "Spending anomaly", description: "Alert when tag spending is significantly above historical average." },
+  { key: "policy_expiry" as const, label: "Policy expiry reminders", description: "Alert 30 days before an insurance policy expiry date." },
+  { key: "large_spend" as const, label: "Large spend alert", description: "Alert when a transaction exceeds a configurable threshold." },
 ];
 
 interface Props {
@@ -27,6 +29,14 @@ export function NotifPrefsForm({ initialPrefs }: Props) {
 
   function setThreshold(key: "overspend", threshold: number) {
     setPrefs((p) => ({ ...p, [key]: { ...(p[key] ?? { enabled: true }), threshold } }));
+    setSaved(false);
+  }
+
+  function setLargeSpendThreshold(dollars: number) {
+    setPrefs((p) => ({
+      ...p,
+      large_spend: { ...(p.large_spend ?? { enabled: true }), thresholdCents: Math.round(dollars * 100) },
+    }));
     setSaved(false);
   }
 
@@ -68,6 +78,22 @@ export function NotifPrefsForm({ initialPrefs }: Props) {
                     className="w-16 rounded border px-2 py-0.5 text-xs"
                   />
                   <span className="text-xs text-muted-foreground">% of budget</span>
+                </div>
+              )}
+              {key === "large_spend" && enabled && (
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="text-xs text-muted-foreground">Alert above $</label>
+                  <input
+                    type="number"
+                    min={10}
+                    value={
+                      "thresholdCents" in pref
+                        ? Math.round(((pref as { thresholdCents?: number }).thresholdCents ?? 50000) / 100)
+                        : 500
+                    }
+                    onChange={(e) => setLargeSpendThreshold(Number(e.target.value))}
+                    className="w-20 rounded border px-2 py-0.5 text-xs"
+                  />
                 </div>
               )}
             </div>
