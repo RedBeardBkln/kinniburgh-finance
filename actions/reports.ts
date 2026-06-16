@@ -171,24 +171,131 @@ export async function exportBalanceSheetCsv(entityId: string): Promise<string> {
   return [header, ...assetRows, ...liabilityRows, ...totals].join("\n");
 }
 
-// ── CPA bundle manifest ────────────────────────────────────────────────────────
+// ── CPA export bundle (multi-section CSV) ─────────────────────────────────────
 
 export async function exportCpaBundle(
   entityId: string,
-  taxYear: number
-): Promise<Array<{ name: string; type: string; notes: string | null; docId: string }>> {
+  year: number
+): Promise<string> {
   await requireAuth();
 
-  const docs = await db.document.findMany({
-    where: { entityId, taxYear, archivedAt: null },
-    orderBy: { docType: "asc" },
-    select: { id: true, docType: true, notes: true, createdAt: true },
-  });
+  const { computePL } = await import("@/lib/reports");
 
-  return docs.map((d) => ({
-    name: `${d.docType}_${d.createdAt.toISOString().slice(0, 10)}`,
-    type: d.docType,
-    notes: d.notes,
-    docId: d.id,
-  }));
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
+
+  const [entity, transactions, mileageEntries, taxDeadlines, pl] = await Promise.all([
+    db.entity.findUnique({ where: { id: entityId } }),
+    db.transaction.findMany({
+      where: {
+        entityId,
+        archivedAt: null,
+        transferPairId: null,
+        glCodeId: { not: null },
+        postedAt: { gte: yearStart, lte: yearEnd },
+      },
+      include: {
+        glCode: true,
+        tags: { include: { tag: { select: { shortName: true } } } },
+      },
+      orderBy: { postedAt: "asc" },
+    }),
+    db.mileageEntry.findMany({
+      where: {
+        entityId,
+        archivedAt: null,
+        date: { gte: yearStart, lte: yearEnd },
+      },
+      orderBy: { date: "asc" },
+    }),
+    db.taxDeadline.findMany({
+      where: { entityId, archivedAt: null },
+      orderBy: { dueDate: "asc" },
+    }),
+    computePL(entityId, yearStart, yearEnd),
+  ]);
+
+  const sections: string[] = [];
+
+  // Section 1: Entity Info
+  sections.push(
+    "## ENTITY INFO",
+    toCsvRow(["Field", "Value"]),
+    toCsvRow(["Entity Name", entity?.name ?? entityId]),
+    toCsvRow(["Entity ID", entityId]),
+    toCsvRow(["Tax Year", year]),
+    toCsvRow(["Export Date", new Date().toISOString().slice(0, 10)]),
+    ""
+  );
+
+  // Section 2: GL-Coded Transactions
+  sections.push(
+    "## GL-CODED TRANSACTIONS",
+    toCsvRow(["Date", "Payee", "Amount", "GL Code", "GL Name", "Type", "Tags"]),
+    ...transactions.map((t) =>
+      toCsvRow([
+        t.postedAt.toISOString().slice(0, 10),
+        t.payeeRaw ?? t.payeeNormalized ?? "",
+        t.amount.toFixed(2),
+        t.glCode?.code ?? "",
+        t.glCode?.name ?? "",
+        t.glCode?.type ?? "",
+        t.tags.map((tt) => tt.tag.shortName).join("; "),
+      ])
+    ),
+    ""
+  );
+
+  // Section 3: P&L Summary
+  sections.push(
+    "## P&L SUMMARY",
+    toCsvRow(["Section", "GL Code", "Name", "Amount"])
+  );
+  for (const line of pl.incomeLines) {
+    sections.push(toCsvRow(["Income", line.code, line.name, line.total.toFixed(2)]));
+  }
+  sections.push(toCsvRow(["Income Total", "", "", pl.totalIncome.toFixed(2)]));
+  for (const line of pl.expenseLines) {
+    sections.push(toCsvRow(["Expense", line.code, line.name, line.total.abs().toFixed(2)]));
+  }
+  sections.push(
+    toCsvRow(["Expense Total", "", "", pl.totalExpenses.abs().toFixed(2)]),
+    toCsvRow(["Net Income", "", "", pl.netIncome.toFixed(2)]),
+    ""
+  );
+
+  // Section 4: Mileage Log
+  sections.push(
+    "## MILEAGE LOG",
+    toCsvRow(["Date", "Purpose", "Miles", "Rate/Mile", "Deduction", "Billable"])
+  );
+  for (const m of mileageEntries) {
+    const deduction = (m.miles * m.ratePerMile.toNumber()).toFixed(2);
+    sections.push(
+      toCsvRow([
+        m.date.toISOString().slice(0, 10),
+        m.purpose,
+        m.miles,
+        m.ratePerMile.toFixed(3),
+        deduction,
+        m.billable ? "Yes" : "No",
+      ])
+    );
+  }
+  if (mileageEntries.length === 0) sections.push("(no entries)");
+  sections.push("");
+
+  // Section 5: Tax Deadlines
+  sections.push(
+    "## TAX DEADLINES",
+    toCsvRow(["Label", "Due Date", "Type", "Status"])
+  );
+  for (const d of taxDeadlines) {
+    sections.push(
+      toCsvRow([d.label, d.dueDate.toISOString().slice(0, 10), d.type, d.status])
+    );
+  }
+  if (taxDeadlines.length === 0) sections.push("(no deadlines)");
+
+  return sections.join("\n");
 }

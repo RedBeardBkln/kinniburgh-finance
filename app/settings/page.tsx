@@ -46,6 +46,11 @@ export default async function SettingsPage() {
             description="Configure budget alerts, low-balance warnings, bill reminders, and push notifications."
             href={"/settings/notifications" as Route}
           />
+          <SettingsCard
+            title="Income Sources"
+            description="Payroll and recurring deposits used by the 30-day balance forecast and low-balance alerts."
+            href={"/settings/income-sources" as Route}
+          />
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">GL Codes</CardTitle>

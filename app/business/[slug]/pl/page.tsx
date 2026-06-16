@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { computePL } from "@/lib/reports";
+import { exportCpaBundle } from "@/actions/reports";
+import { ExportCsvButton } from "@/components/export-csv-button";
 import type { Route } from "next";
 
 interface PageProps {
@@ -94,6 +96,11 @@ export default async function PLPage({ params, searchParams }: PageProps) {
             >
               Download CSV
             </Link>
+            <ExportCsvButton
+              filename={`cpa-bundle-${slug}-${currentYear}.csv`}
+              action={exportCpaBundle.bind(null, entity.id, currentYear)}
+              label="Export CPA bundle"
+            />
           </div>
         </div>
 

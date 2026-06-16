@@ -135,6 +135,18 @@ export default async function BusinessPage() {
                       Revenue →
                     </Link>
                     <Link
+                      href={`/business/${b.slug}/vendors` as Route}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Vendors →
+                    </Link>
+                    <Link
+                      href={`/business/${b.slug}/cash-flow` as Route}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Cash Flow →
+                    </Link>
+                    <Link
                       href={`/business/${b.slug}/gl` as Route}
                       className="text-sm text-primary hover:underline"
                     >
