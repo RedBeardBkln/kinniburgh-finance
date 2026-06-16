@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
-import Link from "next/link";
+import { GenerateButton } from "@/components/monthly-review/generate-button";
 
 interface PageProps {
   params: Promise<{ year: string; month: string }>;
@@ -78,12 +78,9 @@ export default async function MonthlyReviewPage({ params }: PageProps) {
         <div className="space-y-4">
           <h1 className="text-2xl font-semibold">Monthly Review — {period}</h1>
           <p className="text-sm text-muted-foreground">
-            No review has been generated for this period yet.{" "}
-            <Link href={"/settings" as Route} className="text-primary hover:underline">
-              Run it from Settings → Notifications
-            </Link>{" "}
-            or wait for the 1st-of-month cron.
+            No review has been generated for this period yet.
           </p>
+          <GenerateButton period={period} />
         </div>
       </AppShell>
     );
@@ -98,11 +95,14 @@ export default async function MonthlyReviewPage({ params }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold">Monthly Review — {period}</h1>
-          <p className="text-sm text-muted-foreground">
-            Generated {new Date(data.generatedAt).toLocaleString("en-US", { timeZone: "America/New_York" })}
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold">Monthly Review — {period}</h1>
+            <p className="text-sm text-muted-foreground">
+              Generated {new Date(data.generatedAt).toLocaleString("en-US", { timeZone: "America/New_York" })}
+            </p>
+          </div>
+          <GenerateButton period={period} label="Regenerate" />
         </div>
 
         {/* Health summary chips */}

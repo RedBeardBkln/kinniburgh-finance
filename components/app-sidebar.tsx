@@ -44,6 +44,7 @@ export function AppSidebar() {
     { label: "Net Worth", base: "/personal/net-worth", href: "/personal/net-worth" as Route },
     { label: "Mortgage", base: "/personal/mortgage", href: "/personal/mortgage" as Route },
     { label: "Debt-Free", base: "/personal/debt-free", href: "/personal/debt-free" as Route },
+    { label: "Savings autopilot", base: "/personal/savings-autopilot", href: "/personal/savings-autopilot" as Route },
     { label: "Retirement", base: "/personal/retirement", href: "/personal/retirement" as Route },
     { label: "Insurance", base: "/personal/insurance", href: "/personal/insurance" as Route },
     { label: "Projects", base: "/personal/projects", href: "/personal/projects" as Route },

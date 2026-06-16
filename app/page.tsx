@@ -8,6 +8,7 @@ import { computeBudgetSummary } from "@/lib/budget";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
+import { SpendingChart } from "@/components/dashboard/spending-chart";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -99,6 +100,21 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     }).isOverspent;
   }).length;
 
+  const chartData = budgets
+    .map((b) => {
+      const actual = decimalToNumber(
+        (spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0)).abs()
+      );
+      return {
+        name: b.tag.shortName,
+        budget: decimalToNumber(new Prisma.Decimal(b.budgeted)),
+        actual,
+      };
+    })
+    .filter((d) => d.budget > 0 || d.actual > 0)
+    .sort((a, b) => b.actual - a.actual)
+    .slice(0, 10);
+
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
@@ -148,6 +164,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </CardContent>
           </Card>
         </div>
+
+        {/* Spending chart */}
+        <SpendingChart data={chartData} />
 
         {/* Budget lines table */}
         <Card>
