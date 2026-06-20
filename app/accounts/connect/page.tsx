@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePlaidLink } from "react-plaid-link";
 import { AppShell } from "@/components/app-shell";
@@ -28,6 +28,14 @@ type Step = "link" | "map" | "done";
 // ── Connect page ───────────────────────────────────────────────────────────────
 
 export default function ConnectPage() {
+  return (
+    <Suspense>
+      <ConnectPageInner />
+    </Suspense>
+  );
+}
+
+function ConnectPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const updateItemId = searchParams.get("itemId"); // set for re-link flow

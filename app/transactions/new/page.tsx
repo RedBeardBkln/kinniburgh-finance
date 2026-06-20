@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell, type BucketSlug } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +33,14 @@ interface Entity {
 
 // This page uses a small fetch to load accounts/tags on mount
 export default function NewTransactionPage() {
+  return (
+    <Suspense>
+      <NewTransactionPageInner />
+    </Suspense>
+  );
+}
+
+function NewTransactionPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const bucket = (searchParams.get("bucket") ?? "personal") as BucketSlug;

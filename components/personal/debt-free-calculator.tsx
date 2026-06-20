@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { computeCCPayoff } from "@/lib/doc-extract";
+import { computeCCPayoff } from "@/lib/payoff-math";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface AccountOption {

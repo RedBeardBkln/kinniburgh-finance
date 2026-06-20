@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { computePayoffScenarios } from "@/lib/doc-extract";
+import { computePayoffScenarios } from "@/lib/payoff-math";
 
 const EXTRA_LABELS = ["Current payment", "+$100/mo", "+$200/mo", "+$500/mo", "+$1,000/mo"];
 

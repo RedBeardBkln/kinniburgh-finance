@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell, type BucketSlug } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +26,14 @@ interface Entity {
 type Step = "upload" | "map" | "preview" | "done";
 
 export default function ImportPage() {
+  return (
+    <Suspense>
+      <ImportPageInner />
+    </Suspense>
+  );
+}
+
+function ImportPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const bucket = (searchParams.get("bucket") ?? "personal") as BucketSlug;
