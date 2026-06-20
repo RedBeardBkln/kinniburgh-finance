@@ -1,16 +1,20 @@
 import webpush from "web-push";
 import { db } from "./db";
 
-webpush.setVapidDetails(
-  process.env.VAPID_EMAIL ?? "mailto:admin@example.com",
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "",
-  process.env.VAPID_PRIVATE_KEY ?? ""
-);
+function initVapid() {
+  const email = process.env.VAPID_EMAIL;
+  const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const priv = process.env.VAPID_PRIVATE_KEY;
+  if (email && pub && priv) {
+    webpush.setVapidDetails(email, pub, priv);
+  }
+}
 
 export async function sendPushToUser(
   userId: string,
   payload: { title: string; body: string; url?: string }
 ): Promise<void> {
+  initVapid();
   const subs = await db.pushSubscription.findMany({ where: { userId } });
   await Promise.allSettled(
     subs.map((s) =>
