@@ -2,7 +2,7 @@
 
 import { useTransition, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
+import { BUCKET_ENTITY_NAMES, type BucketSlug } from "@/lib/buckets";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { uploadAndExtractReceipt } from "@/actions/receipts";
 

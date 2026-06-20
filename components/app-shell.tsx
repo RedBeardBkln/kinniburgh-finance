@@ -3,22 +3,8 @@ import { AppHeader } from "./app-header";
 import { AppSidebar } from "./app-sidebar";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-
-const BUCKETS = [
-  { slug: "personal", label: "Personal" },
-  { slug: "sudden-valley", label: "Sudden Valley" },
-  { slug: "ek-consulting", label: "EK Consulting" },
-  { slug: "mezzo", label: "Mezzo" },
-] as const;
-
-export type BucketSlug = (typeof BUCKETS)[number]["slug"];
-
-export const BUCKET_ENTITY_NAMES: Record<BucketSlug, string> = {
-  personal: "Personal",
-  "sudden-valley": "Sudden Valley Property Management, LLC",
-  "ek-consulting": "Eric Kinniburgh Consulting, LLC",
-  mezzo: "Mezzo",
-};
+export type { BucketSlug } from "@/lib/buckets";
+export { BUCKET_ENTITY_NAMES } from "@/lib/buckets";
 
 interface AppShellProps {
   children: React.ReactNode;
