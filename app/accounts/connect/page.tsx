@@ -117,7 +117,7 @@ function ConnectPageInner() {
   }, []);
 
   const { open: openLink, ready: linkReady } = usePlaidLink({
-    token: linkToken ?? "",
+    token: linkToken,
     onSuccess,
     onExit,
   });
