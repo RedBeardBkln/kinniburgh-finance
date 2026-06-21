@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { AppShell } from "@/components/app-shell";
+import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -16,21 +16,33 @@ import { Prisma } from "@prisma/client";
 import { setAccountBalance, upsertIncomeSource } from "@/actions/envelope";
 import { BalanceChart } from "@/components/forecast/balance-chart";
 
-export default async function ForecastPage() {
+interface PageProps {
+  searchParams: Promise<{ bucket?: string }>;
+}
+
+export default async function ForecastPage({ searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+
+  const params = await searchParams;
+  const bucket = (params.bucket ?? "personal") as BucketSlug;
+  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
+  const entity = entityName
+    ? await db.entity.findFirst({ where: { name: entityName } })
+    : null;
 
   const now = new Date();
   const forecastStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const forecastEnd30 = new Date(forecastStart.getTime() + 30 * 86400000);
   const forecastEnd14 = new Date(forecastStart.getTime() + 14 * 86400000);
 
-  // Load TD checking accounts (the ones with a minimum balance rule)
+  // Load checking accounts with a minimum balance rule, filtered to the active bucket's entity
   const tdAccounts = await db.account.findMany({
     where: {
       archivedAt: null,
       accountType: "checking",
       minimumBalance: { not: null },
+      ...(entity && { entityId: entity.id }),
     },
     include: { institution: true },
     orderBy: { nickname: "asc" },

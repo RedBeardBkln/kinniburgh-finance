@@ -6,13 +6,7 @@ import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
 import { NotificationBell } from "@/components/notifications/notification-bell";
-
-const BUCKETS = [
-  { slug: "personal", label: "Personal" },
-  { slug: "sudden-valley", label: "Sudden Valley" },
-  { slug: "ek-consulting", label: "EK Consulting" },
-  { slug: "mezzo", label: "Mezzo" },
-] as const;
+import { BUCKETS } from "@/lib/buckets";
 
 interface AppHeaderProps {
   userName?: string;

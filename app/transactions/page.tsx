@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
+import { BUCKET_DISPLAY_LABELS } from "@/lib/buckets";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Prisma } from "@prisma/client";
@@ -33,11 +34,14 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const bucket = (params.bucket ?? "personal") as BucketSlug;
   const tab = params.tab ?? "all";
-  const entityName = BUCKET_ENTITY_NAMES[bucket] ?? "Personal";
+  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
+  const bucketLabel = BUCKET_DISPLAY_LABELS[bucket];
   const page = Math.max(1, Number(params.page ?? 1));
   const pageSize = 50;
 
-  const entity = await db.entity.findFirst({ where: { name: entityName } });
+  const entity = entityName
+    ? await db.entity.findFirst({ where: { name: entityName } })
+    : null;
 
   const baseWhere: Prisma.TransactionWhereInput = {
     archivedAt: null,
@@ -105,7 +109,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
           <div>
             <h1 className="text-2xl font-semibold">Transactions</h1>
             <p className="text-sm text-muted-foreground">
-              {total} transactions · {entityName}
+              {total} transactions · {bucketLabel}
             </p>
           </div>
           <div className="flex gap-2 items-center">

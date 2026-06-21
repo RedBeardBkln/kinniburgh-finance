@@ -12,6 +12,7 @@ import {
   BudgetPageClient,
   type SerializedBudgetLine,
 } from "@/components/budgets/budget-page-client";
+import { BUCKET_DISPLAY_LABELS } from "@/lib/buckets";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; period?: string }>;
@@ -23,7 +24,8 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const bucket = (params.bucket ?? "personal") as BucketSlug;
-  const entityName = BUCKET_ENTITY_NAMES[bucket] ?? "Personal";
+  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
+  const bucketLabel = BUCKET_DISPLAY_LABELS[bucket];
 
   const now = new Date();
   const defaultPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -33,18 +35,13 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
   const monthStart = new Date(Date.UTC(year!, mon! - 1, 1));
   const monthEnd = new Date(Date.UTC(year!, mon!, 1));
 
-  const entity = await db.entity.findFirst({ where: { name: entityName } });
-  if (!entity) {
-    return (
-      <AppShell userName={session.user.name ?? undefined}>
-        <p className="text-muted-foreground">Entity not found: {entityName}</p>
-      </AppShell>
-    );
-  }
+  const entity = entityName
+    ? await db.entity.findFirst({ where: { name: entityName } })
+    : null;
 
   const [budgets, accounts, tags] = await Promise.all([
     db.budget.findMany({
-      where: { entityId: entity.id, period },
+      where: { ...(entity && { entityId: entity.id }), period },
       include: { tag: true, account: { include: { institution: true } } },
       orderBy: [{ account: { nickname: "asc" } }, { tag: { name: "asc" } }],
     }),
@@ -56,17 +53,28 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
   ]);
 
   // Per-tag actual spend this month
-  const tagSpend = await db.$queryRaw<{ tagId: string; total: string }[]>`
-    SELECT tt."tagId", SUM(t.amount)::text AS total
-    FROM "Transaction" t
-    JOIN "TransactionTag" tt ON tt."transactionId" = t.id
-    WHERE t."entityId" = ${entity.id}
-      AND t."archivedAt" IS NULL
-      AND t."transferPairId" IS NULL
-      AND t."postedAt" >= ${monthStart}
-      AND t."postedAt" < ${monthEnd}
-    GROUP BY tt."tagId"
-  `;
+  const tagSpend = entity
+    ? await db.$queryRaw<{ tagId: string; total: string }[]>`
+        SELECT tt."tagId", SUM(t.amount)::text AS total
+        FROM "Transaction" t
+        JOIN "TransactionTag" tt ON tt."transactionId" = t.id
+        WHERE t."entityId" = ${entity.id}
+          AND t."archivedAt" IS NULL
+          AND t."transferPairId" IS NULL
+          AND t."postedAt" >= ${monthStart}
+          AND t."postedAt" < ${monthEnd}
+        GROUP BY tt."tagId"
+      `
+    : await db.$queryRaw<{ tagId: string; total: string }[]>`
+        SELECT tt."tagId", SUM(t.amount)::text AS total
+        FROM "Transaction" t
+        JOIN "TransactionTag" tt ON tt."transactionId" = t.id
+        WHERE t."archivedAt" IS NULL
+          AND t."transferPairId" IS NULL
+          AND t."postedAt" >= ${monthStart}
+          AND t."postedAt" < ${monthEnd}
+        GROUP BY tt."tagId"
+      `;
 
   const spendByTagId = new Map<string, Prisma.Decimal>(
     tagSpend.map((r) => [r.tagId, new Prisma.Decimal(r.total)])
@@ -124,13 +132,13 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
           budgets={serializedBudgets}
           accounts={accounts.map((a) => ({ id: a.id, nickname: a.nickname, mask: a.mask }))}
           tags={tags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName }))}
-          entityId={entity.id}
+          entityId={entity?.id ?? ""}
           period={period}
           totalBudgeted={totalBudgeted}
           totalActual={totalActual}
           totalRemaining={totalRemaining}
           periodLabel={formatPeriod(period)}
-          entityName={entityName}
+          entityName={bucketLabel}
         />
       </div>
     </AppShell>

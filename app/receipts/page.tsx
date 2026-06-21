@@ -29,8 +29,10 @@ export default async function ReceiptsPage({ searchParams }: PageProps) {
   const tab = (params.tab ?? "review") as TabSlug;
   const page = Math.max(1, Number(params.page ?? 1));
 
-  const entityName = BUCKET_ENTITY_NAMES[bucket] ?? "Personal";
-  const entity = await db.entity.findFirst({ where: { name: entityName } });
+  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
+  const entity = entityName
+    ? await db.entity.findFirst({ where: { name: entityName } })
+    : null;
 
   const { receipts, total, pageSize } = await listReceipts({
     entityId: entity?.id,

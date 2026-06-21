@@ -7,20 +7,15 @@ import { cn } from "@/lib/utils";
 import type { Route } from "next";
 
 const BUSINESS_BUCKETS = ["sudden-valley", "ek-consulting", "mezzo"] as const;
-
-const COMMON_ITEMS = [
-  { label: "Transactions", base: "/transactions" },
-  { label: "Budgets", base: "/budgets" },
-  { label: "Envelopes", base: "/envelope" },
-  { label: "Forecast", base: "/forecast" },
-  { label: "Accounts", base: "/accounts" },
-];
+const TAX_BUCKET = "taxes";
 
 export function AppSidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const activeBucket = searchParams.get("bucket") ?? "personal";
   const isBusinessBucket = (BUSINESS_BUCKETS as readonly string[]).includes(activeBucket);
+  const isTaxBucket = activeBucket === TAX_BUCKET;
+  const isPersonalBucket = !isBusinessBucket && !isTaxBucket;
 
   function buildHref(base: string): Route {
     return (activeBucket !== "personal" ? `${base}?bucket=${activeBucket}` : base) as Route;
@@ -30,6 +25,17 @@ export function AppSidebar() {
     return pathname === base || pathname.startsWith(base + "/");
   }
 
+  // Common to all buckets
+  const coreItems = [
+    { label: "Transactions", base: "/transactions" },
+    { label: "Budgets", base: "/budgets" },
+    { label: "Forecast", base: "/forecast" },
+    { label: "Accounts", base: "/accounts" },
+  ];
+
+  // Only shown for Personal + Taxes
+  const envelopeItem = { label: "Envelopes", base: "/envelope" };
+
   const businessItems = [
     { label: "Receipts", base: "/receipts", href: buildHref("/receipts") },
     {
@@ -37,7 +43,7 @@ export function AppSidebar() {
       base: `/business/${activeBucket}/pl`,
       href: `/business/${activeBucket}/pl` as Route,
     },
-    { label: "Taxes", base: "/tax", href: buildHref("/tax") },
+    { label: "Tax Workspaces", base: "/tax", href: buildHref("/tax") },
   ];
 
   const personalItems = [
@@ -50,11 +56,18 @@ export function AppSidebar() {
     { label: "Projects", base: "/personal/projects", href: "/personal/projects" as Route },
   ];
 
+  const taxItems = [
+    { label: "Tax Workspaces", base: "/tax", href: "/tax" as Route },
+    { label: "Documents", base: "/documents", href: "/documents" as Route },
+    { label: "Mileage", base: "/personal/mileage", href: "/personal/mileage" as Route },
+  ];
+
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r bg-background">
       <nav className="flex-1 overflow-y-auto py-4">
         <ul className="space-y-0.5 px-2">
-          {COMMON_ITEMS.map(({ label, base }) => (
+          {/* Core items shown for all buckets */}
+          {coreItems.map(({ label, base }) => (
             <li key={base}>
               <Link
                 href={buildHref(base)}
@@ -70,7 +83,25 @@ export function AppSidebar() {
             </li>
           ))}
 
+          {/* Envelopes: only Personal and Taxes */}
           {!isBusinessBucket && (
+            <li>
+              <Link
+                href={buildHref(envelopeItem.base)}
+                className={cn(
+                  "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                  isActive(envelopeItem.base)
+                    ? "bg-accent font-medium text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                )}
+              >
+                {envelopeItem.label}
+              </Link>
+            </li>
+          )}
+
+          {/* Personal section */}
+          {isPersonalBucket && (
             <>
               <li className="pt-4 pb-1">
                 <span className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">
@@ -95,6 +126,7 @@ export function AppSidebar() {
             </>
           )}
 
+          {/* Business section */}
           {isBusinessBucket && (
             <>
               <li className="pt-4 pb-1">
@@ -103,6 +135,32 @@ export function AppSidebar() {
                 </span>
               </li>
               {businessItems.map(({ label, base, href }) => (
+                <li key={base}>
+                  <Link
+                    href={href}
+                    className={cn(
+                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                      isActive(base)
+                        ? "bg-accent font-medium text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    )}
+                  >
+                    {label}
+                  </Link>
+                </li>
+              ))}
+            </>
+          )}
+
+          {/* Tax section */}
+          {isTaxBucket && (
+            <>
+              <li className="pt-4 pb-1">
+                <span className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  Taxes
+                </span>
+              </li>
+              {taxItems.map(({ label, base, href }) => (
                 <li key={base}>
                   <Link
                     href={href}

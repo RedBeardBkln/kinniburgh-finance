@@ -9,10 +9,10 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const bucket = (searchParams.get("bucket") ?? "personal") as BucketSlug;
-  const entityName = BUCKET_ENTITY_NAMES[bucket] ?? "Personal";
+  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
 
   const [entity, accounts, tags, entities] = await Promise.all([
-    db.entity.findFirst({ where: { name: entityName } }),
+    entityName ? db.entity.findFirst({ where: { name: entityName } }) : Promise.resolve(null),
     db.account.findMany({
       where: { archivedAt: null },
       include: { entity: true },

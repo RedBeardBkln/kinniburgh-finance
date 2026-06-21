@@ -8,7 +8,9 @@ export async function GET(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const bucket = (req.nextUrl.searchParams.get("bucket") ?? "personal") as BucketSlug;
-  const entityName = BUCKET_ENTITY_NAMES[bucket] ?? "Personal";
+  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
+  if (!entityName) return NextResponse.json({ entityId: null });
+
   const entity = await db.entity.findFirst({ where: { name: entityName } });
   if (!entity) return NextResponse.json({ error: "Entity not found" }, { status: 404 });
 

@@ -2,18 +2,29 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import Link from "next/link";
-import { AppShell } from "@/components/app-shell";
+import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 
-export default async function AccountsPage() {
+interface PageProps {
+  searchParams: Promise<{ bucket?: string }>;
+}
+
+export default async function AccountsPage({ searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
+  const params = await searchParams;
+  const bucket = (params.bucket ?? "personal") as BucketSlug;
+  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
+  const entity = entityName
+    ? await db.entity.findFirst({ where: { name: entityName } })
+    : null;
+
   const accounts = await db.account.findMany({
-    where: { archivedAt: null },
+    where: { archivedAt: null, ...(entity && { entityId: entity.id }) },
     include: {
       institution: true,
       entity: true,

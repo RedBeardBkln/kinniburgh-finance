@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
+import { BUCKET_DISPLAY_LABELS } from "@/lib/buckets";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { computeBudgetSummary } from "@/lib/budget";
@@ -20,16 +21,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const bucket = (params.bucket ?? "personal") as BucketSlug;
-  const entityName = BUCKET_ENTITY_NAMES[bucket] ?? "Personal";
+  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
+  const bucketLabel = BUCKET_DISPLAY_LABELS[bucket];
 
-  const entity = await db.entity.findFirst({ where: { name: entityName } });
-  if (!entity) {
-    return (
-      <AppShell userName={session.user.name ?? undefined}>
-        <p className="text-muted-foreground">Entity not found: {entityName}</p>
-      </AppShell>
-    );
-  }
+  const entity = entityName
+    ? await db.entity.findFirst({ where: { name: entityName } })
+    : null;
 
   const now = new Date();
   const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -38,23 +35,34 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
   // Budget lines for this entity + period
   const budgets = await db.budget.findMany({
-    where: { entityId: entity.id, period },
+    where: { ...(entity && { entityId: entity.id }), period },
     include: { tag: true, account: { include: { institution: true } } },
     orderBy: [{ account: { nickname: "asc" } }, { tag: { name: "asc" } }],
   });
 
   // Actual spend per tag this month via raw query
-  const tagSpend = await db.$queryRaw<{ tagId: string; total: string }[]>`
-    SELECT tt."tagId", SUM(t.amount)::text AS total
-    FROM "Transaction" t
-    JOIN "TransactionTag" tt ON tt."transactionId" = t.id
-    WHERE t."entityId" = ${entity.id}
-      AND t."archivedAt" IS NULL
-      AND t."transferPairId" IS NULL
-      AND t."postedAt" >= ${monthStart}
-      AND t."postedAt" < ${monthEnd}
-    GROUP BY tt."tagId"
-  `;
+  const tagSpend = entity
+    ? await db.$queryRaw<{ tagId: string; total: string }[]>`
+        SELECT tt."tagId", SUM(t.amount)::text AS total
+        FROM "Transaction" t
+        JOIN "TransactionTag" tt ON tt."transactionId" = t.id
+        WHERE t."entityId" = ${entity.id}
+          AND t."archivedAt" IS NULL
+          AND t."transferPairId" IS NULL
+          AND t."postedAt" >= ${monthStart}
+          AND t."postedAt" < ${monthEnd}
+        GROUP BY tt."tagId"
+      `
+    : await db.$queryRaw<{ tagId: string; total: string }[]>`
+        SELECT tt."tagId", SUM(t.amount)::text AS total
+        FROM "Transaction" t
+        JOIN "TransactionTag" tt ON tt."transactionId" = t.id
+        WHERE t."archivedAt" IS NULL
+          AND t."transferPairId" IS NULL
+          AND t."postedAt" >= ${monthStart}
+          AND t."postedAt" < ${monthEnd}
+        GROUP BY tt."tagId"
+      `;
 
   const spendByTagId = new Map<string, Prisma.Decimal>(
     tagSpend.map((r) => [r.tagId, new Prisma.Decimal(r.total)])
@@ -63,7 +71,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // Total spend this month (all transactions)
   const spendAgg = await db.transaction.aggregate({
     where: {
-      entityId: entity.id,
+      ...(entity && { entityId: entity.id }),
       archivedAt: null,
       transferPairId: null,
       postedAt: { gte: monthStart, lt: monthEnd },
@@ -72,9 +80,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   });
   const totalSpend = new Prisma.Decimal(spendAgg._sum.amount ?? 0);
 
-  // Accounts for this entity
+  // Accounts for this entity (or all when null)
   const accounts = await db.account.findMany({
-    where: { entityId: entity.id, archivedAt: null },
+    where: { ...(entity && { entityId: entity.id }), archivedAt: null },
     include: { institution: true },
     orderBy: { nickname: "asc" },
   });
@@ -120,7 +128,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-semibold">
-            {entityName} — {formatPeriod(period)}
+            {bucketLabel} — {formatPeriod(period)}
           </h1>
           <p className="text-sm text-muted-foreground">Monthly budget overview</p>
         </div>
