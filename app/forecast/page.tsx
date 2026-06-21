@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   generateTransferOccurrences,
   generateIncomeOccurrences,
+  generateBillOccurrences,
   buildAccountForecast,
   findBreachDays,
 } from "@/lib/forecast";
@@ -35,8 +36,8 @@ export default async function ForecastPage() {
     orderBy: { nickname: "asc" },
   });
 
-  // Load all active scheduled transfers + income sources
-  const [transfers, incomeSources] = await Promise.all([
+  // Load all active scheduled transfers, income sources, and bills
+  const [transfers, incomeSources, scheduledBills] = await Promise.all([
     db.scheduledTransfer.findMany({
       where: { active: true },
       include: { fromAccount: true, toAccount: true },
@@ -45,6 +46,7 @@ export default async function ForecastPage() {
       where: { active: true },
       include: { account: true, entity: true },
     }),
+    db.scheduledBill.findMany({ where: { active: true } }),
   ]);
 
   // Load entities for the income source form
@@ -71,7 +73,11 @@ export default async function ForecastPage() {
       generateIncomeOccurrences(s, forecastStart, forecastEnd30)
     ).filter((e) => e.accountId === acct.id);
 
-    const allEvents = [...transferEvents, ...incomeEvents];
+    const billEvents = scheduledBills.flatMap((b) =>
+      generateBillOccurrences(b, forecastStart, forecastEnd30)
+    ).filter((e) => e.accountId === acct.id);
+
+    const allEvents = [...transferEvents, ...incomeEvents, ...billEvents];
     const forecast = buildAccountForecast(startBal, allEvents, minBal, forecastStart, forecastEnd30);
     const breaches = findBreachDays(forecast);
 
@@ -97,7 +103,11 @@ export default async function ForecastPage() {
       generateIncomeOccurrences(s, forecastStart, forecastEnd14)
     ).filter((e) => e.accountId === primaryAcct.id);
 
-    for (const ev of [...xferEvents, ...incEvents].sort((a, b) => a.date.getTime() - b.date.getTime())) {
+    const billEventsForSchedule = scheduledBills.flatMap((b) =>
+      generateBillOccurrences(b, forecastStart, forecastEnd14)
+    ).filter((e) => e.accountId === primaryAcct.id);
+
+    for (const ev of [...xferEvents, ...incEvents, ...billEventsForSchedule].sort((a, b) => a.date.getTime() - b.date.getTime())) {
       schedule14.push({
         date: ev.date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }),
         description: ev.description,

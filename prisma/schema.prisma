@@ -181,6 +181,7 @@ model Budget {
   accountId       String
   period          String   // YYYY-MM
   budgeted        Decimal  @db.Decimal(14, 2)
+  payDay          Int?     // day of month (1–31) when this bill is paid
   rolloverEnabled Boolean  @default(false)
   rolloverAmount  Decimal? @db.Decimal(14, 2)
   createdAt       DateTime @default(now())
@@ -212,20 +213,24 @@ model ScheduledTransfer {
 }
 
 model ScheduledBill {
-  id             String   @id @default(uuid())
-  accountId      String
-  entityId       String
-  payee          String
-  amountType     String   // static | fluctuating | accrued
-  expectedAmount Decimal? @db.Decimal(14, 2)
-  autopayDay     Int?     // day of month
-  annualBudget   Decimal? @db.Decimal(14, 2)
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(uuid())
+  accountId       String
+  entityId        String
+  payee           String
+  amountType      String   // static | fluctuating | accrued
+  expectedAmount  Decimal? @db.Decimal(14, 2)
+  autopayDay      Int?     // day of month
+  annualBudget    Decimal? @db.Decimal(14, 2)
+  active          Boolean  @default(true)
+  budgetTagId     String?  // Tag.id — set when auto-created from a budget line
+  budgetEntityId  String?  // Entity.id — mirrors entityId for compound upsert key
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   account Account @relation(fields: [accountId], references: [id])
   entity  Entity  @relation(fields: [entityId], references: [id])
+
+  @@unique([budgetTagId, budgetEntityId])
 }
 
 model AccrualEnvelope {

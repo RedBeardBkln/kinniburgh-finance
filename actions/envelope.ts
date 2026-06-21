@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   generateTransferOccurrences,
   generateBillOccurrences,
+  generateIncomeOccurrences,
   buildAccountForecast,
   findBreachDays,
   computeSuggestedTransferIncrease,
@@ -267,11 +268,13 @@ export async function getEnvelopeForecastData(): Promise<EnvelopeForecastResult[
     where: {
       archivedAt: null,
       minimumBalance: { not: null },
-      scheduledTransfersTo: { some: { active: true } },
+      accountType: "checking",
     },
     include: {
       scheduledTransfersTo: { where: { active: true } },
+      scheduledTransfersFrom: { where: { active: true } },
       scheduledBills: { where: { active: true } },
+      incomeSources: { where: { active: true } },
     },
   });
 
@@ -283,15 +286,23 @@ export async function getEnvelopeForecastData(): Promise<EnvelopeForecastResult[
       ? new Prisma.Decimal(account.minimumBalanceFee).toNumber()
       : 15;
 
-    // Collect events: inbound transfers + bills
+    // Collect events: inbound transfers, outbound transfers, bills, income
     const events: ScheduleEvent[] = [];
     for (const t of account.scheduledTransfersTo) {
       events.push(
         ...generateTransferOccurrences(t, from, to).filter((e) => e.accountId === account.id)
       );
     }
+    for (const t of account.scheduledTransfersFrom) {
+      events.push(
+        ...generateTransferOccurrences(t, from, to).filter((e) => e.accountId === account.id)
+      );
+    }
     for (const b of account.scheduledBills) {
       events.push(...generateBillOccurrences(b, from, to));
+    }
+    for (const s of account.incomeSources) {
+      events.push(...generateIncomeOccurrences(s, from, to));
     }
 
     // Transfer occurrence dates for suggested-increase calculation
