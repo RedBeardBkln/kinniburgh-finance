@@ -5,6 +5,14 @@ import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import {
+  generateTransferOccurrences,
+  generateBillOccurrences,
+  buildAccountForecast,
+  findBreachDays,
+  computeSuggestedTransferIncrease,
+  type ScheduleEvent,
+} from "@/lib/forecast";
 
 async function requireAuth() {
   const session = await auth();
@@ -228,4 +236,149 @@ export async function upsertIncomeSource(
 
   revalidatePath("/forecast");
   return { success: true };
+}
+
+// ── Envelope solvency forecast ────────────────────────────────────────────────
+
+export interface EnvelopeForecastResult {
+  accountId: string;
+  accountName: string;
+  mask: string;
+  currentBalance: number | null;
+  minimumBalance: number;
+  minimumBalanceFee: number;
+  breachDays: number;
+  firstBreachDate: string | null;
+  worstBalance: number | null;
+  suggestedIncrease: number | null;
+  incomingTransferId: string | null;
+  incomingTransferCadence: string | null;
+  feeAppliedThisPeriod: boolean;
+  billsThisMonth: { payee: string; dueDay: number | null; expectedAmount: number | null }[];
+}
+
+export async function getEnvelopeForecastData(): Promise<EnvelopeForecastResult[]> {
+  const now = new Date();
+  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const to = new Date(from.getTime() + 30 * 86400000);
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+  const accounts = await db.account.findMany({
+    where: {
+      archivedAt: null,
+      minimumBalance: { not: null },
+      scheduledTransfersTo: { some: { active: true } },
+    },
+    include: {
+      scheduledTransfersTo: { where: { active: true } },
+      scheduledBills: { where: { active: true } },
+    },
+  });
+
+  const results: EnvelopeForecastResult[] = [];
+
+  for (const account of accounts) {
+    const minimumBalance = new Prisma.Decimal(account.minimumBalance!);
+    const minimumBalanceFee = account.minimumBalanceFee
+      ? new Prisma.Decimal(account.minimumBalanceFee).toNumber()
+      : 15;
+
+    // Collect events: inbound transfers + bills
+    const events: ScheduleEvent[] = [];
+    for (const t of account.scheduledTransfersTo) {
+      events.push(
+        ...generateTransferOccurrences(t, from, to).filter((e) => e.accountId === account.id)
+      );
+    }
+    for (const b of account.scheduledBills) {
+      events.push(...generateBillOccurrences(b, from, to));
+    }
+
+    // Transfer occurrence dates for suggested-increase calculation
+    const transferDates = events
+      .filter((e) => e.type === "transfer_in")
+      .map((e) => e.date);
+
+    // The primary incoming transfer (for label in UI)
+    const primaryTransfer = account.scheduledTransfersTo[0] ?? null;
+
+    if (account.currentBalance === null) {
+      results.push({
+        accountId: account.id,
+        accountName: account.nickname,
+        mask: account.mask ?? "",
+        currentBalance: null,
+        minimumBalance: minimumBalance.toNumber(),
+        minimumBalanceFee,
+        breachDays: 0,
+        firstBreachDate: null,
+        worstBalance: null,
+        suggestedIncrease: null,
+        incomingTransferId: primaryTransfer?.id ?? null,
+        incomingTransferCadence: primaryTransfer?.cadence ?? null,
+        feeAppliedThisPeriod: false,
+        billsThisMonth: account.scheduledBills.map((b) => ({
+          payee: b.payee,
+          dueDay: b.autopayDay,
+          expectedAmount: b.expectedAmount ? new Prisma.Decimal(b.expectedAmount).toNumber() : null,
+        })),
+      });
+      continue;
+    }
+
+    const forecast = buildAccountForecast(
+      new Prisma.Decimal(account.currentBalance),
+      events,
+      minimumBalance,
+      from,
+      to
+    );
+
+    const breachDaysList = findBreachDays(forecast);
+    const firstBreachDate = breachDaysList[0]?.date.toISOString().slice(0, 10) ?? null;
+
+    let worstBalance: Prisma.Decimal | null = null;
+    for (const d of forecast) {
+      if (worstBalance === null || d.balanceAfter.lessThan(worstBalance)) {
+        worstBalance = d.balanceAfter;
+      }
+    }
+
+    const suggestedIncreaseDecimal = computeSuggestedTransferIncrease(
+      forecast,
+      minimumBalance,
+      transferDates
+    );
+
+    const feeAppliedThisPeriod = !!(await db.transaction.findFirst({
+      where: {
+        accountId: account.id,
+        description: "TD Bank Minimum Balance Fee",
+        postedAt: { gte: monthStart },
+      },
+    }));
+
+    results.push({
+      accountId: account.id,
+      accountName: account.nickname,
+      mask: account.mask ?? "",
+      currentBalance: new Prisma.Decimal(account.currentBalance).toNumber(),
+      minimumBalance: minimumBalance.toNumber(),
+      minimumBalanceFee,
+      breachDays: breachDaysList.length,
+      firstBreachDate,
+      worstBalance: worstBalance?.toNumber() ?? null,
+      suggestedIncrease: suggestedIncreaseDecimal?.toNumber() ?? null,
+      incomingTransferId: primaryTransfer?.id ?? null,
+      incomingTransferCadence: primaryTransfer?.cadence ?? null,
+      feeAppliedThisPeriod,
+      billsThisMonth: account.scheduledBills.map((b) => ({
+        payee: b.payee,
+        dueDay: b.autopayDay,
+        expectedAmount: b.expectedAmount ? new Prisma.Decimal(b.expectedAmount).toNumber() : null,
+      })),
+    });
+  }
+
+  return results;
 }

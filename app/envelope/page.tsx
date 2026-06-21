@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getEnvelopeSummary, approveSlushFundsTransfer, updateScheduledTransfer, updateAccrualBalance } from "@/actions/envelope";
+import { getEnvelopeSummary, getEnvelopeForecastData, approveSlushFundsTransfer, updateScheduledTransfer, updateAccrualBalance } from "@/actions/envelope";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 
@@ -11,12 +11,10 @@ export default async function EnvelopePage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const {
-    transfers,
-    bills,
-    accruals,
-    slushTransferExists,
-  } = await getEnvelopeSummary();
+  const [
+    { transfers, bills, accruals, slushTransferExists },
+    forecastData,
+  ] = await Promise.all([getEnvelopeSummary(), getEnvelopeForecastData()]);
 
   // Group bills by account
   const billsByAccount = new Map<string, typeof bills>();
@@ -252,6 +250,113 @@ export default async function EnvelopePage() {
             ))}
           </div>
         </div>
+
+        {/* ── Envelope Solvency Forecast ──────────────────────────────── */}
+        {forecastData.length > 0 && (
+          <div>
+            <h2 className="mb-1 text-lg font-semibold">Envelope Solvency</h2>
+            <p className="mb-3 text-sm text-muted-foreground">
+              30-day balance projection for each envelope account. Set balances on the Forecast page to enable.
+            </p>
+            <div className="space-y-4">
+              {forecastData.map((env) => (
+                <Card key={env.accountId} className={env.breachDays > 0 ? "border-amber-300" : ""}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center justify-between text-base">
+                      <span>
+                        {env.accountName}{" "}
+                        <span className="font-mono text-sm text-muted-foreground">···{env.mask}</span>
+                      </span>
+                      {env.currentBalance !== null ? (
+                        <Badge variant={env.breachDays > 0 ? "destructive" : "default"}>
+                          {env.breachDays > 0 ? `⚠ ${env.breachDays} breach day${env.breachDays === 1 ? "" : "s"}` : "✓ Solvent"}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">Balance not set</Badge>
+                      )}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    {env.currentBalance !== null && (
+                      <>
+                        <div className="text-muted-foreground">
+                          Current balance:{" "}
+                          <strong className="text-foreground">{formatUSD(env.currentBalance)}</strong>
+                        </div>
+
+                        {env.breachDays > 0 && (
+                          <div className="space-y-2">
+                            <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+                              Lowest projected balance:{" "}
+                              <strong>{formatUSD(env.worstBalance!)}</strong>
+                              {env.firstBreachDate &&
+                                ` on ${new Date(env.firstBreachDate + "T00:00:00Z").toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  timeZone: "UTC",
+                                })}`}
+                            </div>
+                            {env.suggestedIncrease !== null && (
+                              <div className="text-muted-foreground">
+                                Suggested fix: increase the{" "}
+                                <strong>
+                                  {env.incomingTransferCadence === "weekly"
+                                    ? "weekly"
+                                    : env.incomingTransferCadence === "semi_monthly"
+                                    ? "semi-monthly"
+                                    : env.incomingTransferCadence ?? "recurring"}{" "}
+                                  transfer
+                                </strong>{" "}
+                                by{" "}
+                                <strong className="text-foreground">
+                                  +{formatUSD(env.suggestedIncrease)}
+                                </strong>{" "}
+                                per occurrence
+                              </div>
+                            )}
+                            {env.feeAppliedThisPeriod ? (
+                              <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-blue-800">
+                                $15 TD Bank minimum balance fee has been recorded this period.
+                              </div>
+                            ) : (
+                              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+                                A <strong>$15 TD Bank fee</strong> will apply if the actual balance
+                                dips below ${env.minimumBalance} this month.
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {env.billsThisMonth.length > 0 && (
+                          <table className="w-full text-xs text-muted-foreground">
+                            <thead>
+                              <tr className="border-b">
+                                <th className="pb-1 text-left font-medium">Bill</th>
+                                <th className="pb-1 text-left font-medium">Due</th>
+                                <th className="pb-1 text-right font-medium">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {env.billsThisMonth.map((b, i) => (
+                                <tr key={i} className="border-b last:border-0">
+                                  <td className="py-1">{b.payee}</td>
+                                  <td className="py-1">{b.dueDay ? `${b.dueDay}th` : "accrued"}</td>
+                                  <td className="py-1 text-right">
+                                    {b.expectedAmount ? formatUSD(b.expectedAmount) : "—"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── Accrual envelopes ────────────────────────────────────────── */}
         <div>

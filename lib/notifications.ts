@@ -177,6 +177,49 @@ export async function checkLowBalance(): Promise<number> {
       to
     );
     const breaches = findBreachDays(forecast);
+
+    // Record $15 fee if the actual balance (not just forecast) is already breaching
+    if (
+      account.minimumBalanceFee &&
+      account.currentBalance!.lessThan(account.minimumBalance!)
+    ) {
+      const monthStart = startOfDayUTC(
+        new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1))
+      );
+      const existingFee = await db.transaction.findFirst({
+        where: {
+          accountId: account.id,
+          description: "TD Bank Minimum Balance Fee",
+          postedAt: { gte: monthStart },
+        },
+      });
+      if (!existingFee) {
+        let feeTag = await db.tag.findFirst({ where: { name: "Bank Fees" } });
+        if (!feeTag) {
+          feeTag = await db.tag.create({
+            data: { name: "Bank Fees", shortName: "Bank Fees" },
+          });
+        }
+        const entity = await db.entity.findFirst({
+          where: { accounts: { some: { id: account.id } } },
+        });
+        if (entity) {
+          const tx = await db.transaction.create({
+            data: {
+              accountId: account.id,
+              entityId: entity.id,
+              postedAt: new Date(),
+              amount: new Prisma.Decimal(account.minimumBalanceFee).negated(),
+              payeeRaw: "TD Bank",
+              description: "TD Bank Minimum Balance Fee",
+              source: "manual",
+            },
+          });
+          await db.transactionTag.create({ data: { transactionId: tx.id, tagId: feeTag.id } });
+        }
+      }
+    }
+
     if (breaches.length === 0) continue;
 
     const scopeKey = `low_balance:${account.id}`;

@@ -271,3 +271,83 @@ export function buildAccountForecast(
 export function findBreachDays(forecast: DayForecast[]): DayForecast[] {
   return forecast.filter((d) => d.isBreachDay);
 }
+
+// ── Bill occurrence generator ─────────────────────────────────────────────────
+
+interface ScheduledBillLike {
+  id: string;
+  accountId: string;
+  payee: string;
+  amountType: string;
+  expectedAmount: Decimal | string | number | null;
+  autopayDay: number | null;
+  annualBudget: Decimal | string | number | null;
+}
+
+/**
+ * Expands a ScheduledBill into outflow ScheduleEvents within [from, to).
+ * static/fluctuating → monthly on autopayDay at expectedAmount
+ * accrued           → monthly on autopayDay at annualBudget/12
+ */
+export function generateBillOccurrences(
+  bill: ScheduledBillLike,
+  from: Date,
+  to: Date
+): ScheduleEvent[] {
+  const day = bill.autopayDay ?? 1;
+
+  let amount: Decimal | null = null;
+  if (bill.amountType === "accrued") {
+    if (bill.annualBudget != null) {
+      amount = new Decimal(String(bill.annualBudget)).div(12);
+    }
+  } else {
+    if (bill.expectedAmount != null) {
+      amount = new Decimal(String(bill.expectedAmount));
+    }
+  }
+  if (!amount || amount.isZero()) return [];
+
+  const dates = allMonthDays(from, to, [day]);
+  return dates.map((date) => ({
+    date,
+    amount: amount!.negated(),
+    description: bill.payee,
+    accountId: bill.accountId,
+    type: "bill" as const,
+  }));
+}
+
+// ── Suggested transfer increase ───────────────────────────────────────────────
+
+/**
+ * Given a breaching forecast, computes how much to increase each upcoming
+ * transfer occurrence to keep the balance above minimumBalance.
+ * Returns null if the forecast is already solvent.
+ */
+export function computeSuggestedTransferIncrease(
+  forecast: DayForecast[],
+  minimumBalance: Decimal,
+  transferDates: Date[]
+): Decimal | null {
+  if (forecast.length === 0) return null;
+
+  let worstBalance = forecast[0]!.balanceAfter;
+  for (const d of forecast) {
+    if (d.balanceAfter.lessThan(worstBalance)) worstBalance = d.balanceAfter;
+  }
+
+  if (worstBalance.greaterThanOrEqualTo(minimumBalance)) return null;
+
+  const shortfall = minimumBalance.minus(worstBalance);
+  const occurrences = Math.max(transferDates.length, 1);
+  const raw = shortfall.div(occurrences).ceil();
+
+  // Round up to next $5 increment
+  const fiveD = new Decimal(5);
+  const rounded = raw.mod(fiveD).isZero()
+    ? raw
+    : raw.plus(fiveD.minus(raw.mod(fiveD)));
+
+  return rounded;
+}
