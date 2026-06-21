@@ -25,7 +25,7 @@ function UploadForm() {
       setError("Please select a file to upload.");
       return;
     }
-    const entityName = BUCKET_ENTITY_NAMES[bucket];
+    const entityName = BUCKET_ENTITY_NAMES[bucket] ?? "";
     formData.set("entityName", entityName);
     startTransition(async () => {
       try {
@@ -55,7 +55,7 @@ function UploadForm() {
       </div>
       <div className="space-y-1">
         <label className="text-sm font-medium">Entity</label>
-        <input type="text" value={BUCKET_ENTITY_NAMES[bucket]} readOnly
+        <input type="text" value={BUCKET_ENTITY_NAMES[bucket] ?? "All Entities"} readOnly
           className="block rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground" />
         <p className="text-xs text-muted-foreground">Switch entity using the tabs at the top of the page.</p>
       </div>
