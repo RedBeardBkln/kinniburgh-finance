@@ -14,7 +14,7 @@ import {
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import { setAccountBalance, upsertIncomeSource } from "@/actions/envelope";
-import { BalanceChart } from "@/components/forecast/balance-chart";
+import { ForecastAccountCard, type ChartPoint } from "@/components/forecast/forecast-account-card";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -33,7 +33,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
 
   const now = new Date();
   const forecastStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const forecastEnd30 = new Date(forecastStart.getTime() + 30 * 86400000);
+  const forecastEnd90 = new Date(forecastStart.getTime() + 90 * 86400000);
   const forecastEnd14 = new Date(forecastStart.getTime() + 14 * 86400000);
 
   // Load checking accounts with a minimum balance rule, filtered to the active bucket's entity
@@ -67,7 +67,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     orderBy: { name: "asc" },
   });
 
-  // Build forecast for each TD checking account
+  // Build 90-day forecast for each TD checking account
   const accountForecasts = tdAccounts.map((acct) => {
     const startBal = acct.currentBalance
       ? new Prisma.Decimal(acct.currentBalance)
@@ -76,30 +76,31 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       ? new Prisma.Decimal(acct.minimumBalance)
       : null;
 
-    // Gather events for this account
+    // Gather events for this account over 90 days
     const transferEvents = transfers.flatMap((t) =>
-      generateTransferOccurrences(t, forecastStart, forecastEnd30)
+      generateTransferOccurrences(t, forecastStart, forecastEnd90)
     ).filter((e) => e.accountId === acct.id);
 
     const incomeEvents = incomeSources.flatMap((s) =>
-      generateIncomeOccurrences(s, forecastStart, forecastEnd30)
+      generateIncomeOccurrences(s, forecastStart, forecastEnd90)
     ).filter((e) => e.accountId === acct.id);
 
     const billEvents = scheduledBills.flatMap((b) =>
-      generateBillOccurrences(b, forecastStart, forecastEnd30)
+      generateBillOccurrences(b, forecastStart, forecastEnd90)
     ).filter((e) => e.accountId === acct.id);
 
     const allEvents = [...transferEvents, ...incomeEvents, ...billEvents];
-    const forecast = buildAccountForecast(startBal, allEvents, minBal, forecastStart, forecastEnd30);
+    const forecast = buildAccountForecast(startBal, allEvents, minBal, forecastStart, forecastEnd90);
     const breaches = findBreachDays(forecast);
 
-    const chartData = forecast.map((day) => ({
+    // Full 90-day chart data (client component slices to 30/60/90)
+    const chartData90: ChartPoint[] = forecast.map((day) => ({
       label: day.date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
       balance: day.balanceAfter.toNumber(),
       isBreachDay: day.isBreachDay,
     }));
 
-    return { acct, forecast, breaches, chartData, startBal, minBal };
+    return { acct, forecast, breaches, chartData90, startBal, minBal };
   });
 
   // 14-day schedule for Primary Checking
@@ -228,25 +229,17 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           </div>
         )}
 
-        {/* ── Per-account balance charts ────────────────────────────────── */}
+        {/* ── Per-account balance charts (30/60/90 day selectable) ───── */}
         <div className="grid gap-6 lg:grid-cols-2">
-          {accountForecasts.map(({ acct, chartData, minBal }) => (
-            <Card key={acct.id}>
-              <CardContent className="pt-4">
-                {acct.currentBalance ? (
-                  <BalanceChart
-                    data={chartData}
-                    minimumBalance={minBal?.toNumber() ?? null}
-                    accountName={`${acct.nickname} ···${acct.mask}`}
-                  />
-                ) : (
-                  <div className="py-4 text-center text-sm text-muted-foreground">
-                    <p className="font-medium">{acct.nickname} ···{acct.mask}</p>
-                    <p className="mt-1">Set current balance above to see projection</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          {accountForecasts.map(({ acct, chartData90, minBal }) => (
+            <ForecastAccountCard
+              key={acct.id}
+              accountName={acct.nickname}
+              mask={acct.mask}
+              minimumBalance={minBal?.toNumber() ?? null}
+              currentBalance={acct.currentBalance ? Number(acct.currentBalance) : null}
+              chartData90={chartData90}
+            />
           ))}
         </div>
 

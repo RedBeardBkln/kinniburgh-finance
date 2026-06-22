@@ -42,7 +42,7 @@ export function AppSidebar() {
     {
       label: "P&L Report",
       base: `/business/${activeBucket}/pl`,
-      href: `/business/${activeBucket}/pl` as Route,
+      href: buildHref(`/business/${activeBucket}/pl`),
     },
     { label: "Tax Workspaces", base: "/tax", href: buildHref("/tax") },
   ];

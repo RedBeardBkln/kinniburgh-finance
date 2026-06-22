@@ -58,7 +58,34 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
     billsByAccount.get(key)!.push(bill);
   }
 
+  // Group active incoming transfers by destination account (for display alongside bills)
+  const incomingByAccount = new Map<string, typeof serializedTransfers>();
+  for (const t of serializedTransfers.filter((t) => t.active)) {
+    const key = t.toNickname;
+    if (!incomingByAccount.has(key)) incomingByAccount.set(key, []);
+    incomingByAccount.get(key)!.push(t);
+  }
+
+  // All unique account names across bills + incoming transfers
+  const allEnvelopeAccounts = new Set([
+    ...billsByAccount.keys(),
+    ...incomingByAccount.keys(),
+  ]);
+
   const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  function cadenceLabel(cadence: string, dayRules: Record<string, unknown>): string {
+    if (cadence === "weekly") {
+      const dow = typeof dayRules["dayOfWeek"] === "number" ? dayRules["dayOfWeek"] : 1;
+      return `Weekly (${DAY_NAMES[dow]})`;
+    }
+    if (cadence === "semi_monthly") {
+      const days = Array.isArray(dayRules["daysOfMonth"]) ? dayRules["daysOfMonth"] : [1, 15];
+      return `Semi-monthly (${(days as number[]).join("th & ")}th)`;
+    }
+    if (cadence === "monthly") return "Monthly";
+    return cadence;
+  }
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
@@ -151,64 +178,110 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
           </CardContent>
         </Card>
 
-        {/* ── Scheduled bills by account ──────────────────────────────── */}
+        {/* ── Envelope accounts: incoming transfers + bills ────────────── */}
         <div>
-          <h2 className="mb-3 text-lg font-semibold">Scheduled Bills</h2>
+          <h2 className="mb-3 text-lg font-semibold">Envelope Accounts</h2>
           <div className="space-y-4">
-            {[...billsByAccount.entries()].map(([accountName, accountBills]) => (
-              <Card key={accountName}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">{accountName}</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-left text-muted-foreground">
-                        <th className="px-4 py-2 font-medium">Payee</th>
-                        <th className="px-4 py-2 font-medium">Type</th>
-                        <th className="px-4 py-2 font-medium text-right">Expected</th>
-                        <th className="px-4 py-2 font-medium">Autopay day</th>
-                        <th className="px-4 py-2 font-medium">Annual budget</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {accountBills.map((bill) => (
-                        <tr key={bill.id} className="border-b last:border-0 hover:bg-muted/30">
-                          <td className="px-4 py-2 font-medium">{bill.payee}</td>
-                          <td className="px-4 py-2">
-                            <Badge
-                              variant="outline"
-                              className={`text-xs ${
-                                bill.amountType === "accrued"
-                                  ? "border-blue-300 text-blue-700"
-                                  : bill.amountType === "fluctuating"
-                                  ? "border-amber-300 text-amber-700"
-                                  : ""
-                              }`}
-                            >
-                              {bill.amountType}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            {bill.expectedAmount
-                              ? formatUSD(decimalToNumber(new Prisma.Decimal(bill.expectedAmount)))
-                              : "—"}
-                          </td>
-                          <td className="px-4 py-2 text-muted-foreground">
-                            {bill.autopayDay ? `${bill.autopayDay}th` : "—"}
-                          </td>
-                          <td className="px-4 py-2 text-muted-foreground">
-                            {bill.annualBudget
-                              ? formatUSD(decimalToNumber(new Prisma.Decimal(bill.annualBudget)))
-                              : "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </CardContent>
-              </Card>
-            ))}
+            {[...allEnvelopeAccounts].sort().map((accountName) => {
+              const accountBills = billsByAccount.get(accountName) ?? [];
+              const incoming = incomingByAccount.get(accountName) ?? [];
+              return (
+                <Card key={accountName}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">{accountName}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-0 p-0">
+                    {/* Incoming transfers */}
+                    {incoming.length > 0 && (
+                      <>
+                        <div className="border-b bg-muted/20 px-4 py-1.5">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Incoming Transfers</p>
+                        </div>
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b text-left text-muted-foreground">
+                              <th className="px-4 py-2 font-medium">From</th>
+                              <th className="px-4 py-2 font-medium">Cadence</th>
+                              <th className="px-4 py-2 font-medium">Purpose</th>
+                              <th className="px-4 py-2 font-medium text-right">Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {incoming.map((t) => (
+                              <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30">
+                                <td className="px-4 py-2">
+                                  <span className="font-medium">{t.fromNickname}</span>
+                                  {t.fromMask && <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.fromMask}</span>}
+                                </td>
+                                <td className="px-4 py-2 text-muted-foreground">{cadenceLabel(t.cadence, t.dayRules)}</td>
+                                <td className="px-4 py-2 text-xs text-muted-foreground">{t.purpose ?? "—"}</td>
+                                <td className="px-4 py-2 text-right font-medium text-green-600 tabular-nums">
+                                  +${parseFloat(t.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </>
+                    )}
+
+                    {/* Scheduled bills */}
+                    {accountBills.length > 0 && (
+                      <>
+                        <div className="border-b bg-muted/20 px-4 py-1.5">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Scheduled Bills</p>
+                        </div>
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b text-left text-muted-foreground">
+                              <th className="px-4 py-2 font-medium">Payee</th>
+                              <th className="px-4 py-2 font-medium">Type</th>
+                              <th className="px-4 py-2 font-medium text-right">Expected</th>
+                              <th className="px-4 py-2 font-medium">Autopay day</th>
+                              <th className="px-4 py-2 font-medium">Annual budget</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {accountBills.map((bill) => (
+                              <tr key={bill.id} className="border-b last:border-0 hover:bg-muted/30">
+                                <td className="px-4 py-2 font-medium">{bill.payee}</td>
+                                <td className="px-4 py-2">
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-xs ${
+                                      bill.amountType === "accrued"
+                                        ? "border-blue-300 text-blue-700"
+                                        : bill.amountType === "fluctuating"
+                                        ? "border-amber-300 text-amber-700"
+                                        : ""
+                                    }`}
+                                  >
+                                    {bill.amountType}
+                                  </Badge>
+                                </td>
+                                <td className="px-4 py-2 text-right">
+                                  {bill.expectedAmount
+                                    ? formatUSD(decimalToNumber(new Prisma.Decimal(bill.expectedAmount)))
+                                    : "—"}
+                                </td>
+                                <td className="px-4 py-2 text-muted-foreground">
+                                  {bill.autopayDay ? `${bill.autopayDay}th` : "—"}
+                                </td>
+                                <td className="px-4 py-2 text-muted-foreground">
+                                  {bill.annualBudget
+                                    ? formatUSD(decimalToNumber(new Prisma.Decimal(bill.annualBudget)))
+                                    : "—"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </div>
 

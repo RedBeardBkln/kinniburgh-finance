@@ -104,16 +104,17 @@ export function BudgetPageClient({
     });
   }
 
-  // Sort then group by account name
-  const sorted = [...budgets].sort(
-    sortBy === "alpha"
-      ? (a, b) => a.tagName.localeCompare(b.tagName)
-      : (a, b) => (a.payDay ?? 99) - (b.payDay ?? 99)
-  );
+  // Group by account name, then sort within each group
   const byAccount = new Map<string, SerializedBudgetLine[]>();
-  for (const b of sorted) {
+  for (const b of budgets) {
     if (!byAccount.has(b.accountName)) byAccount.set(b.accountName, []);
     byAccount.get(b.accountName)!.push(b);
+  }
+  const sortFn = sortBy === "alpha"
+    ? (a: SerializedBudgetLine, b: SerializedBudgetLine) => a.tagName.localeCompare(b.tagName)
+    : (a: SerializedBudgetLine, b: SerializedBudgetLine) => (a.payDay ?? 99) - (b.payDay ?? 99);
+  for (const [key, lines] of byAccount) {
+    byAccount.set(key, [...lines].sort(sortFn));
   }
 
   return (
