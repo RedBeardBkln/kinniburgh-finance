@@ -24,7 +24,7 @@ export async function GET(req: Request) {
 
   const response = await getPlaidClient().linkTokenCreate({
     user: { client_user_id: session.user.id! },
-    client_name: "Kinniburgh Finance",
+    client_name: "WISKIN Books",
     products: accessToken ? undefined : [Products.Transactions],
     access_token: accessToken,
     country_codes: [CountryCode.Us],

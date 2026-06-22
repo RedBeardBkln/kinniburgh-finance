@@ -158,67 +158,103 @@ export async function confirmImport(input: z.infer<typeof importSchema>) {
 
   const toInsert = parsed.rows.filter((r) => !r.skipDuplicate);
 
-  let imported = 0;
+  // Pre-process: parse dates and normalize payees up front
+  interface ProcessedRow {
+    date: Date;
+    payee: string;
+    payeeNormalized: string;
+    amount: Prisma.Decimal;
+    description: string | undefined;
+  }
+  const processed: ProcessedRow[] = [];
   let skipped = 0;
 
   for (const row of toInsert) {
-    const amount = new Prisma.Decimal(row.amount);
-    const payeeNormalized = normalizePayee(row.payee);
-    let postedAt: Date;
     try {
-      postedAt = new Date(normalizeDate(row.date));
-      if (isNaN(postedAt.getTime())) throw new Error("Invalid date");
+      const date = new Date(normalizeDate(row.date));
+      if (isNaN(date.getTime())) throw new Error("Invalid date");
+      processed.push({
+        date,
+        payee: row.payee,
+        payeeNormalized: normalizePayee(row.payee),
+        amount: new Prisma.Decimal(row.amount),
+        description: row.description,
+      });
     } catch {
       skipped++;
-      continue;
     }
+  }
 
-    // Dedup check (in case duplicates slipped through the preview)
-    const existing = await db.transaction.findFirst({
-      where: {
-        accountId: parsed.accountId,
-        archivedAt: null,
-        postedAt,
-        amount,
-        payeeNormalized,
-      },
-    });
-    if (existing) {
-      skipped++;
-      continue;
-    }
+  if (processed.length === 0) {
+    return { success: true, imported: 0, skipped };
+  }
 
-    const tx = await db.transaction.create({
-      data: {
-        accountId: parsed.accountId,
-        entityId: parsed.entityId,
-        postedAt,
-        amount,
-        payeeRaw: row.payee,
-        payeeNormalized,
-        description: row.description,
-        source: "import",
-      },
-    });
-
-    // Auto-assign tag from rules
-    const matchedTagId = matchTagRule(ruleInput, {
-      normalizedPayee: payeeNormalized,
-      amount: amount.abs().toNumber(),
+  // Batch dedup check: fetch existing transactions on any of these dates for this account
+  const uniqueDates = [...new Set(processed.map((r) => r.date.toISOString()))].map(
+    (d) => new Date(d)
+  );
+  const existingTxns = await db.transaction.findMany({
+    where: {
       accountId: parsed.accountId,
-    });
-    if (matchedTagId) {
-      await db.transactionTag.create({
-        data: { transactionId: tx.id, tagId: matchedTagId },
-      }).catch(() => {}); // ignore if tag no longer exists
-    }
+      archivedAt: null,
+      postedAt: { in: uniqueDates },
+    },
+    select: { postedAt: true, amount: true, payeeNormalized: true },
+  });
+  const existingSet = new Set(
+    existingTxns.map(
+      (t) => `${t.postedAt.getTime()}|${t.amount.toString()}|${t.payeeNormalized}`
+    )
+  );
 
-    imported++;
+  const unique = processed.filter(
+    (r) =>
+      !existingSet.has(
+        `${r.date.getTime()}|${r.amount.toString()}|${r.payeeNormalized}`
+      )
+  );
+  skipped += processed.length - unique.length;
+
+  if (unique.length === 0) {
+    revalidatePath("/transactions");
+    revalidatePath("/");
+    return { success: true, imported: 0, skipped };
+  }
+
+  // Batch insert all new transactions at once
+  const created = await db.transaction.createManyAndReturn({
+    data: unique.map((r) => ({
+      accountId: parsed.accountId,
+      entityId: parsed.entityId,
+      postedAt: r.date,
+      amount: r.amount,
+      payeeRaw: r.payee,
+      payeeNormalized: r.payeeNormalized,
+      description: r.description,
+      source: "import" as const,
+    })),
+    skipDuplicates: true,
+  });
+
+  // Batch tag assignment
+  const tagData = created
+    .map((tx) => {
+      const tagId = matchTagRule(ruleInput, {
+        normalizedPayee: tx.payeeNormalized ?? "",
+        amount: new Prisma.Decimal(tx.amount).abs().toNumber(),
+        accountId: parsed.accountId,
+      });
+      return tagId ? { transactionId: tx.id, tagId } : null;
+    })
+    .filter((t): t is { transactionId: string; tagId: string } => t !== null);
+
+  if (tagData.length > 0) {
+    await db.transactionTag.createMany({ data: tagData, skipDuplicates: true });
   }
 
   revalidatePath("/transactions");
   revalidatePath("/");
-  return { success: true, imported, skipped };
+  return { success: true, imported: created.length, skipped };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Kinniburgh Finance",
-    short_name: "KF Finance",
+    name: "WISKIN Books",
+    short_name: "WISKIN",
     description: "Personal & business financial management",
     start_url: "/",
     display: "standalone",

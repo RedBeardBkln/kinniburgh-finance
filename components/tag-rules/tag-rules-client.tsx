@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { createTagRule, deleteTagRule } from "@/actions/tag-rules";
+import { RetroactiveRuleModal } from "./retroactive-rule-modal";
 
 interface RuleRow {
   id: string;
@@ -50,6 +51,18 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
   const [newAmountMax, setNewAmountMax] = useState("");
   const [newAccountId, setNewAccountId] = useState("");
 
+  // Retroactive application state
+  const [retroModal, setRetroModal] = useState<{ ruleId: string; tagName: string } | null>(null);
+
+  function resetForm() {
+    setNewPattern("");
+    setNewTagId(allTags[0]?.id ?? "");
+    setNewAmountMin("");
+    setNewAmountMax("");
+    setNewAccountId("");
+    setShowForm(false);
+  }
+
   function handleCreate() {
     if (!newPattern.trim()) { setError("Payee pattern is required"); return; }
     if (!newTagId) { setError("Select a tag"); return; }
@@ -57,7 +70,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
 
     startTransition(async () => {
       try {
-        await createTagRule({
+        const { id: ruleId } = await createTagRule({
           payeePattern: newPattern.trim(),
           tagId: newTagId,
           amountMin: newAmountMin || undefined,
@@ -69,7 +82,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
         const account = accounts.find((a) => a.id === newAccountId);
         setRules((prev) => [
           {
-            id: crypto.randomUUID(),
+            id: ruleId,
             payeePattern: newPattern.trim().toLowerCase(),
             tagId: newTagId,
             tagName: tag?.shortName ?? "",
@@ -81,8 +94,8 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
           },
           ...prev,
         ]);
-        setNewPattern(""); setNewTagId(allTags[0]?.id ?? ""); setNewAmountMin("");
-        setNewAmountMax(""); setNewAccountId(""); setShowForm(false);
+        // Open retroactive modal; form reset happens when modal closes
+        setRetroModal({ ruleId, tagName: tag?.name ?? tag?.shortName ?? "" });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Create failed");
       }
@@ -97,6 +110,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
   }
 
   return (
+    <>
     <div className="space-y-4">
       <div className="flex justify-end">
         <button
@@ -235,5 +249,17 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
         </CardContent>
       </Card>
     </div>
+
+    {retroModal && (
+      <RetroactiveRuleModal
+        ruleId={retroModal.ruleId}
+        tagName={retroModal.tagName}
+        onDone={() => {
+          setRetroModal(null);
+          resetForm();
+        }}
+      />
+    )}
+    </>
   );
 }

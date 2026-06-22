@@ -41,10 +41,10 @@ const createSchema = z.object({
 
 export async function createTagRule(
   input: z.input<typeof createSchema>
-): Promise<void> {
+): Promise<{ id: string }> {
   await requireAuth();
   const data = createSchema.parse(input);
-  await db.tagRule.create({
+  const rule = await db.tagRule.create({
     data: {
       payeePattern: normalizePayee(data.payeePattern),
       tagId: data.tagId,
@@ -54,6 +54,7 @@ export async function createTagRule(
     },
   });
   revalidatePath("/tag-rules");
+  return { id: rule.id };
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
@@ -217,6 +218,141 @@ export async function dryRunTagRules(entityId?: string): Promise<{
     previews: previews.slice(0, 10),
     unmatched: transactions.length - willTag,
   };
+}
+
+// ── Retroactive rule preview ──────────────────────────────────────────────────
+
+export interface RetroactiveMatch {
+  id: string;
+  postedAt: string;
+  payeeRaw: string;
+  amount: string;
+  existingTags: string[];
+  isExactMatch: boolean;
+}
+
+export async function previewRetroactiveRule(
+  ruleId: string,
+  since: string
+): Promise<{ tagId: string; tagName: string; matches: RetroactiveMatch[] }> {
+  await requireAuth();
+
+  const rule = await db.tagRule.findUnique({
+    where: { id: ruleId },
+    include: { tag: true },
+  });
+  if (!rule) throw new Error("Rule not found");
+
+  const sinceDate = new Date(since);
+
+  const transactions = await db.transaction.findMany({
+    where: {
+      archivedAt: null,
+      pending: false,
+      transferPairId: null,
+      postedAt: { gte: sinceDate },
+    },
+    select: {
+      id: true,
+      postedAt: true,
+      payeeRaw: true,
+      payeeNormalized: true,
+      amount: true,
+      accountId: true,
+      tags: { select: { tag: { select: { name: true } } } },
+    },
+    orderBy: { postedAt: "desc" },
+    take: 500,
+  });
+
+  const candidate = {
+    tagId: rule.tagId,
+    payeePattern: rule.payeePattern,
+    amountMin: rule.amountMin ? rule.amountMin.toNumber() : null,
+    amountMax: rule.amountMax ? rule.amountMax.toNumber() : null,
+    accountId: rule.accountId,
+  };
+
+  const matches: RetroactiveMatch[] = [];
+
+  for (const tx of transactions) {
+    const normalizedPayee = tx.payeeNormalized ?? normalizePayee(tx.payeeRaw ?? "");
+    const amount = new Prisma.Decimal(tx.amount).abs().toNumber();
+
+    // Score against only this single rule
+    let score = 0;
+    if (candidate.payeePattern) {
+      const pattern = candidate.payeePattern.toLowerCase();
+      if (normalizedPayee === pattern) {
+        score += 100;
+      } else if (normalizedPayee.startsWith(pattern)) {
+        score += 50;
+      } else {
+        continue;
+      }
+    }
+    if (candidate.amountMin !== null || candidate.amountMax !== null) {
+      const min = candidate.amountMin ?? -Infinity;
+      const max = candidate.amountMax ?? Infinity;
+      if (amount < min || amount > max) continue;
+      score += 20;
+    }
+    if (candidate.accountId) {
+      if (candidate.accountId !== tx.accountId) continue;
+      score += 10;
+    }
+    if (score === 0) continue;
+
+    matches.push({
+      id: tx.id,
+      postedAt: tx.postedAt.toISOString(),
+      payeeRaw: tx.payeeRaw ?? tx.payeeNormalized ?? "",
+      amount: new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+      }).format(new Prisma.Decimal(tx.amount).toNumber()),
+      existingTags: tx.tags.map((t) => t.tag.name),
+      isExactMatch: score >= 100,
+    });
+  }
+
+  return { tagId: rule.tagId, tagName: rule.tag.name, matches };
+}
+
+// ── Retroactive rule application ──────────────────────────────────────────────
+
+export async function applyRetroactiveTag(
+  transactionIds: string[],
+  tagId: string
+): Promise<{ applied: number }> {
+  const user = await requireAuth();
+
+  let applied = 0;
+  for (const txId of transactionIds) {
+    const tx = await db.transaction.findUnique({
+      where: { id: txId },
+      include: { tags: true },
+    });
+    if (!tx) continue;
+
+    const before = tx.tags.map((t) => t.tagId);
+    await db.auditLog.create({
+      data: {
+        transactionId: txId,
+        changedBy: user.id!,
+        changeType: "tag_change",
+        before: { tagIds: before },
+        after: { tagIds: [tagId], source: "retroactive_rule" },
+      },
+    });
+
+    await db.transactionTag.deleteMany({ where: { transactionId: txId } });
+    await db.transactionTag.create({ data: { transactionId: txId, tagId } });
+    applied++;
+  }
+
+  revalidatePath("/transactions");
+  return { applied };
 }
 
 // ── Bulk apply rules ──────────────────────────────────────────────────────────
