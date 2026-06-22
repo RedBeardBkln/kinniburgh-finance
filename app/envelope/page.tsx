@@ -3,18 +3,52 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getEnvelopeSummary, getEnvelopeForecastData, approveSlushFundsTransfer, updateScheduledTransfer, updateAccrualBalance } from "@/actions/envelope";
+import { getEnvelopeSummary, getEnvelopeForecastData, approveSlushFundsTransfer, updateAccrualBalance } from "@/actions/envelope";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
+import { ScheduledTransfersClient, type SerializedTransfer } from "@/components/envelope/scheduled-transfers-client";
+import { db } from "@/lib/db";
+import { type BucketSlug } from "@/lib/buckets";
 
-export default async function EnvelopePage() {
+interface PageProps {
+  searchParams: Promise<{ bucket?: string }>;
+}
+
+export default async function EnvelopePage({ searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+
+  const params = await searchParams;
+  const bucket = (params.bucket ?? "personal") as BucketSlug;
 
   const [
     { transfers, bills, accruals, slushTransferExists },
     forecastData,
-  ] = await Promise.all([getEnvelopeSummary(), getEnvelopeForecastData()]);
+    allAccounts,
+  ] = await Promise.all([
+    getEnvelopeSummary(bucket),
+    getEnvelopeForecastData(bucket),
+    db.account.findMany({
+      where: { archivedAt: null },
+      select: { id: true, nickname: true, mask: true },
+      orderBy: { nickname: "asc" },
+    }),
+  ]);
+
+  const serializedTransfers: SerializedTransfer[] = transfers.map((t) => ({
+    id: t.id,
+    fromAccountId: t.fromAccountId,
+    fromNickname: t.fromAccount.nickname,
+    fromMask: t.fromAccount.mask,
+    toAccountId: t.toAccountId,
+    toNickname: t.toAccount.nickname,
+    toMask: t.toAccount.mask,
+    amount: t.amount.toString(),
+    cadence: t.cadence,
+    dayRules: t.dayRules as Record<string, unknown>,
+    purpose: t.purpose,
+    active: t.active,
+  }));
 
   // Group bills by account
   const billsByAccount = new Map<string, typeof bills>();
@@ -26,20 +60,6 @@ export default async function EnvelopePage() {
 
   const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-  function cadenceLabel(cadence: string, dayRules: unknown): string {
-    const rules = dayRules as Record<string, unknown>;
-    if (cadence === "weekly") {
-      const dow = typeof rules["dayOfWeek"] === "number" ? rules["dayOfWeek"] : 1;
-      return `Weekly (${DAY_NAMES[dow]})`;
-    }
-    if (cadence === "semi_monthly") {
-      const days = Array.isArray(rules["daysOfMonth"]) ? rules["daysOfMonth"] : [1, 15];
-      return `Semi-monthly (${(days as number[]).join("th & ")}th)`;
-    }
-    if (cadence === "monthly") return "Monthly";
-    return cadence;
-  }
-
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
@@ -50,67 +70,8 @@ export default async function EnvelopePage() {
           </p>
         </div>
 
-        {/* ── Confirmed scheduled transfers ───────────────────────────── */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Scheduled Transfers</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">From</th>
-                  <th className="px-4 py-2 font-medium">To</th>
-                  <th className="px-4 py-2 font-medium">Amount</th>
-                  <th className="px-4 py-2 font-medium">Cadence</th>
-                  <th className="px-4 py-2 font-medium">Purpose</th>
-                  <th className="px-4 py-2 font-medium">Status</th>
-                  <th className="px-4 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {transfers.map((t) => (
-                  <tr key={t.id} className={`border-b last:border-0 hover:bg-muted/30 ${!t.active ? "opacity-50" : ""}`}>
-                    <td className="px-4 py-2">
-                      <span className="font-medium">{t.fromAccount.nickname}</span>
-                      <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.fromAccount.mask}</span>
-                    </td>
-                    <td className="px-4 py-2">
-                      <span className="font-medium">{t.toAccount.nickname}</span>
-                      <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.toAccount.mask}</span>
-                    </td>
-                    <td className="px-4 py-2 font-medium">
-                      {formatUSD(decimalToNumber(new Prisma.Decimal(t.amount)))}
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {cadenceLabel(t.cadence, t.dayRules)}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground">
-                      {t.purpose ?? "—"}
-                    </td>
-                    <td className="px-4 py-2">
-                      <Badge variant={t.active ? "default" : "outline"}>
-                        {t.active ? "Active" : "Paused"}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-2">
-                      <form
-                        action={async () => {
-                          "use server";
-                          await updateScheduledTransfer({ id: t.id, active: !t.active });
-                        }}
-                      >
-                        <button type="submit" className="text-xs text-muted-foreground hover:text-foreground">
-                          {t.active ? "Pause" : "Resume"}
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+        {/* ── Scheduled transfers (CRUD) ───────────────────────────────── */}
+        <ScheduledTransfersClient transfers={serializedTransfers} accounts={allAccounts} />
 
         {/* ── Slush Funds proposal (shown only if transfer not yet created) ── */}
         {!slushTransferExists && (

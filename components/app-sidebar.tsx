@@ -8,6 +8,7 @@ import type { Route } from "next";
 
 const BUSINESS_BUCKETS = ["sudden-valley", "ek-consulting", "mezzo"] as const;
 const TAX_BUCKET = "taxes";
+const ENVELOPE_BUCKETS = ["personal", "taxes", "sudden-valley"] as const;
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -83,8 +84,8 @@ export function AppSidebar() {
             </li>
           ))}
 
-          {/* Envelopes: only Personal and Taxes */}
-          {!isBusinessBucket && (
+          {/* Envelopes: Personal, Taxes, and Sudden Valley */}
+          {(ENVELOPE_BUCKETS as readonly string[]).includes(activeBucket) && (
             <li>
               <Link
                 href={buildHref(envelopeItem.base)}

@@ -76,6 +76,7 @@ export function BudgetPageClient({
     | { type: "edit"; row: BudgetRowForEdit }
     | null
   >(null);
+  const [sortBy, setSortBy] = useState<"alpha" | "due-date">("alpha");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -103,9 +104,14 @@ export function BudgetPageClient({
     });
   }
 
-  // Group by account name
+  // Sort then group by account name
+  const sorted = [...budgets].sort(
+    sortBy === "alpha"
+      ? (a, b) => a.tagName.localeCompare(b.tagName)
+      : (a, b) => (a.payDay ?? 99) - (b.payDay ?? 99)
+  );
   const byAccount = new Map<string, SerializedBudgetLine[]>();
-  for (const b of budgets) {
+  for (const b of sorted) {
     if (!byAccount.has(b.accountName)) byAccount.set(b.accountName, []);
     byAccount.get(b.accountName)!.push(b);
   }
@@ -120,12 +126,28 @@ export function BudgetPageClient({
               {entityName} · {periodLabel}
             </p>
           </div>
-          <button
-            onClick={() => setModal({ type: "add" })}
-            className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            + Add Budget Line
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-md border text-xs font-medium overflow-hidden">
+              <button
+                onClick={() => setSortBy("alpha")}
+                className={`px-3 py-1.5 transition-colors ${sortBy === "alpha" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+              >
+                A–Z
+              </button>
+              <button
+                onClick={() => setSortBy("due-date")}
+                className={`px-3 py-1.5 border-l transition-colors ${sortBy === "due-date" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+              >
+                By Due Date
+              </button>
+            </div>
+            <button
+              onClick={() => setModal({ type: "add" })}
+              className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              + Add Budget Line
+            </button>
+          </div>
         </div>
 
         {/* Summary totals */}
@@ -178,7 +200,7 @@ export function BudgetPageClient({
                   <thead>
                     <tr className="border-b text-left text-muted-foreground">
                       <th className="px-4 py-2 font-medium">Category</th>
-                      <th className="px-4 py-2 font-medium">Pay Day</th>
+                      <th className="px-4 py-2 font-medium">Due Date</th>
                       <th className="px-4 py-2 font-medium text-right">Budgeted</th>
                       <th className="px-4 py-2 font-medium text-right">Rollover</th>
                       <th className="px-4 py-2 font-medium text-right">Effective</th>

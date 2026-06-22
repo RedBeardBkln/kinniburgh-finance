@@ -145,10 +145,10 @@ export function BudgetEditModal({
             </div>
           </div>
 
-          {/* Pay day */}
+          {/* Due date */}
           <div className="space-y-1">
             <label className="text-sm font-medium">
-              Pay Day <span className="text-muted-foreground font-normal">(day of month, optional)</span>
+              Due Date <span className="text-muted-foreground font-normal">(day of month, optional)</span>
             </label>
             <input
               type="number"

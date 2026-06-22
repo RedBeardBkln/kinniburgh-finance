@@ -58,7 +58,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       where: { active: true },
       include: { account: true, entity: true },
     }),
-    db.scheduledBill.findMany({ where: { active: true } }),
+    db.scheduledBill.findMany({ where: { active: true, budgetTagId: { not: null } } }),
   ]);
 
   // Load entities for the income source form

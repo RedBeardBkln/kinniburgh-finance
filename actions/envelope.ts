@@ -14,6 +14,7 @@ import {
   computeSuggestedTransferIncrease,
   type ScheduleEvent,
 } from "@/lib/forecast";
+import { BUCKET_ENTITY_NAMES, type BucketSlug } from "@/lib/buckets";
 
 async function requireAuth() {
   const session = await auth();
@@ -23,36 +24,55 @@ async function requireAuth() {
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
-export async function getEnvelopeSummary() {
+function buildAccountWhere(entityId: string | null, entityName: string | null): Prisma.AccountWhereInput {
+  if (entityId === null) return {}; // taxes = all entities
+  if (entityName === "Personal") {
+    return { OR: [{ entityId }, { nickname: "The Cottage" }] };
+  }
+  return { entityId };
+}
+
+export async function getEnvelopeSummary(bucket: BucketSlug = "personal") {
+  const entityName = BUCKET_ENTITY_NAMES[bucket];
+  const entity = entityName ? await db.entity.findFirst({ where: { name: entityName } }) : null;
+  const accountWhere = buildAccountWhere(entity?.id ?? null, entityName);
+
   const [transfers, bills, accruals, incomes] = await Promise.all([
     db.scheduledTransfer.findMany({
+      where: {
+        OR: [
+          { fromAccount: accountWhere },
+          { toAccount: accountWhere },
+        ],
+      },
       include: { fromAccount: true, toAccount: true },
       orderBy: { createdAt: "asc" },
     }),
     db.scheduledBill.findMany({
-      where: { active: true },
+      where: { active: true, budgetTagId: { not: null }, account: accountWhere },
       include: { account: { include: { institution: true } }, entity: true },
       orderBy: [{ account: { nickname: "asc" } }, { payee: "asc" }],
     }),
     db.accrualEnvelope.findMany({
+      where: { account: accountWhere },
       include: { account: true },
       orderBy: { name: "asc" },
     }),
     db.incomeSource.findMany({
-      where: { active: true },
+      where: { active: true, account: accountWhere },
       include: { account: true, entity: true },
       orderBy: { description: "asc" },
     }),
   ]);
 
-  // Determine if the Slush Funds proposal is still pending
-  // (no active transfer from x2566 → x3612 exists yet)
-  const slushAccount = await db.account.findFirst({
-    where: { nickname: "Slush Funds" },
-  });
-  const primaryAccount = await db.account.findFirst({
-    where: { nickname: "Primary Checking" },
-  });
+  // Slush Funds proposal — only relevant on Personal tab
+  const isPersonal = entityName === "Personal";
+  const slushAccount = isPersonal
+    ? await db.account.findFirst({ where: { nickname: "Slush Funds" } })
+    : null;
+  const primaryAccount = isPersonal
+    ? await db.account.findFirst({ where: { nickname: "Primary Checking" } })
+    : null;
 
   const slushTransferExists =
     slushAccount && primaryAccount
@@ -62,7 +82,7 @@ export async function getEnvelopeSummary() {
             t.fromAccountId === primaryAccount.id &&
             t.toAccountId === slushAccount.id
         )
-      : false;
+      : true; // hide proposal on non-personal tabs
 
   return {
     transfers,
@@ -112,6 +132,50 @@ export async function approveSlushFundsTransfer(
     },
   });
 
+  revalidatePath("/envelope");
+  revalidatePath("/forecast");
+  return { success: true };
+}
+
+// ── Create scheduled transfer ─────────────────────────────────────────────────
+
+const createTransferSchema = z.object({
+  fromAccountId: z.string().uuid(),
+  toAccountId: z.string().uuid(),
+  amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  cadence: z.enum(["weekly", "semi_monthly", "monthly"]),
+  dayRules: z.record(z.unknown()),
+  purpose: z.string().max(200).optional(),
+});
+
+export async function createScheduledTransfer(
+  input: z.infer<typeof createTransferSchema>
+) {
+  await requireAuth();
+  const parsed = createTransferSchema.parse(input);
+
+  await db.scheduledTransfer.create({
+    data: {
+      fromAccountId: parsed.fromAccountId,
+      toAccountId: parsed.toAccountId,
+      amount: new Prisma.Decimal(parsed.amount),
+      cadence: parsed.cadence,
+      dayRules: parsed.dayRules as Prisma.InputJsonValue,
+      purpose: parsed.purpose ?? null,
+      active: true,
+    },
+  });
+
+  revalidatePath("/envelope");
+  revalidatePath("/forecast");
+  return { success: true };
+}
+
+// ── Delete scheduled transfer ─────────────────────────────────────────────────
+
+export async function deleteScheduledTransfer(id: string) {
+  await requireAuth();
+  await db.scheduledTransfer.delete({ where: { id } });
   revalidatePath("/envelope");
   revalidatePath("/forecast");
   return { success: true };
@@ -258,7 +322,11 @@ export interface EnvelopeForecastResult {
   billsThisMonth: { payee: string; dueDay: number | null; expectedAmount: number | null }[];
 }
 
-export async function getEnvelopeForecastData(): Promise<EnvelopeForecastResult[]> {
+export async function getEnvelopeForecastData(bucket: BucketSlug = "personal"): Promise<EnvelopeForecastResult[]> {
+  const entityName = BUCKET_ENTITY_NAMES[bucket];
+  const entity = entityName ? await db.entity.findFirst({ where: { name: entityName } }) : null;
+  const accountWhere = buildAccountWhere(entity?.id ?? null, entityName);
+
   const now = new Date();
   const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const to = new Date(from.getTime() + 30 * 86400000);
@@ -269,11 +337,12 @@ export async function getEnvelopeForecastData(): Promise<EnvelopeForecastResult[
       archivedAt: null,
       minimumBalance: { not: null },
       accountType: "checking",
+      ...accountWhere,
     },
     include: {
       scheduledTransfersTo: { where: { active: true } },
       scheduledTransfersFrom: { where: { active: true } },
-      scheduledBills: { where: { active: true } },
+      scheduledBills: { where: { active: true, budgetTagId: { not: null } } },
       incomeSources: { where: { active: true } },
     },
   });
