@@ -90,14 +90,12 @@ export function InlineTagCell({ transactionId, allTags, initialTagIds }: Props) 
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
-    if (!q) return allTags.slice(0, 30);
-    return allTags
-      .filter(
-        (t) =>
-          t.name.toLowerCase().includes(q) ||
-          t.shortName.toLowerCase().includes(q)
-      )
-      .slice(0, 30);
+    if (!q) return allTags;
+    return allTags.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.shortName.toLowerCase().includes(q)
+    );
   }, [allTags, query]);
 
   const selectedTags = useMemo(

@@ -1,8 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
-import { BUCKET_DISPLAY_LABELS } from "@/lib/buckets";
+import { AppShell } from "@/components/app-shell";
+import { getEntityBySlug } from "@/lib/entity";
 import { Card, CardContent } from "@/components/ui/card";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
@@ -35,18 +35,15 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   if (!session?.user) redirect("/login");
 
   const params = await searchParams;
-  const bucket = (params.bucket ?? "personal") as BucketSlug;
+  const bucket = params.bucket ?? "personal";
   const tab = params.tab ?? "all";
-  const entityName = BUCKET_ENTITY_NAMES[bucket];
-  const bucketLabel = BUCKET_DISPLAY_LABELS[bucket];
   const page = Math.max(1, Number(params.page ?? 1));
   const pageSize = 50;
   const sort = params.sort ?? "date";
   const sortDir = (params.sortDir ?? "desc") as "asc" | "desc";
 
-  const entity = entityName
-    ? await db.entity.findFirst({ where: { name: entityName } })
-    : null;
+  const entity = await getEntityBySlug(bucket);
+  const bucketLabel = entity?.navLabel ?? entity?.name ?? "All Entities";
 
   const orderBy: Prisma.TransactionOrderByWithRelationInput =
     sort === "payee" ? { payeeRaw: sortDir } :

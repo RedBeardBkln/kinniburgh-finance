@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { computePayoffScenarios } from "@/lib/payoff-math";
 
 const EXTRA_INCREMENTS = [0, 10000, 20000, 50000, 100000]; // cents above your current extra
+const STORAGE_KEY = "mortgage-calc-v1";
 
 function formatMoney(cents: number): string {
   return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -16,6 +17,12 @@ function formatMonths(months: number): string {
   if (y === 0) return `${m}mo`;
   if (m === 0) return `${y}yr`;
   return `${y}yr ${m}mo`;
+}
+
+function formatPayoffDate(isoDate: string): string {
+  const [year, month] = isoDate.split("-");
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[(parseInt(month ?? "1", 10) - 1)] ?? ""} ${year}`;
 }
 
 function InputRow({ label, value, set, placeholder, hint }: { label: string; value: string; set: (v: string) => void; placeholder: string; hint?: string }) {
@@ -44,6 +51,39 @@ export function MortgageClient() {
   const [propertyTaxes, setPropertyTaxes] = useState("");
   const [pmi, setPmi] = useState("");
   const [propertyInsurance, setPropertyInsurance] = useState("");
+
+  // Load saved values on mount (runs only client-side after hydration)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return;
+      const d = JSON.parse(saved) as Record<string, string>;
+      if (d.principal != null) setPrincipal(d.principal);
+      if (d.rate != null) setRate(d.rate);
+      if (d.term != null) setTerm(d.term);
+      if (d.piPayment != null) setPiPayment(d.piPayment);
+      if (d.extraPrincipal != null) setExtraPrincipal(d.extraPrincipal);
+      if (d.propertyTaxes != null) setPropertyTaxes(d.propertyTaxes);
+      if (d.pmi != null) setPmi(d.pmi);
+      if (d.propertyInsurance != null) setPropertyInsurance(d.propertyInsurance);
+    } catch {}
+  }, []);
+
+  // Auto-save on every field change, skipping the initial render to avoid
+  // overwriting saved values before the load effect has applied them.
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ principal, rate, term, piPayment, extraPrincipal, propertyTaxes, pmi, propertyInsurance })
+      );
+    } catch {}
+  }, [principal, rate, term, piPayment, extraPrincipal, propertyTaxes, pmi, propertyInsurance]);
 
   const principalCents = Math.round(parseFloat(principal || "0") * 100);
   const annualRate = parseFloat(rate || "0") / 100;
@@ -91,7 +131,7 @@ export function MortgageClient() {
       <div>
         <h1 className="text-2xl font-semibold">Mortgage Payoff Simulator</h1>
         <p className="text-sm text-muted-foreground">
-          Model extra payment scenarios. Values pre-filled from your latest mortgage statement if parsed; edit as needed.
+          Values are auto-saved and restored each visit. Edit as needed.
         </p>
       </div>
 
@@ -172,6 +212,26 @@ export function MortgageClient() {
       </Card>
 
       {scenarios && (
+        <div className="rounded-lg border bg-card px-5 py-4 shadow-sm">
+          <div className="flex flex-wrap gap-8">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Estimated payoff date</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums">{formatPayoffDate(scenarios[0]!.payoffDate)}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {formatMonths(scenarios[0]!.monthsRemaining)} from now
+                {extraPrincipalCents > 0 && ` · includes +${formatMoney(extraPrincipalCents)}/mo extra`}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total interest remaining</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums">{formatMoney(scenarios[0]!.totalInterestCents)}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">at current payment</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {scenarios && (
         <>
           {goalPaymentCents > totalMonthlyCents && (
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
@@ -233,7 +293,7 @@ export function MortgageClient() {
                 </table>
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
-                Payoff dates: {scenarios.map((s, i) => `${i === 0 ? (extraPrincipalCents > 0 ? "Your payment" : "Current") : `+${formatMoney(EXTRA_INCREMENTS[i]!)}${extraPrincipalCents > 0 ? " more" : ""}`}: ${s.payoffDate}`).join(" · ")}
+                Payoff dates: {scenarios.map((s, i) => `${i === 0 ? (extraPrincipalCents > 0 ? "Your payment" : "Current") : `+${formatMoney(EXTRA_INCREMENTS[i]!)}${extraPrincipalCents > 0 ? " more" : ""}`}: ${formatPayoffDate(s.payoffDate)}`).join(" · ")}
               </p>
             </CardContent>
           </Card>

@@ -47,6 +47,7 @@ function ImportInner() {
   const [colPayee, setColPayee] = useState("");
   const [colAmount, setColAmount] = useState("");
   const [colDescription, setColDescription] = useState("");
+  const [colAccount, setColAccount] = useState("");
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -77,6 +78,7 @@ function ImportInner() {
       setColPayee(find(["description", "payee", "merchant", "name"]));
       setColAmount(find(["amount", "debit", "credit"]));
       setColDescription(find(["memo", "note", "detail"]));
+      setColAccount(find(["account", "account name", "account number"]));
       setStep("map");
     };
     reader.readAsText(file);
@@ -92,7 +94,13 @@ function ImportInner() {
     try {
       const { rows: parsed } = await parseImportPreview({
         csvContent,
-        mapping: { date: colDate, payee: colPayee, amount: colAmount, description: colDescription || undefined },
+        mapping: {
+          date: colDate,
+          payee: colPayee,
+          amount: colAmount,
+          description: colDescription || undefined,
+          account: colAccount || undefined,
+        },
         accountId,
       });
       setRows(parsed);
@@ -191,6 +199,7 @@ function ImportInner() {
                 { label: "Payee / Description column *", value: colPayee, setter: setColPayee },
                 { label: "Amount column *", value: colAmount, setter: setColAmount },
                 { label: "Notes / Memo column (optional)", value: colDescription, setter: setColDescription },
+                { label: "Account column (optional — for transfer detection)", value: colAccount, setter: setColAccount },
               ].map(({ label, value, setter }) => (
                 <div key={label} className="space-y-1.5">
                   <Label>{label}</Label>
@@ -227,6 +236,11 @@ function ImportInner() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
+            <div className="flex gap-4 px-3 py-2 text-xs text-muted-foreground border-b">
+              <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />Debit</span>
+              <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Credit / Refund</span>
+              <span><span className="inline-block w-2 h-2 rounded-full bg-purple-500 mr-1" />Transfer</span>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -242,17 +256,54 @@ function ImportInner() {
                   {rows.map((r, i) => {
                     const skip = skippedRows.has(i);
                     const amt = parseFloat(r.amount);
+                    const isTransfer = r.rowType === "transfer";
+                    const isCredit = r.rowType === "credit";
+
+                    const rowBg = skip
+                      ? "opacity-40"
+                      : isTransfer
+                        ? "bg-purple-50 hover:bg-purple-100"
+                        : "hover:bg-muted/30";
+
+                    const amtColor = isTransfer
+                      ? "text-purple-700"
+                      : amt < 0
+                        ? "text-red-600"
+                        : "text-green-600";
+
                     return (
-                      <tr key={i} className={`border-b last:border-0 ${skip ? "opacity-40" : "hover:bg-muted/30"}`}>
+                      <tr key={i} className={`border-b last:border-0 ${rowBg}`}>
                         <td className="px-3 py-1.5">
                           <input type="checkbox" checked={!skip} onChange={() => toggleSkip(i)} className="h-4 w-4" />
                         </td>
                         <td className="px-3 py-1.5 text-muted-foreground">{r.date}</td>
-                        <td className="px-3 py-1.5 max-w-xs truncate">{r.payee}</td>
-                        <td className={`px-3 py-1.5 text-right font-mono ${amt < 0 ? "text-destructive" : "text-green-600"}`}>
+                        <td className="px-3 py-1.5 max-w-xs">
+                          <div className="truncate">{r.payee}</div>
+                          {isTransfer && (
+                            <div className="text-xs text-purple-600 mt-0.5">
+                              {r.transferDirection === "out" ? "→" : "←"}{" "}
+                              {r.transferToAccount
+                                ? `Transfer to ${r.transferToAccount}`
+                                : r.transferDirection === "out"
+                                  ? "Transfer out"
+                                  : "Transfer in"}
+                            </div>
+                          )}
+                        </td>
+                        <td className={`px-3 py-1.5 text-right font-mono ${amtColor}`}>
                           {amt < 0 ? "-" : "+"}${Math.abs(amt).toFixed(2)}
                         </td>
-                        <td className="px-3 py-1.5">
+                        <td className="px-3 py-1.5 space-x-1">
+                          {isTransfer && (
+                            <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">
+                              {r.transferDirection === "out" ? "transfer out" : "transfer in"}
+                            </Badge>
+                          )}
+                          {!isTransfer && isCredit && (
+                            <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                              credit
+                            </Badge>
+                          )}
                           {r.isDuplicate && (
                             <Badge variant="outline" className="text-xs text-muted-foreground">duplicate</Badge>
                           )}

@@ -16,6 +16,7 @@ export interface ColumnMapping {
   credit?: string;    // optional separate credit column (for split credit/debit CSVs)
   debit?: string;     // optional separate debit column
   description?: string;
+  account?: string;   // optional column identifying the source account in the CSV
 }
 
 export interface ParsedRow {
@@ -23,7 +24,11 @@ export interface ParsedRow {
   payee: string;
   amount: string; // signed decimal string; negative = outflow
   description?: string;
+  account?: string;
   isDuplicate?: boolean;
+  rowType?: "debit" | "credit" | "transfer";
+  transferDirection?: "out" | "in";
+  transferToAccount?: string;
 }
 
 // ── Parse CSV string into rows using column mapping ───────────────────────────
@@ -58,6 +63,7 @@ export async function parseImportPreview(opts: {
   const creditIdx = mapping.credit ? colIndex(mapping.credit) : -1;
   const debitIdx = mapping.debit ? colIndex(mapping.debit) : -1;
   const descIdx = mapping.description ? colIndex(mapping.description) : -1;
+  const acctIdx = mapping.account ? colIndex(mapping.account) : -1;
 
   const rows: ParsedRow[] = [];
 
@@ -90,7 +96,32 @@ export async function parseImportPreview(opts: {
       payee: payeeStr,
       amount: amountStr,
       description: descIdx >= 0 ? cells[descIdx]?.trim() : undefined,
+      account: acctIdx >= 0 ? cells[acctIdx]?.trim() : undefined,
     });
+  }
+
+  // Transfer detection: match payee/description against known account names
+  const allAccounts = await db.account.findMany({
+    where: { archivedAt: null },
+    select: { nickname: true },
+  });
+
+  const TRANSFER_RE = /\b(transfer|xfer|wire|zelle|venmo|internal|bank to bank|funds transfer)\b/i;
+
+  for (const row of rows) {
+    const searchable = [row.payee, row.description, row.account].filter(Boolean).join(" ");
+    const amt = parseFloat(row.amount);
+
+    if (TRANSFER_RE.test(searchable)) {
+      const matchedAccount = allAccounts.find(
+        (a) => a.nickname.length > 3 && searchable.toLowerCase().includes(a.nickname.toLowerCase())
+      );
+      row.rowType = "transfer";
+      row.transferDirection = amt < 0 ? "out" : "in";
+      row.transferToAccount = matchedAccount?.nickname;
+    } else {
+      row.rowType = amt < 0 ? "debit" : "credit";
+    }
   }
 
   // Dedup check against existing transactions
