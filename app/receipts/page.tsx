@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
+import { AppShell } from "@/components/app-shell";
+import { getEntityBySlug } from "@/lib/entity";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { listReceipts } from "@/actions/receipts";
@@ -25,14 +26,11 @@ export default async function ReceiptsPage({ searchParams }: PageProps) {
   if (!session?.user) redirect("/login");
 
   const params = await searchParams;
-  const bucket = (params.bucket ?? "personal") as BucketSlug;
+  const bucket = params.bucket ?? "personal";
   const tab = (params.tab ?? "review") as TabSlug;
   const page = Math.max(1, Number(params.page ?? 1));
 
-  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
-  const entity = entityName
-    ? await db.entity.findFirst({ where: { name: entityName } })
-    : null;
+  const entity = await getEntityBySlug(bucket);
 
   const { receipts, total, pageSize } = await listReceipts({
     entityId: entity?.id,

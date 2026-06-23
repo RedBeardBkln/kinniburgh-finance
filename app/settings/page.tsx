@@ -2,18 +2,16 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getAllBusinessEntities } from "@/lib/entity";
 import Link from "next/link";
 import type { Route } from "next";
-
-const BUSINESS_ENTITIES = [
-  { slug: "sudden-valley", name: "Sudden Valley" },
-  { slug: "ek-consulting", name: "EK Consulting" },
-  { slug: "mezzo", name: "Mezzo" },
-] as const;
 
 export default async function SettingsPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
+
+  const businessEntities = await getAllBusinessEntities();
+  const visibleBusinesses = businessEntities.filter((e) => e.slug && !e.hiddenInNav);
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
@@ -51,6 +49,11 @@ export default async function SettingsPage() {
             description="Payroll and recurring deposits used by the 30-day balance forecast and low-balance alerts."
             href={"/settings/income-sources" as Route}
           />
+          <SettingsCard
+            title="Business Entities"
+            description="Show or hide business tabs, and add new business entities to the app."
+            href={"/settings/entities" as Route}
+          />
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">GL Codes</CardTitle>
@@ -60,16 +63,19 @@ export default async function SettingsPage() {
                 Chart of accounts for each business entity.
               </p>
               <ul className="space-y-1.5">
-                {BUSINESS_ENTITIES.map(({ slug, name }) => (
-                  <li key={slug}>
+                {visibleBusinesses.map((e) => (
+                  <li key={e.id}>
                     <Link
-                      href={`/business/${slug}/gl` as Route}
+                      href={`/business/${e.slug}/gl` as Route}
                       className="text-sm text-primary hover:underline"
                     >
-                      {name}
+                      {e.navLabel ?? e.name}
                     </Link>
                   </li>
                 ))}
+                {visibleBusinesses.length === 0 && (
+                  <li className="text-sm text-muted-foreground">No business entities visible.</li>
+                )}
               </ul>
             </CardContent>
           </Card>

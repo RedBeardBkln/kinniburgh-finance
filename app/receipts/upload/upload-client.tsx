@@ -2,14 +2,17 @@
 
 import { useTransition, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BUCKET_ENTITY_NAMES, type BucketSlug } from "@/lib/buckets";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { uploadAndExtractReceipt } from "@/actions/receipts";
 
-function UploadForm() {
+interface UploadFormProps {
+  entityLabel: string;
+}
+
+function UploadForm({ entityLabel }: UploadFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const bucket = (searchParams.get("bucket") ?? "personal") as BucketSlug;
+  const bucket = searchParams.get("bucket") ?? "personal";
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -25,13 +28,11 @@ function UploadForm() {
       setError("Please select a file to upload.");
       return;
     }
-    const entityName = BUCKET_ENTITY_NAMES[bucket] ?? "";
-    formData.set("entityName", entityName);
     startTransition(async () => {
       try {
         const resp = await fetch(`/api/entity-id?bucket=${bucket}`);
         const { entityId } = (await resp.json()) as { entityId: string };
-        formData.set("entityId", entityId);
+        formData.set("entityId", entityId ?? "");
         const { receiptId } = await uploadAndExtractReceipt(formData);
         router.push(`/receipts/${receiptId}`);
       } catch (err) {
@@ -55,7 +56,7 @@ function UploadForm() {
       </div>
       <div className="space-y-1">
         <label className="text-sm font-medium">Entity</label>
-        <input type="text" value={BUCKET_ENTITY_NAMES[bucket] ?? "All Entities"} readOnly
+        <input type="text" value={entityLabel} readOnly
           className="block rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground" />
         <p className="text-xs text-muted-foreground">Switch entity using the tabs at the top of the page.</p>
       </div>
@@ -68,7 +69,7 @@ function UploadForm() {
   );
 }
 
-export function UploadClient() {
+export function UploadClient({ entityLabel }: { entityLabel: string }) {
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <h1 className="text-2xl font-semibold">Upload Receipt</h1>
@@ -76,7 +77,7 @@ export function UploadClient() {
         <CardHeader><CardTitle className="text-base">Select file</CardTitle></CardHeader>
         <CardContent>
           <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
-            <UploadForm />
+            <UploadForm entityLabel={entityLabel} />
           </Suspense>
         </CardContent>
       </Card>

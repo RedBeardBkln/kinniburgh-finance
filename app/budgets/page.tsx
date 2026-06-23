@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
+import { AppShell } from "@/components/app-shell";
+import { getEntityBySlug } from "@/lib/entity";
 import { computeBudgetSummary } from "@/lib/budget";
 import { decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
@@ -12,7 +13,6 @@ import {
   BudgetPageClient,
   type SerializedBudgetLine,
 } from "@/components/budgets/budget-page-client";
-import { BUCKET_DISPLAY_LABELS } from "@/lib/buckets";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; period?: string }>;
@@ -23,9 +23,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
   if (!session?.user) redirect("/login");
 
   const params = await searchParams;
-  const bucket = (params.bucket ?? "personal") as BucketSlug;
-  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
-  const bucketLabel = BUCKET_DISPLAY_LABELS[bucket];
+  const bucket = params.bucket ?? "personal";
 
   const now = new Date();
   const defaultPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -35,9 +33,8 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
   const monthStart = new Date(Date.UTC(year!, mon! - 1, 1));
   const monthEnd = new Date(Date.UTC(year!, mon!, 1));
 
-  const entity = entityName
-    ? await db.entity.findFirst({ where: { name: entityName } })
-    : null;
+  const entity = await getEntityBySlug(bucket);
+  const bucketLabel = entity?.navLabel ?? entity?.name ?? "All Entities";
 
   const [budgets, accounts, tags] = await Promise.all([
     db.budget.findMany({

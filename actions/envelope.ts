@@ -14,7 +14,7 @@ import {
   computeSuggestedTransferIncrease,
   type ScheduleEvent,
 } from "@/lib/forecast";
-import { BUCKET_ENTITY_NAMES, type BucketSlug } from "@/lib/buckets";
+import { getEntityBySlug } from "@/lib/entity";
 
 async function requireAuth() {
   const session = await auth();
@@ -32,10 +32,9 @@ function buildAccountWhere(entityId: string | null, entityName: string | null): 
   return { entityId };
 }
 
-export async function getEnvelopeSummary(bucket: BucketSlug = "personal") {
-  const entityName = BUCKET_ENTITY_NAMES[bucket];
-  const entity = entityName ? await db.entity.findFirst({ where: { name: entityName } }) : null;
-  const accountWhere = buildAccountWhere(entity?.id ?? null, entityName);
+export async function getEnvelopeSummary(bucket: string = "personal") {
+  const entity = await getEntityBySlug(bucket);
+  const accountWhere = buildAccountWhere(entity?.id ?? null, entity?.name ?? null);
 
   const [transfers, bills, accruals, incomes] = await Promise.all([
     db.scheduledTransfer.findMany({
@@ -66,7 +65,7 @@ export async function getEnvelopeSummary(bucket: BucketSlug = "personal") {
   ]);
 
   // Slush Funds proposal — only relevant on Personal tab
-  const isPersonal = entityName === "Personal";
+  const isPersonal = entity?.name === "Personal";
   const slushAccount = isPersonal
     ? await db.account.findFirst({ where: { nickname: "Slush Funds" } })
     : null;
@@ -322,10 +321,9 @@ export interface EnvelopeForecastResult {
   billsThisMonth: { payee: string; dueDay: number | null; expectedAmount: number | null }[];
 }
 
-export async function getEnvelopeForecastData(bucket: BucketSlug = "personal"): Promise<EnvelopeForecastResult[]> {
-  const entityName = BUCKET_ENTITY_NAMES[bucket];
-  const entity = entityName ? await db.entity.findFirst({ where: { name: entityName } }) : null;
-  const accountWhere = buildAccountWhere(entity?.id ?? null, entityName);
+export async function getEnvelopeForecastData(bucket: string = "personal"): Promise<EnvelopeForecastResult[]> {
+  const entity = await getEntityBySlug(bucket);
+  const accountWhere = buildAccountWhere(entity?.id ?? null, entity?.name ?? null);
 
   const now = new Date();
   const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));

@@ -6,14 +6,15 @@ import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
 import { NotificationBell } from "@/components/notifications/notification-bell";
-import { BUCKETS } from "@/lib/buckets";
+import type { NavBucket } from "@/lib/entity";
 
 interface AppHeaderProps {
   userName?: string;
   unreadCount?: number;
+  navBuckets: NavBucket[];
 }
 
-export function AppHeader({ userName, unreadCount = 0 }: AppHeaderProps) {
+export function AppHeader({ userName, unreadCount = 0, navBuckets }: AppHeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -32,7 +33,7 @@ export function AppHeader({ userName, unreadCount = 0 }: AppHeaderProps) {
           WISKIN Books
         </Link>
         <div className="flex flex-1 items-center gap-1 overflow-x-auto">
-          {BUCKETS.map(({ slug, label }) => (
+          {navBuckets.map(({ slug, label }) => (
             <button
               key={slug}
               onClick={() => switchBucket(slug)}

@@ -1,8 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
-import { BUCKET_DISPLAY_LABELS } from "@/lib/buckets";
+import { AppShell } from "@/components/app-shell";
+import { getEntityBySlug } from "@/lib/entity";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { computeBudgetSummary } from "@/lib/budget";
@@ -20,13 +20,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   if (!session?.user) redirect("/login");
 
   const params = await searchParams;
-  const bucket = (params.bucket ?? "personal") as BucketSlug;
-  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
-  const bucketLabel = BUCKET_DISPLAY_LABELS[bucket];
-
-  const entity = entityName
-    ? await db.entity.findFirst({ where: { name: entityName } })
-    : null;
+  const bucket = params.bucket ?? "personal";
+  const entity = await getEntityBySlug(bucket);
+  const bucketLabel = entity?.navLabel ?? entity?.name ?? "All Entities";
 
   const now = new Date();
   const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;

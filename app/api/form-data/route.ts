@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
+import { getEntityBySlug } from "@/lib/entity";
 import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
@@ -8,11 +8,10 @@ export async function GET(req: Request) {
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
-  const bucket = (searchParams.get("bucket") ?? "personal") as BucketSlug;
-  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
+  const bucket = searchParams.get("bucket") ?? "personal";
 
   const [entity, accounts, tags, entities] = await Promise.all([
-    entityName ? db.entity.findFirst({ where: { name: entityName } }) : Promise.resolve(null),
+    getEntityBySlug(bucket),
     db.account.findMany({
       where: { archivedAt: null },
       include: { entity: true },
@@ -22,8 +21,6 @@ export async function GET(req: Request) {
     db.entity.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" } }),
   ]);
 
-  // Filter accounts to the active entity's accounts by default,
-  // but return all for the transfer-to picker
   const entityAccounts = entity
     ? accounts.filter((a) => a.entityId === entity.id)
     : accounts;

@@ -8,7 +8,6 @@ import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import { ScheduledTransfersClient, type SerializedTransfer } from "@/components/envelope/scheduled-transfers-client";
 import { db } from "@/lib/db";
-import { type BucketSlug } from "@/lib/buckets";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -19,7 +18,7 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
   if (!session?.user) redirect("/login");
 
   const params = await searchParams;
-  const bucket = (params.bucket ?? "personal") as BucketSlug;
+  const bucket = params.bucket ?? "personal";
 
   const [
     { transfers, bills, accruals, slushTransferExists },

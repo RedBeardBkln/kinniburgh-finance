@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
+import { AppShell } from "@/components/app-shell";
+import { getEntityBySlug } from "@/lib/entity";
 import { AccountsPageClient, type SerializedAccount, type SerializedInstitution, type SerializedEntity } from "@/components/accounts/accounts-page-client";
 
 interface PageProps {
@@ -13,11 +14,8 @@ export default async function AccountsPage({ searchParams }: PageProps) {
   if (!session?.user) redirect("/login");
 
   const params = await searchParams;
-  const bucket = (params.bucket ?? "personal") as BucketSlug;
-  const entityName = BUCKET_ENTITY_NAMES[bucket];
-  const entity = entityName
-    ? await db.entity.findFirst({ where: { name: entityName } })
-    : null;
+  const bucket = params.bucket ?? "personal";
+  const entity = await getEntityBySlug(bucket);
 
   const [accounts, institutions, entities] = await Promise.all([
     db.account.findMany({

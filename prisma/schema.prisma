@@ -47,6 +47,9 @@ model Session {
 model Entity {
   id             String    @id @default(uuid())
   name           String    @unique
+  slug           String?   @unique  // URL-safe slug; null = not shown in nav
+  navLabel       String?            // short label for header tabs
+  hiddenInNav    Boolean   @default(false)
   dbaName        String?
   type           String    // personal | business
   foundedDate    DateTime?

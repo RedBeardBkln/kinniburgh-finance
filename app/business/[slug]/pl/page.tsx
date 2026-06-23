@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
+import { AppShell } from "@/components/app-shell";
+import { getEntityBySlug } from "@/lib/entity";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
@@ -15,24 +16,15 @@ interface PageProps {
   searchParams: Promise<{ year?: string; from?: string; to?: string }>;
 }
 
-const LABEL_MAP: Partial<Record<BucketSlug, string>> = {
-  "sudden-valley": "Sudden Valley PM",
-  "ek-consulting": "EK Consulting",
-  mezzo: "Mezzo",
-};
-
 export default async function PLPage({ params, searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
   const { slug } = await params;
   const sp = await searchParams;
-  const entityLabel = LABEL_MAP[slug as BucketSlug] ?? slug;
-  const entityName = BUCKET_ENTITY_NAMES[slug as BucketSlug];
+  const entity = await getEntityBySlug(slug);
+  const entityLabel = entity?.navLabel ?? entity?.name ?? slug;
 
-  if (!entityName) redirect("/business" as Route);
-
-  const entity = await db.entity.findFirst({ where: { name: entityName } });
   if (!entity) redirect("/business" as Route);
 
   const now = new Date();

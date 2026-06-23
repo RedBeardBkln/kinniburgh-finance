@@ -6,15 +6,18 @@ import { Settings, LockKeyhole } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
 
-const BUSINESS_BUCKETS = ["sudden-valley", "ek-consulting", "mezzo"] as const;
 const TAX_BUCKET = "taxes";
 const ENVELOPE_BUCKETS = ["personal", "taxes", "sudden-valley"] as const;
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  businessSlugs: string[];
+}
+
+export function AppSidebar({ businessSlugs }: AppSidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const activeBucket = searchParams.get("bucket") ?? "personal";
-  const isBusinessBucket = (BUSINESS_BUCKETS as readonly string[]).includes(activeBucket);
+  const isBusinessBucket = businessSlugs.includes(activeBucket);
   const isTaxBucket = activeBucket === TAX_BUCKET;
   const isPersonalBucket = !isBusinessBucket && !isTaxBucket;
 
@@ -27,7 +30,6 @@ export function AppSidebar() {
     return pathname === base || pathname.startsWith(base + "/");
   }
 
-  // Common to all buckets
   const coreItems = [
     { label: "Dashboard", base: "/" },
     { label: "Transactions", base: "/transactions" },
@@ -36,7 +38,6 @@ export function AppSidebar() {
     { label: "Accounts", base: "/accounts" },
   ];
 
-  // Only shown for Personal + Taxes
   const envelopeItem = { label: "Envelopes", base: "/envelope" };
 
   const businessItems = [
@@ -69,7 +70,6 @@ export function AppSidebar() {
     <aside className="flex w-56 shrink-0 flex-col border-r bg-background">
       <nav className="flex-1 overflow-y-auto py-4">
         <ul className="space-y-0.5 px-2">
-          {/* Core items shown for all buckets */}
           {coreItems.map(({ label, base }) => (
             <li key={base}>
               <Link
@@ -86,7 +86,6 @@ export function AppSidebar() {
             </li>
           ))}
 
-          {/* Envelopes: Personal, Taxes, and Sudden Valley */}
           {(ENVELOPE_BUCKETS as readonly string[]).includes(activeBucket) && (
             <li>
               <Link
@@ -103,7 +102,6 @@ export function AppSidebar() {
             </li>
           )}
 
-          {/* Personal section */}
           {isPersonalBucket && (
             <>
               <li className="pt-4 pb-1">
@@ -129,7 +127,6 @@ export function AppSidebar() {
             </>
           )}
 
-          {/* Business section */}
           {isBusinessBucket && (
             <>
               <li className="pt-4 pb-1">
@@ -155,7 +152,6 @@ export function AppSidebar() {
             </>
           )}
 
-          {/* Tax section */}
           {isTaxBucket && (
             <>
               <li className="pt-4 pb-1">
