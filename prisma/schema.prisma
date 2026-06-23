@@ -28,6 +28,8 @@ model User {
   notificationUsers   NotificationUser[]
   pushSubscriptions   PushSubscription[]
   auditLogs           AuditLog[]
+  vaultOtps           VaultOtp[]
+  vaultSessions       VaultSession[]
 }
 
 model Session {
@@ -577,6 +579,8 @@ model MileageEntry {
 
 // ─── Tax deadlines (quarterly estimates + annual filings) ─────────────────────
 
+
+
 // Tax-related records are NEVER hard-deleted; archivedAt only.
 model TaxDeadline {
   id         String    @id @default(uuid())
@@ -591,4 +595,38 @@ model TaxDeadline {
   updatedAt  DateTime  @updatedAt
 
   entity Entity @relation(fields: [entityId], references: [id])
+}
+
+// ─── Secure vault (financial credentials + contacts) ─────────────────────────
+
+model VaultEntry {
+  id            String   @id @default(uuid())
+  name          String
+  category      String   // "login" | "account" | "contact" | "card" | "other"
+  institution   String?
+  dataEncrypted String   // encrypt(JSON.stringify({ fields: [{key,value}] }))
+  notes         String?
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model VaultOtp {
+  id        String    @id @default(uuid())
+  userId    String
+  codeHash  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VaultSession {
+  id        String   @id @default(uuid())
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

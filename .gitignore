@@ -16,8 +16,7 @@ build/
 .env.test.local
 .env.production.local
 
-# Prisma
-prisma/migrations/
+# Prisma — migrations are tracked (needed for prisma migrate deploy on Vercel)
 
 # Private reference files (real financial documents — never commit)
 data/private/

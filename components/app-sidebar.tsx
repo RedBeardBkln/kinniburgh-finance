@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Settings } from "lucide-react";
+import { Settings, LockKeyhole } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
 
@@ -181,7 +181,19 @@ export function AppSidebar() {
         </ul>
       </nav>
 
-      <div className="border-t px-2 py-3">
+      <div className="border-t px-2 py-3 space-y-0.5">
+        <Link
+          href={"/vault" as Route}
+          className={cn(
+            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+            pathname.startsWith("/vault")
+              ? "bg-accent font-medium text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          )}
+        >
+          <LockKeyhole className="h-4 w-4" />
+          Vault
+        </Link>
         <Link
           href={"/settings" as Route}
           className={cn(

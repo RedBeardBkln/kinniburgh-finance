@@ -4,7 +4,6 @@ import { db } from "@/lib/db";
 import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
 import { BUCKET_DISPLAY_LABELS } from "@/lib/buckets";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { deleteTransaction } from "@/actions/transactions";
@@ -12,6 +11,7 @@ import { exportTransactionsCsv } from "@/actions/reports";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { ApplyRulesButton } from "@/components/transactions/apply-rules-button";
 import { DryRunButton } from "@/components/transactions/dry-run-button";
+import { InlineTagCell } from "@/components/transactions/inline-tag-cell";
 import type { Route } from "next";
 
 interface PageProps {
@@ -74,7 +74,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     where: { ...baseWhere, ...needsReviewFilter },
   });
 
-  const [transactions, total] = await Promise.all([
+  const [transactions, total, allTags] = await Promise.all([
     db.transaction.findMany({
       where,
       include: {
@@ -87,6 +87,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
       take: pageSize,
     }),
     db.transaction.count({ where }),
+    db.tag.findMany({ orderBy: { name: "asc" } }),
   ]);
 
   const totalPages = Math.ceil(total / pageSize);
@@ -223,13 +224,11 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                           <span className="ml-1">···{tx.account.mask}</span>
                         </td>
                         <td className="px-4 py-2">
-                          <div className="flex flex-wrap gap-1">
-                            {tx.tags.map(({ tag }) => (
-                              <Badge key={tag.id} variant="secondary" className="text-xs">
-                                {tag.shortName}
-                              </Badge>
-                            ))}
-                          </div>
+                          <InlineTagCell
+                            transactionId={tx.id}
+                            allTags={allTags}
+                            initialTagIds={tx.tags.map((t) => t.tagId)}
+                          />
                         </td>
                         <td className={`px-4 py-2 text-right font-mono font-medium ${isOutflow ? "text-destructive" : "text-green-600"}`}>
                           {isOutflow ? "-" : "+"}
