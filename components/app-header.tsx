@@ -14,11 +14,21 @@ interface AppHeaderProps {
   navBuckets: NavBucket[];
 }
 
+function inferBucketFromPathname(pathname: string): string | null {
+  if (pathname.startsWith("/tax")) return "taxes";
+  if (pathname.startsWith("/business/")) {
+    const slug = pathname.split("/")[2];
+    return slug ?? null;
+  }
+  return null;
+}
+
 export function AppHeader({ userName, unreadCount = 0, navBuckets }: AppHeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const activeBucket = searchParams.get("bucket") ?? "personal";
+  const activeBucket =
+    inferBucketFromPathname(pathname) ?? searchParams.get("bucket") ?? "personal";
 
   function switchBucket(slug: string) {
     const params = new URLSearchParams(searchParams.toString());
