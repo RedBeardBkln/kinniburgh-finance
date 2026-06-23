@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { AppShell, BUCKET_ENTITY_NAMES, type BucketSlug } from "@/components/app-shell";
 import { BUCKET_DISPLAY_LABELS } from "@/lib/buckets";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { deleteTransaction } from "@/actions/transactions";
@@ -12,6 +12,7 @@ import { ExportCsvButton } from "@/components/export-csv-button";
 import { ApplyRulesButton } from "@/components/transactions/apply-rules-button";
 import { DryRunButton } from "@/components/transactions/dry-run-button";
 import { InlineTagCell } from "@/components/transactions/inline-tag-cell";
+import { TransactionsFilterBar } from "@/components/transactions/transactions-filter-bar";
 import type { Route } from "next";
 
 interface PageProps {
@@ -24,6 +25,8 @@ interface PageProps {
     tagId?: string;
     dateFrom?: string;
     dateTo?: string;
+    sort?: string;
+    sortDir?: string;
   }>;
 }
 
@@ -34,14 +37,21 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const bucket = (params.bucket ?? "personal") as BucketSlug;
   const tab = params.tab ?? "all";
-  const entityName = BUCKET_ENTITY_NAMES[bucket]; // null = all entities (Taxes tab)
+  const entityName = BUCKET_ENTITY_NAMES[bucket];
   const bucketLabel = BUCKET_DISPLAY_LABELS[bucket];
   const page = Math.max(1, Number(params.page ?? 1));
   const pageSize = 50;
+  const sort = params.sort ?? "date";
+  const sortDir = (params.sortDir ?? "desc") as "asc" | "desc";
 
   const entity = entityName
     ? await db.entity.findFirst({ where: { name: entityName } })
     : null;
+
+  const orderBy: Prisma.TransactionOrderByWithRelationInput =
+    sort === "payee" ? { payeeRaw: sortDir } :
+    sort === "amount" ? { amount: sortDir } :
+    { postedAt: sortDir };
 
   const baseWhere: Prisma.TransactionWhereInput = {
     archivedAt: null,
@@ -69,12 +79,11 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     ...(tab === "review" && needsReviewFilter),
   };
 
-  // Count for badge
   const reviewCount = await db.transaction.count({
     where: { ...baseWhere, ...needsReviewFilter },
   });
 
-  const [transactions, total, allTags] = await Promise.all([
+  const [transactions, total, allTags, accounts] = await Promise.all([
     db.transaction.findMany({
       where,
       include: {
@@ -82,12 +91,17 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         entity: true,
         tags: { include: { tag: true } },
       },
-      orderBy: { postedAt: "desc" },
+      orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
     db.transaction.count({ where }),
     db.tag.findMany({ orderBy: { name: "asc" } }),
+    db.account.findMany({
+      where: { ...(entity && { entityId: entity.id }), archivedAt: null },
+      orderBy: { nickname: "asc" },
+      select: { id: true, nickname: true, mask: true },
+    }),
   ]);
 
   const totalPages = Math.ceil(total / pageSize);
@@ -172,6 +186,21 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
           )}
         </div>
 
+        {/* Filter + sort bar */}
+        <TransactionsFilterBar
+          bucket={bucket}
+          tab={tab}
+          accounts={accounts}
+          tags={allTags}
+          currentSearch={params.search ?? ""}
+          currentAccountId={params.accountId ?? ""}
+          currentTagId={params.tagId ?? ""}
+          currentDateFrom={params.dateFrom ?? ""}
+          currentDateTo={params.dateTo ?? ""}
+          currentSort={sort}
+          currentSortDir={sortDir}
+        />
+
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -203,7 +232,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                         key={tx.id}
                         className={`border-b last:border-0 hover:bg-muted/30 ${isTransfer ? "opacity-70" : ""}`}
                       >
-                        <td className="px-4 py-2 text-muted-foreground">
+                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
                           {formatDate(tx.postedAt)}
                         </td>
                         <td className="px-4 py-2">
@@ -219,7 +248,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                             </p>
                           )}
                         </td>
-                        <td className="px-4 py-2 text-muted-foreground text-xs">
+                        <td className="px-4 py-2 text-muted-foreground text-xs whitespace-nowrap">
                           {tx.account.nickname}
                           <span className="ml-1">···{tx.account.mask}</span>
                         </td>
@@ -230,7 +259,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                             initialTagIds={tx.tags.map((t) => t.tagId)}
                           />
                         </td>
-                        <td className={`px-4 py-2 text-right font-mono font-medium ${isOutflow ? "text-destructive" : "text-green-600"}`}>
+                        <td className={`px-4 py-2 text-right font-mono font-medium whitespace-nowrap ${isOutflow ? "text-destructive" : "text-green-600"}`}>
                           {isOutflow ? "-" : "+"}
                           {formatCents(amount.abs())}
                         </td>
