@@ -9,7 +9,7 @@ import { computeBudgetSummary } from "@/lib/budget";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
-import { SpendingChart } from "@/components/dashboard/spending-chart";
+import { DashboardClient, type SerializedBudget } from "@/components/dashboard/dashboard-client";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -114,6 +114,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         (spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0)).abs()
       );
       return {
+        tagId: b.tagId,
         name: b.tag.shortName,
         budget: decimalToNumber(new Prisma.Decimal(b.budgeted)),
         actual,
@@ -123,8 +124,37 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     .sort((a, b) => b.actual - a.actual)
     .slice(0, 10);
 
+  const serializedBudgets: SerializedBudget[] = budgets.map((b) => {
+    const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
+    const budgetedDec = new Prisma.Decimal(b.budgeted);
+    const rolloverDec = new Prisma.Decimal(b.rolloverAmount ?? 0);
+    const effectiveBudget = budgetedDec.plus(rolloverDec);
+    const remaining = effectiveBudget.plus(actual);
+    const percentUsed = effectiveBudget.isZero()
+      ? 0
+      : actual.abs().div(effectiveBudget).times(100).toNumber();
+    return {
+      id: b.id,
+      tagId: b.tagId,
+      tagShortName: b.tag.shortName,
+      budgeted: decimalToNumber(budgetedDec),
+      spent: decimalToNumber(actual),
+      percentUsed: Math.min(percentUsed, 999),
+      isOverspent: remaining.isNegative(),
+    };
+  });
+
+  const allTags = await db.tag.findMany({ orderBy: { name: "asc" } });
+
   return (
     <AppShell userName={session.user.name ?? undefined}>
+      <DashboardClient
+        chartData={chartData}
+        budgets={serializedBudgets}
+        allTags={allTags}
+        entityId={entity?.id}
+        period={period}
+      >
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-semibold">
@@ -172,9 +202,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </CardContent>
           </Card>
         </div>
-
-        {/* Spending chart */}
-        <SpendingChart data={chartData} />
 
         {/* Budget lines table */}
         <Card>
@@ -308,6 +335,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </Card>
         </div>
       </div>
+      </DashboardClient>
     </AppShell>
   );
 }

@@ -12,7 +12,8 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-interface SpendingRow {
+export interface SpendingRow {
+  tagId: string;
   name: string;
   budget: number;
   actual: number;
@@ -20,13 +21,14 @@ interface SpendingRow {
 
 interface Props {
   data: SpendingRow[];
+  onBarClick?: (tagId: string) => void;
 }
 
 function fmtDollar(v: number): string {
   return `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
-export function SpendingChart({ data }: Props) {
+export function SpendingChart({ data, onBarClick }: Props) {
   if (data.length === 0) {
     return (
       <Card>
@@ -44,7 +46,10 @@ export function SpendingChart({ data }: Props) {
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Spending this month — top categories</CardTitle>
+          <CardTitle className="text-base">
+            Spending this month — top categories
+            {onBarClick && <span className="ml-2 text-xs font-normal text-muted-foreground">(click a bar to drill in)</span>}
+          </CardTitle>
           <div className="flex gap-4 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <span className="inline-block h-2 w-3 rounded-sm bg-slate-300" /> Budget
@@ -63,6 +68,13 @@ export function SpendingChart({ data }: Props) {
             margin={{ top: 0, right: 16, bottom: 0, left: 0 }}
             barGap={2}
             barCategoryGap="30%"
+            onClick={onBarClick ? (e) => {
+              if (e?.activePayload?.[0]) {
+                const row = e.activePayload[0].payload as SpendingRow;
+                onBarClick(row.tagId);
+              }
+            } : undefined}
+            style={onBarClick ? { cursor: "pointer" } : undefined}
           >
             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
             <XAxis

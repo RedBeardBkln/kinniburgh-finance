@@ -23,11 +23,13 @@ export function AppSidebar() {
   }
 
   function isActive(base: string): boolean {
+    if (base === "/") return pathname === "/";
     return pathname === base || pathname.startsWith(base + "/");
   }
 
   // Common to all buckets
   const coreItems = [
+    { label: "Dashboard", base: "/" },
     { label: "Transactions", base: "/transactions" },
     { label: "Budgets", base: "/budgets" },
     { label: "Forecast", base: "/forecast" },
