@@ -133,7 +133,7 @@ export async function applyRulesToTransaction(
     accountId: r.accountId,
   }));
 
-  const normalizedPayee = tx.payeeNormalized ?? normalizePayee(tx.payeeRaw ?? "");
+  const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
   const amount = new Prisma.Decimal(tx.amount).abs().toNumber();
   const matched = matchTagRule(candidates, {
     normalizedPayee,
@@ -200,7 +200,7 @@ export async function dryRunTagRules(entityId?: string): Promise<{
   let willTag = 0;
 
   for (const tx of transactions) {
-    const normalizedPayee = tx.payeeNormalized ?? normalizePayee(tx.payeeRaw ?? "");
+    const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
     const amount = tx.amount.abs().toNumber();
     const matched = matchTagRule(candidates, { normalizedPayee, amount, accountId: tx.accountId });
     if (matched) {
@@ -276,7 +276,7 @@ export async function previewRetroactiveRule(
   const matches: RetroactiveMatch[] = [];
 
   for (const tx of transactions) {
-    const normalizedPayee = tx.payeeNormalized ?? normalizePayee(tx.payeeRaw ?? "");
+    const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
     const amount = new Prisma.Decimal(tx.amount).abs().toNumber();
 
     // Score against only this single rule
@@ -287,6 +287,8 @@ export async function previewRetroactiveRule(
         score += 100;
       } else if (normalizedPayee.startsWith(pattern)) {
         score += 50;
+      } else if (normalizedPayee.includes(pattern)) {
+        score += 25; // handles bank-prefixed payees like "POS TARGET 00123"
       } else {
         continue;
       }

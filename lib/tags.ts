@@ -100,6 +100,8 @@ export function matchTagRule(
         score += 100; // exact
       } else if (normalizedPayee.startsWith(pattern)) {
         score += 50; // prefix
+      } else if (normalizedPayee.includes(pattern)) {
+        score += 25; // contains (handles bank-prefixed payees like "POS TARGET 00123")
       } else {
         continue; // no match
       }

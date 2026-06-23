@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { createTagRule, deleteTagRule } from "@/actions/tag-rules";
+import { createTagRule, deleteTagRule, updateTagRule } from "@/actions/tag-rules";
 import { RetroactiveRuleModal } from "./retroactive-rule-modal";
 
 interface RuleRow {
@@ -54,6 +54,9 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
   // Retroactive application state
   const [retroModal, setRetroModal] = useState<{ ruleId: string; tagName: string } | null>(null);
 
+  // Edit mode
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   function resetForm() {
     setNewPattern("");
     setNewTagId(allTags[0]?.id ?? "");
@@ -61,6 +64,18 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
     setNewAmountMax("");
     setNewAccountId("");
     setShowForm(false);
+    setEditingId(null);
+  }
+
+  function handleStartEdit(rule: RuleRow) {
+    setEditingId(rule.id);
+    setNewPattern(rule.payeePattern);
+    setNewTagId(rule.tagId);
+    setNewAmountMin(rule.amountMin ?? "");
+    setNewAmountMax(rule.amountMax ?? "");
+    setNewAccountId(rule.accountId ?? "");
+    setShowForm(true);
+    setError(null);
   }
 
   function handleCreate() {
@@ -102,6 +117,46 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
     });
   }
 
+  function handleUpdate() {
+    if (!editingId) return;
+    if (!newPattern.trim()) { setError("Payee pattern is required"); return; }
+    if (!newTagId) { setError("Select a tag"); return; }
+    setError(null);
+
+    startTransition(async () => {
+      try {
+        await updateTagRule(editingId, {
+          payeePattern: newPattern.trim(),
+          tagId: newTagId,
+          amountMin: newAmountMin || null,
+          amountMax: newAmountMax || null,
+          accountId: newAccountId || null,
+        });
+        const tag = allTags.find((t) => t.id === newTagId);
+        const account = accounts.find((a) => a.id === newAccountId);
+        setRules((prev) =>
+          prev.map((r) =>
+            r.id === editingId
+              ? {
+                  ...r,
+                  payeePattern: newPattern.trim().toLowerCase(),
+                  tagId: newTagId,
+                  tagName: tag?.shortName ?? "",
+                  amountMin: newAmountMin || null,
+                  amountMax: newAmountMax || null,
+                  accountId: newAccountId || null,
+                  accountNickname: account?.nickname ?? null,
+                }
+              : r
+          )
+        );
+        setRetroModal({ ruleId: editingId, tagName: tag?.name ?? tag?.shortName ?? "" });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Update failed");
+      }
+    });
+  }
+
   function handleDelete(id: string) {
     startDeleting(async () => {
       await deleteTagRule(id);
@@ -114,7 +169,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
     <div className="space-y-4">
       <div className="flex justify-end">
         <button
-          onClick={() => setShowForm(!showForm)}
+          onClick={() => showForm ? resetForm() : setShowForm(true)}
           className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground px-4 h-9 text-sm font-medium hover:bg-primary/90"
         >
           {showForm ? "Cancel" : "+ New Rule"}
@@ -124,7 +179,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">New Tag Rule</CardTitle>
+            <CardTitle className="text-base">{editingId ? "Edit Tag Rule" : "New Tag Rule"}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -185,11 +240,11 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
             )}
 
             <button
-              onClick={handleCreate}
+              onClick={editingId ? handleUpdate : handleCreate}
               disabled={isPending}
               className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground px-4 h-9 text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
             >
-              {isPending ? "Saving…" : "Create Rule"}
+              {isPending ? "Saving…" : editingId ? "Save Changes" : "Create Rule"}
             </button>
           </CardContent>
         </Card>
@@ -234,13 +289,21 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
                     {Math.round(r.confidence * 100)}%
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleDelete(r.id)}
-                      disabled={isDeleting}
-                      className="text-xs text-muted-foreground hover:text-destructive disabled:opacity-40"
-                    >
-                      Delete
-                    </button>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => handleStartEdit(r)}
+                        className="text-xs text-muted-foreground hover:text-primary"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(r.id)}
+                        disabled={isDeleting}
+                        className="text-xs text-muted-foreground hover:text-destructive disabled:opacity-40"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
