@@ -1,4 +1,5 @@
 {
+  "buildCommand": "prisma migrate deploy && prisma generate && next build",
   "crons": [
     {
       "path": "/api/cron/notifications",
