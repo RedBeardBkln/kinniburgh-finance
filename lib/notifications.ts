@@ -542,7 +542,7 @@ export async function dispatchPending(): Promise<void> {
     await Promise.allSettled(
       n.users.map((nu) =>
         sendPushToUser(nu.userId, {
-          title: (payload["title"] as string) ?? "WISKIN Books",
+          title: (payload["title"] as string) ?? "Banana Stand",
           body: (payload["body"] as string) ?? "",
           url: "/notifications",
         })

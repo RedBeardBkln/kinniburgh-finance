@@ -12,7 +12,7 @@ export async function sendEmail({
   html: string;
 }) {
   const { error } = await resend.emails.send({
-    from: "WISKIN Books <onboarding@resend.dev>",
+    from: "Banana Stand <onboarding@resend.dev>",
     to,
     subject,
     html,

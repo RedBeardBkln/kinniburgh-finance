@@ -40,7 +40,7 @@ export function AppHeader({ userName, unreadCount = 0, navBuckets }: AppHeaderPr
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
       <div className="flex h-14 items-center gap-4 px-4">
         <Link href="/" className="shrink-0 text-base font-semibold">
-          WISKIN Books
+          Banana Stand
         </Link>
         <div className="flex flex-1 items-center gap-1 overflow-x-auto">
           {navBuckets.map(({ slug, label }) => (

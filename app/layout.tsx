@@ -5,13 +5,13 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "WISKIN Books",
+  title: "Banana Stand",
   description: "Personal and business financial management",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "WISKIN Books",
+    title: "Banana Stand",
   },
 };
 

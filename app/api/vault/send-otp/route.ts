@@ -30,11 +30,11 @@ export async function POST() {
 
   await sendEmail({
     to: session.user.email,
-    subject: "WISKIN Books — Vault Access Code",
+    subject: "Banana Stand — Vault Access Code",
     html: `
       <div style="font-family: sans-serif; max-width: 400px; margin: 0 auto;">
         <h2 style="color: #1a1a1a;">Vault Access Code</h2>
-        <p style="color: #444;">Your one-time code to access the WISKIN Books Vault:</p>
+        <p style="color: #444;">Your one-time code to access the Banana Stand Vault:</p>
         <div style="background: #f4f4f5; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
           <span style="font-size: 36px; font-weight: 700; letter-spacing: 8px; font-family: monospace; color: #1a1a1a;">${code}</span>
         </div>
