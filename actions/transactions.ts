@@ -165,7 +165,7 @@ export async function updateTransactionTags(
   const user = await requireAuth();
 
   const tx = await db.transaction.findUnique({
-    where: { id: transactionId },
+    where: { id: transactionId, archivedAt: null },
     include: { tags: true },
   });
   if (!tx) throw new Error("Transaction not found");
@@ -198,7 +198,7 @@ export async function updateTransactionTags(
 export async function deleteTransaction(transactionId: string) {
   await requireAuth();
 
-  const tx = await db.transaction.findUnique({ where: { id: transactionId } });
+  const tx = await db.transaction.findUnique({ where: { id: transactionId, archivedAt: null } });
   if (!tx) throw new Error("Transaction not found");
 
   // If part of a transfer pair, archive both legs
@@ -232,6 +232,7 @@ export interface TransactionFilters {
 }
 
 export async function listTransactions(filters: TransactionFilters = {}) {
+  await requireAuth();
   const page = filters.page ?? 1;
   const pageSize = filters.pageSize ?? 50;
 

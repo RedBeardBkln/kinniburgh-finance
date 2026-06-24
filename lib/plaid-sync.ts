@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getPlaidClient } from "@/lib/plaid";
 import { encrypt, decrypt } from "@/lib/encrypt";
+import { normalizePayee } from "@/lib/tags";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -110,6 +111,7 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
           amount: normalized.amount,
           postedAt: normalized.postedAt,
           payeeRaw: normalized.payeeRaw,
+          payeeNormalized: normalizePayee(normalized.payeeRaw),
         },
         create: {
           plaidTransactionId: normalized.plaidTransactionId,
@@ -119,7 +121,7 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
           amount: normalized.amount,
           postedAt: normalized.postedAt,
           payeeRaw: normalized.payeeRaw,
-          payeeNormalized: normalized.payeeRaw.toLowerCase(),
+          payeeNormalized: normalizePayee(normalized.payeeRaw),
           source: "plaid",
         },
       });
@@ -127,24 +129,22 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
     }
 
     for (const tx of data.modified) {
-      const existing = await db.transaction.findUnique({
-        where: { plaidTransactionId: tx.transaction_id },
-      });
-      if (!existing) continue;
+      const acct = accountByPlaidId.get(tx.account_id);
+      if (!acct) continue;
 
-      await db.transaction.update({
+      const normalized = normalizePlaidTransaction(tx as PlaidTransactionShape, acct.id, acct.entityId);
+
+      const updated = await db.transaction.updateMany({
         where: { plaidTransactionId: tx.transaction_id },
         data: {
-          pending: tx.pending,
-          amount: new Prisma.Decimal(-tx.amount),
-          postedAt: (() => {
-            const p = tx.date.split("-").map(Number);
-            return new Date(Date.UTC(p[0]!, p[1]! - 1, p[2]!));
-          })(),
-          payeeRaw: (tx.merchant_name?.trim() || tx.name?.trim()) ?? "",
+          pending: normalized.pending,
+          amount: normalized.amount,
+          postedAt: normalized.postedAt,
+          payeeRaw: normalized.payeeRaw,
+          payeeNormalized: normalizePayee(normalized.payeeRaw),
         },
       });
-      modified++;
+      if (updated.count > 0) modified++;
     }
 
     for (const removedTx of data.removed) {

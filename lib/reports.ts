@@ -108,9 +108,9 @@ export interface BalanceSheetReport {
 }
 
 export async function computeBalanceSheet(
-  entityId: string,
-  asOfDate: Date
+  entityId: string
 ): Promise<BalanceSheetReport> {
+  const asOfDate = new Date();
   const accounts = await db.account.findMany({
     where: {
       entityId,

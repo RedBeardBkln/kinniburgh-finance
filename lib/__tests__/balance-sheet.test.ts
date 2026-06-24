@@ -30,7 +30,7 @@ describe("computeBalanceSheet", () => {
       { id: "4", nickname: "PennyMac Mortgage", mask: "0001", accountType: "mortgage", currentBalance: new Decimal("380000.00") },
     ]);
 
-    const result = await computeBalanceSheet("entity-1", new Date());
+    const result = await computeBalanceSheet("entity-1");
 
     // Assets: 12500 + 8000 = 20500 → 2050000 cents
     expect(result.totalAssetsCents).toBe(2_050_000);
@@ -51,7 +51,7 @@ describe("computeBalanceSheet", () => {
       { id: "1", nickname: "Active Checking", mask: "1111", accountType: "checking", currentBalance: new Decimal("5000.00") },
     ]);
 
-    const result = await computeBalanceSheet("entity-1", new Date());
+    const result = await computeBalanceSheet("entity-1");
 
     expect(result.assets).toHaveLength(1);
     expect(result.assets[0]?.label).toBe("Active Checking");
@@ -62,7 +62,7 @@ describe("computeBalanceSheet", () => {
   it("returns all zeros and empty arrays when entity has no linked accounts", async () => {
     mockDb.account.findMany.mockResolvedValue([]);
 
-    const result = await computeBalanceSheet("entity-empty", new Date());
+    const result = await computeBalanceSheet("entity-empty");
 
     expect(result.assets).toHaveLength(0);
     expect(result.liabilities).toHaveLength(0);

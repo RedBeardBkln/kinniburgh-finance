@@ -107,7 +107,7 @@ describe("computeBalanceSheet", () => {
       { id: "acc-2", nickname: "Savings", mask: "3950", accountType: "savings", currentBalance: new Prisma.Decimal("7500.00") },
     ]);
 
-    const bs = await computeBalanceSheet(ENTITY_ID, new Date());
+    const bs = await computeBalanceSheet(ENTITY_ID);
     expect(bs.assets).toHaveLength(2);
     expect(bs.totalAssetsCents).toBe(2_000_000); // 12500 + 7500 = 20000 → 2000000 cents
   });
@@ -117,7 +117,7 @@ describe("computeBalanceSheet", () => {
       { id: "acc-1", nickname: "Checking", mask: "0001", accountType: "checking", currentBalance: new Prisma.Decimal("5000.00") },
     ]);
 
-    const bs = await computeBalanceSheet(ENTITY_ID, new Date());
+    const bs = await computeBalanceSheet(ENTITY_ID);
     expect(bs.assets).toHaveLength(1);
     expect(bs.totalAssetsCents).toBe(500_000); // 5000 → 500000 cents
   });

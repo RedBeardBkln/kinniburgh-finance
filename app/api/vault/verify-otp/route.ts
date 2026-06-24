@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { VAULT_COOKIE, VAULT_SESSION_HOURS } from "@/lib/vault-session";
 import bcrypt from "bcryptjs";
 
+const MAX_OTP_ATTEMPTS = 5;
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -28,9 +30,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No valid code found. Please request a new one." }, { status: 400 });
   }
 
+  if (otp.attempts >= MAX_OTP_ATTEMPTS) {
+    // Invalidate the OTP so the user must request a fresh one
+    await db.vaultOtp.update({ where: { id: otp.id }, data: { usedAt: new Date() } });
+    return NextResponse.json(
+      { error: "Too many incorrect attempts. Please request a new code." },
+      { status: 429 },
+    );
+  }
+
   const match = await bcrypt.compare(code.trim(), otp.codeHash);
   if (!match) {
-    return NextResponse.json({ error: "Incorrect code." }, { status: 400 });
+    await db.vaultOtp.update({ where: { id: otp.id }, data: { attempts: { increment: 1 } } });
+    const remaining = MAX_OTP_ATTEMPTS - otp.attempts - 1;
+    return NextResponse.json(
+      { error: `Incorrect code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.` },
+      { status: 400 },
+    );
   }
 
   // Mark OTP used

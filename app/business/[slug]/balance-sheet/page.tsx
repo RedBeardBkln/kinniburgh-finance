@@ -35,8 +35,8 @@ export default async function BalanceSheetPage({ params }: PageProps) {
 
   if (!entity) redirect("/business" as Route);
 
-  const asOfDate = new Date();
-  const bs = await computeBalanceSheet(entity.id, asOfDate);
+  const bs = await computeBalanceSheet(entity.id);
+  const asOfDate = bs.asOfDate;
 
   const asOfLabel = asOfDate.toLocaleDateString("en-US", {
     timeZone: "America/New_York",

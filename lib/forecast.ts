@@ -64,6 +64,9 @@ function allMonthDays(from: Date, to: Date, daysOfMonth: number[]): Date[] {
 
   while (year < endYear || (year === endYear && month <= endMonth)) {
     for (const day of daysOfMonth) {
+      // Skip days that don't exist in this month (e.g. day 31 in February)
+      const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+      if (day > daysInMonth) continue;
       const d = new Date(Date.UTC(year, month, day));
       if (d >= from && d < to) result.push(d);
     }
@@ -137,6 +140,12 @@ export function generateTransferOccurrences(
   } else if (transfer.cadence === "monthly") {
     const day = typeof rules["dayOfMonth"] === "number" ? rules["dayOfMonth"] : 1;
     dates = allMonthDays(from, to, [day]);
+  } else if (transfer.cadence === "biweekly") {
+    const intervalDays =
+      typeof rules["intervalDays"] === "number" ? rules["intervalDays"] : 14;
+    const anchor =
+      typeof rules["anchorDate"] === "string" ? new Date(rules["anchorDate"]) : from;
+    dates = allBiweekly(from, to, anchor, intervalDays);
   }
 
   const events: ScheduleEvent[] = [];

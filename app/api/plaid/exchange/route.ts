@@ -53,8 +53,9 @@ export async function POST(req: Request) {
   const accountsRes = await getPlaidClient().accountsGet({ access_token });
   const plaidAccounts = accountsRes.data.accounts;
 
-  // Auto-match to seeded accounts by mask (last 4 digits)
+  // Auto-match to seeded accounts by mask (last 4 digits); exclude archived accounts
   const seededAccounts = await db.account.findMany({
+    where: { archivedAt: null },
     select: { id: true, nickname: true, mask: true },
   });
 

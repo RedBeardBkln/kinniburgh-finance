@@ -149,7 +149,7 @@ export async function exportBalanceSheetCsv(entityId: string): Promise<string> {
   await requireAuth();
 
   const { computeBalanceSheet } = await import("@/lib/reports");
-  const bs = await computeBalanceSheet(entityId, new Date());
+  const bs = await computeBalanceSheet(entityId);
 
   function fmtDollars(cents: number) {
     return (cents / 100).toFixed(2);
