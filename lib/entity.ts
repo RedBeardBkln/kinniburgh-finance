@@ -11,7 +11,7 @@ export type EntityNav = {
 export type NavBucket = {
   slug: string;
   label: string;
-  type: "personal" | "business" | "taxes";
+  type: "personal" | "business" | "taxes" | "projects";
 };
 
 /**
@@ -52,6 +52,7 @@ export async function getNavBuckets(): Promise<NavBucket[]> {
       type: "business" as const,
     })),
     { slug: "taxes", label: "Taxes", type: "taxes" as const },
+    { slug: "projects", label: "Projects", type: "projects" as const },
   ];
 }
 

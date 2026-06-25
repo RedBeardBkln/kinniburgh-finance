@@ -10,7 +10,7 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const bucket = searchParams.get("bucket") ?? "personal";
 
-  const [entity, accounts, tags, entities] = await Promise.all([
+  const [entity, accounts, tags, entities, projects] = await Promise.all([
     getEntityBySlug(bucket),
     db.account.findMany({
       where: { archivedAt: null },
@@ -19,6 +19,11 @@ export async function GET(req: Request) {
     }),
     db.tag.findMany({ orderBy: { name: "asc" } }),
     db.entity.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" } }),
+    db.project.findMany({
+      where: { archivedAt: null, status: { not: "completed" } },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
   ]);
 
   const entityAccounts = entity
@@ -46,5 +51,6 @@ export async function GET(req: Request) {
       parentId: t.parentId,
     })),
     entities: entities.map((e) => ({ id: e.id, name: e.name })),
+    projects: projects.map((p) => ({ id: p.id, name: p.name })),
   });
 }

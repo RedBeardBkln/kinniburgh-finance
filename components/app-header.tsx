@@ -16,6 +16,7 @@ interface AppHeaderProps {
 
 function inferBucketFromPathname(pathname: string): string | null {
   if (pathname.startsWith("/tax")) return "taxes";
+  if (pathname.startsWith("/projects")) return "projects";
   if (pathname.startsWith("/business/")) {
     const slug = pathname.split("/")[2];
     return slug ?? null;
@@ -43,20 +44,28 @@ export function AppHeader({ userName, unreadCount = 0, navBuckets }: AppHeaderPr
           Banana Stand
         </Link>
         <div className="flex flex-1 items-center gap-1 overflow-x-auto">
-          {navBuckets.map(({ slug, label }) => (
-            <button
-              key={slug}
-              onClick={() => switchBucket(slug)}
-              className={cn(
-                "whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                activeBucket === slug
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent"
-              )}
-            >
-              {label}
-            </button>
-          ))}
+          {navBuckets.map(({ slug, label, type }) => {
+            const isActive = activeBucket === slug;
+            const cls = cn(
+              "whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              isActive
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent"
+            );
+            if (type === "projects" || type === "taxes") {
+              const href = type === "projects" ? "/projects" : "/tax";
+              return (
+                <Link key={slug} href={href as Route} className={cls}>
+                  {label}
+                </Link>
+              );
+            }
+            return (
+              <button key={slug} onClick={() => switchBucket(slug)} className={cls}>
+                {label}
+              </button>
+            );
+          })}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <NotificationBell initialUnreadCount={unreadCount} />

@@ -38,3 +38,50 @@ Read the specs in order before writing any code:
 - All dates stored UTC, displayed in America/New_York.
 - Write tests for: transfer/accrual math, budget rollover logic, minimum-balance fee warnings, tag auto-assignment.
 - Seed the database from `data/*.csv` exactly as-is (including known quirks listed in spec 07) unless the user approves cleanup.
+
+## Dev Commands
+
+```bash
+pnpm dev          # Next.js dev server
+pnpm build        # prisma generate && next build
+pnpm typecheck    # tsc --noEmit
+pnpm lint         # ESLint
+pnpm test         # vitest run (all tests)
+pnpm test:watch   # vitest watch
+
+# Run a single test file:
+pnpm vitest run lib/__tests__/tags.test.ts
+
+# Prisma
+pnpm db:generate  # prisma generate (after schema change)
+pnpm db:migrate   # prisma migrate dev (local dev migration)
+pnpm db:push      # prisma db push (schema push without migration)
+pnpm db:studio    # Prisma Studio GUI
+pnpm db:seed      # seed from data/*.csv
+```
+
+## Architecture
+
+**Stack:** Next.js 15 App Router · TypeScript · Prisma/PostgreSQL (Supabase) · NextAuth v5 · Plaid · Tailwind · shadcn/ui · Vitest
+
+**Server actions** (`actions/*.ts`) — all use `"use server"` and call `requireAuth()` as the first line; never skip it. `requireAuth()` throws if no session.
+
+**Auth** — NextAuth v5 credentials provider (email + password + optional TOTP). Session cookie: `authjs.session-token` (HTTP) / `__Secure-authjs.session-token` (HTTPS). Middleware in `middleware.ts` gates all routes except `/login`.
+
+**Entities** — the core multi-tenancy unit. Personal + three LLCs (Sudden Valley, EK Consulting, Mezzo). Entity slug drives the URL (`/business/[slug]/...`). `getNavBuckets()` in `lib/entity.ts` builds the header tabs.
+
+**Money** — `NUMERIC(14,2)` in Postgres; `Decimal.js` at runtime. **Negative = outflow, positive = inflow.** Never use floats for amounts.
+
+**Encryption** — `lib/encrypt.ts`: AES-256-GCM, format `iv:authTag:ciphertext` (hex). Used for Plaid access tokens, cursors, vault credentials. Key from `ENCRYPTION_KEY` env var (64-char hex → 32 bytes).
+
+**Plaid sync** — `lib/plaid-sync.ts`: use `normalizePlaidTransaction()` for all Plaid tx conversion (flips sign, handles payee priority). Use `normalizePayee()` from `lib/tags.ts` (not `.toLowerCase()`) for `payeeNormalized` field.
+
+**Soft deletes** — `archivedAt: null` guards required on all `findUnique`/`findFirst` queries for Transaction, Account, PlaidItem, VaultOtp. Tax records are never hard-deleted.
+
+**Vault** — separate OTP + session mechanism (`VaultOtp`, `VaultSession`); `lib/vault-session.ts` validates the `vault-session` cookie (4h expiry). OTP has `attempts` column; burns after 5 failures (429).
+
+**Tags** — `lib/tags.ts`: hierarchical (parent/children paths like "Food & Drink / Groceries"); `matchTagRule()` for auto-assignment; always use `normalizePayee()` for `payeeNormalized`.
+
+**Testing pattern** — pure function unit tests in `lib/__tests__/`. Use `Decimal` (never floats). Test factory `makeTx(overrides)` for mock Plaid transactions. No integrated DB tests; mock at the function boundary.
+
+**Key env vars:** `DATABASE_URL`, `ENCRYPTION_KEY`, `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`, `NEXTAUTH_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, VAPID vars.

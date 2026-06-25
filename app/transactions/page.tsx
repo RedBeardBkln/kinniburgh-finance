@@ -12,6 +12,7 @@ import { ExportCsvButton } from "@/components/export-csv-button";
 import { ApplyRulesButton } from "@/components/transactions/apply-rules-button";
 import { DryRunButton } from "@/components/transactions/dry-run-button";
 import { InlineTagCell } from "@/components/transactions/inline-tag-cell";
+import { InlineProjectCell } from "@/components/transactions/inline-project-cell";
 import { TransactionsFilterBar } from "@/components/transactions/transactions-filter-bar";
 import type { Route } from "next";
 
@@ -80,7 +81,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     where: { ...baseWhere, ...needsReviewFilter },
   });
 
-  const [transactions, total, allTags, accounts] = await Promise.all([
+  const [transactions, total, allTags, accounts, allProjects] = await Promise.all([
     db.transaction.findMany({
       where,
       include: {
@@ -98,6 +99,11 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
       where: { ...(entity && { entityId: entity.id }), archivedAt: null },
       orderBy: { nickname: "asc" },
       select: { id: true, nickname: true, mask: true },
+    }),
+    db.project.findMany({
+      where: { archivedAt: null, status: { not: "completed" } },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
     }),
   ]);
 
@@ -208,6 +214,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                     <th className="px-4 py-3 font-medium">Payee</th>
                     <th className="px-4 py-3 font-medium">Account</th>
                     <th className="px-4 py-3 font-medium">Tags</th>
+                    {allProjects.length > 0 && <th className="px-4 py-3 font-medium">Project</th>}
                     <th className="px-4 py-3 font-medium text-right">Amount</th>
                     <th className="px-4 py-3" />
                   </tr>
@@ -256,6 +263,15 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                             initialTagIds={tx.tags.map((t) => t.tagId)}
                           />
                         </td>
+                        {allProjects.length > 0 && (
+                          <td className="px-4 py-2">
+                            <InlineProjectCell
+                              transactionId={tx.id}
+                              projects={allProjects}
+                              initialProjectId={(tx as typeof tx & { projectId?: string | null }).projectId ?? null}
+                            />
+                          </td>
+                        )}
                         <td className={`px-4 py-2 text-right font-mono font-medium whitespace-nowrap ${isOutflow ? "text-destructive" : "text-green-600"}`}>
                           {isOutflow ? "-" : "+"}
                           {formatCents(amount.abs())}

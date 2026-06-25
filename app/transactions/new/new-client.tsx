@@ -31,6 +31,11 @@ interface Entity {
   name: string;
 }
 
+interface Project {
+  id: string;
+  name: string;
+}
+
 function NewTransactionInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -39,6 +44,7 @@ function NewTransactionInner() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -50,6 +56,7 @@ function NewTransactionInner() {
   const [payeeRaw, setPayeeRaw] = useState("");
   const [description, setDescription] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [projectId, setProjectId] = useState("");
   const [isTransfer, setIsTransfer] = useState(false);
   const [transferToAccountId, setTransferToAccountId] = useState("");
 
@@ -60,6 +67,7 @@ function NewTransactionInner() {
         setAccounts(d.accounts ?? []);
         setTags(d.tags ?? []);
         setEntities(d.entities ?? []);
+        setProjects(d.projects ?? []);
         if (d.accounts?.length > 0) setAccountId(d.accounts[0].id);
         if (d.entities?.length > 0) setEntityId(d.entities[0].id);
       })
@@ -79,6 +87,7 @@ function NewTransactionInner() {
         payeeRaw,
         description: description || undefined,
         tagIds: selectedTags,
+        projectId: projectId || undefined,
         isTransferOut: isTransfer || undefined,
         transferToAccountId: isTransfer ? transferToAccountId : undefined,
       });
@@ -150,6 +159,18 @@ function NewTransactionInner() {
                 <Label>Tags</Label>
                 <TagPicker tags={tags} selected={selectedTags} onChange={setSelectedTags} />
               </div>
+
+              {projects.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="projectId">Project <span className="text-xs text-muted-foreground font-normal">(optional)</span></Label>
+                  <Select id="projectId" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+                    <option value="">— none —</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </Select>
+                </div>
+              )}
 
               <div className="flex items-center gap-2">
                 <input id="isTransfer" type="checkbox" checked={isTransfer} onChange={(e) => setIsTransfer(e.target.checked)} className="h-4 w-4" />

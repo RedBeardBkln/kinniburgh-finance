@@ -71,6 +71,7 @@ model Entity {
   insurancePolicies InsurancePolicy[]
   mileageEntries    MileageEntry[]
   taxDeadlines      TaxDeadline[]
+  projects          Project[]
 }
 
 model Institution {
@@ -136,6 +137,7 @@ model Transaction {
   transferPairId     String?   // links the two legs of an internal transfer
   receiptId          String?
   glCodeId           String?
+  projectId          String?   // optional assignment to a Project
   archivedAt         DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -145,6 +147,7 @@ model Transaction {
   tags        TransactionTag[]
   receipt     Receipt?         @relation(fields: [receiptId], references: [id])
   glCode      GlCode?          @relation(fields: [glCodeId], references: [id])
+  project     Project?         @relation(fields: [projectId], references: [id])
   auditLogs   AuditLog[]
 }
 
@@ -269,11 +272,13 @@ model Receipt {
   confirmedAt   DateTime?
   confirmedById String?   // user id (plain string, same pattern as uploadedBy)
   entityId      String
+  projectId     String?   // optional assignment to a Project
   archivedAt    DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   entity       Entity        @relation(fields: [entityId], references: [id])
+  project      Project?      @relation(fields: [projectId], references: [id])
   transactions Transaction[]
 }
 
@@ -408,22 +413,25 @@ model TaxChecklistItem {
   workspace TaxWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
-// ─── Projects (Slush Funds envelopes) ─────────────────────────────────────────
+// ─── Projects (cross-entity expense tracker with master budget) ───────────────
 
 model Project {
-  id           String    @id @default(uuid())
-  accountId    String?   // optional link to Slush Funds (x3612) account
-  name         String
-  description  String?
-  targetAmount Decimal   @db.Decimal(14, 2)
-  savedAmount  Decimal   @db.Decimal(14, 2) @default(0)
-  targetDate   DateTime?
-  status       String    @default("active") // active | completed | paused
-  archivedAt   DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  entityId    String?   // master entity (Personal, EK Consulting, etc.) — null = no entity assigned yet
+  accountId   String?   // optional link to Slush Funds (x3612) account
+  name        String
+  description String?
+  budget      Decimal   @db.Decimal(14, 2) // master budget; spend tracked from transactions + receipts
+  targetDate  DateTime?
+  status      String    @default("active") // active | completed | paused
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  account      Account?  @relation(fields: [accountId], references: [id])
+  entity       Entity?       @relation(fields: [entityId], references: [id])
+  account      Account?      @relation(fields: [accountId], references: [id])
+  transactions Transaction[]
+  receipts     Receipt[]
 }
 
 // ─── Manual assets (property, vehicle — user-entered values only) ──────────────

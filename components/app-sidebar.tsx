@@ -19,7 +19,8 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
   const activeBucket = searchParams.get("bucket") ?? "personal";
   const isBusinessBucket = businessSlugs.includes(activeBucket);
   const isTaxBucket = activeBucket === TAX_BUCKET;
-  const isPersonalBucket = !isBusinessBucket && !isTaxBucket;
+  const isProjectsBucket = pathname.startsWith("/projects");
+  const isPersonalBucket = !isBusinessBucket && !isTaxBucket && !isProjectsBucket;
 
   function buildHref(base: string): Route {
     return (activeBucket !== "personal" ? `${base}?bucket=${activeBucket}` : base) as Route;
@@ -57,7 +58,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
     { label: "Savings autopilot", base: "/personal/savings-autopilot", href: "/personal/savings-autopilot" as Route },
     { label: "Retirement", base: "/personal/retirement", href: "/personal/retirement" as Route },
     { label: "Insurance", base: "/personal/insurance", href: "/personal/insurance" as Route },
-    { label: "Projects", base: "/personal/projects", href: "/personal/projects" as Route },
+    { label: "Projects", base: "/projects", href: "/projects" as Route },
   ];
 
   const taxItems = [
@@ -149,6 +150,29 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
                   </Link>
                 </li>
               ))}
+            </>
+          )}
+
+          {isProjectsBucket && (
+            <>
+              <li className="pt-4 pb-1">
+                <span className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  Projects
+                </span>
+              </li>
+              <li>
+                <Link
+                  href={"/projects" as Route}
+                  className={cn(
+                    "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                    pathname === "/projects"
+                      ? "bg-accent font-medium text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  All projects
+                </Link>
+              </li>
             </>
           )}
 

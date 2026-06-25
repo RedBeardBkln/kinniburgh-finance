@@ -26,6 +26,7 @@ const createSchema = z.object({
   tagIds: z.array(z.string().uuid()).default([]),
   isTransferOut: z.boolean().optional(),
   transferToAccountId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
 });
 
 export type CreateTransactionInput = z.infer<typeof createSchema>;
@@ -79,6 +80,7 @@ export async function createTransaction(input: CreateTransactionInput) {
       payeeNormalized,
       description: parsed.description,
       source: "manual",
+      projectId: parsed.projectId ?? null,
     },
   });
 
@@ -190,6 +192,23 @@ export async function updateTransactionTags(
   }
 
   revalidatePath("/transactions");
+  return { success: true };
+}
+
+// ── Assign transaction to project ────────────────────────────────────────────
+
+export async function updateTransactionProject(
+  transactionId: string,
+  projectId: string | null
+) {
+  await requireAuth();
+  await db.transaction.update({
+    where: { id: transactionId, archivedAt: null },
+    data: { projectId },
+  });
+  revalidatePath("/transactions");
+  revalidatePath("/projects");
+  if (projectId) revalidatePath(`/projects/${projectId}`);
   return { success: true };
 }
 
