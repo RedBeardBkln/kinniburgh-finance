@@ -14,12 +14,14 @@ function UploadForm({ entityLabel }: UploadFormProps) {
   const bucket = searchParams.get("bucket") ?? "personal";
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const today = new Date().toISOString().split("T")[0]!;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    setProgress(null);
     const formEl = e.currentTarget;
     const formData = new FormData(formEl);
     const file = formData.get("file");
@@ -27,22 +29,61 @@ function UploadForm({ entityLabel }: UploadFormProps) {
       setError("Please select a file to upload.");
       return;
     }
+    const capturedAt = formData.get("capturedAt");
+    if (typeof capturedAt !== "string") {
+      setError("Please select a capture date.");
+      return;
+    }
+
     startTransition(async () => {
       try {
-        const resp = await fetch(`/api/entity-id?bucket=${bucket}`);
-        const { entityId } = (await resp.json()) as { entityId: string };
-        formData.set("entityId", entityId ?? "");
-        const uploadResp = await fetch("/api/receipts/upload", {
+        // Step 1: resolve entity and get a signed upload URL
+        setProgress("Preparing upload…");
+        const entityResp = await fetch(`/api/entity-id?bucket=${bucket}`);
+        const { entityId } = (await entityResp.json()) as { entityId: string };
+
+        const initResp = await fetch("/api/receipts/upload", {
           method: "POST",
-          body: formData,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mimeType: file.type,
+            capturedAt,
+            entityId,
+            fileSize: file.size,
+          }),
         });
-        if (!uploadResp.ok) {
-          const data = await uploadResp.json().catch(() => ({ error: "Upload failed" }));
+        if (!initResp.ok) {
+          const data = await initResp.json().catch(() => ({ error: "Upload failed" }));
           throw new Error((data as { error?: string }).error ?? "Upload failed");
         }
-        const { receiptId } = (await uploadResp.json()) as { receiptId: string };
+        const { receiptId, uploadUrl } = (await initResp.json()) as {
+          receiptId: string;
+          uploadUrl: string;
+        };
+
+        // Step 2: upload the binary directly from the browser to Supabase
+        // (bypasses Next.js entirely — no OTel, no btoa risk)
+        setProgress("Uploading file…");
+        const uploadResp = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        if (!uploadResp.ok) {
+          throw new Error("File upload to storage failed. Please try again.");
+        }
+
+        // Step 3: trigger server-side OCR extraction
+        setProgress("Extracting receipt data…");
+        await fetch("/api/receipts/process", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ receiptId }),
+        });
+
         router.push(`/receipts/${receiptId}`);
       } catch (err) {
+        setProgress(null);
         setError(err instanceof Error ? err.message : "Upload failed");
       }
     });
@@ -52,25 +93,51 @@ function UploadForm({ entityLabel }: UploadFormProps) {
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-1">
         <label className="text-sm font-medium">Receipt file</label>
-        <input ref={fileRef} name="file" type="file" accept="image/*,.pdf" capture="environment" required
-          className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium" />
+        <input
+          ref={fileRef}
+          name="file"
+          type="file"
+          accept="image/*,.pdf"
+          capture="environment"
+          required
+          className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium"
+        />
         <p className="text-xs text-muted-foreground">JPEG, PNG, WebP, or PDF · max 10MB</p>
       </div>
       <div className="space-y-1">
         <label className="text-sm font-medium">Capture date</label>
-        <input name="capturedAt" type="date" defaultValue={today} required
-          className="block rounded-md border border-input bg-background px-3 py-2 text-sm" />
+        <input
+          name="capturedAt"
+          type="date"
+          defaultValue={today}
+          required
+          className="block rounded-md border border-input bg-background px-3 py-2 text-sm"
+        />
       </div>
       <div className="space-y-1">
         <label className="text-sm font-medium">Entity</label>
-        <input type="text" value={entityLabel} readOnly
-          className="block rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground" />
-        <p className="text-xs text-muted-foreground">Switch entity using the tabs at the top of the page.</p>
+        <input
+          type="text"
+          value={entityLabel}
+          readOnly
+          className="block rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground"
+        />
+        <p className="text-xs text-muted-foreground">
+          Switch entity using the tabs at the top of the page.
+        </p>
       </div>
-      {error && <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-      <button type="submit" disabled={isPending}
-        className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground px-6 h-10 text-sm font-medium hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed">
-        {isPending ? "Uploading & extracting…" : "Upload Receipt"}
+      {progress && (
+        <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{progress}</p>
+      )}
+      {error && (
+        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+      )}
+      <button
+        type="submit"
+        disabled={isPending}
+        className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground px-6 h-10 text-sm font-medium hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        {isPending ? progress ?? "Uploading…" : "Upload Receipt"}
       </button>
     </form>
   );
@@ -81,7 +148,9 @@ export function UploadClient({ entityLabel }: { entityLabel: string }) {
     <div className="mx-auto max-w-lg space-y-6">
       <h1 className="text-2xl font-semibold">Upload Receipt</h1>
       <Card>
-        <CardHeader><CardTitle className="text-base">Select file</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-base">Select file</CardTitle>
+        </CardHeader>
         <CardContent>
           <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
             <UploadForm entityLabel={entityLabel} />
@@ -89,8 +158,8 @@ export function UploadClient({ entityLabel }: { entityLabel: string }) {
         </CardContent>
       </Card>
       <p className="text-xs text-center text-muted-foreground">
-        Claude AI will extract vendor, date, amount, and category automatically.
-        You&apos;ll review the results before anything is saved.
+        Claude AI will extract vendor, date, amount, and category automatically. You&apos;ll review
+        the results before anything is saved.
       </p>
     </div>
   );
