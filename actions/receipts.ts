@@ -4,8 +4,6 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { normalizePayee } from "@/lib/tags";
-import { uploadReceiptFile, downloadReceiptFile } from "@/lib/supabase-storage";
-import { extractReceiptData } from "@/lib/receipt-extract";
 import { updateTransactionTags } from "@/actions/transactions";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -15,98 +13,6 @@ function requireAuth() {
     if (!session?.user?.id) throw new Error("Unauthorized");
     return session.user;
   });
-}
-
-const ALLOWED_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "application/pdf",
-]);
-
-const EXT_MAP: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
-  "application/pdf": "pdf",
-};
-
-// ── Upload & extract ──────────────────────────────────────────────────────────
-
-export async function uploadAndExtractReceipt(
-  formData: FormData
-): Promise<{ receiptId: string }> {
-  const user = await requireAuth();
-
-  const file = formData.get("file");
-  const entityId = formData.get("entityId");
-  const capturedAt = formData.get("capturedAt");
-
-  if (!(file instanceof File)) throw new Error("No file provided");
-  if (typeof entityId !== "string") throw new Error("entityId required");
-  if (typeof capturedAt !== "string") throw new Error("capturedAt required");
-
-  const mimeType = file.type;
-  if (!ALLOWED_TYPES.has(mimeType)) {
-    throw new Error("Unsupported file type. Upload JPEG, PNG, WebP, or PDF.");
-  }
-  if (file.size > 10 * 1024 * 1024) throw new Error("File too large (max 10MB)");
-
-  const receiptId = crypto.randomUUID();
-  const ext = EXT_MAP[mimeType] ?? "bin";
-  const fileKey = `${receiptId}.${ext}`;
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await uploadReceiptFile(buffer, fileKey, mimeType);
-
-  await db.receipt.create({
-    data: {
-      id: receiptId,
-      uploadedBy: user.id!,
-      fileKey,
-      capturedAt: new Date(capturedAt),
-      ocrStatus: "pending",
-      entityId,
-    },
-  });
-
-  let extracted;
-  try {
-    extracted = await extractReceiptData(buffer, mimeType);
-  } catch {
-    await db.receipt.update({
-      where: { id: receiptId },
-      data: { ocrStatus: "failed" },
-    });
-    revalidatePath("/receipts");
-    return { receiptId };
-  }
-
-  const totalDecimal =
-    extracted.totalDollars != null
-      ? new Prisma.Decimal(extracted.totalDollars)
-      : null;
-
-  const receiptDate =
-    extracted.receiptDate != null
-      ? new Date(`${extracted.receiptDate}T00:00:00Z`)
-      : null;
-
-  await db.receipt.update({
-    where: { id: receiptId },
-    data: {
-      ocrStatus: extracted.vendor != null ? "complete" : "failed",
-      vendor: extracted.vendor,
-      receiptDate,
-      total: totalDecimal,
-      description: extracted.description,
-      glCode: extracted.glCode,
-      ocrRaw: extracted.raw as unknown as Prisma.InputJsonValue,
-    },
-  });
-
-  revalidatePath("/receipts");
-  return { receiptId };
 }
 
 // ── Confirm receipt ───────────────────────────────────────────────────────────

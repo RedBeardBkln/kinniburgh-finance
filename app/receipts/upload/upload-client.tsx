@@ -3,7 +3,6 @@
 import { useTransition, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { uploadAndExtractReceipt } from "@/actions/receipts";
 
 interface UploadFormProps {
   entityLabel: string;
@@ -33,7 +32,15 @@ function UploadForm({ entityLabel }: UploadFormProps) {
         const resp = await fetch(`/api/entity-id?bucket=${bucket}`);
         const { entityId } = (await resp.json()) as { entityId: string };
         formData.set("entityId", entityId ?? "");
-        const { receiptId } = await uploadAndExtractReceipt(formData);
+        const uploadResp = await fetch("/api/receipts/upload", {
+          method: "POST",
+          body: formData,
+        });
+        if (!uploadResp.ok) {
+          const data = await uploadResp.json().catch(() => ({ error: "Upload failed" }));
+          throw new Error((data as { error?: string }).error ?? "Upload failed");
+        }
+        const { receiptId } = (await uploadResp.json()) as { receiptId: string };
         router.push(`/receipts/${receiptId}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload failed");
