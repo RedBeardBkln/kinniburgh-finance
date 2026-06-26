@@ -29,7 +29,7 @@ export async function uploadReceiptFile(
       "Content-Type": mimeType,
       "x-upsert": "false",
     },
-    body: buffer,
+    body: new Uint8Array(buffer),
   });
 
   if (!res.ok) {
