@@ -3,8 +3,9 @@ import { request as httpsRequest } from "node:https";
 const BUCKET = "receipts";
 
 function getStorageConfig() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY;
+  const url = process.env.SUPABASE_URL?.trim();
+  // Strip whitespace/newlines that may have been included during env var copy-paste
+  const key = process.env.SUPABASE_SERVICE_KEY?.replace(/\s/g, "");
   if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set");
   return { url, key };
 }
@@ -21,7 +22,7 @@ function httpsPost(urlStr: string, headers: Record<string, string>, body: Buffer
         port: port ? parseInt(port, 10) : 443,
         path: pathname + search,
         method: "POST",
-        headers: { ...headers, "Content-Length": body.length },
+        headers: { ...headers, "Content-Length": String(body.length) },
       },
       (res) => {
         const chunks: Buffer[] = [];
