@@ -18,10 +18,24 @@ export async function uploadReceiptFile(
   fileKey: string,
   mimeType: string
 ): Promise<void> {
-  const { error } = await getSupabaseAdmin().storage
-    .from(BUCKET)
-    .upload(fileKey, buffer, { contentType: mimeType, upsert: false });
-  if (error) throw new Error(`Storage upload failed: ${error.message}`);
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set");
+
+  const res = await fetch(`${url}/storage/v1/object/${BUCKET}/${fileKey}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": mimeType,
+      "x-upsert": "false",
+    },
+    body: buffer,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(`Storage upload failed: ${(body as { message?: string }).message ?? res.statusText}`);
+  }
 }
 
 export async function getReceiptSignedUrl(fileKey: string): Promise<string> {

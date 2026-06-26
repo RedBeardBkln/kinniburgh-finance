@@ -5,14 +5,49 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { TagPicker } from "@/components/tags/tag-picker";
-import { confirmReceipt, deleteReceipt, type MatchCandidate } from "@/actions/receipts";
+import { confirmReceipt, deleteReceipt, findMatchingTransactions, type MatchCandidate } from "@/actions/receipts";
+import { createProject } from "@/actions/projects";
 import { Badge } from "@/components/ui/badge";
+
+const TAX_CATEGORIES = [
+  "Meals & Entertainment",
+  "Travel",
+  "Vehicle / Auto",
+  "Office Supplies",
+  "Professional Services",
+  "Advertising & Marketing",
+  "Utilities",
+  "Technology & Software",
+  "Home Office",
+  "Education & Training",
+  "Rent",
+  "Insurance",
+  "Other",
+];
 
 interface Tag {
   id: string;
   name: string;
   shortName: string;
   parentId: string | null;
+}
+
+interface Account {
+  id: string;
+  nickname: string;
+  mask: string | null;
+  entityId: string;
+}
+
+interface Project {
+  id: string;
+  name: string;
+}
+
+interface GlCode {
+  id: string;
+  code: string;
+  name: string;
 }
 
 interface Props {
@@ -22,10 +57,17 @@ interface Props {
   initialTotal: string;
   initialDescription: string;
   initialGlCode: string;
+  initialMemo: string;
+  initialAccountId: string | null;
+  initialTaxCategory: string | null;
+  initialProjectId: string | null;
   ocrStatus: string;
   confirmedAt: string | null;
   matches: MatchCandidate[];
   allTags: Tag[];
+  accounts: Account[];
+  projects: Project[];
+  glCodes: GlCode[];
 }
 
 export function ReceiptConfirmForm({
@@ -35,14 +77,23 @@ export function ReceiptConfirmForm({
   initialTotal,
   initialDescription,
   initialGlCode,
+  initialMemo,
+  initialAccountId,
+  initialTaxCategory,
+  initialProjectId,
   ocrStatus,
   confirmedAt,
-  matches,
+  matches: initialMatches,
   allTags,
+  accounts,
+  projects: initialProjects,
+  glCodes,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isDeleting, startDeleting] = useTransition();
+  const [isMatchPending, startMatchTransition] = useTransition();
+  const [isCreatingProject, startProjectTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   const [vendor, setVendor] = useState(initialVendor);
@@ -50,10 +101,47 @@ export function ReceiptConfirmForm({
   const [total, setTotal] = useState(initialTotal);
   const [description, setDescription] = useState(initialDescription);
   const [glCode, setGlCode] = useState(initialGlCode);
+  const [memo, setMemo] = useState(initialMemo);
+  const [accountId, setAccountId] = useState<string>(initialAccountId ?? "");
+  const [taxCategory, setTaxCategory] = useState<string>(initialTaxCategory ?? "");
+  const [projectId, setProjectId] = useState<string>(initialProjectId ?? "");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [transactionId, setTransactionId] = useState<string | undefined>();
+  const [matches, setMatches] = useState<MatchCandidate[]>(initialMatches);
+
+  const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectBudget, setNewProjectBudget] = useState("");
 
   const isAlreadyConfirmed = confirmedAt != null;
+
+  function handleAccountChange(value: string) {
+    setAccountId(value);
+    setTransactionId(undefined);
+    startMatchTransition(async () => {
+      const updated = await findMatchingTransactions(receiptId, value || undefined);
+      setMatches(updated);
+    });
+  }
+
+  function handleCreateProject() {
+    if (!newProjectName.trim()) return;
+    const budget = parseFloat(newProjectBudget);
+    if (isNaN(budget) || budget <= 0) return;
+    startProjectTransition(async () => {
+      try {
+        const proj = await createProject({ name: newProjectName.trim(), budget });
+        setProjects((prev) => [...prev, { id: proj.id, name: proj.name }].sort((a, b) => a.name.localeCompare(b.name)));
+        setProjectId(proj.id);
+        setShowNewProject(false);
+        setNewProjectName("");
+        setNewProjectBudget("");
+      } catch {
+        // ignore; user can retry
+      }
+    });
+  }
 
   function handleConfirm() {
     if (!vendor) { setError("Vendor is required"); return; }
@@ -69,6 +157,10 @@ export function ReceiptConfirmForm({
           total,
           description: description || undefined,
           glCode: glCode || undefined,
+          memo: memo || undefined,
+          accountId: accountId || undefined,
+          taxCategory: taxCategory || undefined,
+          projectId: projectId || undefined,
           transactionId: transactionId || undefined,
           tagIds: selectedTagIds,
         });
@@ -86,6 +178,8 @@ export function ReceiptConfirmForm({
       router.push("/receipts");
     });
   }
+
+  const selectedAccount = accounts.find((a) => a.id === accountId);
 
   return (
     <Card>
@@ -143,12 +237,132 @@ export function ReceiptConfirmForm({
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium">GL Code / Category</label>
+          <label className="text-sm font-medium">Memo</label>
           <Input
-            value={glCode}
-            onChange={(e) => setGlCode(e.target.value)}
-            placeholder="e.g. Office Supplies"
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            placeholder="Internal note (optional)"
           />
+        </div>
+
+        {/* Bank account */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Bank Account</label>
+          <select
+            value={accountId}
+            onChange={(e) => handleAccountChange(e.target.value)}
+            className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">— Not specified —</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.nickname}{a.mask ? ` (${a.mask})` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Tax category */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Tax Category</label>
+          <select
+            value={taxCategory}
+            onChange={(e) => setTaxCategory(e.target.value)}
+            className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">— Not specified —</option>
+            {TAX_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Project */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium">Project</label>
+            {!showNewProject && (
+              <button
+                type="button"
+                onClick={() => setShowNewProject(true)}
+                className="text-xs text-primary hover:underline"
+              >
+                + New project
+              </button>
+            )}
+          </div>
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">— Not assigned —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          {showNewProject && (
+            <div className="rounded-md border bg-muted/30 p-3 space-y-2 mt-1">
+              <p className="text-xs font-medium">New project</p>
+              <Input
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                placeholder="Project name"
+                className="text-sm"
+              />
+              <Input
+                type="number"
+                value={newProjectBudget}
+                onChange={(e) => setNewProjectBudget(e.target.value)}
+                placeholder="Budget (e.g. 5000)"
+                min="0"
+                step="0.01"
+                className="text-sm"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleCreateProject}
+                  disabled={isCreatingProject || !newProjectName.trim()}
+                  className="flex-1 rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-xs font-medium hover:bg-primary/90 disabled:opacity-60"
+                >
+                  {isCreatingProject ? "Creating…" : "Create"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowNewProject(false); setNewProjectName(""); setNewProjectBudget(""); }}
+                  className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* GL account */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium">GL Account / Category</label>
+          {glCodes.length > 0 ? (
+            <select
+              value={glCode}
+              onChange={(e) => setGlCode(e.target.value)}
+              className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">— Not specified —</option>
+              {glCodes.map((g) => (
+                <option key={g.id} value={`${g.code} — ${g.name}`}>
+                  {g.code} — {g.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <Input
+              value={glCode}
+              onChange={(e) => setGlCode(e.target.value)}
+              placeholder="e.g. Office Supplies"
+            />
+          )}
         </div>
 
         <div className="space-y-1">
@@ -164,57 +378,63 @@ export function ReceiptConfirmForm({
         {/* Transaction match */}
         <div className="space-y-2">
           <label className="text-sm font-medium">
-            Match to transaction{" "}
+            {selectedAccount
+              ? `Match to transaction in ${selectedAccount.nickname}`
+              : "Match to transaction"}{" "}
             <span className="font-normal text-muted-foreground">(optional)</span>
           </label>
-          <div className="rounded-md border divide-y text-sm">
-            <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/30">
-              <input
-                type="radio"
-                name="txMatch"
-                value=""
-                checked={!transactionId}
-                onChange={() => setTransactionId(undefined)}
-              />
-              <span className="text-muted-foreground italic">Standalone receipt (no transaction match)</span>
-            </label>
-            {matches.map((m) => {
-              const amt = Number(m.amount);
-              const sign = amt < 0 ? "-" : "+";
-              const display = `${sign}$${Math.abs(amt).toFixed(2)}`;
-              return (
-                <label
-                  key={m.id}
-                  className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/30"
-                >
-                  <input
-                    type="radio"
-                    name="txMatch"
-                    value={m.id}
-                    checked={transactionId === m.id}
-                    onChange={() => setTransactionId(m.id)}
-                  />
-                  <span>
-                    <span className="font-medium">{m.payeeRaw ?? "—"}</span>
-                    <span className="ml-2 text-muted-foreground text-xs">
-                      {new Date(m.postedAt).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        timeZone: "UTC",
-                      })}{" "}
-                      · {m.accountNickname}
+          {isMatchPending ? (
+            <p className="text-xs text-muted-foreground px-1">Searching…</p>
+          ) : (
+            <div className="rounded-md border divide-y text-sm">
+              <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/30">
+                <input
+                  type="radio"
+                  name="txMatch"
+                  value=""
+                  checked={!transactionId}
+                  onChange={() => setTransactionId(undefined)}
+                />
+                <span className="text-muted-foreground italic">Standalone receipt (no transaction match)</span>
+              </label>
+              {matches.map((m) => {
+                const amt = Number(m.amount);
+                const sign = amt < 0 ? "-" : "+";
+                const display = `${sign}$${Math.abs(amt).toFixed(2)}`;
+                return (
+                  <label
+                    key={m.id}
+                    className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/30"
+                  >
+                    <input
+                      type="radio"
+                      name="txMatch"
+                      value={m.id}
+                      checked={transactionId === m.id}
+                      onChange={() => setTransactionId(m.id)}
+                    />
+                    <span>
+                      <span className="font-medium">{m.payeeRaw ?? "—"}</span>
+                      <span className="ml-2 text-muted-foreground text-xs">
+                        {new Date(m.postedAt).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          timeZone: "UTC",
+                        })}{" "}
+                        · {m.accountNickname}
+                      </span>
+                      <span className="ml-2 font-mono">{display}</span>
                     </span>
-                    <span className="ml-2 font-mono">{display}</span>
-                  </span>
-                </label>
-              );
-            })}
-            {matches.length === 0 && (
-              <p className="px-3 py-2 text-xs text-muted-foreground">
-                No matching transactions found within ±7 days and ±2% amount.
-              </p>
-            )}
-          </div>
+                  </label>
+                );
+              })}
+              {matches.length === 0 && (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  No matching transactions found within ±7 days and ±2% amount.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {error && (

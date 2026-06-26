@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getReceiptSignedUrl } from "@/lib/supabase-storage";
-import { findMatchingTransactions } from "@/actions/receipts";
+import { findMatchingTransactions, getReceiptFormData } from "@/actions/receipts";
 import { ReceiptConfirmForm } from "@/components/receipts/receipt-confirm-form";
 import { Prisma } from "@prisma/client";
 import { decimalToNumber } from "@/lib/utils";
@@ -21,10 +21,11 @@ export default async function ReceiptDetailPage({ params }: PageProps) {
   const receipt = await db.receipt.findUnique({ where: { id } });
   if (!receipt || receipt.archivedAt) notFound();
 
-  const [signedUrl, matches, allTags] = await Promise.all([
+  const [signedUrl, matches, allTags, formData] = await Promise.all([
     getReceiptSignedUrl(receipt.fileKey).catch(() => null),
-    findMatchingTransactions(id),
+    findMatchingTransactions(id, receipt.accountId ?? undefined),
     db.tag.findMany({ orderBy: { name: "asc" } }),
+    getReceiptFormData(receipt.entityId),
   ]);
 
   const isImage = receipt.fileKey.match(/\.(jpg|jpeg|png|webp)$/i);
@@ -80,10 +81,17 @@ export default async function ReceiptDetailPage({ params }: PageProps) {
             initialTotal={totalStr}
             initialDescription={receipt.description ?? ""}
             initialGlCode={receipt.glCode ?? ""}
+            initialMemo={receipt.memo ?? ""}
+            initialAccountId={receipt.accountId ?? null}
+            initialTaxCategory={receipt.taxCategory ?? null}
+            initialProjectId={receipt.projectId ?? null}
             ocrStatus={receipt.ocrStatus}
             confirmedAt={receipt.confirmedAt?.toISOString() ?? null}
             matches={matches}
             allTags={allTags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName, parentId: t.parentId }))}
+            accounts={formData.accounts}
+            projects={formData.projects}
+            glCodes={formData.glCodes}
           />
         </div>
       </div>

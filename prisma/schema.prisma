@@ -117,6 +117,7 @@ model Account {
   tagRules                 TagRule[]
   incomeSources            IncomeSource[]
   projects                 Project[]
+  receipts                 Receipt[]
 
   @@unique([entityId, nickname])
 }
@@ -259,26 +260,30 @@ model AccrualEnvelope {
 // ─── Receipts ─────────────────────────────────────────────────────────────────
 
 model Receipt {
-  id          String    @id @default(uuid())
-  uploadedBy  String    // user id
-  fileKey     String    // object storage key (encrypted at rest)
-  capturedAt  DateTime
-  ocrStatus   String    @default("pending") // pending | complete | failed
-  vendor      String?
-  receiptDate DateTime?
-  total       Decimal?  @db.Decimal(14, 2)
-  description String?
-  glCode        String?   // freeform until GL chart is imported (Phase 5)
+  id            String    @id @default(uuid())
+  uploadedBy    String    // user id
+  fileKey       String    // object storage key (encrypted at rest)
+  capturedAt    DateTime
+  ocrStatus     String    @default("pending") // pending | complete | failed
+  vendor        String?
+  receiptDate   DateTime?
+  total         Decimal?  @db.Decimal(14, 2)
+  description   String?
+  memo          String?   // user-entered note
+  glCode        String?   // freeform GL account / bookkeeping category
+  taxCategory   String?   // IRS expense category for tax purposes
   ocrRaw        Json?     // raw Claude extraction response
   confirmedAt   DateTime?
   confirmedById String?   // user id (plain string, same pattern as uploadedBy)
   entityId      String
+  accountId     String?   // bank account this receipt came from
   projectId     String?   // optional assignment to a Project
   archivedAt    DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   entity       Entity        @relation(fields: [entityId], references: [id])
+  account      Account?      @relation(fields: [accountId], references: [id])
   project      Project?      @relation(fields: [projectId], references: [id])
   transactions Transaction[]
 }

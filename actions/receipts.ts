@@ -118,6 +118,10 @@ const confirmSchema = z.object({
   total: z.string().regex(/^\d+(\.\d{1,2})?$/),
   description: z.string().max(500).optional(),
   glCode: z.string().max(100).optional(),
+  memo: z.string().max(500).optional(),
+  accountId: z.string().uuid().optional(),
+  taxCategory: z.string().max(100).optional(),
+  projectId: z.string().uuid().optional(),
   transactionId: z.string().uuid().optional(),
   tagIds: z.array(z.string().uuid()).default([]),
 });
@@ -139,6 +143,10 @@ export async function confirmReceipt(
       total: new Prisma.Decimal(data.total),
       description: data.description ?? null,
       glCode: data.glCode ?? null,
+      memo: data.memo ?? null,
+      accountId: data.accountId ?? null,
+      taxCategory: data.taxCategory ?? null,
+      projectId: data.projectId ?? null,
       confirmedAt: new Date(),
       confirmedById: user.id!,
     },
@@ -185,7 +193,8 @@ export interface MatchCandidate {
 }
 
 export async function findMatchingTransactions(
-  receiptId: string
+  receiptId: string,
+  accountId?: string
 ): Promise<MatchCandidate[]> {
   await requireAuth();
 
@@ -208,6 +217,7 @@ export async function findMatchingTransactions(
       archivedAt: null,
       transferPairId: null,
       postedAt: { gte: dateFrom, lte: dateTo },
+      ...(accountId && { accountId }),
       OR: [
         // Outflow: amount is between -absMax and -absMin
         {
@@ -237,6 +247,29 @@ export async function findMatchingTransactions(
     payeeRaw: tx.payeeRaw,
     accountNickname: tx.account.nickname,
   }));
+}
+
+// ── Receipt form data ─────────────────────────────────────────────────────────
+
+export async function getReceiptFormData(entityId: string) {
+  await requireAuth();
+  const [accounts, projects, glCodes] = await Promise.all([
+    db.account.findMany({
+      where: { entityId, archivedAt: null },
+      select: { id: true, nickname: true, mask: true, entityId: true },
+      orderBy: { nickname: "asc" },
+    }),
+    db.project.findMany({
+      where: { archivedAt: null },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    db.glCode.findMany({
+      select: { id: true, code: true, name: true },
+      orderBy: { code: "asc" },
+    }),
+  ]);
+  return { accounts, projects, glCodes };
 }
 
 // ── Delete receipt ────────────────────────────────────────────────────────────
