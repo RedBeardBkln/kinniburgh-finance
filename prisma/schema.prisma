@@ -307,7 +307,7 @@ model GlCode {
   entityId  String
   code      String
   name      String
-  type      String   // asset | liability | equity | income | expense
+  type      String   // asset | liability | equity | revenue | expense
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

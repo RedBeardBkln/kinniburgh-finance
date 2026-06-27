@@ -11,7 +11,7 @@ async function requireAuth() {
   return session.user;
 }
 
-const GL_TYPES = ["asset", "liability", "equity", "income", "expense"] as const;
+const GL_TYPES = ["asset", "liability", "equity", "revenue", "expense"] as const;
 
 const createSchema = z.object({
   entityId: z.string().uuid(),

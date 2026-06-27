@@ -12,7 +12,7 @@ import {
   importGlCodes,
 } from "@/actions/gl-codes";
 
-const GL_TYPES = ["income", "expense", "asset", "liability", "equity"] as const;
+const GL_TYPES = ["revenue", "expense", "asset", "liability", "equity"] as const;
 type GlType = (typeof GL_TYPES)[number];
 
 interface GlCode {
@@ -38,7 +38,7 @@ interface Props {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  income: "text-green-700 bg-green-50 border-green-200",
+  revenue: "text-green-700 bg-green-50 border-green-200",
   expense: "text-red-700 bg-red-50 border-red-200",
   asset: "text-blue-700 bg-blue-50 border-blue-200",
   liability: "text-orange-700 bg-orange-50 border-orange-200",
@@ -103,10 +103,10 @@ export function GlPageClient({ entityId, glCodes: initialCodes, uncodedTransacti
       const lines = text.split(/\r?\n/).filter((l) => l.trim());
       const rows: { code: string; name: string; type: string }[] = [];
       for (const line of lines) {
-        const parts = line.split(",").map((s) => s.trim());
-        const [code, name, type] = parts;
-        if (!code || code.toLowerCase() === "code") continue;
-        if (code && name && type) rows.push({ code, name, type: type.toLowerCase() });
+        const parts = line.split(",").map((s) => s.trim().replace(/^"|"$/g, ""));
+        const [glCode, accountName, type] = parts;
+        if (!glCode || glCode.toLowerCase() === "gl code") continue;
+        if (glCode && accountName && type) rows.push({ code: glCode, name: accountName, type: type.toLowerCase() });
       }
       setImportRows(rows);
       setImportResult(null);
@@ -199,7 +199,7 @@ export function GlPageClient({ entityId, glCodes: initialCodes, uncodedTransacti
             <Card>
               <CardContent className="pt-4 space-y-3">
                 <p className="text-xs text-muted-foreground">
-                  Upload a CSV with columns: <code className="font-mono bg-muted px-1 rounded">code,name,type</code>.
+                  Upload a CSV with columns: <code className="font-mono bg-muted px-1 rounded">GL Code, Account Name, Type, Sub Type</code>.
                   Type must be one of: {GL_TYPES.join(", ")}.
                 </p>
                 <input
