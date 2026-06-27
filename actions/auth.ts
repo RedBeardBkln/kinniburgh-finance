@@ -62,9 +62,8 @@ export async function requestPasswordReset(email: string): Promise<{ ok: true }>
       data: { userId: user.id, tokenHash, expiresAt },
     });
 
-    const baseUrl = process.env.NEXTAUTH_URL ?? process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000";
+    const baseUrl = process.env.NEXTAUTH_URL
+      ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
     await sendEmail({
       to: email,

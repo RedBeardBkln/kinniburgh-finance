@@ -26,7 +26,7 @@ function LoginForm() {
     const result = await signIn("credentials", {
       email,
       password,
-      totpCode: needsTotp ? totpCode : undefined,
+      ...(needsTotp ? { totpCode } : {}),
       redirect: false,
     });
 
