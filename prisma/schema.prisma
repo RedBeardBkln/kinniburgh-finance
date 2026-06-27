@@ -25,12 +25,24 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  sessions            Session[]
-  notificationUsers   NotificationUser[]
-  pushSubscriptions   PushSubscription[]
-  auditLogs           AuditLog[]
-  vaultOtps           VaultOtp[]
-  vaultSessions       VaultSession[]
+  sessions              Session[]
+  notificationUsers     NotificationUser[]
+  pushSubscriptions     PushSubscription[]
+  auditLogs             AuditLog[]
+  vaultOtps             VaultOtp[]
+  vaultSessions         VaultSession[]
+  passwordResetTokens   PasswordResetToken[]
+}
+
+model PasswordResetToken {
+  id          String    @id @default(uuid())
+  userId      String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Session {

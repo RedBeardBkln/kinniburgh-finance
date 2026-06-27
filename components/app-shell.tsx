@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { AppHeader } from "./app-header";
 import { AppSidebar } from "./app-sidebar";
 import { auth } from "@/lib/auth";
@@ -14,6 +15,9 @@ interface AppShellProps {
 
 export async function AppShell({ children, userName }: AppShellProps) {
   const session = await auth();
+  if (session?.user && !(session.user as { totpVerified?: boolean }).totpVerified) {
+    redirect("/setup-2fa");
+  }
   const [unreadCount, navBuckets] = await Promise.all([
     session?.user?.id
       ? db.notificationUser.count({ where: { userId: session.user.id, readAt: null } })

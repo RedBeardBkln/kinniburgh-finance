@@ -1,17 +1,21 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password"];
+
 export function middleware(req: NextRequest) {
-  // NextAuth v5 session cookie: http uses "authjs.session-token",
-  // https (production) uses "__Secure-authjs.session-token"
   const session =
     req.cookies.get("authjs.session-token") ??
     req.cookies.get("__Secure-authjs.session-token");
   const isLoggedIn = !!session;
   const { pathname } = req.nextUrl;
 
-  if (pathname === "/login") {
-    if (isLoggedIn) {
+  const isPublic = PUBLIC_PATHS.some(
+    (p) => pathname === p || pathname.startsWith(p + "/")
+  );
+
+  if (isPublic) {
+    if (isLoggedIn && pathname === "/login") {
       return NextResponse.redirect(new URL("/", req.url));
     }
     return NextResponse.next();

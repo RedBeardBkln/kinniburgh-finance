@@ -1,10 +1,15 @@
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { db } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { authenticator } from "otplib";
 import { z } from "zod";
+import { decrypt } from "@/lib/encrypt";
 import { authConfig } from "./auth.config";
+
+class MfaRequired extends CredentialsSignin {
+  code = "MFA_REQUIRED";
+}
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -29,11 +34,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (!passwordOk) return null;
 
         if (user.totpVerified && user.totpSecret) {
-          if (!totpCode) return null;
-          const totpOk = authenticator.verify({
-            token: totpCode,
-            secret: user.totpSecret,
-          });
+          if (!totpCode) throw new MfaRequired();
+          const secret = decrypt(user.totpSecret);
+          const totpOk = authenticator.verify({ token: totpCode, secret });
           if (!totpOk) return null;
         }
 
@@ -42,6 +45,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           email: user.email,
           name: user.name,
           role: user.role,
+          totpVerified: user.totpVerified,
         };
       },
     }),
