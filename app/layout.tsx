@@ -8,6 +8,7 @@ export const metadata: Metadata = {
   title: "Banana Stand",
   description: "Personal and business financial management",
   robots: { index: false, follow: false },
+  icons: { icon: "/favicon.svg" },
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#1e40af",
+  themeColor: "#d97706",
   width: "device-width",
   initialScale: 1,
 };

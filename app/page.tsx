@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { getEntityBySlug } from "@/lib/entity";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Wallet, TrendingDown, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { computeBudgetSummary } from "@/lib/budget";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
@@ -163,7 +164,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         <div className="grid gap-4 sm:grid-cols-3">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Wallet className="h-4 w-4 text-primary" />
                 Total Budgeted
               </CardTitle>
             </CardHeader>
@@ -174,7 +176,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <TrendingDown className="h-4 w-4 text-destructive" />
                 Spent This Month
               </CardTitle>
             </CardHeader>
@@ -187,7 +190,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                {overspentCount > 0
+                  ? <AlertTriangle className="h-4 w-4 text-destructive" />
+                  : <CheckCircle2 className="h-4 w-4 text-green-600" />}
                 Overspent Lines
               </CardTitle>
             </CardHeader>
@@ -257,11 +263,16 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                           {formatUSD(decimalToNumber(summary.remaining))}
                         </td>
                         <td className="px-4 py-2">
-                          <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className={`h-full rounded-full ${summary.isOverspent ? "bg-destructive" : "bg-primary"}`}
-                              style={{ width: `${Math.min(summary.percentUsed, 100)}%` }}
-                            />
+                          <div className="flex items-center gap-2">
+                            <div className="h-2.5 w-28 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className={`h-full rounded-full transition-all ${summary.isOverspent ? "bg-destructive" : "bg-primary"}`}
+                                style={{ width: `${Math.min(summary.percentUsed, 100)}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs tabular-nums ${summary.isOverspent ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                              {Math.round(summary.percentUsed)}%
+                            </span>
                           </div>
                         </td>
                       </tr>

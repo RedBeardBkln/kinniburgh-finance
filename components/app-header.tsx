@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { Route } from "next";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import type { NavBucket } from "@/lib/entity";
+import { BananaLogo } from "@/components/logo";
 
 interface AppHeaderProps {
   userName?: string;
@@ -40,8 +41,8 @@ export function AppHeader({ userName, unreadCount = 0, navBuckets }: AppHeaderPr
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
       <div className="flex h-14 items-center gap-4 px-4">
-        <Link href="/" className="shrink-0 text-base font-semibold">
-          Banana Stand
+        <Link href="/" className="shrink-0">
+          <BananaLogo size="sm" />
         </Link>
         <div className="flex flex-1 items-center gap-1 overflow-x-auto">
           {navBuckets.map(({ slug, label, type }) => {
