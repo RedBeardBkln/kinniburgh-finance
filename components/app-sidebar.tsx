@@ -59,6 +59,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
     { label: "Retirement", base: "/personal/retirement", href: "/personal/retirement" as Route },
     { label: "Insurance", base: "/personal/insurance", href: "/personal/insurance" as Route },
     { label: "Projects", base: "/projects", href: "/projects" as Route },
+    { label: "Receipts", base: "/receipts", href: "/receipts" as Route },
   ];
 
   const taxItems = [
