@@ -49,6 +49,7 @@ export async function createAccount(input: z.infer<typeof createAccountSchema>) 
 const updateAccountSchema = z.object({
   id: z.string().uuid(),
   nickname: z.string().min(1).max(100).optional(),
+  accountType: z.enum(ACCOUNT_TYPES).optional(),
   minimumBalance: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
   minimumBalanceFee: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
 });
@@ -59,6 +60,7 @@ export async function updateAccount(input: z.infer<typeof updateAccountSchema>) 
 
   const data: Prisma.AccountUpdateInput = {};
   if (patch.nickname !== undefined) data.nickname = patch.nickname;
+  if (patch.accountType !== undefined) data.accountType = patch.accountType;
   if (patch.minimumBalance !== undefined) {
     data.minimumBalance = patch.minimumBalance ? new Prisma.Decimal(patch.minimumBalance) : null;
   }
@@ -70,6 +72,7 @@ export async function updateAccount(input: z.infer<typeof updateAccountSchema>) 
 
   revalidatePath("/accounts");
   revalidatePath("/envelope");
+  revalidatePath("/personal/retirement");
   return { success: true as const };
 }
 

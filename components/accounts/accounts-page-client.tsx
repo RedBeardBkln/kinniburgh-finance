@@ -99,6 +99,7 @@ function AccountModal({ modal, institutions, entities, onClose }: {
           await updateAccount({
             id: a!.id,
             nickname: fd.get("nickname") as string,
+            accountType: fd.get("accountType") as "checking",
             minimumBalance: (fd.get("minimumBalance") as string) || null,
             minimumBalanceFee: (fd.get("minimumBalanceFee") as string) || null,
           });
@@ -150,15 +151,14 @@ function AccountModal({ modal, institutions, entities, onClose }: {
             </div>
           )}
 
-          {/* Account type — add only */}
-          {!isEdit && (
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Account Type</label>
-              <select name="accountType" className="w-full rounded border px-3 py-2 text-sm" required>
-                {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
-            </div>
-          )}
+          {/* Account type */}
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Account Type</label>
+            <select name="accountType" className="w-full rounded border px-3 py-2 text-sm" required defaultValue={a?.accountType ?? ""}>
+              {!isEdit && <option value="">Select type…</option>}
+              {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
 
           {/* Nickname */}
           <div className="space-y-1">
