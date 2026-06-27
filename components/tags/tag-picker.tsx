@@ -85,7 +85,7 @@ export function TagPicker({
       />
 
       {open && filtered.length > 0 && (
-        <ul className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-popover shadow-md">
+        <ul className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md">
           {filtered.map((tag) => {
             const isSelected = selected.includes(tag.id);
             return (
