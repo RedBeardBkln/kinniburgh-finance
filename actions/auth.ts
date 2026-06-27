@@ -50,6 +50,19 @@ export async function verifyTotpSetup(code: string): Promise<{ success: boolean 
   return { success: valid };
 }
 
+export async function checkMfaStatus(
+  email: string,
+  password: string
+): Promise<{ needsMfa: boolean } | { invalid: true }> {
+  const user = await db.user.findUnique({ where: { email } });
+  if (!user) return { invalid: true };
+
+  const passwordOk = await bcrypt.compare(password, user.passwordHash);
+  if (!passwordOk) return { invalid: true };
+
+  return { needsMfa: user.totpVerified && !!user.totpSecret };
+}
+
 export async function requestPasswordReset(email: string): Promise<{ ok: true }> {
   const user = await db.user.findUnique({ where: { email } });
 
