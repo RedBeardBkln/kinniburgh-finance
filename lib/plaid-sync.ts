@@ -79,6 +79,7 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
   let removed = 0;
   let nextCursor = cursor;
   let hasMore = true;
+  let latestPlaidAccounts: Array<{ account_id: string; balances: { current: number | null } }> = [];
 
   // Load account→entity mapping for this item
   const accounts = await db.account.findMany({
@@ -97,6 +98,7 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
       cursor: nextCursor,
     });
     const data = response.data;
+    latestPlaidAccounts = data.accounts as typeof latestPlaidAccounts;
 
     for (const tx of data.added) {
       const acct = accountByPlaidId.get(tx.account_id);
@@ -159,14 +161,30 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
     hasMore = data.has_more;
   }
 
-  // Persist updated cursor
-  await db.plaidItem.update({
-    where: { itemId },
-    data: {
-      cursorEncrypted: nextCursor ? encrypt(nextCursor) : null,
-      lastSyncedAt: new Date(),
-    },
-  });
+  // Update account balances from the final sync response and persist cursor
+  const syncedAt = new Date();
+  await Promise.all([
+    db.plaidItem.update({
+      where: { itemId },
+      data: {
+        cursorEncrypted: nextCursor ? encrypt(nextCursor) : null,
+        lastSyncedAt: syncedAt,
+      },
+    }),
+    ...latestPlaidAccounts
+      .filter((pa) => pa.balances.current !== null && pa.balances.current !== undefined)
+      .map((pa) => {
+        const localAcct = accountByPlaidId.get(pa.account_id);
+        if (!localAcct) return Promise.resolve();
+        return db.account.update({
+          where: { id: localAcct.id },
+          data: {
+            currentBalance: new Decimal(pa.balances.current!),
+            currentBalanceAt: syncedAt,
+          },
+        });
+      }),
+  ]);
 
   return { added, modified, removed };
 }

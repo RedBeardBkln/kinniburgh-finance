@@ -140,53 +140,65 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           </p>
         </div>
 
-        {/* ── Balance entry panel ──────────────────────────────────────── */}
+        {/* ── Balance panel ────────────────────────────────────────────── */}
         <Card>
           <CardHeader>
-            <CardTitle>Set Current Balances</CardTitle>
+            <CardTitle>Current Balances</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="mb-3 text-sm text-muted-foreground">
-              Enter today's balance for each account to generate an accurate forecast.
-              These will be updated automatically once bank accounts are connected.
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {tdAccounts.map((acct) => (
-                <form
-                  key={acct.id}
-                  action={async (formData: FormData) => {
-                    "use server";
-                    await setAccountBalance(acct.id, formData.get("balance") as string);
-                  }}
-                  className="space-y-1"
-                >
-                  <label className="text-xs font-medium">
-                    {acct.nickname} ···{acct.mask}
-                  </label>
-                  <div className="flex gap-1">
-                    <input
-                      name="balance"
-                      type="number"
-                      step="0.01"
-                      defaultValue={
-                        acct.currentBalance
-                          ? decimalToNumber(new Prisma.Decimal(acct.currentBalance)).toFixed(2)
-                          : ""
-                      }
-                      placeholder="0.00"
-                      className="w-28 rounded border px-2 py-1 text-sm"
-                    />
-                    <button type="submit" className="text-xs text-primary hover:underline">
-                      Set
-                    </button>
-                  </div>
-                  {acct.currentBalanceAt && (
-                    <p className="text-xs text-muted-foreground">
-                      As of {new Date(acct.currentBalanceAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {tdAccounts.map((acct) => {
+                const isPlaid = acct.integrationMode === "plaid";
+                const balanceNum = acct.currentBalance
+                  ? decimalToNumber(new Prisma.Decimal(acct.currentBalance))
+                  : null;
+                const asOf = acct.currentBalanceAt
+                  ? new Date(acct.currentBalanceAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+                  : null;
+
+                return isPlaid ? (
+                  <div key={acct.id} className="space-y-1">
+                    <p className="text-xs font-medium">
+                      {acct.nickname}{acct.mask ? ` ···${acct.mask}` : ""}
                     </p>
-                  )}
-                </form>
-              ))}
+                    <p className="text-base font-semibold tabular-nums">
+                      {balanceNum !== null ? formatUSD(balanceNum) : <span className="text-muted-foreground">—</span>}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {asOf ? `Synced ${asOf}` : "Not yet synced"}
+                      {" · "}
+                      <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">Auto</span>
+                    </p>
+                  </div>
+                ) : (
+                  <form
+                    key={acct.id}
+                    action={async (formData: FormData) => {
+                      "use server";
+                      await setAccountBalance(acct.id, formData.get("balance") as string);
+                    }}
+                    className="space-y-1"
+                  >
+                    <label className="text-xs font-medium">
+                      {acct.nickname}{acct.mask ? ` ···${acct.mask}` : ""}
+                    </label>
+                    <div className="flex gap-1">
+                      <input
+                        name="balance"
+                        type="number"
+                        step="0.01"
+                        defaultValue={balanceNum !== null ? balanceNum.toFixed(2) : ""}
+                        placeholder="0.00"
+                        className="w-28 rounded border px-2 py-1 text-sm"
+                      />
+                      <button type="submit" className="text-xs text-primary hover:underline">
+                        Set
+                      </button>
+                    </div>
+                    {asOf && <p className="text-xs text-muted-foreground">As of {asOf}</p>}
+                  </form>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
