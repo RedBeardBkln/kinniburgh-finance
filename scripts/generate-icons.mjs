@@ -1,0 +1,57 @@
+import sharp from "sharp";
+import { writeFileSync, mkdirSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const publicDir = join(__dirname, "..", "public");
+mkdirSync(publicDir, { recursive: true });
+
+// ── Icon SVG ──────────────────────────────────────────────────────────────────
+// 512×512 canvas, amber background, white banana centered with padding.
+// The banana shape occupies roughly the middle 60% of the canvas.
+const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Amber background -->
+  <rect width="512" height="512" fill="#d97706"/>
+
+  <!-- Banana body — scaled and centered inside 512×512.
+       Original 40×40 paths scaled ×9.6 and translated to center. -->
+  <g transform="translate(80, 80) scale(9.6)">
+    <!-- Main crescent body: lower-left to upper-right -->
+    <path d="M 5 32 C 1 18, 16 2, 34 6 C 26 14, 14 24, 5 32 Z" fill="white"/>
+    <!-- Belly highlight for depth -->
+    <path d="M 9 23 C 7 14, 18 6, 29 8"
+          stroke="rgba(255,255,255,0.35)" stroke-width="1.5"
+          stroke-linecap="round" fill="none"/>
+    <!-- Stem -->
+    <path d="M 5 32 C 4 33, 3 35, 2 36"
+          stroke="rgba(255,255,255,0.55)" stroke-width="1.5"
+          stroke-linecap="round" fill="none"/>
+    <!-- Tip -->
+    <path d="M 34 6 C 35 5, 36 3, 37 3"
+          stroke="rgba(255,255,255,0.55)" stroke-width="1.5"
+          stroke-linecap="round" fill="none"/>
+  </g>
+</svg>`;
+
+const svgBuffer = Buffer.from(iconSvg);
+
+const sizes = [
+  { name: "icon-512.png",       size: 512 },
+  { name: "icon-192.png",       size: 192 },
+  { name: "apple-touch-icon.png", size: 180 },
+];
+
+for (const { name, size } of sizes) {
+  const outPath = join(publicDir, name);
+  await sharp(svgBuffer)
+    .resize(size, size)
+    .png()
+    .toFile(outPath);
+  console.log(`✓ ${name} (${size}×${size})`);
+}
+
+// Also write the icon SVG for browser use
+writeFileSync(join(publicDir, "icon.svg"), iconSvg);
+console.log("✓ icon.svg");
+console.log("Done.");
