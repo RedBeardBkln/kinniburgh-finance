@@ -8,7 +8,7 @@ import { decrypt } from "@/lib/encrypt";
 import { authConfig } from "./auth.config";
 
 class MfaRequired extends CredentialsSignin {
-  code = "MFA_REQUIRED";
+  override code = "MFA_REQUIRED";
 }
 
 const loginSchema = z.object({
