@@ -78,16 +78,25 @@ const LIABILITY_TYPES = new Set(["credit_card", "mortgage", "loan"]);
 export async function computeNetWorth(): Promise<NetWorthBreakdown> {
   await requireAuth();
 
-  // ── Account balances ──────────────────────────────────────────────────────
-  const accounts = await db.account.findMany({
-    where: { archivedAt: null },
-    select: { id: true, nickname: true, accountType: true, currentBalance: true },
-  });
+  const [rawAccounts, manualAssets, policies] = await Promise.all([
+    db.account.findMany({
+      where: { archivedAt: null },
+      select: { id: true, nickname: true, accountType: true, currentBalance: true },
+    }),
+    db.manualAsset.findMany({
+      where: { archivedAt: null },
+      select: { name: true, category: true, valueCents: true },
+    }),
+    db.insurancePolicy.findMany({
+      where: { archivedAt: null },
+      include: { cashValueEntries: { orderBy: { asOf: "desc" }, take: 1 } },
+    }),
+  ]);
 
   const missingBalances: string[] = [];
   const accountRows: NetWorthBreakdown["accounts"] = [];
 
-  for (const a of accounts) {
+  for (const a of rawAccounts) {
     if (a.currentBalance === null) {
       missingBalances.push(a.nickname);
       continue;
@@ -96,23 +105,6 @@ export async function computeNetWorth(): Promise<NetWorthBreakdown> {
     const balanceCents = Math.abs(Math.round(a.currentBalance.toNumber() * 100));
     accountRows.push({ nickname: a.nickname, accountType: a.accountType, balanceCents, isLiability });
   }
-
-  // ── Manual assets ─────────────────────────────────────────────────────────
-  const manualAssets = await db.manualAsset.findMany({
-    where: { archivedAt: null },
-    select: { name: true, category: true, valueCents: true },
-  });
-
-  // ── Insurance cash values ─────────────────────────────────────────────────
-  const policies = await db.insurancePolicy.findMany({
-    where: { archivedAt: null },
-    include: {
-      cashValueEntries: {
-        orderBy: { asOf: "desc" },
-        take: 1,
-      },
-    },
-  });
 
   const cashValues: NetWorthBreakdown["cashValues"] = policies
     .filter((p) => p.cashValueEntries.length > 0)

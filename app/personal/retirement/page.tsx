@@ -14,25 +14,16 @@ export default async function RetirementPage() {
   const session = await auth();
   if (!session?.user) redirect("/login" as Route);
 
-  // Investment accounts (Betterment IRA, 401k, etc.)
-  const investmentAccounts = await db.account.findMany({
-    where: { accountType: "investment", archivedAt: null },
-    orderBy: { nickname: "asc" },
-  });
-
-  // Whole-life / UL insurance policies with cash value
-  const policies = await db.insurancePolicy.findMany({
-    where: {
-      archivedAt: null,
-      policyType: { in: ["whole", "ul"] },
-    },
-    include: {
-      cashValueEntries: {
-        orderBy: { asOf: "desc" },
-        take: 1,
-      },
-    },
-  });
+  const [investmentAccounts, policies] = await Promise.all([
+    db.account.findMany({
+      where: { accountType: "investment", archivedAt: null },
+      orderBy: { nickname: "asc" },
+    }),
+    db.insurancePolicy.findMany({
+      where: { archivedAt: null, policyType: { in: ["whole", "ul"] } },
+      include: { cashValueEntries: { orderBy: { asOf: "desc" }, take: 1 } },
+    }),
+  ]);
 
   const investmentTotalCents = investmentAccounts.reduce((sum, a) => {
     return sum + (a.currentBalance ? Math.round(a.currentBalance.toNumber() * 100) : 0);

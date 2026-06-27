@@ -30,66 +30,61 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const monthStart = new Date(`${period}-01T00:00:00Z`);
   const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
-  // Budget lines for this entity + period
-  const budgets = await db.budget.findMany({
-    where: { ...(entity && { entityId: entity.id }), period },
-    include: { tag: true, account: { include: { institution: true } } },
-    orderBy: [{ account: { nickname: "asc" } }, { tag: { name: "asc" } }],
-  });
-
-  // Actual spend per tag this month via raw query
-  const tagSpend = entity
-    ? await db.$queryRaw<{ tagId: string; total: string }[]>`
-        SELECT tt."tagId", SUM(t.amount)::text AS total
-        FROM "Transaction" t
-        JOIN "TransactionTag" tt ON tt."transactionId" = t.id
-        WHERE t."entityId" = ${entity.id}
-          AND t."archivedAt" IS NULL
-          AND t."transferPairId" IS NULL
-          AND t."postedAt" >= ${monthStart}
-          AND t."postedAt" < ${monthEnd}
-        GROUP BY tt."tagId"
-      `
-    : await db.$queryRaw<{ tagId: string; total: string }[]>`
-        SELECT tt."tagId", SUM(t.amount)::text AS total
-        FROM "Transaction" t
-        JOIN "TransactionTag" tt ON tt."transactionId" = t.id
-        WHERE t."archivedAt" IS NULL
-          AND t."transferPairId" IS NULL
-          AND t."postedAt" >= ${monthStart}
-          AND t."postedAt" < ${monthEnd}
-        GROUP BY tt."tagId"
-      `;
+  // All entity-dependent queries run in parallel
+  const [budgets, tagSpend, spendAgg, accounts, scheduledTransfers, allTagsResult] = await Promise.all([
+    db.budget.findMany({
+      where: { ...(entity && { entityId: entity.id }), period },
+      include: { tag: true, account: { include: { institution: true } } },
+      orderBy: [{ account: { nickname: "asc" } }, { tag: { name: "asc" } }],
+    }),
+    entity
+      ? db.$queryRaw<{ tagId: string; total: string }[]>`
+          SELECT tt."tagId", SUM(t.amount)::text AS total
+          FROM "Transaction" t
+          JOIN "TransactionTag" tt ON tt."transactionId" = t.id
+          WHERE t."entityId" = ${entity.id}
+            AND t."archivedAt" IS NULL
+            AND t."transferPairId" IS NULL
+            AND t."postedAt" >= ${monthStart}
+            AND t."postedAt" < ${monthEnd}
+          GROUP BY tt."tagId"
+        `
+      : db.$queryRaw<{ tagId: string; total: string }[]>`
+          SELECT tt."tagId", SUM(t.amount)::text AS total
+          FROM "Transaction" t
+          JOIN "TransactionTag" tt ON tt."transactionId" = t.id
+          WHERE t."archivedAt" IS NULL
+            AND t."transferPairId" IS NULL
+            AND t."postedAt" >= ${monthStart}
+            AND t."postedAt" < ${monthEnd}
+          GROUP BY tt."tagId"
+        `,
+    db.transaction.aggregate({
+      where: {
+        ...(entity && { entityId: entity.id }),
+        archivedAt: null,
+        transferPairId: null,
+        postedAt: { gte: monthStart, lt: monthEnd },
+      },
+      _sum: { amount: true },
+    }),
+    db.account.findMany({
+      where: { ...(entity && { entityId: entity.id }), archivedAt: null },
+      include: { institution: true },
+      orderBy: { nickname: "asc" },
+    }),
+    db.scheduledTransfer.findMany({
+      where: { active: true },
+      include: { fromAccount: true, toAccount: true },
+      take: 10,
+    }),
+    db.tag.findMany({ orderBy: { name: "asc" } }),
+  ]);
 
   const spendByTagId = new Map<string, Prisma.Decimal>(
     tagSpend.map((r) => [r.tagId, new Prisma.Decimal(r.total)])
   );
-
-  // Total spend this month (all transactions)
-  const spendAgg = await db.transaction.aggregate({
-    where: {
-      ...(entity && { entityId: entity.id }),
-      archivedAt: null,
-      transferPairId: null,
-      postedAt: { gte: monthStart, lt: monthEnd },
-    },
-    _sum: { amount: true },
-  });
   const totalSpend = new Prisma.Decimal(spendAgg._sum.amount ?? 0);
-
-  // Accounts for this entity (or all when null)
-  const accounts = await db.account.findMany({
-    where: { ...(entity && { entityId: entity.id }), archivedAt: null },
-    include: { institution: true },
-    orderBy: { nickname: "asc" },
-  });
-
-  // Scheduled transfers
-  const scheduledTransfers = await db.scheduledTransfer.findMany({
-    where: { active: true },
-    include: { fromAccount: true, toAccount: true },
-    take: 10,
-  });
 
   const totalBudgeted = budgets.reduce(
     (sum, b) => sum.plus(b.budgeted),
@@ -141,14 +136,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     };
   });
 
-  const allTags = await db.tag.findMany({ orderBy: { name: "asc" } });
-
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <DashboardClient
         chartData={chartData}
         budgets={serializedBudgets}
-        allTags={allTags}
+        allTags={allTagsResult}
         entityId={entity?.id}
         period={period}
       >
