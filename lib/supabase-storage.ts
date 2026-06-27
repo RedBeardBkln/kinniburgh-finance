@@ -4,10 +4,21 @@ const BUCKET = "receipts";
 
 function getStorageConfig() {
   const url = process.env.SUPABASE_URL?.trim();
-  // Strip every character outside the valid HTTP header range (\t + printable ASCII).
-  // \s doesn't catch zero-width spaces (U+200B etc.) which node:https rejects.
-  const key = process.env.SUPABASE_SERVICE_KEY?.replace(/[^\t\x20-\x7e]/g, "");
+  const raw = process.env.SUPABASE_SERVICE_KEY ?? "";
+  // Supabase service keys are JWTs: base64url segments separated by dots.
+  // Strip anything that is not a valid JWT character (letters, digits, - _ . =).
+  // This silently removes copy-paste whitespace (spaces, line breaks) without
+  // corrupting the token. If anything other than whitespace is removed, the key
+  // is corrupted and we throw a clear diagnostic error below.
+  const key = raw.replace(/[^A-Za-z0-9\-_.=]/g, "");
   if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set");
+  if (raw.replace(/\s/g, "") !== key) {
+    throw new Error(
+      "SUPABASE_SERVICE_KEY contains unexpected characters and is likely corrupted. " +
+        "Please delete and re-paste the service_role key from Supabase Dashboard " +
+        "(Project Settings > API) into Vercel environment variables."
+    );
+  }
   return { url, key };
 }
 
@@ -63,7 +74,11 @@ export async function uploadReceiptFile(
   if (!res.ok) {
     const body = await res.text().catch(() => res.status.toString());
     let msg = res.status.toString();
-    try { msg = (JSON.parse(body) as { message?: string }).message ?? body; } catch { msg = body; }
+    try {
+      msg = (JSON.parse(body) as { message?: string }).message ?? body;
+    } catch {
+      msg = body;
+    }
     throw new Error(`Storage upload failed: ${msg}`);
   }
 }
@@ -106,7 +121,9 @@ export async function getReceiptSignedUrl(fileKey: string): Promise<string> {
   );
   if (!res.ok) {
     const body = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(`Signed URL failed: ${(body as { message?: string }).message ?? res.statusText}`);
+    throw new Error(
+      `Signed URL failed: ${(body as { message?: string }).message ?? res.statusText}`
+    );
   }
   const data = (await res.json()) as { signedURL?: string; signedUrl?: string };
   const path = data.signedURL ?? data.signedUrl ?? "";
