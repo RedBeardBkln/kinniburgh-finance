@@ -7,6 +7,7 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Banana Stand",
   description: "Personal and business financial management",
+  robots: { index: false, follow: false },
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
