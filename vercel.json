@@ -2,6 +2,10 @@
   "buildCommand": "prisma migrate deploy && prisma generate && next build",
   "crons": [
     {
+      "path": "/api/cron/plaid-sync",
+      "schedule": "0 8 * * *"
+    },
+    {
       "path": "/api/cron/notifications",
       "schedule": "0 8 * * *"
     },
