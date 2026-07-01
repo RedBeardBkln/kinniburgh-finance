@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { TagPicker } from "@/components/tags/tag-picker";
 import { updateTransactionTags } from "@/actions/transactions";
@@ -199,16 +199,28 @@ export function TransactionTagsEditor({
   const [tagIds, setTagIds] = useState(initialTagIds);
   const [isPending, startTransition] = useTransition();
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<RulePrompt | null>(null);
   const [retroModal, setRetroModal] = useState<RetroState | null>(null);
 
+  // Show the rule prompt only after the save + router.refresh() have fully settled.
+  // Setting rulePrompt during the same transition that calls router.refresh() races
+  // with Next.js's reconciliation and gets stomped — deferring to after isPending
+  // flips false guarantees the state survives.
+  useEffect(() => {
+    if (!isPending && pendingPrompt) {
+      setRulePrompt(pendingPrompt);
+      setPendingPrompt(null);
+    }
+  }, [isPending, pendingPrompt]);
+
   function handleChange(newIds: string[]) {
-    // Detect a newly added tag to offer the save-as-rule prompt
+    // Detect a newly added tag and queue the prompt for after the save completes
     if (payeeNormalized) {
       const prevSet = new Set(tagIds);
       const addedId = newIds.find((id) => !prevSet.has(id));
       if (addedId) {
         const tag = allTags.find((t) => t.id === addedId);
-        if (tag) setRulePrompt({ tagId: addedId, tagName: tag.name });
+        if (tag) setPendingPrompt({ tagId: addedId, tagName: tag.name });
       }
     }
 
