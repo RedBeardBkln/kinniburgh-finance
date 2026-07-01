@@ -79,7 +79,6 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
   let removed = 0;
   let nextCursor = cursor;
   let hasMore = true;
-  let latestPlaidAccounts: Array<{ account_id: string; balances: { current: number | null } }> = [];
 
   // Load account→entity mapping for this item
   const accounts = await db.account.findMany({
@@ -110,7 +109,6 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
       throw err;
     }
     const data = response.data;
-    latestPlaidAccounts = data.accounts as typeof latestPlaidAccounts;
 
     for (const tx of data.added) {
       const acct = accountByPlaidId.get(tx.account_id);
@@ -173,29 +171,36 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
     hasMore = data.has_more;
   }
 
-  // Update account balances from the final sync response and persist cursor
+  // Fetch a fresh balance snapshot using accountsGet — more reliable than
+  // transactionsSync balances, which can be null for investment/savings accounts.
   const syncedAt = new Date();
+  const balanceRes = await getPlaidClient().accountsGet({ access_token: accessToken });
+  const freshAccounts = balanceRes.data.accounts;
+
   await Promise.all([
     db.plaidItem.update({
       where: { itemId },
       data: {
         cursorEncrypted: nextCursor ? encrypt(nextCursor) : null,
         lastSyncedAt: syncedAt,
+        status: "active",
       },
     }),
-    ...latestPlaidAccounts
-      .filter((pa) => pa.balances.current !== null && pa.balances.current !== undefined)
-      .map((pa) => {
-        const localAcct = accountByPlaidId.get(pa.account_id);
-        if (!localAcct) return Promise.resolve();
-        return db.account.update({
-          where: { id: localAcct.id },
-          data: {
-            currentBalance: new Decimal(pa.balances.current!),
-            currentBalanceAt: syncedAt,
-          },
-        });
-      }),
+    ...freshAccounts.map((pa) => {
+      const localAcct = accountByPlaidId.get(pa.account_id);
+      if (!localAcct) return Promise.resolve();
+      // current is the primary balance for all account types; available is a fallback
+      // for accounts where Plaid doesn't populate current (rare edge case).
+      const balance = pa.balances.current ?? pa.balances.available;
+      if (balance === null || balance === undefined) return Promise.resolve();
+      return db.account.update({
+        where: { id: localAcct.id },
+        data: {
+          currentBalance: new Decimal(balance),
+          currentBalanceAt: syncedAt,
+        },
+      });
+    }),
   ]);
 
   return { added, modified, removed };
