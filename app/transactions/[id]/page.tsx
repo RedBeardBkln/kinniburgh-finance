@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { TransactionTagsEditor } from "@/components/transactions/transaction-tags-editor";
-import { CreateRuleForm } from "@/components/transactions/create-rule-form";
 import type { Route } from "next";
 
 export default async function TransactionDetailPage({
@@ -148,29 +147,11 @@ export default async function TransactionDetailPage({
                 parentId: t.parentId,
               }))}
               initialTagIds={currentTagIds}
-            />
-          </CardContent>
-        </Card>
-
-        {/* Create rule */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Create tag rule</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground mb-4">
-              Save a rule to automatically tag future transactions with this payee.
-            </p>
-            <CreateRuleForm
-              allTags={allTags.map((t) => ({
-                id: t.id,
-                name: t.name,
-                shortName: t.shortName,
-                parentId: t.parentId,
-              }))}
-              defaultPayee={tx.payeeNormalized ?? tx.payeeRaw ?? ""}
+              payeeNormalized={tx.payeeNormalized ?? tx.payeeRaw ?? undefined}
               defaultAmount={defaultAmount}
               accountId={tx.accountId}
+              accountNickname={tx.account.nickname}
+              accountMask={tx.account.mask}
             />
           </CardContent>
         </Card>
