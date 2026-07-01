@@ -289,6 +289,9 @@ export function AccountsPageClient({ accounts, institutions, entities }: Props) 
                           {acct.plaidStatus === "requires_login" && (
                             <span className="inline-flex items-center rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">Re-link required</span>
                           )}
+                          {acct.plaidStatus === "pending_expiration" && (
+                            <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Expiring soon</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-2 text-right font-medium tabular-nums">
@@ -312,7 +315,7 @@ export function AccountsPageClient({ accounts, institutions, entities }: Props) 
                         <div className="flex items-center gap-3">
                           <button onClick={() => setModal({ mode: "edit", account: acct })} className="text-xs text-primary hover:underline">Edit</button>
                           {acct.integrationMode === "plaid" && acct.plaidItemId ? (
-                            acct.plaidStatus === "requires_login" ? (
+                            acct.plaidStatus === "requires_login" || acct.plaidStatus === "pending_expiration" ? (
                               <Link href={`/accounts/connect?itemId=${acct.plaidItemId}`} className="text-xs font-medium text-red-600 hover:underline">Re-link</Link>
                             ) : (
                               <form action={`/api/plaid/sync/${acct.plaidItemId}`} method="POST">

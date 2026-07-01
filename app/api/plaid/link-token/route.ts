@@ -16,10 +16,18 @@ export async function GET(req: Request) {
 
   let accessToken: string | undefined;
   if (itemId) {
-    const plaidItem = await db.plaidItem.findUnique({ where: { itemId } });
-    if (plaidItem) {
-      accessToken = decrypt(plaidItem.accessTokenEncrypted);
+    const plaidItem = await db.plaidItem.findUnique({
+      where: { itemId },
+      select: {
+        accessTokenEncrypted: true,
+        accounts: { select: { id: true }, take: 1 },
+      },
+    });
+    // Reject itemIds that don't exist or have no mapped accounts
+    if (!plaidItem || plaidItem.accounts.length === 0) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
+    accessToken = decrypt(plaidItem.accessTokenEncrypted);
   }
 
   const response = await getPlaidClient().linkTokenCreate({
