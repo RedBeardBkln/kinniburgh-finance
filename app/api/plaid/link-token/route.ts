@@ -30,6 +30,8 @@ export async function GET(req: Request) {
     accessToken = decrypt(plaidItem.accessTokenEncrypted);
   }
 
+  const webhookUrl = `${process.env.NEXTAUTH_URL ?? "https://www.ericandeva.com"}/api/plaid/webhook`;
+
   const response = await getPlaidClient().linkTokenCreate({
     user: { client_user_id: session.user.id! },
     client_name: "Banana Stand",
@@ -37,6 +39,7 @@ export async function GET(req: Request) {
     access_token: accessToken,
     country_codes: [CountryCode.Us],
     language: "en",
+    webhook: webhookUrl,
   });
 
   return NextResponse.json({ linkToken: response.data.link_token });
