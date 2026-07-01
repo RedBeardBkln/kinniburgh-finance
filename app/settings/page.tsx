@@ -25,6 +25,11 @@ export default async function SettingsPage() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <SettingsCard
+            title="Tags"
+            description="Create, rename, and organize the tag hierarchy used to categorize transactions."
+            href={"/tags" as Route}
+          />
+          <SettingsCard
             title="Tag Rules"
             description="Automate payee-to-tag assignments for faster transaction review."
             href="/tag-rules"

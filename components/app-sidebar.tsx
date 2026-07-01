@@ -218,6 +218,30 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
           Vault
         </Link>
         <Link
+          href={"/tags" as Route}
+          className={cn(
+            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+            pathname.startsWith("/tags") && !pathname.startsWith("/tag-rules")
+              ? "bg-accent font-medium text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          )}
+        >
+          <Settings className="h-4 w-4" />
+          Tags
+        </Link>
+        <Link
+          href={"/tag-rules" as Route}
+          className={cn(
+            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+            pathname.startsWith("/tag-rules")
+              ? "bg-accent font-medium text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          )}
+        >
+          <Settings className="h-4 w-4" />
+          Tag Rules
+        </Link>
+        <Link
           href={"/settings" as Route}
           className={cn(
             "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",

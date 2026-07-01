@@ -231,23 +231,23 @@ export function TransactionTagsEditor({
         {isPending && (
           <p className="mt-2 text-xs text-muted-foreground">Saving…</p>
         )}
-
-        {rulePrompt && (
-          <InlineRulePanel
-            prompt={rulePrompt}
-            payeeNormalized={payeeNormalized}
-            defaultAmount={defaultAmount}
-            accountId={accountId}
-            accountNickname={accountNickname}
-            accountMask={accountMask}
-            onCreated={(ruleId, tagName) => {
-              setRulePrompt(null);
-              setRetroModal({ ruleId, tagName });
-            }}
-            onDismiss={() => setRulePrompt(null)}
-          />
-        )}
       </div>
+
+      {rulePrompt && (
+        <InlineRulePanel
+          prompt={rulePrompt}
+          payeeNormalized={payeeNormalized}
+          defaultAmount={defaultAmount}
+          accountId={accountId}
+          accountNickname={accountNickname}
+          accountMask={accountMask}
+          onCreated={(ruleId, tagName) => {
+            setRulePrompt(null);
+            setRetroModal({ ruleId, tagName });
+          }}
+          onDismiss={() => setRulePrompt(null)}
+        />
+      )}
 
       {retroModal && (
         <RetroactiveRuleModal
