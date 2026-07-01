@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const webhookUrl = `${process.env.NEXTAUTH_URL ?? "https://www.ericandeva.com"}/api/plaid/webhook`;
+  const webhookUrl = `${new URL(req.url).origin}/api/plaid/webhook`;
 
   const items = await db.plaidItem.findMany({
     select: { itemId: true, accessTokenEncrypted: true },

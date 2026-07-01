@@ -30,7 +30,7 @@ export async function GET(req: Request) {
     accessToken = decrypt(plaidItem.accessTokenEncrypted);
   }
 
-  const webhookUrl = `${process.env.NEXTAUTH_URL ?? "https://www.ericandeva.com"}/api/plaid/webhook`;
+  const webhookUrl = `${new URL(req.url).origin}/api/plaid/webhook`;
 
   const response = await getPlaidClient().linkTokenCreate({
     user: { client_user_id: session.user.id! },
