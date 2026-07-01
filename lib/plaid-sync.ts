@@ -93,10 +93,22 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
   );
 
   while (hasMore) {
-    const response = await getPlaidClient().transactionsSync({
-      access_token: accessToken,
-      cursor: nextCursor,
-    });
+    let response;
+    try {
+      response = await getPlaidClient().transactionsSync({
+        access_token: accessToken,
+        cursor: nextCursor,
+      });
+    } catch (err: unknown) {
+      // Plaid returns structured errors as axios error responses
+      const plaidError = (err as { response?: { data?: { error_code?: string } } })?.response?.data;
+      if (plaidError?.error_code === "ITEM_LOGIN_REQUIRED") {
+        await db.plaidItem.update({ where: { itemId }, data: { status: "requires_login" } });
+      } else if (plaidError?.error_code) {
+        await db.plaidItem.update({ where: { itemId }, data: { status: "error" } });
+      }
+      throw err;
+    }
     const data = response.data;
     latestPlaidAccounts = data.accounts as typeof latestPlaidAccounts;
 

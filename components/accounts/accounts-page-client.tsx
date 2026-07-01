@@ -210,7 +210,18 @@ export function AccountsPageClient({ accounts, institutions, entities }: Props) 
   const router = useRouter();
   const [modal, setModal] = useState<ModalState>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [syncingItemId, setSyncingItemId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  async function onSync(itemId: string) {
+    setSyncingItemId(itemId);
+    try {
+      await fetch(`/api/plaid/sync/${itemId}`, { method: "POST" });
+      router.refresh();
+    } finally {
+      setSyncingItemId(null);
+    }
+  }
 
   function onArchive(id: string, nickname: string) {
     if (!confirm(`Archive "${nickname}"? It will no longer appear in transactions or forecasts.`)) return;
@@ -318,9 +329,13 @@ export function AccountsPageClient({ accounts, institutions, entities }: Props) 
                             acct.plaidStatus === "requires_login" || acct.plaidStatus === "pending_expiration" ? (
                               <Link href={`/accounts/connect?itemId=${acct.plaidItemId}`} className="text-xs font-medium text-red-600 hover:underline">Re-link</Link>
                             ) : (
-                              <form action={`/api/plaid/sync/${acct.plaidItemId}`} method="POST">
-                                <button type="submit" className="text-xs text-muted-foreground hover:text-foreground">Sync now</button>
-                              </form>
+                              <button
+                                onClick={() => onSync(acct.plaidItemId!)}
+                                disabled={syncingItemId === acct.plaidItemId}
+                                className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                              >
+                                {syncingItemId === acct.plaidItemId ? "Syncing…" : "Sync now"}
+                              </button>
                             )
                           ) : acct.institutionName !== "unsupported" ? (
                             <Link href="/accounts/connect" className="text-xs text-primary hover:underline">Connect to Plaid</Link>
