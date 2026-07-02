@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { TagPicker } from "@/components/tags/tag-picker";
 import { updateTransactionTags } from "@/actions/transactions";
@@ -199,41 +199,38 @@ export function TransactionTagsEditor({
   const [tagIds, setTagIds] = useState(initialTagIds);
   const [isPending, startTransition] = useTransition();
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
-  const [pendingPrompt, setPendingPrompt] = useState<RulePrompt | null>(null);
   const [retroModal, setRetroModal] = useState<RetroState | null>(null);
 
-  // Show the rule prompt only after the save + router.refresh() have fully settled.
-  // Setting rulePrompt during the same transition that calls router.refresh() races
-  // with Next.js's reconciliation and gets stomped — deferring to after isPending
-  // flips false guarantees the state survives.
-  useEffect(() => {
-    if (!isPending && pendingPrompt) {
-      setRulePrompt(pendingPrompt);
-      setPendingPrompt(null);
-    }
-  }, [isPending, pendingPrompt]);
-
   function handleChange(newIds: string[]) {
-    // Detect a newly added tag and queue the prompt for after the save completes
+    // Determine synchronously whether a new tag was just added
+    let promptToShow: RulePrompt | null = null;
     if (payeeNormalized) {
       const prevSet = new Set(tagIds);
       const addedId = newIds.find((id) => !prevSet.has(id));
       if (addedId) {
         const tag = allTags.find((t) => t.id === addedId);
-        if (tag) setPendingPrompt({ tagId: addedId, tagName: tag.name });
+        if (tag) promptToShow = { tagId: addedId, tagName: tag.name };
       }
     }
 
-    // Auto-dismiss prompt if its tag was removed
+    // Auto-dismiss if the tag backing an open prompt was removed
     if (rulePrompt && !newIds.includes(rulePrompt.tagId)) {
       setRulePrompt(null);
     }
 
     setTagIds(newIds);
+
+    // When a prompt will appear, skip router.refresh() here — any in-flight
+    // RSC reconciliation wipes client state. Refresh happens when the user
+    // dismisses or saves the rule instead.
     startTransition(async () => {
       await updateTransactionTags(transactionId, newIds);
-      router.refresh();
+      if (!promptToShow) router.refresh();
     });
+
+    // Batched with the transition start — renders in the same commit.
+    // InlineRulePanel is outside the isPending div so it's immediately interactive.
+    if (promptToShow) setRulePrompt(promptToShow);
   }
 
   return (
@@ -255,9 +252,13 @@ export function TransactionTagsEditor({
           accountMask={accountMask}
           onCreated={(ruleId, tagName) => {
             setRulePrompt(null);
+            router.refresh();
             setRetroModal({ ruleId, tagName });
           }}
-          onDismiss={() => setRulePrompt(null)}
+          onDismiss={() => {
+            setRulePrompt(null);
+            router.refresh();
+          }}
         />
       )}
 
