@@ -199,10 +199,20 @@ export function TransactionTagsEditor({
   const [tagIds, setTagIds] = useState(initialTagIds);
   const [isPending, startTransition] = useTransition();
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
+  // Hold the tag save until the user decides on the rule prompt.
+  // updateTransactionTags calls revalidatePath() which triggers an automatic
+  // RSC re-render — calling it while the panel is open wipes rulePrompt state.
+  const [pendingTagSave, setPendingTagSave] = useState<string[] | null>(null);
   const [retroModal, setRetroModal] = useState<RetroState | null>(null);
 
+  function commitTags(ids: string[]) {
+    startTransition(async () => {
+      await updateTransactionTags(transactionId, ids);
+      router.refresh();
+    });
+  }
+
   function handleChange(newIds: string[]) {
-    // Determine synchronously whether a new tag was just added
     let promptToShow: RulePrompt | null = null;
     if (payeeNormalized) {
       const prevSet = new Set(tagIds);
@@ -213,24 +223,29 @@ export function TransactionTagsEditor({
       }
     }
 
-    // Auto-dismiss if the tag backing an open prompt was removed
+    // If the tag backing an open prompt was removed, dismiss and clear pending save
     if (rulePrompt && !newIds.includes(rulePrompt.tagId)) {
       setRulePrompt(null);
+      setPendingTagSave(null);
     }
 
     setTagIds(newIds);
 
-    // When a prompt will appear, skip router.refresh() here — any in-flight
-    // RSC reconciliation wipes client state. Refresh happens when the user
-    // dismisses or saves the rule instead.
-    startTransition(async () => {
-      await updateTransactionTags(transactionId, newIds);
-      if (!promptToShow) router.refresh();
-    });
+    if (promptToShow) {
+      // Defer the save — no server call until the user closes the panel
+      setPendingTagSave(newIds);
+      setRulePrompt(promptToShow);
+    } else {
+      commitTags(newIds);
+    }
+  }
 
-    // Batched with the transition start — renders in the same commit.
-    // InlineRulePanel is outside the isPending div so it's immediately interactive.
-    if (promptToShow) setRulePrompt(promptToShow);
+  function closePrompt() {
+    const ids = pendingTagSave;
+    setRulePrompt(null);
+    setPendingTagSave(null);
+    if (ids) commitTags(ids);
+    else router.refresh();
   }
 
   return (
@@ -251,14 +266,14 @@ export function TransactionTagsEditor({
           accountNickname={accountNickname}
           accountMask={accountMask}
           onCreated={(ruleId, tagName) => {
+            const ids = pendingTagSave;
             setRulePrompt(null);
-            router.refresh();
+            setPendingTagSave(null);
+            if (ids) commitTags(ids);
+            else router.refresh();
             setRetroModal({ ruleId, tagName });
           }}
-          onDismiss={() => {
-            setRulePrompt(null);
-            router.refresh();
-          }}
+          onDismiss={closePrompt}
         />
       )}
 
