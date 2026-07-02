@@ -214,14 +214,14 @@ export function TransactionTagsEditor({
 
   function handleChange(newIds: string[]) {
     let promptToShow: RulePrompt | null = null;
-    if (payeeNormalized) {
-      const prevSet = new Set(tagIds);
-      const addedId = newIds.find((id) => !prevSet.has(id));
-      if (addedId) {
-        const tag = allTags.find((t) => t.id === addedId);
-        if (tag) promptToShow = { tagId: addedId, tagName: tag.name };
-      }
+    const prevSet = new Set(tagIds);
+    const addedId = newIds.find((id) => !prevSet.has(id));
+    if (addedId) {
+      const tag = allTags.find((t) => t.id === addedId);
+      if (tag) promptToShow = { tagId: addedId, tagName: tag.name };
     }
+    // eslint-disable-next-line no-console
+    console.log("[TagsEditor] handleChange", { payeeNormalized, addedId, promptToShow: promptToShow?.tagName ?? null, newIds });
 
     // If the tag backing an open prompt was removed, dismiss and clear pending save
     if (rulePrompt && !newIds.includes(rulePrompt.tagId)) {
