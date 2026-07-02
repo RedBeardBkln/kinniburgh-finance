@@ -262,48 +262,31 @@ export async function previewRetroactiveRule(
       tags: { select: { tag: { select: { name: true } } } },
     },
     orderBy: { postedAt: "desc" },
-    take: 500,
+    // No take limit — scan the full date range
   });
 
-  const candidate = {
-    tagId: rule.tagId,
-    payeePattern: rule.payeePattern,
-    amountMin: rule.amountMin ? rule.amountMin.toNumber() : null,
-    amountMax: rule.amountMax ? rule.amountMax.toNumber() : null,
-    accountId: rule.accountId,
-  };
+  const pattern = rule.payeePattern?.toLowerCase() ?? null;
+  const amountMin = rule.amountMin ? rule.amountMin.toNumber() : null;
+  const amountMax = rule.amountMax ? rule.amountMax.toNumber() : null;
 
   const matches: RetroactiveMatch[] = [];
 
   for (const tx of transactions) {
-    const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
-    const amount = new Prisma.Decimal(tx.amount).abs().toNumber();
+    // Require exact payee match — substring/prefix matching causes false positives
+    if (pattern) {
+      const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
+      if (normalizedPayee !== pattern) continue;
+    }
 
-    // Score against only this single rule
-    let score = 0;
-    if (candidate.payeePattern) {
-      const pattern = candidate.payeePattern.toLowerCase();
-      if (normalizedPayee === pattern) {
-        score += 100;
-      } else if (normalizedPayee.startsWith(pattern)) {
-        score += 50;
-      } else if (normalizedPayee.includes(pattern)) {
-        score += 25; // handles bank-prefixed payees like "POS TARGET 00123"
-      } else {
-        continue;
-      }
+    // Amount range
+    if (amountMin !== null || amountMax !== null) {
+      const amount = new Prisma.Decimal(tx.amount).abs().toNumber();
+      if (amountMin !== null && amount < amountMin) continue;
+      if (amountMax !== null && amount > amountMax) continue;
     }
-    if (candidate.amountMin !== null || candidate.amountMax !== null) {
-      const min = candidate.amountMin ?? -Infinity;
-      const max = candidate.amountMax ?? Infinity;
-      if (amount < min || amount > max) continue;
-      score += 20;
-    }
-    if (candidate.accountId) {
-      if (candidate.accountId !== tx.accountId) continue;
-      score += 10;
-    }
-    if (score === 0) continue;
+
+    // Account restriction
+    if (rule.accountId && rule.accountId !== tx.accountId) continue;
 
     matches.push({
       id: tx.id,
@@ -314,7 +297,7 @@ export async function previewRetroactiveRule(
         currency: "USD",
       }).format(new Prisma.Decimal(tx.amount).toNumber()),
       existingTags: tx.tags.map((t) => t.tag.name),
-      isExactMatch: score >= 100,
+      isExactMatch: true,
     });
   }
 
