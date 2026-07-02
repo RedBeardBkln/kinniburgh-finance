@@ -26,25 +26,30 @@ function LoginForm() {
     setError(null);
     setLoading(true);
 
-    const status = await checkMfaStatus(email, password);
-    setLoading(false);
+    try {
+      const status = await checkMfaStatus(email, password);
 
-    if ("invalid" in status) {
-      setError("Invalid email or password.");
-      return;
-    }
+      if ("invalid" in status) {
+        setError("Invalid email or password.");
+        return;
+      }
 
-    if (status.needsMfa) {
-      setNeedsTotp(true);
-      return;
-    }
+      if (status.needsMfa) {
+        setNeedsTotp(true);
+        return;
+      }
 
-    const result = await signIn("credentials", { email, password, redirect: false });
-    if (result?.ok) {
-      router.push("/");
-      router.refresh();
-    } else {
-      setError("Sign-in failed. Please try again.");
+      const result = await signIn("credentials", { email, password, redirect: false });
+      if (result?.ok) {
+        router.push("/");
+        router.refresh();
+      } else {
+        setError("Sign-in failed. Please try again.");
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
     }
   }
 
