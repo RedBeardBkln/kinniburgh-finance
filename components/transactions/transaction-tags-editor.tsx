@@ -220,8 +220,6 @@ export function TransactionTagsEditor({
       const tag = allTags.find((t) => t.id === addedId);
       if (tag) promptToShow = { tagId: addedId, tagName: tag.name };
     }
-    // eslint-disable-next-line no-console
-    console.log("[TagsEditor] handleChange", { payeeNormalized, addedId, promptToShow: promptToShow?.tagName ?? null, newIds });
 
     // If the tag backing an open prompt was removed, dismiss and clear pending save
     if (rulePrompt && !newIds.includes(rulePrompt.tagId)) {

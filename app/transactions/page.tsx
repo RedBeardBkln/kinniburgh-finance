@@ -261,6 +261,11 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                             transactionId={tx.id}
                             allTags={allTags}
                             initialTagIds={tx.tags.map((t) => t.tagId)}
+                            payeeNormalized={tx.payeeNormalized ?? tx.payeeRaw ?? undefined}
+                            defaultAmount={Math.abs(Number(tx.amount)).toFixed(2)}
+                            accountId={tx.accountId}
+                            accountNickname={tx.account.nickname}
+                            accountMask={tx.account.mask}
                           />
                         </td>
                         {allProjects.length > 0 && (
