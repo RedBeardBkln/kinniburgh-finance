@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getPlaidClient } from "@/lib/plaid";
 import { decrypt } from "@/lib/encrypt";
 import { NextResponse } from "next/server";
+import { SandboxItemFireWebhookRequestWebhookCodeEnum } from "plaid";
 
 // One-time sandbox helper: fires a NEW_ACCOUNTS_AVAILABLE webhook against the
 // first PlaidItem in the database so Plaid can verify the webhook endpoint works.
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
 
   const response = await getPlaidClient().sandboxItemFireWebhook({
     access_token: accessToken,
-    webhook_code: "NEW_ACCOUNTS_AVAILABLE",
+    webhook_code: SandboxItemFireWebhookRequestWebhookCodeEnum.NewAccountsAvailable,
   });
 
   return NextResponse.json({
