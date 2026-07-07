@@ -1,12 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { getLogoMeta } from "@/lib/settings";
+import { getLogoMeta, getFaviconMeta } from "@/lib/settings";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const logoMeta = await getLogoMeta();
+  const [logoMeta, faviconMeta] = await Promise.all([getLogoMeta(), getFaviconMeta()]);
+  const tabIcon = faviconMeta ? "/api/favicon" : logoMeta ? "/api/logo" : "/favicon.svg";
+  const appleIcon = logoMeta ? "/api/logo" : "/apple-touch-icon.png";
   return {
     title: "Banana Stand",
     description: "Personal and business financial management",
@@ -17,9 +19,7 @@ export async function generateMetadata(): Promise<Metadata> {
       statusBarStyle: "black-translucent",
       title: "Banana Stand",
     },
-    icons: logoMeta
-      ? { icon: "/api/logo", apple: "/api/logo" }
-      : { icon: "/favicon.svg", apple: "/apple-touch-icon.png" },
+    icons: { icon: tabIcon, apple: appleIcon },
   };
 }
 

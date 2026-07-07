@@ -28,3 +28,19 @@ export async function setLogoMeta(key: string, mime: string): Promise<void> {
     setAppSetting("logo_mime", mime),
   ]);
 }
+
+export async function getFaviconMeta(): Promise<{ key: string; mime: string } | null> {
+  const [key, mime] = await Promise.all([
+    getAppSetting("favicon_key"),
+    getAppSetting("favicon_mime"),
+  ]);
+  if (!key || !mime) return null;
+  return { key, mime };
+}
+
+export async function setFaviconMeta(key: string, mime: string): Promise<void> {
+  await Promise.all([
+    setAppSetting("favicon_key", key),
+    setAppSetting("favicon_mime", mime),
+  ]);
+}
