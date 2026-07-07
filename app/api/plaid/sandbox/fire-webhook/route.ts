@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import { SandboxItemFireWebhookRequestWebhookCodeEnum } from "plaid";
 
 // One-time sandbox helper: fires a NEW_ACCOUNTS_AVAILABLE webhook against the
-// first PlaidItem in the database so Plaid can verify the webhook endpoint works.
+// first working PlaidItem so Plaid can verify the webhook endpoint works.
 // Remove this route after Plaid production approval is complete.
 export async function POST(req: Request) {
   const session = await auth();
@@ -14,25 +14,37 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const item = await db.plaidItem.findFirst({
+  const items = await db.plaidItem.findMany({
     select: { itemId: true, accessTokenEncrypted: true },
   });
-  if (!item) {
+
+  if (items.length === 0) {
     return NextResponse.json({ error: "No PlaidItems found" }, { status: 404 });
   }
 
-  const accessToken = decrypt(item.accessTokenEncrypted);
   const webhookUrl = `${new URL(req.url).origin}/api/plaid/webhook`;
+  const errors: { itemId: string; error: string }[] = [];
 
-  const response = await getPlaidClient().sandboxItemFireWebhook({
-    access_token: accessToken,
-    webhook_code: SandboxItemFireWebhookRequestWebhookCodeEnum.NewAccountsAvailable,
-  });
+  for (const item of items) {
+    try {
+      const accessToken = decrypt(item.accessTokenEncrypted);
+      const response = await getPlaidClient().sandboxItemFireWebhook({
+        access_token: accessToken,
+        webhook_code: SandboxItemFireWebhookRequestWebhookCodeEnum.NewAccountsAvailable,
+      });
+      return NextResponse.json({
+        fired: true,
+        itemId: item.itemId,
+        webhookUrl,
+        webhookFired: response.data.webhook_fired,
+      });
+    } catch (err) {
+      errors.push({
+        itemId: item.itemId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
-  return NextResponse.json({
-    fired: true,
-    itemId: item.itemId,
-    webhookUrl,
-    webhookFired: response.data.webhook_fired,
-  });
+  return NextResponse.json({ fired: false, errors }, { status: 500 });
 }
