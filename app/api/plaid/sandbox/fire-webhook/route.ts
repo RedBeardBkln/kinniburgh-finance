@@ -39,10 +39,12 @@ export async function POST(req: Request) {
         webhookFired: response.data.webhook_fired,
       });
     } catch (err) {
-      errors.push({
-        itemId: item.itemId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      let errorDetail: unknown = err instanceof Error ? err.message : String(err);
+      if (err && typeof err === "object" && "response" in err) {
+        const axiosErr = err as { response?: { data?: unknown } };
+        if (axiosErr.response?.data) errorDetail = axiosErr.response.data;
+      }
+      errors.push({ itemId: item.itemId, error: errorDetail });
     }
   }
 
