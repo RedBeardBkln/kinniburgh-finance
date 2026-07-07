@@ -146,6 +146,13 @@ export async function POST(req: Request) {
       });
     }
 
+    if (webhook_code === "LOGIN_REPAIRED") {
+      await db.plaidItem.updateMany({
+        where: { itemId: item_id },
+        data: { status: "active" },
+      });
+    }
+
     // NEW_ACCOUNTS_AVAILABLE: new accounts detected on the item.
     // No automated action — user initiates re-link manually if desired.
     // Acknowledged here so Plaid receives a 200.
