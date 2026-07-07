@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 // Remove this route after Plaid production approval is complete.
 export async function POST(req: Request) {
   const session = await auth();
-  if (session?.user?.role !== "owner") {
+  if (!session?.user || (session.user as { role?: string }).role !== "owner") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
