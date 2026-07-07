@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     // Fire the webhook
     const fireRes = await client.sandboxItemFireWebhook({
       access_token: accessToken,
-      webhook_code: SandboxItemFireWebhookRequestWebhookCodeEnum.NewAccountsAvailable,
+      webhook_code: SandboxItemFireWebhookRequestWebhookCodeEnum.SyncUpdatesAvailable,
     });
 
     // Clean up — remove the temporary item
