@@ -1,9 +1,18 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getPlaidClient } from "@/lib/plaid";
 import { decrypt } from "@/lib/encrypt";
 import { NextResponse } from "next/server";
-import { SandboxItemFireWebhookRequestWebhookCodeEnum } from "plaid";
+import { Configuration, PlaidApi, PlaidEnvironments, SandboxItemFireWebhookRequestWebhookCodeEnum } from "plaid";
+
+function getSandboxClient(): PlaidApi {
+  const clientId = process.env.PLAID_CLIENT_ID;
+  const secret = process.env.PLAID_SANDBOX_SECRET;
+  if (!clientId || !secret) throw new Error("PLAID_CLIENT_ID and PLAID_SANDBOX_SECRET must be set");
+  return new PlaidApi(new Configuration({
+    basePath: PlaidEnvironments.sandbox,
+    baseOptions: { headers: { "PLAID-CLIENT-ID": clientId, "PLAID-SECRET": secret } },
+  }));
+}
 
 // One-time sandbox helper: fires a NEW_ACCOUNTS_AVAILABLE webhook against the
 // first working PlaidItem so Plaid can verify the webhook endpoint works.
@@ -28,7 +37,7 @@ export async function POST(req: Request) {
   for (const item of items) {
     try {
       const accessToken = decrypt(item.accessTokenEncrypted);
-      const response = await getPlaidClient().sandboxItemFireWebhook({
+      const response = await getSandboxClient().sandboxItemFireWebhook({
         access_token: accessToken,
         webhook_code: SandboxItemFireWebhookRequestWebhookCodeEnum.NewAccountsAvailable,
       });
