@@ -145,6 +145,10 @@ export async function POST(req: Request) {
         data: { integrationMode: "manual_entry" },
       });
     }
+
+    // NEW_ACCOUNTS_AVAILABLE: new accounts detected on the item.
+    // No automated action — user initiates re-link manually if desired.
+    // Acknowledged here so Plaid receives a 200.
   }
 
   return NextResponse.json({ received: true });
