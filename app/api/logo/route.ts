@@ -8,7 +8,7 @@ export async function GET() {
 
   try {
     const buffer = await downloadLogoFile(meta.key);
-    return new Response(buffer, {
+    return new Response(new Uint8Array(buffer), {
       headers: {
         "Content-Type": meta.mime,
         "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
