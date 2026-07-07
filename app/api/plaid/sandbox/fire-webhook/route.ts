@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   }
 
   const webhookUrl = `${new URL(req.url).origin}/api/plaid/webhook`;
-  const errors: { itemId: string; error: string }[] = [];
+  const errors: { itemId: string; error: unknown }[] = [];
 
   for (const item of items) {
     try {
