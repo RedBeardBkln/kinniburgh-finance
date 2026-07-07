@@ -5,6 +5,7 @@ import { AppSidebar } from "./app-sidebar";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getNavBuckets } from "@/lib/entity";
+import { getLogoMeta } from "@/lib/settings";
 export type { BucketSlug } from "@/lib/buckets";
 export { BUCKET_ENTITY_NAMES } from "@/lib/buckets";
 
@@ -18,12 +19,14 @@ export async function AppShell({ children, userName }: AppShellProps) {
   if (session?.user && !(session.user as { totpVerified?: boolean }).totpVerified) {
     redirect("/setup-2fa");
   }
-  const [unreadCount, navBuckets] = await Promise.all([
+  const [unreadCount, navBuckets, logoMeta] = await Promise.all([
     session?.user?.id
       ? db.notificationUser.count({ where: { userId: session.user.id, readAt: null } })
       : Promise.resolve(0),
     getNavBuckets(),
+    getLogoMeta(),
   ]);
+  const logoUrl = logoMeta ? "/api/logo" : null;
 
   const businessSlugs = navBuckets
     .filter((b) => b.type === "business")
@@ -32,7 +35,7 @@ export async function AppShell({ children, userName }: AppShellProps) {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <Suspense fallback={<div className="h-14 border-b bg-background" />}>
-        <AppHeader userName={userName} unreadCount={unreadCount} navBuckets={navBuckets} />
+        <AppHeader userName={userName} unreadCount={unreadCount} navBuckets={navBuckets} logoUrl={logoUrl} />
       </Suspense>
       <div className="flex flex-1 overflow-hidden">
         <Suspense fallback={<div className="w-56 shrink-0 border-r" />}>

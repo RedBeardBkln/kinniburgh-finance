@@ -59,6 +59,11 @@ export default async function SettingsPage() {
             description="Show or hide business tabs, and add new business entities to the app."
             href={"/settings/entities" as Route}
           />
+          <SettingsCard
+            title="Branding"
+            description="Upload a custom logo for the header, login screen, and browser icon."
+            href={"/settings/branding" as Route}
+          />
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">GL Codes</CardTitle>

@@ -60,27 +60,47 @@ function httpsPost(
   });
 }
 
-export async function uploadReceiptFile(
+async function uploadFile(
   buffer: Buffer,
+  bucket: string,
   fileKey: string,
-  mimeType: string
+  mimeType: string,
+  upsert = false
 ): Promise<void> {
   const { url, key } = getStorageConfig();
   const res = await httpsPost(
-    `${url}/storage/v1/object/${BUCKET}/${fileKey}`,
-    { Authorization: `Bearer ${key}`, "Content-Type": mimeType, "x-upsert": "false" },
+    `${url}/storage/v1/object/${bucket}/${fileKey}`,
+    {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": mimeType,
+      "x-upsert": upsert ? "true" : "false",
+    },
     buffer
   );
   if (!res.ok) {
     const body = await res.text().catch(() => res.status.toString());
     let msg = res.status.toString();
-    try {
-      msg = (JSON.parse(body) as { message?: string }).message ?? body;
-    } catch {
-      msg = body;
-    }
+    try { msg = (JSON.parse(body) as { message?: string }).message ?? body; } catch { msg = body; }
     throw new Error(`Storage upload failed: ${msg}`);
   }
+}
+
+async function downloadFile(bucket: string, fileKey: string): Promise<Buffer> {
+  const { url, key } = getStorageConfig();
+  const res = await fetch(
+    `${url}/storage/v1/object/${bucket}/${encodeURIComponent(fileKey)}`,
+    { headers: { Authorization: `Bearer ${key}` }, cache: "no-store" }
+  );
+  if (!res.ok) throw new Error(`Storage download failed: ${res.statusText}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+export async function uploadReceiptFile(
+  buffer: Buffer,
+  fileKey: string,
+  mimeType: string
+): Promise<void> {
+  return uploadFile(buffer, BUCKET, fileKey, mimeType, false);
 }
 
 // Returns a signed upload URL the browser can PUT the binary file to directly,
@@ -131,11 +151,17 @@ export async function getReceiptSignedUrl(fileKey: string): Promise<string> {
 }
 
 export async function downloadReceiptFile(fileKey: string): Promise<Buffer> {
-  const { url, key } = getStorageConfig();
-  const res = await fetch(
-    `${url}/storage/v1/object/${BUCKET}/${encodeURIComponent(fileKey)}`,
-    { headers: { Authorization: `Bearer ${key}` }, cache: "no-store" }
-  );
-  if (!res.ok) throw new Error(`Storage download failed: ${res.statusText}`);
-  return Buffer.from(await res.arrayBuffer());
+  return downloadFile(BUCKET, fileKey);
+}
+
+export async function uploadLogoFile(
+  buffer: Buffer,
+  fileKey: string,
+  mimeType: string
+): Promise<void> {
+  return uploadFile(buffer, "logos", fileKey, mimeType, true);
+}
+
+export async function downloadLogoFile(fileKey: string): Promise<Buffer> {
+  return downloadFile("logos", fileKey);
 }

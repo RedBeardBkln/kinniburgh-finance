@@ -13,6 +13,7 @@ interface AppHeaderProps {
   userName?: string;
   unreadCount?: number;
   navBuckets: NavBucket[];
+  logoUrl?: string | null;
 }
 
 function inferBucketFromPathname(pathname: string): string | null {
@@ -25,7 +26,7 @@ function inferBucketFromPathname(pathname: string): string | null {
   return null;
 }
 
-export function AppHeader({ userName, unreadCount = 0, navBuckets }: AppHeaderProps) {
+export function AppHeader({ userName, unreadCount = 0, navBuckets, logoUrl }: AppHeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -42,7 +43,12 @@ export function AppHeader({ userName, unreadCount = 0, navBuckets }: AppHeaderPr
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
       <div className="flex h-14 items-center gap-4 px-4">
         <Link href="/" className="shrink-0">
-          <BananaLogo size="sm" />
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt="Logo" className="h-7 w-auto max-w-[140px] object-contain" />
+          ) : (
+            <BananaLogo size="sm" />
+          )}
         </Link>
         <div className="flex flex-1 items-center gap-1 overflow-x-auto">
           {navBuckets.map(({ slug, label, type }) => {

@@ -660,3 +660,10 @@ model VaultSession {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
+// ─── App settings ─────────────────────────────────────────────────────────────
+
+model AppSetting {
+  key   String @id
+  value String
+}
