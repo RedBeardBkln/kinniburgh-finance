@@ -102,6 +102,8 @@ export async function POST(req: Request) {
 
   const { webhook_type, webhook_code, item_id } = body;
 
+  console.log("[plaid-webhook]", { webhook_type, webhook_code, item_id });
+
   if (webhook_type === "TRANSACTIONS" && webhook_code === "SYNC_UPDATES_AVAILABLE") {
     // Fire-and-forget — return 200 immediately, process async
     syncPlaidTransactions(item_id).catch((err: unknown) => {

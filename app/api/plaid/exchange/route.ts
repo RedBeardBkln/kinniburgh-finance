@@ -17,7 +17,8 @@ export async function POST(req: Request) {
   const exchangeRes = await getPlaidClient().itemPublicTokenExchange({
     public_token: publicToken,
   });
-  const { access_token, item_id } = exchangeRes.data;
+  const { access_token, item_id, request_id } = exchangeRes.data;
+  console.log("[plaid-exchange] token exchanged", { item_id, request_id });
 
   // Fetch item metadata for institution info
   const itemRes = await getPlaidClient().itemGet({ access_token });

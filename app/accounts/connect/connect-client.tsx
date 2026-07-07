@@ -80,7 +80,8 @@ function ConnectInner() {
       .catch(() => {});
   }, []);
 
-  const onSuccess = useCallback(async (publicToken: string) => {
+  const onSuccess = useCallback(async (publicToken: string, metadata: { link_session_id?: string; institution?: { institution_id?: string } }) => {
+    console.log("[plaid-link] onSuccess", { link_session_id: metadata?.link_session_id, institution_id: metadata?.institution?.institution_id });
     sessionStorage.removeItem(LINK_TOKEN_KEY);
     setLoading(true);
     setError(null);

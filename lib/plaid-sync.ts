@@ -203,5 +203,6 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
     }),
   ]);
 
+  console.log("[plaid-sync] complete", { itemId, added, modified, removed });
   return { added, modified, removed };
 }
