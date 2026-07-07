@@ -30,7 +30,9 @@ export async function GET(req: Request) {
     accessToken = decrypt(plaidItem.accessTokenEncrypted);
   }
 
-  const webhookUrl = `${new URL(req.url).origin}/api/plaid/webhook`;
+  const origin = new URL(req.url).origin;
+  const webhookUrl = `${origin}/api/plaid/webhook`;
+  const redirectUri = `${origin}/accounts/connect`;
 
   const response = await getPlaidClient().linkTokenCreate({
     user: { client_user_id: session.user.id! },
@@ -40,6 +42,7 @@ export async function GET(req: Request) {
     country_codes: [CountryCode.Us],
     language: "en",
     webhook: webhookUrl,
+    redirect_uri: redirectUri,
   });
 
   return NextResponse.json({ linkToken: response.data.link_token });

@@ -22,13 +22,17 @@ interface SeededAccount {
 
 type Step = "link" | "map" | "done";
 
+const LINK_TOKEN_KEY = "plaid_link_token";
+
 function ConnectInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const updateItemId = searchParams.get("itemId");
+  const isOAuthReturn = !!searchParams.get("oauth_state_id");
 
   const [step, setStep] = useState<Step>("link");
   const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [receivedRedirectUri, setReceivedRedirectUri] = useState<string | undefined>(undefined);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [itemId, setItemId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -39,17 +43,33 @@ function ConnectInner() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isOAuthReturn) {
+      // Resuming from an OAuth redirect — reuse the stored link token
+      const stored = sessionStorage.getItem(LINK_TOKEN_KEY);
+      if (stored) {
+        setLinkToken(stored);
+        setReceivedRedirectUri(window.location.href);
+      } else {
+        setLinkError("OAuth session expired. Please start over.");
+      }
+      return;
+    }
+
     const url = updateItemId
       ? `/api/plaid/link-token?itemId=${updateItemId}`
       : "/api/plaid/link-token";
     fetch(url)
       .then((r) => r.json())
       .then((data: { linkToken?: string; error?: string }) => {
-        if (data.linkToken) setLinkToken(data.linkToken);
-        else setLinkError(data.error ?? "Failed to get link token");
+        if (data.linkToken) {
+          sessionStorage.setItem(LINK_TOKEN_KEY, data.linkToken);
+          setLinkToken(data.linkToken);
+        } else {
+          setLinkError(data.error ?? "Failed to get link token");
+        }
       })
       .catch(() => setLinkError("Network error fetching link token"));
-  }, [updateItemId]);
+  }, [updateItemId, isOAuthReturn]);
 
   useEffect(() => {
     fetch("/api/form-data")
@@ -61,6 +81,7 @@ function ConnectInner() {
   }, []);
 
   const onSuccess = useCallback(async (publicToken: string) => {
+    sessionStorage.removeItem(LINK_TOKEN_KEY);
     setLoading(true);
     setError(null);
     try {
@@ -86,7 +107,17 @@ function ConnectInner() {
 
   const onExit = useCallback(() => {}, []);
 
-  const { open: openLink, ready: linkReady } = usePlaidLink({ token: linkToken, onSuccess, onExit });
+  const { open: openLink, ready: linkReady } = usePlaidLink({
+    token: linkToken,
+    onSuccess,
+    onExit,
+    ...(receivedRedirectUri ? { receivedRedirectUri } : {}),
+  });
+
+  // Auto-open when returning from OAuth redirect
+  useEffect(() => {
+    if (isOAuthReturn && linkReady) openLink();
+  }, [isOAuthReturn, linkReady, openLink]);
 
   async function confirmMapping() {
     if (!itemId) return;
