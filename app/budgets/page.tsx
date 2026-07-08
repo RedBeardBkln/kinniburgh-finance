@@ -96,7 +96,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
     const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
     const tagExpenses = recurringByTagId.get(b.tagId) ?? [];
     const recurringMonthlySumCents = tagExpenses.reduce((s, e) => s + e.monthlyEquivCents, 0);
-    const additionalAmountCents = decimalToNumber(new Prisma.Decimal((b as { additionalAmountCents?: unknown }).additionalAmountCents ?? 0));
+    const additionalAmountCents = decimalToNumber(new Prisma.Decimal(b.additionalAmountCents ?? 0));
 
     // Effective budgeted = recurring monthly sum + additional (in dollars, for budget calcs)
     const effectiveBudgetedDollars = tagExpenses.length > 0
