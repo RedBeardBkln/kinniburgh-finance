@@ -17,7 +17,9 @@ import { Prisma } from "@prisma/client";
 import { setAccountBalance, upsertIncomeSource } from "@/actions/envelope";
 import { ForecastAccountCard, type ChartPoint } from "@/components/forecast/forecast-account-card";
 import { listRecurringExpenses } from "@/actions/recurring-expenses";
+import { listRentalBookings } from "@/actions/rental-bookings";
 import { RecurringExpensesSection } from "@/components/forecast/recurring-expenses-section";
+import { RentalBookingsSection } from "@/components/forecast/rental-bookings-section";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -67,10 +69,11 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     orderBy: { name: "asc" },
   });
 
-  // Load recurring expenses (filtered to entity if selected)
-  const [recurringExpenses, allTags] = await Promise.all([
+  // Load recurring expenses and rental bookings (filtered to entity if selected)
+  const [recurringExpenses, allTags, rentalBookings] = await Promise.all([
     listRecurringExpenses(entity?.id),
     db.tag.findMany({ orderBy: { name: "asc" } }),
+    entity ? listRentalBookings(entity.id) : Promise.resolve([]),
   ]);
 
   // Build 90-day forecast for each TD checking account
@@ -314,6 +317,20 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           tags={allTags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName }))}
           defaultEntityId={entity?.id ?? entities[0]?.id ?? ""}
         />
+
+        {/* ── Rental bookings ──────────────────────────────────────────── */}
+        {entity && (
+          <RentalBookingsSection
+            entityId={entity.id}
+            entityName={entity.name}
+            bookings={rentalBookings.map((b) => ({
+              ...b,
+              startDate: new Date(b.startDate),
+              endDate: new Date(b.endDate),
+              payoutDate: new Date(b.payoutDate),
+            }))}
+          />
+        )}
 
         {/* ── Income sources ────────────────────────────────────────────── */}
         <Card>

@@ -86,6 +86,7 @@ model Entity {
   taxDeadlines       TaxDeadline[]
   projects           Project[]
   recurringExpenses  RecurringExpense[]
+  rentalBookings     RentalBooking[]
 }
 
 model Institution {
@@ -275,6 +276,28 @@ model RecurringExpense {
 
   entity Entity @relation(fields: [entityId], references: [id])
   tag    Tag?   @relation(fields: [tagId], references: [id])
+}
+
+// ─── Rental bookings (Airbnb CSV import for forecast) ────────────────────────
+
+model RentalBooking {
+  id               String   @id @default(uuid())
+  entityId         String
+  confirmationCode String
+  payoutDate       DateTime
+  startDate        DateTime
+  endDate          DateTime
+  nights           Int
+  guest            String
+  listing          String
+  grossEarnings    Decimal  @db.Decimal(10, 2)
+  currency         String   @default("USD")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  entity Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([entityId, confirmationCode])
 }
 
 model AccrualEnvelope {
