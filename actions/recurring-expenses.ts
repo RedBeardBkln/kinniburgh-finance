@@ -75,4 +75,3 @@ export async function deleteRecurringExpense(id: string): Promise<void> {
   revalidateAll();
 }
 
-export { monthlyEquivalentCents, FREQUENCY_LABELS } from "@/lib/recurring-expenses";
