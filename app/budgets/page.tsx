@@ -13,7 +13,7 @@ import {
   BudgetPageClient,
   type SerializedBudgetLine,
 } from "@/components/budgets/budget-page-client";
-import { monthlyEquivalentCents } from "@/actions/recurring-expenses";
+import { monthlyEquivalentCents } from "@/lib/recurring-expenses";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; period?: string }>;

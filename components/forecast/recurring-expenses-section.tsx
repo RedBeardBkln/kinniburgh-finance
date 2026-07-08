@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   createRecurringExpense,
   deleteRecurringExpense,
-  monthlyEquivalentCents,
-  FREQUENCY_LABELS,
 } from "@/actions/recurring-expenses";
+import { monthlyEquivalentCents, FREQUENCY_LABELS } from "@/lib/recurring-expenses";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatUSD } from "@/lib/utils";
 

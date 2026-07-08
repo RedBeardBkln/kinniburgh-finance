@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BudgetEditModal } from "./budget-edit-modal";
 import { deleteBudget, updateBudgetAdditionalAmount } from "@/actions/budgets";
-import { FREQUENCY_LABELS } from "@/actions/recurring-expenses";
+import { FREQUENCY_LABELS } from "@/lib/recurring-expenses";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BudgetLineEditor } from "./budget-line-editor";
 import { formatUSD } from "@/lib/utils";
