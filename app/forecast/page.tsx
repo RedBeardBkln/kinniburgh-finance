@@ -16,6 +16,8 @@ import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import { setAccountBalance, upsertIncomeSource } from "@/actions/envelope";
 import { ForecastAccountCard, type ChartPoint } from "@/components/forecast/forecast-account-card";
+import { listRecurringExpenses } from "@/actions/recurring-expenses";
+import { RecurringExpensesSection } from "@/components/forecast/recurring-expenses-section";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -64,6 +66,12 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     where: { archivedAt: null },
     orderBy: { name: "asc" },
   });
+
+  // Load recurring expenses (filtered to entity if selected)
+  const [recurringExpenses, allTags] = await Promise.all([
+    listRecurringExpenses(entity?.id),
+    db.tag.findMany({ orderBy: { name: "asc" } }),
+  ]);
 
   // Build 90-day forecast for each TD checking account
   const accountForecasts = tdAccounts.map((acct) => {
@@ -294,6 +302,18 @@ export default async function ForecastPage({ searchParams }: PageProps) {
             )}
           </CardContent>
         </Card>
+
+        {/* ── Recurring expenses ───────────────────────────────────────── */}
+        <RecurringExpensesSection
+          expenses={recurringExpenses.map((e) => ({
+            ...e,
+            nextDueDate: e.nextDueDate ? new Date(e.nextDueDate) : null,
+            tag: e.tag ?? null,
+          }))}
+          entities={entities.map((e) => ({ id: e.id, name: e.name }))}
+          tags={allTags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName }))}
+          defaultEntityId={entity?.id ?? entities[0]?.id ?? ""}
+        />
 
         {/* ── Income sources ────────────────────────────────────────────── */}
         <Card>

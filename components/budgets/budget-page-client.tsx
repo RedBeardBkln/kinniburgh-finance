@@ -3,10 +3,19 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BudgetEditModal } from "./budget-edit-modal";
-import { deleteBudget } from "@/actions/budgets";
+import { deleteBudget, updateBudgetAdditionalAmount } from "@/actions/budgets";
+import { FREQUENCY_LABELS } from "@/actions/recurring-expenses";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BudgetLineEditor } from "./budget-line-editor";
 import { formatUSD } from "@/lib/utils";
+
+type RecurringExpenseSummary = {
+  id: string;
+  name: string;
+  amountCents: number;
+  frequency: string;
+  monthlyEquivCents: number;
+};
 
 export interface SerializedBudgetLine {
   id: string;
@@ -22,6 +31,9 @@ export interface SerializedBudgetLine {
   remaining: number;
   percentUsed: number;
   isOverspent: boolean;
+  recurringExpenses: RecurringExpenseSummary[];
+  recurringMonthlySumCents: number;
+  additionalAmountCents: number;
 }
 
 export interface SerializedAccount {
@@ -78,7 +90,32 @@ export function BudgetPageClient({
   >(null);
   const [sortBy, setSortBy] = useState<"alpha" | "due-date">("alpha");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [additionalEdits, setAdditionalEdits] = useState<Record<string, string>>({});
+  const [savingAdditional, setSavingAdditional] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  function toggleExpand(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function saveAdditional(budgetId: string, currentCents: number) {
+    const raw = additionalEdits[budgetId];
+    if (raw === undefined) return;
+    const dollars = parseFloat(raw);
+    if (isNaN(dollars) || dollars < 0) return;
+    const cents = Math.round(dollars * 100);
+    if (cents === currentCents) return;
+    setSavingAdditional(budgetId);
+    await updateBudgetAdditionalAmount(budgetId, cents);
+    setSavingAdditional(null);
+    setAdditionalEdits((prev) => { const n = { ...prev }; delete n[budgetId]; return n; });
+    router.refresh();
+  }
 
   function onEdit(b: SerializedBudgetLine) {
     setModal({
@@ -212,69 +249,159 @@ export function BudgetPageClient({
                     </tr>
                   </thead>
                   <tbody>
-                    {lines.map((b) => (
-                      <tr
-                        key={b.id}
-                        className={`border-b last:border-0 hover:bg-muted/30 ${deletingId === b.id ? "opacity-50" : ""}`}
-                      >
-                        <td className="px-4 py-2 font-medium">{b.tagName}</td>
-                        <td className="px-4 py-2 text-muted-foreground">
-                          {b.payDay ? (
-                            <span className="text-foreground">{ordinal(b.payDay)}</span>
-                          ) : (
-                            <span className="text-xs">—</span>
+                    {lines.map((b) => {
+                      const hasRecurring = b.recurringExpenses.length > 0;
+                      const isExpanded = expandedIds.has(b.id);
+                      const additionalDollars = b.additionalAmountCents / 100;
+                      const editVal = additionalEdits[b.id];
+                      return (
+                        <>
+                          <tr
+                            key={b.id}
+                            className={`border-b ${hasRecurring && !isExpanded ? "" : "last:border-0"} hover:bg-muted/30 ${deletingId === b.id ? "opacity-50" : ""}`}
+                          >
+                            <td className="px-4 py-2 font-medium">
+                              {hasRecurring ? (
+                                <button
+                                  onClick={() => toggleExpand(b.id)}
+                                  className="flex items-center gap-1 hover:text-primary"
+                                >
+                                  <span>{isExpanded ? "▾" : "▸"}</span>
+                                  {b.tagName}
+                                  <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                    {b.recurringExpenses.length}
+                                  </span>
+                                </button>
+                              ) : b.tagName}
+                            </td>
+                            <td className="px-4 py-2 text-muted-foreground">
+                              {b.payDay ? (
+                                <span className="text-foreground">{ordinal(b.payDay)}</span>
+                              ) : (
+                                <span className="text-xs">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 text-right">
+                              {hasRecurring ? (
+                                <span className="tabular-nums text-sm font-medium">
+                                  {formatUSD(b.budgeted)}
+                                </span>
+                              ) : (
+                                <BudgetLineEditor budgetId={b.id} currentBudgeted={b.budgeted} />
+                              )}
+                            </td>
+                            <td className={`px-4 py-2 text-right text-xs ${b.rolloverAmount < 0 ? "text-destructive" : b.rolloverAmount === 0 ? "text-muted-foreground" : "text-green-600"}`}>
+                              {b.rolloverAmount === 0 ? "—" : formatUSD(b.rolloverAmount)}
+                            </td>
+                            <td className="px-4 py-2 text-right">
+                              {formatUSD(b.effectiveBudget)}
+                            </td>
+                            <td className="px-4 py-2 text-right text-destructive">
+                              {formatUSD(Math.abs(b.actualSpend))}
+                            </td>
+                            <td className={`px-4 py-2 text-right font-medium ${b.isOverspent ? "text-destructive" : ""}`}>
+                              {formatUSD(b.remaining)}
+                            </td>
+                            <td className="px-4 py-2">
+                              <div className="flex items-center gap-1.5">
+                                <div className="h-2 w-16 overflow-hidden rounded-full bg-muted">
+                                  <div
+                                    className={`h-full rounded-full ${b.isOverspent ? "bg-destructive" : "bg-primary"}`}
+                                    style={{ width: `${Math.min(b.percentUsed, 100)}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs text-muted-foreground">
+                                  {Math.round(b.percentUsed)}%
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2">
+                              <div className="flex items-center gap-2">
+                                <button onClick={() => onEdit(b)} className="text-xs text-primary hover:underline">
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => onDelete(b.id)}
+                                  disabled={deletingId === b.id}
+                                  className="text-xs text-destructive hover:underline disabled:opacity-50"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+
+                          {hasRecurring && isExpanded && (
+                            <tr key={`${b.id}-expanded`} className="border-b bg-muted/20">
+                              <td colSpan={9} className="px-6 py-3">
+                                <div className="space-y-2">
+                                  <p className="text-xs font-medium text-muted-foreground">Recurring expenses factored in:</p>
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="text-muted-foreground">
+                                        <th className="py-1 text-left font-medium">Expense</th>
+                                        <th className="px-3 py-1 text-left font-medium">Frequency</th>
+                                        <th className="py-1 text-right font-medium">Monthly equiv.</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {b.recurringExpenses.map((re) => (
+                                        <tr key={re.id}>
+                                          <td className="py-0.5">{re.name}</td>
+                                          <td className="px-3 py-0.5 text-muted-foreground">
+                                            {FREQUENCY_LABELS[re.frequency] ?? re.frequency}
+                                            {re.frequency !== "monthly" && (
+                                              <span className="ml-1">({formatUSD(re.amountCents / 100)})</span>
+                                            )}
+                                          </td>
+                                          <td className="py-0.5 text-right tabular-nums">
+                                            {formatUSD(re.monthlyEquivCents / 100)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                      <tr className="border-t font-medium">
+                                        <td colSpan={2} className="py-1">Recurring subtotal</td>
+                                        <td className="py-1 text-right tabular-nums">
+                                          {formatUSD(b.recurringMonthlySumCents / 100)}
+                                        </td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+
+                                  <div className="flex items-center gap-2 pt-1">
+                                    <p className="text-xs text-muted-foreground">Additional buffer:</p>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-xs text-muted-foreground">$</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={editVal !== undefined ? editVal : additionalDollars.toFixed(2)}
+                                        onChange={(e) =>
+                                          setAdditionalEdits((prev) => ({ ...prev, [b.id]: e.target.value }))
+                                        }
+                                        onBlur={() => saveAdditional(b.id, b.additionalAmountCents)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") void saveAdditional(b.id, b.additionalAmountCents);
+                                        }}
+                                        className="w-24 rounded border px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                                        disabled={savingAdditional === b.id}
+                                      />
+                                      {savingAdditional === b.id && (
+                                        <span className="text-xs text-muted-foreground">Saving…</span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs font-medium">
+                                      Total: {formatUSD((b.recurringMonthlySumCents / 100) + (editVal !== undefined ? (parseFloat(editVal) || 0) : additionalDollars))}
+                                    </p>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <BudgetLineEditor
-                            budgetId={b.id}
-                            currentBudgeted={b.budgeted}
-                          />
-                        </td>
-                        <td className={`px-4 py-2 text-right text-xs ${b.rolloverAmount < 0 ? "text-destructive" : b.rolloverAmount === 0 ? "text-muted-foreground" : "text-green-600"}`}>
-                          {b.rolloverAmount === 0 ? "—" : formatUSD(b.rolloverAmount)}
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          {formatUSD(b.effectiveBudget)}
-                        </td>
-                        <td className="px-4 py-2 text-right text-destructive">
-                          {formatUSD(Math.abs(b.actualSpend))}
-                        </td>
-                        <td className={`px-4 py-2 text-right font-medium ${b.isOverspent ? "text-destructive" : ""}`}>
-                          {formatUSD(b.remaining)}
-                        </td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-1.5">
-                            <div className="h-2 w-16 overflow-hidden rounded-full bg-muted">
-                              <div
-                                className={`h-full rounded-full ${b.isOverspent ? "bg-destructive" : "bg-primary"}`}
-                                style={{ width: `${Math.min(b.percentUsed, 100)}%` }}
-                              />
-                            </div>
-                            <span className="text-xs text-muted-foreground">
-                              {Math.round(b.percentUsed)}%
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => onEdit(b)}
-                              className="text-xs text-primary hover:underline"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => onDelete(b.id)}
-                              disabled={deletingId === b.id}
-                              className="text-xs text-destructive hover:underline disabled:opacity-50"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                        </>
+                      );
+                    })}
                   </tbody>
                 </table>
               </CardContent>

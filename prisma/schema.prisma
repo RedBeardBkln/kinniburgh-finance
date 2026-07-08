@@ -81,10 +81,11 @@ model Entity {
   notifications     Notification[]
   incomeSources     IncomeSource[]
   taxWorkspaces     TaxWorkspace[]
-  insurancePolicies InsurancePolicy[]
-  mileageEntries    MileageEntry[]
-  taxDeadlines      TaxDeadline[]
-  projects          Project[]
+  insurancePolicies  InsurancePolicy[]
+  mileageEntries     MileageEntry[]
+  taxDeadlines       TaxDeadline[]
+  projects           Project[]
+  recurringExpenses  RecurringExpense[]
 }
 
 model Institution {
@@ -175,11 +176,12 @@ model Tag {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  parent       Tag?             @relation("TagHierarchy", fields: [parentId], references: [id])
-  children     Tag[]            @relation("TagHierarchy")
-  transactions TransactionTag[]
-  budgets      Budget[]
-  tagRules     TagRule[]
+  parent             Tag?              @relation("TagHierarchy", fields: [parentId], references: [id])
+  children           Tag[]             @relation("TagHierarchy")
+  transactions       TransactionTag[]
+  budgets            Budget[]
+  tagRules           TagRule[]
+  recurringExpenses  RecurringExpense[]
 }
 
 model TransactionTag {
@@ -202,10 +204,11 @@ model Budget {
   entityId        String
   accountId       String
   period          String   // YYYY-MM
-  budgeted        Decimal  @db.Decimal(14, 2)
-  payDay          Int?     // day of month (1–31) when this bill is paid
-  rolloverEnabled Boolean  @default(false)
-  rolloverAmount  Decimal? @db.Decimal(14, 2)
+  budgeted              Decimal  @db.Decimal(14, 2)
+  additionalAmountCents Decimal  @default(0) @db.Decimal(14, 2)
+  payDay                Int?     // day of month (1–31) when this bill is paid
+  rolloverEnabled       Boolean  @default(false)
+  rolloverAmount        Decimal? @db.Decimal(14, 2)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -253,6 +256,25 @@ model ScheduledBill {
   entity  Entity  @relation(fields: [entityId], references: [id])
 
   @@unique([budgetTagId, budgetEntityId])
+}
+
+// ─── Recurring expenses (forecast + budget planning) ─────────────────────────
+
+model RecurringExpense {
+  id          String    @id @default(uuid())
+  entityId    String
+  name        String
+  amountCents Int       // actual amount per occurrence
+  frequency   String    // monthly | weekly | biweekly | quarterly | annually
+  dueDay      Int?      // day of month (1–31) for monthly expenses
+  nextDueDate DateTime? // next occurrence date (optional)
+  tagId       String?   // linked budget category (Tag)
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  entity Entity @relation(fields: [entityId], references: [id])
+  tag    Tag?   @relation(fields: [tagId], references: [id])
 }
 
 model AccrualEnvelope {

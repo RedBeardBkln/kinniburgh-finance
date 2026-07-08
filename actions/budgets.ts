@@ -195,6 +195,23 @@ export async function updateBudget(
   return { success: true };
 }
 
+// ── Additional recurring buffer ────────────────────────────────────────────────
+
+export async function updateBudgetAdditionalAmount(
+  budgetId: string,
+  amountCents: number
+): Promise<{ success: true } | { error: string }> {
+  await requireAuth();
+  if (!Number.isInteger(amountCents) || amountCents < 0)
+    return { error: "Amount must be a non-negative integer (cents)" };
+  await db.budget.update({
+    where: { id: budgetId },
+    data: { additionalAmountCents: new Prisma.Decimal(amountCents) },
+  });
+  revalidatePath("/budgets");
+  return { success: true };
+}
+
 // ── Delete ────────────────────────────────────────────────────────────────────
 
 export async function deleteBudget(

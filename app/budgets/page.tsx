@@ -13,6 +13,7 @@ import {
   BudgetPageClient,
   type SerializedBudgetLine,
 } from "@/components/budgets/budget-page-client";
+import { monthlyEquivalentCents } from "@/actions/recurring-expenses";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; period?: string }>;
@@ -36,7 +37,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
   const entity = await getEntityBySlug(bucket);
   const bucketLabel = entity?.navLabel ?? entity?.name ?? "All Entities";
 
-  const [budgets, accounts, tags] = await Promise.all([
+  const [budgets, accounts, tags, recurringExpenses] = await Promise.all([
     db.budget.findMany({
       where: { ...(entity && { entityId: entity.id }), period },
       include: { tag: true, account: { include: { institution: true } } },
@@ -47,7 +48,20 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
       orderBy: { nickname: "asc" },
     }),
     db.tag.findMany({ orderBy: { name: "asc" } }),
+    db.recurringExpense.findMany({
+      where: entity ? { entityId: entity.id } : {},
+      orderBy: { name: "asc" },
+    }),
   ]);
+
+  // Build monthly sum per tagId for recurring expenses
+  const recurringByTagId = new Map<string, Array<{ id: string; name: string; amountCents: number; frequency: string; monthlyEquivCents: number }>>();
+  for (const exp of recurringExpenses) {
+    if (!exp.tagId) continue;
+    const monthly = monthlyEquivalentCents(exp.amountCents, exp.frequency);
+    if (!recurringByTagId.has(exp.tagId)) recurringByTagId.set(exp.tagId, []);
+    recurringByTagId.get(exp.tagId)!.push({ id: exp.id, name: exp.name, amountCents: exp.amountCents, frequency: exp.frequency, monthlyEquivCents: monthly });
+  }
 
   // Per-tag actual spend this month
   const tagSpend = entity
@@ -80,8 +94,17 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
   // Serialize budget lines with computed summaries
   const serializedBudgets: SerializedBudgetLine[] = budgets.map((b) => {
     const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
+    const tagExpenses = recurringByTagId.get(b.tagId) ?? [];
+    const recurringMonthlySumCents = tagExpenses.reduce((s, e) => s + e.monthlyEquivCents, 0);
+    const additionalAmountCents = decimalToNumber(new Prisma.Decimal((b as { additionalAmountCents?: unknown }).additionalAmountCents ?? 0));
+
+    // Effective budgeted = recurring monthly sum + additional (in dollars, for budget calcs)
+    const effectiveBudgetedDollars = tagExpenses.length > 0
+      ? (recurringMonthlySumCents + additionalAmountCents) / 100
+      : decimalToNumber(new Prisma.Decimal(b.budgeted));
+
     const summary = computeBudgetSummary({
-      budgeted: new Prisma.Decimal(b.budgeted),
+      budgeted: new Prisma.Decimal(effectiveBudgetedDollars),
       rolloverAmount: new Prisma.Decimal(b.rolloverAmount ?? 0),
       actualSpend: actual,
     });
@@ -99,6 +122,9 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
       remaining: decimalToNumber(summary.remaining),
       percentUsed: summary.percentUsed,
       isOverspent: summary.isOverspent,
+      recurringExpenses: tagExpenses,
+      recurringMonthlySumCents,
+      additionalAmountCents,
     };
   });
 

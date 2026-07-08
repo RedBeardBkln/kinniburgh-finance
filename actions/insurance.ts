@@ -31,7 +31,10 @@ export async function listPolicies(entityId?: string) {
       archivedAt: null,
       ...(entityId && { entityId }),
     },
-    include: { cashValueEntries: { orderBy: { asOf: "asc" } } },
+    include: {
+      cashValueEntries: { orderBy: { asOf: "asc" } },
+      document: { select: { id: true, extractionStatus: true } },
+    },
     orderBy: { createdAt: "desc" },
   });
 }
