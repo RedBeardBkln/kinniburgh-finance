@@ -9,9 +9,10 @@ export async function register() {
 
 export const onRequestError = async (
   err: unknown,
-  request: { path: string; method: string },
-  context: { routerKind: string; routePath: string; routeType: string }
+  request: unknown,
+  context: unknown
 ) => {
   const { captureRequestError } = await import("@sentry/nextjs");
-  captureRequestError(err, request, context);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  captureRequestError(err, request as any, context as any);
 };
