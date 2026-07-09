@@ -106,7 +106,12 @@ function ConnectInner() {
     }
   }, []);
 
-  const onExit = useCallback(() => {}, []);
+  const onExit = useCallback((err: import("react-plaid-link").PlaidLinkError | null, metadata: import("react-plaid-link").PlaidLinkOnExitMetadata) => {
+    if (err) {
+      console.error("[plaid-link] onExit error", { error_code: err.error_code, error_message: err.error_message, display_message: err.display_message, link_session_id: metadata?.link_session_id });
+      setLinkError(`Plaid error: ${err.display_message ?? err.error_message ?? err.error_code}`);
+    }
+  }, []);
 
   const { open: openLink, ready: linkReady } = usePlaidLink({
     token: linkToken,
