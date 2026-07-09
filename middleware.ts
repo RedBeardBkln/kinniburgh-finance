@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/privacy", "/api/logo", "/api/favicon"];
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/privacy", "/api/logo", "/api/favicon", "/api/cron"];
 
 export function middleware(req: NextRequest) {
   const session =
