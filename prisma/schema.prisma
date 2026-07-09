@@ -706,6 +706,23 @@ model VaultSession {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+// ─── Financial goals (advisor) ───────────────────────────────────────────────
+
+model FinancialGoal {
+  id                 String    @id @default(uuid())
+  title              String
+  description        String?
+  category           String    // emergency_fund | debt_payoff | savings | investment | income | lifestyle | other
+  targetAmountCents  Int?      // null = qualitative goal
+  currentAmountCents Int?      // manually tracked progress
+  targetDate         DateTime?
+  priority           Int       @default(1) // 1=high, 2=medium, 3=low
+  status             String    @default("active") // active | achieved | paused
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
 // ─── App settings ─────────────────────────────────────────────────────────────
 
 model AppSetting {

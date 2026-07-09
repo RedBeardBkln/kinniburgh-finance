@@ -37,6 +37,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
     { label: "Budgets", base: "/budgets" },
     { label: "Forecast", base: "/forecast" },
     { label: "Accounts", base: "/accounts" },
+    { label: "Advisor", base: "/advisor" },
   ];
 
   const envelopeItem = { label: "Envelopes", base: "/envelope" };
