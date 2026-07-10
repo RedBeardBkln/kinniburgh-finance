@@ -50,13 +50,13 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
       href: buildHref(`/business/${activeBucket}/pl`),
     },
     { label: "Tax Workspaces", base: "/tax", href: buildHref("/tax") },
-    { label: "Debt Tracker", base: "/personal/debt-free", href: "/personal/debt-free" as Route },
+    { label: "Debt Tracker", base: "/personal/debt-free", href: buildHref("/personal/debt-free") },
   ];
 
   const personalItems = [
     { label: "Net Worth", base: "/personal/net-worth", href: "/personal/net-worth" as Route },
     { label: "Mortgage", base: "/personal/mortgage", href: "/personal/mortgage" as Route },
-    { label: "Debt-Free", base: "/personal/debt-free", href: "/personal/debt-free" as Route },
+    { label: "Debt Tracker", base: "/personal/debt-free", href: "/personal/debt-free" as Route },
     { label: "Savings autopilot", base: "/personal/savings-autopilot", href: "/personal/savings-autopilot" as Route },
     { label: "Retirement", base: "/personal/retirement", href: "/personal/retirement" as Route },
     { label: "Insurance", base: "/personal/insurance", href: "/personal/insurance" as Route },

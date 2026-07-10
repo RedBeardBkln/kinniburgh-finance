@@ -6,13 +6,29 @@ import { DebtDashboard } from "@/components/personal/debt-dashboard";
 
 const DEBT_TYPES = ["credit_card", "mortgage", "loan"];
 
-export default async function DebtFreePage() {
+export default async function DebtFreePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ bucket?: string }>;
+}) {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const [accounts, debtDetails, tags] = await Promise.all([
+  const { bucket } = await searchParams;
+
+  // Resolve entity when a business bucket is active
+  const entityFilter =
+    bucket && bucket !== "personal" && bucket !== "taxes"
+      ? await db.entity.findFirst({ where: { slug: bucket } })
+      : null;
+
+  const [accounts, standaloneDebts, tags] = await Promise.all([
     db.account.findMany({
-      where: { accountType: { in: DEBT_TYPES }, archivedAt: null },
+      where: {
+        accountType: { in: DEBT_TYPES },
+        archivedAt: null,
+        ...(entityFilter ? { entityId: entityFilter.id } : {}),
+      },
       select: {
         id: true,
         nickname: true,
@@ -20,53 +36,76 @@ export default async function DebtFreePage() {
         accountType: true,
         integrationMode: true,
         currentBalance: true,
-        currentBalanceAt: true,
-        plaidItemId: true,
         institution: { select: { name: true } },
         entity: { select: { name: true } },
-        debtDetail: { select: { id: true } },
-      },
-      orderBy: { nickname: "asc" },
-    }),
-    db.debtDetail.findMany({
-      include: {
-        account: {
+        debtDetail: {
           select: {
             id: true,
-            nickname: true,
-            mask: true,
-            accountType: true,
-            integrationMode: true,
-            currentBalance: true,
-            institution: { select: { name: true } },
-            entity: { select: { name: true } },
+            originalBalanceCents: true,
+            manualBalanceCents: true,
+            interestRate: true,
+            monthlyPaymentCents: true,
+            paymentDay: true,
+            tagId: true,
+            notes: true,
+            sortOrder: true,
+            tag: { select: { id: true, name: true, shortName: true } },
           },
         },
-        tag: { select: { id: true, name: true, shortName: true } },
       },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      orderBy: [{ entity: { name: "asc" } }, { nickname: "asc" }],
     }),
+    // Standalone debts only shown in the all-entities (Personal) view
+    entityFilter
+      ? Promise.resolve([] as Awaited<ReturnType<typeof db.debtDetail.findMany>>)
+      : db.debtDetail.findMany({
+          where: { accountId: null },
+          select: {
+            id: true,
+            name: true,
+            originalBalanceCents: true,
+            manualBalanceCents: true,
+            interestRate: true,
+            monthlyPaymentCents: true,
+            paymentDay: true,
+            tagId: true,
+            notes: true,
+            sortOrder: true,
+            tag: { select: { id: true, name: true, shortName: true } },
+          },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        }),
     db.tag.findMany({ orderBy: { name: "asc" } }),
   ]);
 
-  // Accounts that don't yet have a DebtDetail
-  const linkedAccountIds = new Set(debtDetails.map((d) => d.accountId).filter(Boolean));
-  const unlinkedAccounts = accounts
-    .filter((a) => !linkedAccountIds.has(a.id))
-    .map((a) => ({
-      id: a.id,
-      nickname: a.nickname,
-      mask: a.mask,
-      accountType: a.accountType,
-      currentBalance: a.currentBalance?.toFixed(2) ?? null,
-      institutionName: a.institution.name,
-      entityName: a.entity.name,
-    }));
+  const serializedAccounts = accounts.map((a) => ({
+    id: a.id,
+    nickname: a.nickname,
+    mask: a.mask,
+    accountType: a.accountType,
+    integrationMode: a.integrationMode,
+    currentBalance: a.currentBalance?.toFixed(2) ?? null,
+    institutionName: a.institution.name,
+    entityName: a.entity.name,
+    debtDetail: a.debtDetail
+      ? {
+          id: a.debtDetail.id,
+          originalBalanceCents: a.debtDetail.originalBalanceCents,
+          manualBalanceCents: a.debtDetail.manualBalanceCents,
+          interestRate: a.debtDetail.interestRate?.toFixed(3) ?? null,
+          monthlyPaymentCents: a.debtDetail.monthlyPaymentCents,
+          paymentDay: a.debtDetail.paymentDay,
+          tagId: a.debtDetail.tagId,
+          tagName: a.debtDetail.tag?.name ?? null,
+          tagShortName: a.debtDetail.tag?.shortName ?? null,
+          notes: a.debtDetail.notes,
+          sortOrder: a.debtDetail.sortOrder,
+        }
+      : null,
+  }));
 
-  // Serialize DebtDetail records
-  const serializedDebts = debtDetails.map((d) => ({
+  const serializedStandaloneDebts = standaloneDebts.map((d) => ({
     id: d.id,
-    accountId: d.accountId,
     name: d.name,
     originalBalanceCents: d.originalBalanceCents,
     manualBalanceCents: d.manualBalanceCents,
@@ -78,16 +117,8 @@ export default async function DebtFreePage() {
     tagShortName: d.tag?.shortName ?? null,
     notes: d.notes,
     sortOrder: d.sortOrder,
-    accountNickname: d.account?.nickname ?? null,
-    accountMask: d.account?.mask ?? null,
-    accountType: d.account?.accountType ?? null,
-    accountIntegrationMode: d.account?.integrationMode ?? null,
-    accountBalance: d.account?.currentBalance?.toFixed(2) ?? null,
-    institutionName: d.account?.institution?.name ?? null,
-    entityName: d.account?.entity?.name ?? null,
   }));
 
-  // CC accounts for the payoff calculator
   const ccAccounts = accounts
     .filter((a) => a.accountType === "credit_card")
     .map((a) => ({
@@ -106,8 +137,8 @@ export default async function DebtFreePage() {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <DebtDashboard
-        debts={serializedDebts}
-        unlinkedAccounts={unlinkedAccounts}
+        accounts={serializedAccounts}
+        standaloneDebts={serializedStandaloneDebts}
         tags={serializedTags}
         ccAccounts={ccAccounts}
       />

@@ -56,6 +56,12 @@ export async function upsertDebtDetail(input: DebtDetailInput) {
 
   const result = input.id
     ? await db.debtDetail.update({ where: { id: input.id }, data })
+    : input.accountId
+    ? await db.debtDetail.upsert({
+        where: { accountId: input.accountId },
+        update: data,
+        create: data,
+      })
     : await db.debtDetail.create({ data });
 
   revalidatePath("/personal/debt-free");
