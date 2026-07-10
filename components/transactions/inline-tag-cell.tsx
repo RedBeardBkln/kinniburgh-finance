@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { updateTransactionTags } from "@/actions/transactions";
 import { createTagRule } from "@/actions/tag-rules";
+import { createTag } from "@/actions/tags";
 import { RetroactiveRuleModal } from "@/components/tag-rules/retroactive-rule-modal";
 import { cn } from "@/lib/utils";
 
@@ -215,6 +216,7 @@ export function InlineTagCell({
 }: Props) {
   const router = useRouter();
   const [tagIds, setTagIds] = useState(initialTagIds);
+  const [localTags, setLocalTags] = useState<Tag[]>(allTags);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -222,12 +224,27 @@ export function InlineTagCell({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [dropPos, setDropPos] = useState({ top: 0, left: 0 });
-  // Deferred save: hold tag IDs until user decides on the rule prompt.
-  // updateTransactionTags calls revalidatePath which triggers an automatic RSC
-  // re-render — calling it while the dialog is open would wipe dialog state.
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
   const [pendingTagSave, setPendingTagSave] = useState<string[] | null>(null);
   const [retroModal, setRetroModal] = useState<RetroState | null>(null);
+
+  // Create tag state
+  const [createMode, setCreateMode] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createParentId, setCreateParentId] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [isCreating, startCreateTransition] = useTransition();
+  const createNameRef = useRef<HTMLInputElement>(null);
+  // Ref so the keydown handler always sees the latest createMode value
+  const createModeRef = useRef(false);
+  useEffect(() => { createModeRef.current = createMode; }, [createMode]);
+
+  useEffect(() => {
+    if (createMode) {
+      const t = setTimeout(() => createNameRef.current?.focus(), 30);
+      return () => clearTimeout(t);
+    }
+  }, [createMode]);
 
   useEffect(() => {
     if (!open) return;
@@ -239,6 +256,10 @@ export function InlineTagCell({
       ) {
         setOpen(false);
         setQuery("");
+        setCreateMode(false);
+        setCreateName("");
+        setCreateParentId("");
+        setCreateError(null);
       }
     }
     document.addEventListener("mousedown", onMouseDown);
@@ -249,8 +270,15 @@ export function InlineTagCell({
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        setOpen(false);
-        setQuery("");
+        if (createModeRef.current) {
+          setCreateMode(false);
+          setCreateName("");
+          setCreateParentId("");
+          setCreateError(null);
+        } else {
+          setOpen(false);
+          setQuery("");
+        }
       }
     }
     document.addEventListener("keydown", onKeyDown);
@@ -261,6 +289,7 @@ export function InlineTagCell({
     if (open) {
       setOpen(false);
       setQuery("");
+      setCreateMode(false);
       return;
     }
     const rect = buttonRef.current?.getBoundingClientRect();
@@ -286,10 +315,9 @@ export function InlineTagCell({
     setTagIds(next);
 
     if (isAdding) {
-      // Close the picker and show the rule dialog before saving
       setOpen(false);
       setQuery("");
-      const tag = allTags.find((t) => t.id === tagId);
+      const tag = localTags.find((t) => t.id === tagId);
       if (tag) {
         setPendingTagSave(next);
         setRulePrompt({ tagId, tagName: tag.name });
@@ -315,19 +343,62 @@ export function InlineTagCell({
     else router.refresh();
   }
 
+  function enterCreateMode() {
+    setCreateName(query.trim());
+    setCreateParentId("");
+    setCreateError(null);
+    setCreateMode(true);
+  }
+
+  function handleCreateTag() {
+    if (!createName.trim()) { setCreateError("Name is required"); return; }
+    setCreateError(null);
+    startCreateTransition(async () => {
+      try {
+        const parent = createParentId ? localTags.find((t) => t.id === createParentId) : null;
+        const { id } = await createTag({
+          shortName: createName.trim(),
+          parentId: createParentId || undefined,
+        });
+        const fullName = parent
+          ? `${parent.name} / ${createName.trim()}`
+          : createName.trim();
+        const newTag: Tag = { id, name: fullName, shortName: createName.trim(), parentId: createParentId || null };
+
+        setLocalTags((prev) =>
+          [...prev, newTag].sort((a, b) => a.name.localeCompare(b.name))
+        );
+        setCreateMode(false);
+        setCreateName("");
+        setCreateParentId("");
+        setCreateError(null);
+        setOpen(false);
+        setQuery("");
+
+        // Select the new tag and show rule prompt (bypass toggle — tag is already in localTags now)
+        const next = [...tagIds, id];
+        setTagIds(next);
+        setPendingTagSave(next);
+        setRulePrompt({ tagId: id, tagName: newTag.name });
+      } catch (err) {
+        setCreateError(err instanceof Error ? err.message : "Failed to create tag");
+      }
+    });
+  }
+
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
-    if (!q) return allTags;
-    return allTags.filter(
+    if (!q) return localTags;
+    return localTags.filter(
       (t) =>
         t.name.toLowerCase().includes(q) ||
         t.shortName.toLowerCase().includes(q)
     );
-  }, [allTags, query]);
+  }, [localTags, query]);
 
   const selectedTags = useMemo(
-    () => allTags.filter((t) => tagIds.includes(t.id)),
-    [allTags, tagIds]
+    () => localTags.filter((t) => tagIds.includes(t.id)),
+    [localTags, tagIds]
   );
 
   const dropdown = open ? (
@@ -336,45 +407,145 @@ export function InlineTagCell({
       style={{ position: "fixed", top: dropPos.top, left: dropPos.left, zIndex: 9999 }}
       className="w-80 rounded-md border border-border bg-card shadow-2xl"
     >
-      <div className="p-2 border-b border-border">
-        <Input
-          autoFocus
-          placeholder="Search tags…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="h-7 text-xs bg-background"
-        />
-      </div>
-      <ul className="max-h-56 overflow-y-auto py-1">
-        {filtered.map((tag) => {
-          const isSelected = tagIds.includes(tag.id);
-          return (
-            <li key={tag.id}>
-              <button
-                type="button"
-                onMouseDown={(e) => {
+      {!createMode ? (
+        <>
+          <div className="p-2 border-b border-border">
+            <Input
+              autoFocus
+              placeholder="Search tags…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-7 text-xs bg-background"
+            />
+          </div>
+          <ul className="max-h-56 overflow-y-auto py-1">
+            {filtered.map((tag) => {
+              const isSelected = tagIds.includes(tag.id);
+              return (
+                <li key={tag.id}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      toggle(tag.id);
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-accent gap-2",
+                      isSelected && "font-medium text-primary"
+                    )}
+                  >
+                    <span className="leading-snug">{tag.name}</span>
+                    {isSelected && (
+                      <span className="text-primary shrink-0">✓</span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+            {filtered.length === 0 && (
+              <li className="px-3 py-2 text-xs text-muted-foreground">
+                No tags found
+              </li>
+            )}
+          </ul>
+          <div className="border-t border-border">
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); enterCreateMode(); }}
+              className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs text-primary hover:bg-accent"
+            >
+              <span className="text-sm leading-none font-medium">+</span>
+              {query.trim() ? `Create "${query.trim()}"` : "Create new tag"}
+            </button>
+          </div>
+        </>
+      ) : (
+        /* ── Create mode ── */
+        <div className="p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold">New tag</span>
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setCreateMode(false);
+                setCreateName("");
+                setCreateParentId("");
+                setCreateError(null);
+              }}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Name</label>
+            <Input
+              ref={createNameRef}
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); handleCreateTag(); }
+                if (e.key === "Escape") {
                   e.preventDefault();
-                  toggle(tag.id);
-                }}
-                className={cn(
-                  "flex w-full items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-accent gap-2",
-                  isSelected && "font-medium text-primary"
-                )}
-              >
-                <span className="leading-snug">{tag.name}</span>
-                {isSelected && (
-                  <span className="text-primary shrink-0">✓</span>
-                )}
-              </button>
-            </li>
-          );
-        })}
-        {filtered.length === 0 && (
-          <li className="px-3 py-2 text-xs text-muted-foreground">
-            No tags found
-          </li>
-        )}
-      </ul>
+                  setCreateMode(false);
+                  setCreateName("");
+                  setCreateParentId("");
+                  setCreateError(null);
+                }
+              }}
+              placeholder="e.g. Groceries"
+              className="h-7 text-xs bg-background"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">
+              Parent tag <span className="opacity-60">(optional)</span>
+            </label>
+            <select
+              value={createParentId}
+              onChange={(e) => setCreateParentId(e.target.value)}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="w-full h-7 rounded-md border border-input bg-background px-2 text-xs"
+            >
+              <option value="">No parent</option>
+              {localTags.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {createError && (
+            <p className="text-xs text-destructive">{createError}</p>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); handleCreateTag(); }}
+              disabled={isCreating}
+              className="flex-1 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
+            >
+              {isCreating ? "Creating…" : "Create & select"}
+            </button>
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setCreateMode(false);
+                setCreateName("");
+                setCreateParentId("");
+                setCreateError(null);
+              }}
+              className="h-7 px-3 rounded-md border text-xs hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   ) : null;
 

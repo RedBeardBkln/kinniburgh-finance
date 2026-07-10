@@ -197,6 +197,8 @@ export function TransactionTagsEditor({
 }: Props) {
   const router = useRouter();
   const [tagIds, setTagIds] = useState(initialTagIds);
+  // Local copy of tags so newly created tags can be appended without a full refresh
+  const [localTags, setLocalTags] = useState<Tag[]>(allTags);
   const [isPending, startTransition] = useTransition();
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
   // Hold the tag save until the user decides on the rule prompt.
@@ -212,12 +214,24 @@ export function TransactionTagsEditor({
     });
   }
 
+  // Called by TagPicker when a brand-new tag is created.
+  // Bypasses handleChange because localTags hasn't updated yet when onChange fires.
+  function handleNewTag(newTag: Tag) {
+    setLocalTags((prev) =>
+      [...prev, newTag].sort((a, b) => a.name.localeCompare(b.name))
+    );
+    const next = [...tagIds, newTag.id];
+    setTagIds(next);
+    setPendingTagSave(next);
+    setRulePrompt({ tagId: newTag.id, tagName: newTag.name });
+  }
+
   function handleChange(newIds: string[]) {
     let promptToShow: RulePrompt | null = null;
     const prevSet = new Set(tagIds);
     const addedId = newIds.find((id) => !prevSet.has(id));
     if (addedId) {
-      const tag = allTags.find((t) => t.id === addedId);
+      const tag = localTags.find((t) => t.id === addedId);
       if (tag) promptToShow = { tagId: addedId, tagName: tag.name };
     }
 
@@ -249,7 +263,7 @@ export function TransactionTagsEditor({
   return (
     <>
       <div className={isPending ? "opacity-50 pointer-events-none" : ""}>
-        <TagPicker tags={allTags} selected={tagIds} onChange={handleChange} />
+        <TagPicker tags={localTags} selected={tagIds} onChange={handleChange} onCreateTag={handleNewTag} />
         {isPending && (
           <p className="mt-2 text-xs text-muted-foreground">Saving…</p>
         )}
