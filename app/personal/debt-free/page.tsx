@@ -22,7 +22,7 @@ export default async function DebtFreePage({
       ? await db.entity.findFirst({ where: { slug: bucket } })
       : null;
 
-  const [accounts, standaloneDebts, tags] = await Promise.all([
+  const [accounts, tags] = await Promise.all([
     db.account.findMany({
       where: {
         accountType: { in: DEBT_TYPES },
@@ -55,28 +55,29 @@ export default async function DebtFreePage({
       },
       orderBy: [{ entity: { name: "asc" } }, { nickname: "asc" }],
     }),
-    // Standalone debts only shown in the all-entities (Personal) view
-    entityFilter
-      ? Promise.resolve([] as Awaited<ReturnType<typeof db.debtDetail.findMany>>)
-      : db.debtDetail.findMany({
-          where: { accountId: null },
-          select: {
-            id: true,
-            name: true,
-            originalBalanceCents: true,
-            manualBalanceCents: true,
-            interestRate: true,
-            monthlyPaymentCents: true,
-            paymentDay: true,
-            tagId: true,
-            notes: true,
-            sortOrder: true,
-            tag: { select: { id: true, name: true, shortName: true } },
-          },
-          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-        }),
     db.tag.findMany({ orderBy: { name: "asc" } }),
   ]);
+
+  // Standalone debts only shown in the all-entities (Personal) view
+  const standaloneDebts = entityFilter
+    ? []
+    : await db.debtDetail.findMany({
+        where: { accountId: null },
+        select: {
+          id: true,
+          name: true,
+          originalBalanceCents: true,
+          manualBalanceCents: true,
+          interestRate: true,
+          monthlyPaymentCents: true,
+          paymentDay: true,
+          tagId: true,
+          notes: true,
+          sortOrder: true,
+          tag: { select: { id: true, name: true, shortName: true } },
+        },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      });
 
   const serializedAccounts = accounts.map((a) => ({
     id: a.id,
