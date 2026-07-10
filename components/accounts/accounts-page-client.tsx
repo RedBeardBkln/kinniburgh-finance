@@ -337,6 +337,8 @@ export function AccountsPageClient({ accounts, institutions, entities }: Props) 
                                 {syncingItemId === acct.plaidItemId ? "Syncing…" : "Sync now"}
                               </button>
                             )
+                          ) : acct.accountType === "loan" || acct.accountType === "insurance" ? (
+                            <span className="text-xs text-muted-foreground">Manual entry</span>
                           ) : acct.institutionName !== "unsupported" ? (
                             <Link href="/accounts/connect" className="text-xs text-primary hover:underline">Connect to Plaid</Link>
                           ) : (

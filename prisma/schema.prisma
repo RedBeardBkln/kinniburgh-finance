@@ -132,6 +132,7 @@ model Account {
   incomeSources            IncomeSource[]
   projects                 Project[]
   receipts                 Receipt[]
+  debtDetail               DebtDetail?
 
   @@unique([entityId, nickname])
 }
@@ -183,6 +184,7 @@ model Tag {
   budgets            Budget[]
   tagRules           TagRule[]
   recurringExpenses  RecurringExpense[]
+  debtDetails        DebtDetail[]
 }
 
 model TransactionTag {
@@ -721,6 +723,27 @@ model FinancialGoal {
   notes              String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+}
+
+// ─── Debt tracking ────────────────────────────────────────────────────────────
+
+model DebtDetail {
+  id                   String   @id @default(cuid())
+  accountId            String?  @unique        // null = standalone debt
+  name                 String
+  originalBalanceCents Int?                    // for progress bar
+  manualBalanceCents   Int?                    // balance when no Plaid sync
+  interestRate         Decimal? @db.Decimal(5, 3)
+  monthlyPaymentCents  Int?
+  paymentDay           Int?                    // day of month (1–31)
+  tagId                String?
+  notes                String?
+  sortOrder            Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  tag     Tag?     @relation(fields: [tagId], references: [id], onDelete: SetNull)
 }
 
 // ─── App settings ─────────────────────────────────────────────────────────────

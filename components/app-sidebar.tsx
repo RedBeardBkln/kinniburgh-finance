@@ -50,6 +50,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
       href: buildHref(`/business/${activeBucket}/pl`),
     },
     { label: "Tax Workspaces", base: "/tax", href: buildHref("/tax") },
+    { label: "Debt Tracker", base: "/personal/debt-free", href: "/personal/debt-free" as Route },
   ];
 
   const personalItems = [
