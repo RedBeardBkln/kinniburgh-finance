@@ -39,6 +39,7 @@ interface RulePrompt {
 interface RetroState {
   ruleId: string;
   tagName: string;
+  accountId?: string;
 }
 
 function RuleDialog({
@@ -600,7 +601,7 @@ export function InlineTagCell({
             setPendingTagSave(null);
             if (ids) commitTags(ids);
             else router.refresh();
-            setRetroModal({ ruleId, tagName });
+            setRetroModal({ ruleId, tagName, accountId });
           }}
           onDismiss={closePrompt}
         />
@@ -610,6 +611,7 @@ export function InlineTagCell({
         <RetroactiveRuleModal
           ruleId={retroModal.ruleId}
           tagName={retroModal.tagName}
+          initialAccountId={retroModal.accountId}
           onDone={() => setRetroModal(null)}
         />
       )}

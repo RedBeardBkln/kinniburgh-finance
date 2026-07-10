@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useTransition, useRef, useEffect } from "react";
+import { useState, useMemo, useTransition, useRef, useEffect, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -39,14 +39,20 @@ export function TagPicker({
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, startCreateTransition] = useTransition();
   const createNameRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  // Sync ref so the onBlur timeout can check createMode without stale closure
+  const createModeRef = useRef(false);
 
   useEffect(() => {
     if (createMode) {
-      // Small delay so the input is rendered before focusing
       const t = setTimeout(() => createNameRef.current?.focus(), 30);
       return () => clearTimeout(t);
+    } else if (open) {
+      // Re-entering list view — restore focus so onBlur-to-close still works
+      const t = setTimeout(() => searchInputRef.current?.focus(), 30);
+      return () => clearTimeout(t);
     }
-  }, [createMode]);
+  }, [createMode, open]);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -78,18 +84,20 @@ export function TagPicker({
   }
 
   function enterCreateMode() {
+    createModeRef.current = true; // sync before setState so onBlur sees it
     setCreateName(query.trim());
     setCreateParentId("");
     setCreateError(null);
     setCreateMode(true);
   }
 
-  function exitCreateMode() {
+  const exitCreateMode = useCallback(() => {
+    createModeRef.current = false;
     setCreateMode(false);
     setCreateName("");
     setCreateParentId("");
     setCreateError(null);
-  }
+  }, []);
 
   function handleCreate() {
     if (!createName.trim()) { setCreateError("Name is required"); return; }
@@ -141,14 +149,18 @@ export function TagPicker({
       )}
 
       <Input
+        ref={searchInputRef}
         placeholder={placeholder}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => setOpen(true)}
         onBlur={() =>
           setTimeout(() => {
-            setOpen(false);
-            exitCreateMode();
+            // Don't close if we just entered create mode — blur fires when the
+            // Input unmounts during the transition and we must ignore it.
+            if (!createModeRef.current) {
+              setOpen(false);
+            }
           }, 150)
         }
       />

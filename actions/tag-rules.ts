@@ -231,9 +231,37 @@ export interface RetroactiveMatch {
   isExactMatch: boolean;
 }
 
+export interface AccountOption {
+  id: string;
+  nickname: string;
+  mask: string | null;
+  institutionName: string;
+}
+
+export async function getAccountsForSearch(): Promise<AccountOption[]> {
+  await requireAuth();
+  const accounts = await db.account.findMany({
+    where: { archivedAt: null },
+    select: {
+      id: true,
+      nickname: true,
+      mask: true,
+      institution: { select: { name: true } },
+    },
+    orderBy: [{ institution: { name: "asc" } }, { nickname: "asc" }],
+  });
+  return accounts.map((a) => ({
+    id: a.id,
+    nickname: a.nickname,
+    mask: a.mask,
+    institutionName: a.institution.name,
+  }));
+}
+
 export async function previewRetroactiveRule(
   ruleId: string,
-  since: string
+  since: string,
+  accountIds?: string[]
 ): Promise<{ tagId: string; tagName: string; matches: RetroactiveMatch[] }> {
   await requireAuth();
 
@@ -251,6 +279,9 @@ export async function previewRetroactiveRule(
       pending: false,
       transferPairId: null,
       postedAt: { gte: sinceDate },
+      ...(accountIds && accountIds.length > 0
+        ? { accountId: { in: accountIds } }
+        : {}),
     },
     select: {
       id: true,

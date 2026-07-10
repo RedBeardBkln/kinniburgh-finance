@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   previewRetroactiveRule,
   applyRetroactiveTag,
+  getAccountsForSearch,
   type RetroactiveMatch,
+  type AccountOption,
 } from "@/actions/tag-rules";
 
-type Step = "ask" | "range" | "loading" | "results" | "done";
+type Step = "ask" | "accounts" | "range" | "loading" | "results" | "done";
 
 type DateRange = "30d" | "90d" | "1y" | "all";
 
@@ -37,10 +39,12 @@ function sinceFromRange(range: DateRange): string {
 interface Props {
   ruleId: string;
   tagName: string;
+  /** Pre-select this account in the account picker (the current transaction's account). */
+  initialAccountId?: string;
   onDone: () => void;
 }
 
-export function RetroactiveRuleModal({ ruleId, tagName, onDone }: Props) {
+export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone }: Props) {
   const [step, setStep] = useState<Step>("ask");
   const [range, setRange] = useState<DateRange>("90d");
   const [matches, setMatches] = useState<RetroactiveMatch[]>([]);
@@ -50,12 +54,45 @@ export function RetroactiveRuleModal({ ruleId, tagName, onDone }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
+  // Account selection
+  const [availableAccounts, setAvailableAccounts] = useState<AccountOption[]>([]);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+
+  // Fetch accounts when the accounts step is entered
+  useEffect(() => {
+    if (step !== "accounts") return;
+    setLoadingAccounts(true);
+    getAccountsForSearch().then((accounts) => {
+      setAvailableAccounts(accounts);
+      // Pre-select the current transaction's account, or all if none provided
+      if (initialAccountId) {
+        setSelectedAccountIds(new Set([initialAccountId]));
+      } else {
+        setSelectedAccountIds(new Set(accounts.map((a) => a.id)));
+      }
+      setLoadingAccounts(false);
+    });
+  }, [step, initialAccountId]);
+
+  function toggleAccount(id: string) {
+    setSelectedAccountIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   function handleSearch() {
     setStep("loading");
     setError(null);
     startTransition(async () => {
       try {
-        const res = await previewRetroactiveRule(ruleId, sinceFromRange(range));
+        const accountIds = selectedAccountIds.size > 0
+          ? [...selectedAccountIds]
+          : undefined;
+        const res = await previewRetroactiveRule(ruleId, sinceFromRange(range), accountIds);
         setTagId(res.tagId);
         setMatches(res.matches);
         setChecked(new Set(res.matches.map((m) => m.id)));
@@ -107,7 +144,7 @@ export function RetroactiveRuleModal({ ruleId, tagName, onDone }: Props) {
               </p>
               <div className="flex gap-3">
                 <button
-                  onClick={() => setStep("range")}
+                  onClick={() => setStep("accounts")}
                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
                 >
                   Yes, search history
@@ -122,9 +159,92 @@ export function RetroactiveRuleModal({ ruleId, tagName, onDone }: Props) {
             </div>
           )}
 
+          {step === "accounts" && (
+            <div className="space-y-4">
+              <p className="text-sm font-medium">Which accounts should we search?</p>
+              {loadingAccounts ? (
+                <p className="text-sm text-muted-foreground">Loading accounts…</p>
+              ) : (
+                <>
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedAccountIds(new Set(availableAccounts.map((a) => a.id)))
+                      }
+                      className="underline hover:text-foreground"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAccountIds(new Set())}
+                      className="underline hover:text-foreground"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="space-y-2 max-h-56 overflow-y-auto rounded-md border p-3">
+                    {availableAccounts.map((acct) => (
+                      <label
+                        key={acct.id}
+                        className="flex items-center gap-2 text-sm cursor-pointer select-none"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedAccountIds.has(acct.id)}
+                          onChange={() => toggleAccount(acct.id)}
+                          className="accent-primary"
+                        />
+                        <span className="font-medium">{acct.nickname}</span>
+                        {acct.mask && (
+                          <span className="text-muted-foreground">···{acct.mask}</span>
+                        )}
+                        <span className="text-muted-foreground text-xs">
+                          {acct.institutionName}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {selectedAccountIds.size === 0 && (
+                    <p className="text-xs text-destructive">
+                      Select at least one account to continue.
+                    </p>
+                  )}
+                </>
+              )}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setStep("range")}
+                  disabled={selectedAccountIds.size === 0 || loadingAccounts}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  Next →
+                </button>
+                <button
+                  onClick={onDone}
+                  className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           {step === "range" && (
             <div className="space-y-4">
               <p className="text-sm font-medium">How far back should we search?</p>
+              <p className="text-xs text-muted-foreground">
+                Searching {selectedAccountIds.size}{" "}
+                account{selectedAccountIds.size !== 1 ? "s" : ""}.{" "}
+                <button
+                  type="button"
+                  onClick={() => setStep("accounts")}
+                  className="underline hover:text-foreground"
+                >
+                  Change
+                </button>
+              </p>
               <div className="space-y-2">
                 {DATE_RANGE_OPTIONS.map((opt) => (
                   <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer">
