@@ -14,6 +14,7 @@ import { DryRunButton } from "@/components/transactions/dry-run-button";
 import { InlineTagCell } from "@/components/transactions/inline-tag-cell";
 import { InlineProjectCell } from "@/components/transactions/inline-project-cell";
 import { TransactionsFilterBar } from "@/components/transactions/transactions-filter-bar";
+import { SyncNowButton } from "@/components/transactions/sync-now-button";
 import type { Route } from "next";
 
 interface PageProps {
@@ -81,7 +82,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     where: { ...baseWhere, ...needsReviewFilter },
   });
 
-  const [transactions, total, allTags, accounts, allProjects] = await Promise.all([
+  const [transactions, total, allTags, accounts, allProjects, plaidAccountCount] = await Promise.all([
     db.transaction.findMany({
       where,
       include: {
@@ -104,6 +105,13 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
       where: { archivedAt: null, status: { not: "completed" } },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
+    }),
+    db.account.count({
+      where: {
+        plaidItemId: { not: null },
+        archivedAt: null,
+        ...(entity && { entityId: entity.id }),
+      },
     }),
   ]);
 
@@ -131,6 +139,9 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
             </p>
           </div>
           <div className="flex gap-2 items-center">
+            {plaidAccountCount > 0 && (
+              <SyncNowButton entityId={entity?.id} />
+            )}
             <ExportCsvButton
               filename={`transactions-${bucket}-${new Date().toISOString().slice(0, 10)}.csv`}
               action={exportTransactionsCsv.bind(null, {
