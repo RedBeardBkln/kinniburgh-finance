@@ -82,10 +82,19 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   const [transactions, total, allTags, accounts, allProjects, plaidAccountCount] = await Promise.all([
     db.transaction.findMany({
       where,
-      include: {
-        account: { include: { institution: true } },
-        entity: true,
-        tags: { include: { tag: true } },
+      select: {
+        id: true,
+        postedAt: true,
+        payeeRaw: true,
+        payeeNormalized: true,
+        description: true,
+        amount: true,
+        accountId: true,
+        entityId: true,
+        transferPairId: true,
+        projectId: true,
+        account: { select: { nickname: true, mask: true } },
+        tags: { select: { tagId: true } },
       },
       orderBy,
       skip: (page - 1) * pageSize,
@@ -224,7 +233,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
             accountNickname: tx.account.nickname,
             accountMask: tx.account.mask,
             tagIds: tx.tags.map((t) => t.tagId),
-            projectId: (tx as typeof tx & { projectId?: string | null }).projectId ?? null,
+            projectId: tx.projectId ?? null,
             transferPairId: tx.transferPairId,
           }))}
           allTags={allTags}

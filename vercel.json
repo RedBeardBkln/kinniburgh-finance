@@ -1,5 +1,6 @@
 {
   "buildCommand": "prisma generate && prisma migrate deploy && next build",
+  "regions": ["sfo1"],
   "crons": [
     {
       "path": "/api/cron/plaid-sync",
