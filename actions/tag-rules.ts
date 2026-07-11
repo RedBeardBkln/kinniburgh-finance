@@ -31,11 +31,14 @@ export async function listTagRules(): Promise<TagRuleWithTag[]> {
 
 // ── Create ────────────────────────────────────────────────────────────────────
 
+// Accepts values like "1", "40.00", ".01", "0.01"
+const amountRegex = /^(\d+\.?\d{0,2}|\.\d{1,2})$/;
+
 const createSchema = z.object({
   payeePattern: z.string().min(1).max(255),
   tagId: z.string().uuid(),
-  amountMin: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
-  amountMax: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+  amountMin: z.string().regex(amountRegex).optional(),
+  amountMax: z.string().regex(amountRegex).optional(),
   accountId: z.string().uuid().optional(),
   accountIds: z.array(z.string().uuid()).optional(),
 });
@@ -44,7 +47,13 @@ export async function createTagRule(
   input: z.input<typeof createSchema>
 ): Promise<{ id: string }> {
   await requireAuth();
-  const data = createSchema.parse(input);
+  let data: z.infer<typeof createSchema>;
+  try {
+    data = createSchema.parse(input);
+  } catch (e) {
+    if (e instanceof z.ZodError) throw new Error(e.errors[0]?.message ?? "Invalid input");
+    throw e;
+  }
   const rule = await db.tagRule.create({
     data: {
       payeePattern: normalizePattern(data.payeePattern),
@@ -67,8 +76,8 @@ export async function createTagRule(
 const updateSchema = z.object({
   payeePattern: z.string().min(1).max(255).optional(),
   tagId: z.string().uuid().optional(),
-  amountMin: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
-  amountMax: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
+  amountMin: z.string().regex(amountRegex).nullable().optional(),
+  amountMax: z.string().regex(amountRegex).nullable().optional(),
   accountId: z.string().uuid().nullable().optional(),
   accountIds: z.array(z.string().uuid()).nullable().optional(),
   confidence: z.number().min(0).max(1).optional(),
@@ -79,7 +88,13 @@ export async function updateTagRule(
   patch: z.input<typeof updateSchema>
 ): Promise<void> {
   await requireAuth();
-  const data = updateSchema.parse(patch);
+  let data: z.infer<typeof updateSchema>;
+  try {
+    data = updateSchema.parse(patch);
+  } catch (e) {
+    if (e instanceof z.ZodError) throw new Error(e.errors[0]?.message ?? "Invalid input");
+    throw e;
+  }
   await db.tagRule.update({
     where: { id },
     data: {
