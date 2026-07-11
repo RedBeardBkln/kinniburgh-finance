@@ -129,6 +129,8 @@ export function TagPicker({
     });
   }
 
+  const atLimit = !!maxSelected && selected.length >= maxSelected;
+
   return (
     <div className="relative">
       {/* Selected badges */}
@@ -148,22 +150,22 @@ export function TagPicker({
         </div>
       )}
 
-      <Input
-        ref={searchInputRef}
-        placeholder={placeholder}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onFocus={() => setOpen(true)}
-        onBlur={() =>
-          setTimeout(() => {
-            // Don't close if we just entered create mode — blur fires when the
-            // Input unmounts during the transition and we must ignore it.
-            if (!createModeRef.current) {
-              setOpen(false);
-            }
-          }, 150)
-        }
-      />
+      {!atLimit && (
+        <>
+        <Input
+          ref={searchInputRef}
+          placeholder={placeholder}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => setOpen(true)}
+          onBlur={() =>
+            setTimeout(() => {
+              if (!createModeRef.current) {
+                setOpen(false);
+              }
+            }, 150)
+          }
+        />
 
       {open && (
         <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md">
@@ -288,6 +290,8 @@ export function TagPicker({
             </div>
           )}
         </div>
+      )}
+        </>
       )}
     </div>
   );

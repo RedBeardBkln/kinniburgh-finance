@@ -206,102 +206,109 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
 
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">Date</th>
-                    <th className="px-4 py-3 font-medium">Payee</th>
-                    <th className="px-4 py-3 font-medium">Account</th>
-                    <th className="px-4 py-3 font-medium">Tags</th>
-                    {allProjects.length > 0 && <th className="px-4 py-3 font-medium">Project</th>}
-                    <th className="px-4 py-3 font-medium text-right">Amount</th>
-                    <th className="px-4 py-3" />
+            <table className="w-full text-sm table-fixed">
+              <colgroup>
+                <col className="w-[72px]" />
+                <col />
+                <col className="w-[130px]" />
+                <col className="w-[110px]" />
+                {allProjects.length > 0 && <col className="w-[110px]" />}
+                <col className="w-[96px]" />
+                <col className="w-[52px]" />
+              </colgroup>
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="px-2 py-3 font-medium">Date</th>
+                  <th className="px-2 py-3 font-medium">Payee</th>
+                  <th className="px-2 py-3 font-medium">Account</th>
+                  <th className="px-2 py-3 font-medium">Tags</th>
+                  {allProjects.length > 0 && <th className="px-2 py-3 font-medium">Project</th>}
+                  <th className="px-2 py-3 font-medium text-right">Amount</th>
+                  <th className="px-2 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-2 py-8 text-center text-muted-foreground">
+                      No transactions found
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {transactions.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
-                        No transactions found
+                )}
+                {transactions.map((tx) => {
+                  const amount = new Prisma.Decimal(tx.amount);
+                  const isOutflow = amount.isNegative();
+                  const isTransfer = tx.transferPairId !== null;
+                  return (
+                    <tr
+                      key={tx.id}
+                      className={`border-b last:border-0 hover:bg-muted/30 ${isTransfer ? "opacity-70" : ""}`}
+                    >
+                      <td className="px-2 py-2 text-muted-foreground whitespace-nowrap text-xs">
+                        {formatDate(tx.postedAt)}
                       </td>
-                    </tr>
-                  )}
-                  {transactions.map((tx) => {
-                    const amount = new Prisma.Decimal(tx.amount);
-                    const isOutflow = amount.isNegative();
-                    const isTransfer = tx.transferPairId !== null;
-                    return (
-                      <tr
-                        key={tx.id}
-                        className={`border-b last:border-0 hover:bg-muted/30 ${isTransfer ? "opacity-70" : ""}`}
-                      >
-                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
-                          {formatDate(tx.postedAt)}
-                        </td>
-                        <td className="px-4 py-2">
-                          <Link
-                            href={`/transactions/${tx.id}` as Route}
-                            className="font-medium hover:underline"
-                          >
-                            {tx.payeeRaw ?? tx.payeeNormalized ?? "—"}
-                          </Link>
-                          {tx.description && (
-                            <p className="text-xs text-muted-foreground truncate max-w-xs">
-                              {tx.description}
-                            </p>
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-muted-foreground text-xs whitespace-nowrap">
-                          {tx.account.nickname}
-                          <span className="ml-1">···{tx.account.mask}</span>
-                        </td>
-                        <td className="px-4 py-2">
-                          <InlineTagCell
+                      <td className="px-2 py-2 min-w-0">
+                        <Link
+                          href={`/transactions/${tx.id}` as Route}
+                          className="font-medium hover:underline block truncate"
+                        >
+                          {tx.payeeRaw ?? tx.payeeNormalized ?? "—"}
+                        </Link>
+                        {tx.description && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {tx.description}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-muted-foreground text-xs min-w-0">
+                        <span className="block truncate">{tx.account.nickname}</span>
+                        <span className="text-muted-foreground/70">···{tx.account.mask}</span>
+                      </td>
+                      <td className="px-2 py-2">
+                        <InlineTagCell
+                          transactionId={tx.id}
+                          allTags={allTags}
+                          initialTagIds={tx.tags.map((t) => t.tagId)}
+                          payeeNormalized={tx.payeeNormalized ?? tx.payeeRaw ?? undefined}
+                          defaultAmount={Math.abs(Number(tx.amount)).toFixed(2)}
+                          accountId={tx.accountId}
+                          accountNickname={tx.account.nickname}
+                          accountMask={tx.account.mask}
+                        />
+                      </td>
+                      {allProjects.length > 0 && (
+                        <td className="px-2 py-2">
+                          <InlineProjectCell
                             transactionId={tx.id}
-                            allTags={allTags}
-                            initialTagIds={tx.tags.map((t) => t.tagId)}
-                            payeeNormalized={tx.payeeNormalized ?? tx.payeeRaw ?? undefined}
-                            defaultAmount={Math.abs(Number(tx.amount)).toFixed(2)}
-                            accountId={tx.accountId}
-                            accountNickname={tx.account.nickname}
-                            accountMask={tx.account.mask}
+                            projects={allProjects}
+                            initialProjectId={(tx as typeof tx & { projectId?: string | null }).projectId ?? null}
                           />
                         </td>
-                        {allProjects.length > 0 && (
-                          <td className="px-4 py-2">
-                            <InlineProjectCell
-                              transactionId={tx.id}
-                              projects={allProjects}
-                              initialProjectId={(tx as typeof tx & { projectId?: string | null }).projectId ?? null}
-                            />
-                          </td>
-                        )}
-                        <td className={`px-4 py-2 text-right font-mono font-medium whitespace-nowrap ${isOutflow ? "text-destructive" : "text-green-600"}`}>
-                          {isOutflow ? "-" : "+"}
-                          {formatCents(amount.abs())}
-                        </td>
-                        <td className="px-4 py-2">
-                          <form
-                            action={async () => {
-                              "use server";
-                              await deleteTransaction(tx.id);
-                            }}
+                      )}
+                      <td className={`px-2 py-2 text-right font-mono font-medium whitespace-nowrap text-xs ${isOutflow ? "text-destructive" : "text-green-600"}`}>
+                        {isOutflow ? "-" : "+"}
+                        {formatCents(amount.abs())}
+                      </td>
+                      <td className="px-2 py-2">
+                        <form
+                          action={async () => {
+                            "use server";
+                            await deleteTransaction(tx.id);
+                          }}
+                        >
+                          <button
+                            type="submit"
+                            className="text-xs text-muted-foreground hover:text-destructive"
                           >
-                            <button
-                              type="submit"
-                              className="text-xs text-muted-foreground hover:text-destructive"
-                            >
-                              Delete
-                            </button>
-                          </form>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                            Delete
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </CardContent>
         </Card>
 

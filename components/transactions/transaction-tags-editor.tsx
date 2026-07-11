@@ -264,7 +264,7 @@ export function TransactionTagsEditor({
   return (
     <>
       <div className={isPending ? "opacity-50 pointer-events-none" : ""}>
-        <TagPicker tags={localTags} selected={tagIds} onChange={handleChange} onCreateTag={handleNewTag} />
+        <TagPicker tags={localTags} selected={tagIds} onChange={handleChange} onCreateTag={handleNewTag} maxSelected={1} />
         {isPending && (
           <p className="mt-2 text-xs text-muted-foreground">Saving…</p>
         )}
