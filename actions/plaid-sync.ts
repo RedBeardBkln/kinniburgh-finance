@@ -2,7 +2,7 @@
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { syncPlaidTransactions } from "@/lib/plaid-sync";
+import { syncPlaidTransactions, type SyncResult } from "@/lib/plaid-sync";
 import { revalidatePath } from "next/cache";
 
 async function requireAuth() {
@@ -11,12 +11,19 @@ async function requireAuth() {
   return session.user;
 }
 
+export interface SyncEntityResult {
+  synced: number;
+  failed: number;
+  added: number;
+  modified: number;
+  needsReauth: boolean;
+}
+
 export async function syncEntityPlaidAccounts(
   entityId?: string
-): Promise<{ synced: number; failed: number; added: number }> {
+): Promise<SyncEntityResult> {
   await requireAuth();
 
-  // Find all Plaid-connected accounts for this entity (or all entities if none specified)
   const accounts = await db.account.findMany({
     where: {
       plaidItemId: { not: null },
@@ -31,7 +38,7 @@ export async function syncEntityPlaidAccounts(
   )];
 
   if (itemIds.length === 0) {
-    return { synced: 0, failed: 0, added: 0 };
+    return { synced: 0, failed: 0, added: 0, modified: 0, needsReauth: false };
   }
 
   const items = await db.plaidItem.findMany({
@@ -39,18 +46,21 @@ export async function syncEntityPlaidAccounts(
     select: { itemId: true },
   });
 
+  // If fewer active items than total, some need re-authentication
+  const needsReauth = items.length < itemIds.length;
+
   const results = await Promise.allSettled(
     items.map((item) => syncPlaidTransactions(item.itemId))
   );
 
-  const synced = results.filter((r) => r.status === "fulfilled").length;
+  const fulfilled = results.filter(
+    (r): r is PromiseFulfilledResult<SyncResult> => r.status === "fulfilled"
+  );
+  const synced = fulfilled.length;
   const failed = results.length - synced;
-  const added = results
-    .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof syncPlaidTransactions>>> =>
-      r.status === "fulfilled"
-    )
-    .reduce((sum, r) => sum + (r.value.added ?? 0), 0);
+  const added = fulfilled.reduce((sum, r) => sum + r.value.added, 0);
+  const modified = fulfilled.reduce((sum, r) => sum + r.value.modified, 0);
 
   revalidatePath("/transactions");
-  return { synced, failed, added };
+  return { synced, failed, added, modified, needsReauth };
 }

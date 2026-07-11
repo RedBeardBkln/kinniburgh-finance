@@ -1,25 +1,44 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { syncEntityPlaidAccounts } from "@/actions/plaid-sync";
 
 export function SyncNowButton({ entityId }: { entityId?: string }) {
   const [isPending, startTransition] = useTransition();
   const [status, setStatus] = useState<"idle" | "ok" | "error">("idle");
   const [message, setMessage] = useState("");
+  const router = useRouter();
 
   function handleSync() {
     setStatus("idle");
     startTransition(async () => {
       try {
-        const { synced, failed, added } = await syncEntityPlaidAccounts(entityId);
-        if (synced === 0 && failed > 0) {
-          setStatus("error");
-          setMessage("Sync failed");
+        const result = await syncEntityPlaidAccounts(entityId);
+
+        let msg: string;
+        let resultStatus: "ok" | "error";
+
+        if (result.needsReauth) {
+          resultStatus = "error";
+          msg = "Reconnect needed";
+        } else if (result.synced === 0 && result.failed > 0) {
+          resultStatus = "error";
+          msg = "Sync failed";
+        } else if (result.added > 0) {
+          resultStatus = "ok";
+          msg = `+${result.added} new`;
+        } else if (result.modified > 0) {
+          resultStatus = "ok";
+          msg = "Balances updated";
         } else {
-          setStatus("ok");
-          setMessage(added > 0 ? `+${added} new` : "Up to date");
+          resultStatus = "ok";
+          msg = "Up to date";
         }
+
+        setStatus(resultStatus);
+        setMessage(msg);
+        router.refresh();
       } catch {
         setStatus("error");
         setMessage("Error");
