@@ -52,7 +52,7 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [resultMsg, setResultMsg] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
 
   // Account selection
   const [availableAccounts, setAvailableAccounts] = useState<AccountOption[]>([]);
@@ -380,19 +380,35 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
-              <div className="flex gap-3">
+              <div className="flex gap-3 items-center">
                 {matches.length > 0 && (
                   <button
                     onClick={handleApply}
-                    disabled={checked.size === 0}
-                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                    disabled={checked.size === 0 || isPending}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none"
                   >
-                    Apply to {checked.size} selected
+                    {isPending ? (
+                      <>
+                        <svg
+                          className="h-3.5 w-3.5 animate-spin"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Applying…
+                      </>
+                    ) : (
+                      `Apply to ${checked.size} selected`
+                    )}
                   </button>
                 )}
                 <button
                   onClick={onDone}
-                  className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted"
+                  disabled={isPending}
+                  className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
                 >
                   {matches.length === 0 ? "Close" : "Cancel"}
                 </button>
