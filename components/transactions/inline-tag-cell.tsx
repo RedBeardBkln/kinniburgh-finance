@@ -452,7 +452,7 @@ export function InlineTagCell({
           <div className="border-t border-border">
             <button
               type="button"
-              onMouseDown={(e) => { e.preventDefault(); enterCreateMode(); }}
+              onClick={() => enterCreateMode()}
               className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs text-primary hover:bg-accent"
             >
               <span className="text-sm leading-none font-medium">+</span>
