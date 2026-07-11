@@ -317,6 +317,7 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
                           <th className="px-3 py-2 font-medium">Date</th>
                           <th className="px-3 py-2 font-medium">Payee</th>
                           <th className="px-3 py-2 font-medium text-right">Amount</th>
+                          <th className="px-3 py-2 font-medium">Account</th>
                           <th className="px-3 py-2 font-medium">Tags</th>
                         </tr>
                       </thead>
@@ -356,6 +357,10 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
                               )}
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums">{m.amount}</td>
+                            <td className="px-3 py-2 whitespace-nowrap text-muted-foreground text-xs">
+                              {m.accountNickname}
+                              {m.accountMask && <span> ···{m.accountMask}</span>}
+                            </td>
                             <td className="px-3 py-2">
                               <div className="flex flex-wrap gap-1">
                                 {m.existingTags.map((t) => (

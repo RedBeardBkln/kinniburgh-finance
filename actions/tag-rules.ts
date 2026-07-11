@@ -229,6 +229,8 @@ export interface RetroactiveMatch {
   amount: string;
   existingTags: string[];
   isExactMatch: boolean;
+  accountNickname: string;
+  accountMask: string | null;
 }
 
 export interface AccountOption {
@@ -290,6 +292,7 @@ export async function previewRetroactiveRule(
       payeeNormalized: true,
       amount: true,
       accountId: true,
+      account: { select: { nickname: true, mask: true } },
       tags: { select: { tag: { select: { name: true } } } },
     },
     orderBy: { postedAt: "desc" },
@@ -329,6 +332,8 @@ export async function previewRetroactiveRule(
       }).format(new Prisma.Decimal(tx.amount).toNumber()),
       existingTags: tx.tags.map((t) => t.tag.name),
       isExactMatch: true,
+      accountNickname: tx.account?.nickname ?? "",
+      accountMask: tx.account?.mask ?? null,
     });
   }
 
