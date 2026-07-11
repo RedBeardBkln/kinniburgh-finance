@@ -185,6 +185,7 @@ export async function confirmImport(input: z.infer<typeof importSchema>) {
     amountMin: r.amountMin ? Number(r.amountMin) : null,
     amountMax: r.amountMax ? Number(r.amountMax) : null,
     accountId: r.accountId,
+    accountIds: r.accountIds ? (JSON.parse(r.accountIds) as string[]) : null,
   }));
 
   const toInsert = parsed.rows.filter((r) => !r.skipDuplicate);

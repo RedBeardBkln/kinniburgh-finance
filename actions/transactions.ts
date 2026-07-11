@@ -48,6 +48,7 @@ export async function createTransaction(input: CreateTransactionInput) {
       amountMin: r.amountMin ? Number(r.amountMin) : null,
       amountMax: r.amountMax ? Number(r.amountMax) : null,
       accountId: r.accountId,
+      accountIds: r.accountIds ? (JSON.parse(r.accountIds) as string[]) : null,
     }));
     const matched = matchTagRule(ruleInput, {
       normalizedPayee: payeeNormalized,

@@ -14,7 +14,11 @@ export default async function TagRulesPage() {
   const [rules, rawTags, accounts] = await Promise.all([
     listTagRules(),
     db.tag.findMany({ orderBy: { name: "asc" } }),
-    db.account.findMany({ orderBy: { nickname: "asc" } }),
+    db.account.findMany({
+      where: { archivedAt: null },
+      select: { id: true, nickname: true, mask: true },
+      orderBy: { nickname: "asc" },
+    }),
   ]);
 
   const allTags = flattenTagTree(
@@ -41,10 +45,11 @@ export default async function TagRulesPage() {
             amountMax: r.amountMax?.toString() ?? null,
             accountId: r.accountId ?? null,
             accountNickname: r.account?.nickname ?? null,
+            accountIds: r.accountIds ? JSON.parse(r.accountIds) : null,
             confidence: r.confidence,
           }))}
           allTags={allTags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName, parentId: t.parentId }))}
-          accounts={accounts.map((a) => ({ id: a.id, nickname: a.nickname }))}
+          accounts={accounts.map((a) => ({ id: a.id, nickname: a.nickname, mask: a.mask }))}
         />
       </div>
     </AppShell>

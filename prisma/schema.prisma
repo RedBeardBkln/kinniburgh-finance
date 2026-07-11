@@ -533,6 +533,7 @@ model TagRule {
   amountMin      Decimal? @db.Decimal(14, 2)
   amountMax      Decimal? @db.Decimal(14, 2)
   accountId      String?
+  accountIds     String?  // JSON array of account IDs for multi-account matching
   tagId          String
   confidence     Float    @default(1.0)
   createdAt      DateTime @default(now())

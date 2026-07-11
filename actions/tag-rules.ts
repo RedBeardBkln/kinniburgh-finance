@@ -3,7 +3,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
-import { normalizePayee, matchTagRule } from "@/lib/tags";
+import { normalizePayee, normalizePattern, matchTagRule } from "@/lib/tags";
 import { updateTransactionTags } from "@/actions/transactions";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -37,6 +37,7 @@ const createSchema = z.object({
   amountMin: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
   amountMax: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
   accountId: z.string().uuid().optional(),
+  accountIds: z.array(z.string().uuid()).optional(),
 });
 
 export async function createTagRule(
@@ -46,11 +47,15 @@ export async function createTagRule(
   const data = createSchema.parse(input);
   const rule = await db.tagRule.create({
     data: {
-      payeePattern: normalizePayee(data.payeePattern),
+      payeePattern: normalizePattern(data.payeePattern),
       tagId: data.tagId,
       amountMin: data.amountMin != null ? new Prisma.Decimal(data.amountMin) : null,
       amountMax: data.amountMax != null ? new Prisma.Decimal(data.amountMax) : null,
       accountId: data.accountId ?? null,
+      accountIds:
+        data.accountIds && data.accountIds.length > 0
+          ? JSON.stringify(data.accountIds)
+          : null,
     },
   });
   revalidatePath("/tag-rules");
@@ -65,6 +70,7 @@ const updateSchema = z.object({
   amountMin: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
   amountMax: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
   accountId: z.string().uuid().nullable().optional(),
+  accountIds: z.array(z.string().uuid()).nullable().optional(),
   confidence: z.number().min(0).max(1).optional(),
 });
 
@@ -78,7 +84,7 @@ export async function updateTagRule(
     where: { id },
     data: {
       ...(data.payeePattern != null && {
-        payeePattern: normalizePayee(data.payeePattern),
+        payeePattern: normalizePattern(data.payeePattern),
       }),
       ...(data.tagId != null && { tagId: data.tagId }),
       ...(data.amountMin !== undefined && {
@@ -88,6 +94,12 @@ export async function updateTagRule(
         amountMax: data.amountMax != null ? new Prisma.Decimal(data.amountMax) : null,
       }),
       ...(data.accountId !== undefined && { accountId: data.accountId }),
+      ...(data.accountIds !== undefined && {
+        accountIds:
+          data.accountIds && data.accountIds.length > 0
+            ? JSON.stringify(data.accountIds)
+            : null,
+      }),
       ...(data.confidence != null && { confidence: data.confidence }),
     },
   });
@@ -131,6 +143,7 @@ export async function applyRulesToTransaction(
     amountMin: r.amountMin ? r.amountMin.toNumber() : null,
     amountMax: r.amountMax ? r.amountMax.toNumber() : null,
     accountId: r.accountId,
+    accountIds: r.accountIds ? (JSON.parse(r.accountIds) as string[]) : null,
   }));
 
   const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
@@ -194,6 +207,7 @@ export async function dryRunTagRules(entityId?: string): Promise<{
     amountMin: r.amountMin ? r.amountMin.toNumber() : null,
     amountMax: r.amountMax ? r.amountMax.toNumber() : null,
     accountId: r.accountId,
+    accountIds: r.accountIds ? (JSON.parse(r.accountIds) as string[]) : null,
   }));
 
   const previews: Array<{ payeeRaw: string; tagShortName: string }> = [];
@@ -305,11 +319,13 @@ export async function previewRetroactiveRule(
 
   const matches: RetroactiveMatch[] = [];
 
+  const alnum = (s: string) => s.replace(/[^a-z0-9]/g, "");
+
   for (const tx of transactions) {
-    // Require exact payee match — substring/prefix matching causes false positives
+    // Require exact payee match (alnum-stripped so apostrophes/hyphens don't affect matching)
     if (pattern) {
       const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
-      if (normalizedPayee !== pattern) continue;
+      if (alnum(normalizedPayee) !== alnum(pattern)) continue;
     }
 
     // Amount range
@@ -319,8 +335,13 @@ export async function previewRetroactiveRule(
       if (amountMax !== null && amount > amountMax) continue;
     }
 
-    // Account restriction
-    if (rule.accountId && rule.accountId !== tx.accountId) continue;
+    // Account restriction — check rule-level accountIds first, then legacy accountId
+    const ruleAcctIds = rule.accountIds
+      ? (JSON.parse(rule.accountIds) as string[])
+      : rule.accountId
+      ? [rule.accountId]
+      : null;
+    if (ruleAcctIds && !ruleAcctIds.includes(tx.accountId)) continue;
 
     matches.push({
       id: tx.id,

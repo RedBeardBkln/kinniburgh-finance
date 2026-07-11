@@ -63,12 +63,31 @@ export function normalizePayee(raw: string): string {
     .trim();
 }
 
+/**
+ * Normalize a user-entered payee pattern.
+ * Strips punctuation entirely (no space insertion) so "McDonald's" → "mcdonalds".
+ * Use this when storing rule patterns; use normalizePayee for transaction payees.
+ */
+export function normalizePattern(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Strip all non-alphanumeric for robust fuzzy comparison between old and new normalizations. */
+function alnum(s: string): string {
+  return s.replace(/[^a-z0-9]/g, "");
+}
+
 export interface TagRuleCandidate {
   tagId: string;
   payeePattern: string | null;
   amountMin: number | null;
   amountMax: number | null;
   accountId: string | null;
+  accountIds?: string[] | null; // multi-account filter; takes priority over accountId
 }
 
 /**
@@ -93,14 +112,15 @@ export function matchTagRule(
   for (const rule of rules) {
     let score = 0;
 
-    // Payee match
+    // Payee match — use alnum-only comparison so apostrophes/hyphens don't matter
     if (rule.payeePattern) {
-      const pattern = rule.payeePattern.toLowerCase();
-      if (normalizedPayee === pattern) {
+      const sp = alnum(normalizedPayee);
+      const sPattern = alnum(rule.payeePattern);
+      if (sp === sPattern) {
         score += 100; // exact
-      } else if (normalizedPayee.startsWith(pattern)) {
+      } else if (sp.startsWith(sPattern)) {
         score += 50; // prefix
-      } else if (normalizedPayee.includes(pattern)) {
+      } else if (sp.includes(sPattern)) {
         score += 25; // contains (handles bank-prefixed payees like "POS TARGET 00123")
       } else {
         continue; // no match
@@ -118,9 +138,15 @@ export function matchTagRule(
       }
     }
 
-    // Account match
-    if (rule.accountId) {
-      if (rule.accountId === accountId) {
+    // Account match — check accountIds array first, then fall back to single accountId
+    const acctFilter =
+      rule.accountIds && rule.accountIds.length > 0
+        ? rule.accountIds
+        : rule.accountId
+        ? [rule.accountId]
+        : null;
+    if (acctFilter) {
+      if (acctFilter.includes(accountId)) {
         score += 10;
       } else {
         continue;

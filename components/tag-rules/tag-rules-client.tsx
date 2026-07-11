@@ -16,6 +16,7 @@ interface RuleRow {
   amountMax: string | null;
   accountId: string | null;
   accountNickname: string | null;
+  accountIds: string[] | null;
   confidence: number;
 }
 
@@ -29,6 +30,7 @@ interface Tag {
 interface Account {
   id: string;
   nickname: string;
+  mask?: string | null;
 }
 
 interface Props {
@@ -49,7 +51,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
   const [newTagId, setNewTagId] = useState(allTags[0]?.id ?? "");
   const [newAmountMin, setNewAmountMin] = useState("");
   const [newAmountMax, setNewAmountMax] = useState("");
-  const [newAccountId, setNewAccountId] = useState("");
+  const [newAccountIds, setNewAccountIds] = useState<Set<string>>(new Set());
 
   // Retroactive application state
   const [retroModal, setRetroModal] = useState<{ ruleId: string; tagName: string } | null>(null);
@@ -62,7 +64,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
     setNewTagId(allTags[0]?.id ?? "");
     setNewAmountMin("");
     setNewAmountMax("");
-    setNewAccountId("");
+    setNewAccountIds(new Set());
     setShowForm(false);
     setEditingId(null);
   }
@@ -73,7 +75,13 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
     setNewTagId(rule.tagId);
     setNewAmountMin(rule.amountMin ?? "");
     setNewAmountMax(rule.amountMax ?? "");
-    setNewAccountId(rule.accountId ?? "");
+    // Populate from accountIds (multi) or legacy accountId (single)
+    const ids = rule.accountIds && rule.accountIds.length > 0
+      ? rule.accountIds
+      : rule.accountId
+      ? [rule.accountId]
+      : [];
+    setNewAccountIds(new Set(ids));
     setShowForm(true);
     setError(null);
   }
@@ -85,16 +93,16 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
 
     startTransition(async () => {
       try {
+        const selectedIds = newAccountIds.size > 0 ? [...newAccountIds] : undefined;
         const { id: ruleId } = await createTagRule({
           payeePattern: newPattern.trim(),
           tagId: newTagId,
           amountMin: newAmountMin || undefined,
           amountMax: newAmountMax || undefined,
-          accountId: newAccountId || undefined,
+          accountIds: selectedIds,
         });
         // Optimistic add
         const tag = allTags.find((t) => t.id === newTagId);
-        const account = accounts.find((a) => a.id === newAccountId);
         setRules((prev) => [
           {
             id: ruleId,
@@ -103,8 +111,9 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
             tagName: tag?.shortName ?? "",
             amountMin: newAmountMin || null,
             amountMax: newAmountMax || null,
-            accountId: newAccountId || null,
-            accountNickname: account?.nickname ?? null,
+            accountId: null,
+            accountNickname: null,
+            accountIds: selectedIds ?? null,
             confidence: 1.0,
           },
           ...prev,
@@ -125,15 +134,16 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
 
     startTransition(async () => {
       try {
+        const selectedIds = newAccountIds.size > 0 ? [...newAccountIds] : null;
         await updateTagRule(editingId, {
           payeePattern: newPattern.trim(),
           tagId: newTagId,
           amountMin: newAmountMin || null,
           amountMax: newAmountMax || null,
-          accountId: newAccountId || null,
+          accountId: null,
+          accountIds: selectedIds,
         });
         const tag = allTags.find((t) => t.id === newTagId);
-        const account = accounts.find((a) => a.id === newAccountId);
         setRules((prev) =>
           prev.map((r) =>
             r.id === editingId
@@ -144,8 +154,9 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
                   tagName: tag?.shortName ?? "",
                   amountMin: newAmountMin || null,
                   amountMax: newAmountMax || null,
-                  accountId: newAccountId || null,
-                  accountNickname: account?.nickname ?? null,
+                  accountId: null,
+                  accountNickname: null,
+                  accountIds: selectedIds,
                 }
               : r
           )
@@ -190,7 +201,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
                   onChange={(e) => setNewPattern(e.target.value)}
                   placeholder="e.g. whole foods market"
                 />
-                <p className="text-xs text-muted-foreground">Matched against normalized payee (lowercase, no punctuation)</p>
+                <p className="text-xs text-muted-foreground">Type naturally — apostrophes, hyphens, and other symbols are handled automatically</p>
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium">Tag</label>
@@ -221,17 +232,40 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
                 />
               </div>
               <div className="space-y-1 sm:col-span-2">
-                <label className="text-sm font-medium">Account <span className="text-muted-foreground font-normal">optional</span></label>
-                <select
-                  value={newAccountId}
-                  onChange={(e) => setNewAccountId(e.target.value)}
-                  className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Any account</option>
+                <label className="text-sm font-medium">
+                  Account{" "}
+                  <span className="text-muted-foreground font-normal">optional — leave all unchecked to match any account</span>
+                </label>
+                <div className="max-h-40 overflow-y-auto rounded-md border p-2 space-y-1">
                   {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.nickname}</option>
+                    <label key={a.id} className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={newAccountIds.has(a.id)}
+                        onChange={() => {
+                          setNewAccountIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(a.id)) next.delete(a.id);
+                            else next.add(a.id);
+                            return next;
+                          });
+                        }}
+                        className="accent-primary"
+                      />
+                      <span className="font-medium">{a.nickname}</span>
+                      {a.mask && <span className="text-muted-foreground">···{a.mask}</span>}
+                    </label>
                   ))}
-                </select>
+                </div>
+                {newAccountIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setNewAccountIds(new Set())}
+                    className="text-xs text-muted-foreground underline hover:text-foreground"
+                  >
+                    Clear selection
+                  </button>
+                )}
               </div>
             </div>
 
@@ -283,7 +317,11 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
                       : "Any"}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground text-xs">
-                    {r.accountNickname ?? "Any"}
+                    {r.accountIds && r.accountIds.length > 0
+                      ? r.accountIds.length === 1
+                        ? (accounts.find((a) => a.id === r.accountIds![0])?.nickname ?? "1 account")
+                        : `${r.accountIds.length} accounts`
+                      : r.accountNickname ?? "Any"}
                   </td>
                   <td className="px-4 py-3 text-xs">
                     {Math.round(r.confidence * 100)}%
