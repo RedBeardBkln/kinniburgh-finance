@@ -224,7 +224,7 @@ export function InlineTagCell({
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const [dropPos, setDropPos] = useState({ top: 0, left: 0 });
+  const [dropPos, setDropPos] = useState<{ top?: number; bottom?: number; left: number }>({ left: 0 });
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
   const [pendingTagSave, setPendingTagSave] = useState<string[] | null>(null);
   const [retroModal, setRetroModal] = useState<RetroState | null>(null);
@@ -295,7 +295,13 @@ export function InlineTagCell({
     }
     const rect = buttonRef.current?.getBoundingClientRect();
     if (rect) {
-      setDropPos({ top: rect.bottom + 4, left: rect.left });
+      const DROPDOWN_HEIGHT = 320;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      if (spaceBelow < DROPDOWN_HEIGHT) {
+        setDropPos({ bottom: window.innerHeight - rect.top + 4, left: rect.left });
+      } else {
+        setDropPos({ top: rect.bottom + 4, left: rect.left });
+      }
     }
     setOpen(true);
   }
@@ -405,7 +411,7 @@ export function InlineTagCell({
   const dropdown = open ? (
     <div
       ref={dropdownRef}
-      style={{ position: "fixed", top: dropPos.top, left: dropPos.left, zIndex: 9999 }}
+      style={{ position: "fixed", top: dropPos.top, bottom: dropPos.bottom, left: dropPos.left, zIndex: 9999 }}
       className="w-80 rounded-md border border-border bg-card shadow-2xl"
     >
       {!createMode ? (
