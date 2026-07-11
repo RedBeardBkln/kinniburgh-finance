@@ -249,7 +249,7 @@ export function TransactionsTable({ transactions, allTags, allProjects }: Props)
                     {display}
                   </td>
                   <td className="px-2 py-2">
-                    <form action={deleteTransaction.bind(null, tx.id)}>
+                    <form action={async () => { await deleteTransaction(tx.id); }}>
                       <button
                         type="submit"
                         className="text-xs text-muted-foreground hover:text-destructive"
