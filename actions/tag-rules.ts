@@ -134,6 +134,7 @@ export async function applyRulesToTransaction(
       amountMin: true,
       amountMax: true,
       accountId: true,
+      accountIds: true,
     },
   });
 
