@@ -19,7 +19,14 @@ export async function generateMetadata(): Promise<Metadata> {
       statusBarStyle: "black-translucent",
       title: "Banana Stand",
     },
-    icons: { icon: tabIcon, apple: appleIcon },
+    icons: {
+      icon: [
+        { url: "/favicon.ico", sizes: "48x48" },
+        { url: "/favicon-96x96.png", sizes: "96x96", type: "image/png" },
+        { url: tabIcon },
+      ],
+      apple: appleIcon,
+    },
   };
 }
 
