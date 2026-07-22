@@ -78,15 +78,19 @@ export async function requestPasswordReset(email: string): Promise<{ ok: true }>
     const baseUrl = process.env.NEXTAUTH_URL
       ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-    await sendEmail({
-      to: email,
-      subject: "Reset your Banana Stand password",
-      html: `
-        <p>You requested a password reset for your Banana Stand account.</p>
-        <p><a href="${baseUrl}/reset-password/${token}">Click here to reset your password</a></p>
-        <p>This link expires in 1 hour. If you didn't request this, ignore this email.</p>
-      `,
-    });
+    try {
+      await sendEmail({
+        to: email,
+        subject: "Reset your Banana Stand password",
+        html: `
+          <p>You requested a password reset for your Banana Stand account.</p>
+          <p><a href="${baseUrl}/reset-password/${token}">Click here to reset your password</a></p>
+          <p>This link expires in 1 hour. If you didn't request this, ignore this email.</p>
+        `,
+      });
+    } catch (err) {
+      console.error("[requestPasswordReset] Failed to send email:", err instanceof Error ? err.message : err);
+    }
   }
 
   return { ok: true };
