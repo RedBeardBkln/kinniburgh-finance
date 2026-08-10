@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getPlaidClient } from "@/lib/plaid";
 import { encrypt, decrypt } from "@/lib/encrypt";
-import { normalizePayee } from "@/lib/tags";
+import { normalizePayee, matchTagRule } from "@/lib/tags";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -205,4 +205,52 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
 
   console.log("[plaid-sync] complete", { itemId, added, modified, removed });
   return { added, modified, removed };
+}
+
+// ── Auto-tag uncategorized transactions against saved tag rules ───────────────
+
+/**
+ * Applies saved tag rules to every currently-uncategorized (tag-less,
+ * non-archived) transaction. Transactions that don't match any rule are left
+ * blank for manual tagging — this never guesses.
+ */
+export async function autoTagUncategorizedTransactions(): Promise<{ tagged: number; scanned: number }> {
+  const [rules, uncategorized] = await Promise.all([
+    db.tagRule.findMany(),
+    db.transaction.findMany({
+      where: { archivedAt: null, tags: { none: {} } },
+      select: { id: true, payeeNormalized: true, amount: true, accountId: true },
+    }),
+  ]);
+
+  if (rules.length === 0 || uncategorized.length === 0) {
+    return { tagged: 0, scanned: uncategorized.length };
+  }
+
+  const ruleInput = rules.map((r) => ({
+    tagId: r.tagId,
+    payeePattern: r.payeePattern,
+    amountMin: r.amountMin ? Number(r.amountMin) : null,
+    amountMax: r.amountMax ? Number(r.amountMax) : null,
+    accountId: r.accountId,
+    accountIds: r.accountIds ? (JSON.parse(r.accountIds) as string[]) : null,
+  }));
+
+  const assignments: { transactionId: string; tagId: string }[] = [];
+  for (const tx of uncategorized) {
+    if (!tx.payeeNormalized) continue;
+    const matched = matchTagRule(ruleInput, {
+      normalizedPayee: tx.payeeNormalized,
+      amount: tx.amount.abs().toNumber(),
+      accountId: tx.accountId,
+    });
+    if (matched) assignments.push({ transactionId: tx.id, tagId: matched });
+  }
+
+  if (assignments.length > 0) {
+    await db.transactionTag.createMany({ data: assignments, skipDuplicates: true });
+  }
+
+  console.log("[plaid-sync] auto-tag complete", { scanned: uncategorized.length, tagged: assignments.length });
+  return { tagged: assignments.length, scanned: uncategorized.length };
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { syncPlaidTransactions } from "@/lib/plaid-sync";
+import { syncPlaidTransactions, autoTagUncategorizedTransactions } from "@/lib/plaid-sync";
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("Authorization");
@@ -28,7 +28,11 @@ export async function GET(request: NextRequest) {
   const succeeded = results.filter((r) => r.status === "fulfilled").length;
   const failed = results.length - succeeded;
 
-  console.log(`[cron/plaid-sync] ${succeeded} succeeded, ${failed} failed`);
+  const autoTag = await autoTagUncategorizedTransactions();
 
-  return NextResponse.json({ synced: succeeded, failed, items: summary });
+  console.log(
+    `[cron/plaid-sync] ${succeeded} succeeded, ${failed} failed; auto-tagged ${autoTag.tagged}/${autoTag.scanned} uncategorized`,
+  );
+
+  return NextResponse.json({ synced: succeeded, failed, items: summary, autoTag });
 }
