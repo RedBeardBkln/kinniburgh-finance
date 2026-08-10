@@ -185,12 +185,16 @@ export async function updateTransactionTags(
     },
   });
 
-  await db.transactionTag.deleteMany({ where: { transactionId } });
-  if (tagIds.length > 0) {
-    await db.transactionTag.createMany({
-      data: tagIds.map((tagId) => ({ transactionId, tagId })),
-    });
-  }
+  await db.$transaction([
+    db.transactionTag.deleteMany({ where: { transactionId } }),
+    ...(tagIds.length > 0
+      ? [
+          db.transactionTag.createMany({
+            data: tagIds.map((tagId) => ({ transactionId, tagId })),
+          }),
+        ]
+      : []),
+  ]);
 
   revalidatePath("/transactions");
   return { success: true };
