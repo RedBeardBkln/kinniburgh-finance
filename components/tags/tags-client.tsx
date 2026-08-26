@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { AlertDialog } from "@/components/ui/dialog";
 import { createTag, updateTag, deleteTag, type TagWithCounts } from "@/actions/tags";
 
 interface Props {
@@ -28,7 +29,17 @@ export function TagsClient({ initialTags }: Props) {
   const [newParentId, setNewParentId] = useState("");
   const [editing, setEditing] = useState<EditState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [duplicateDialog, setDuplicateDialog] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  function handleTagError(err: unknown, fallback: string) {
+    const message = err instanceof Error ? err.message : fallback;
+    if (message.includes("already exists")) {
+      setDuplicateDialog(message);
+    } else {
+      setError(message);
+    }
+  }
 
   // Tags eligible to be a parent: cannot be the tag being edited or its descendants
   function eligibleParents(excludeId?: string): TagWithCounts[] {
@@ -78,7 +89,7 @@ export function TagsClient({ initialTags }: Props) {
         setNewParentId("");
         setShowNew(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Create failed");
+        handleTagError(err, "Create failed");
       }
     });
   }
@@ -113,7 +124,7 @@ export function TagsClient({ initialTags }: Props) {
         );
         setEditing(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Save failed");
+        handleTagError(err, "Save failed");
       }
     });
   }
@@ -349,6 +360,13 @@ export function TagsClient({ initialTags }: Props) {
       {!showNew && error && (
         <p className="text-sm text-destructive">{error}</p>
       )}
+
+      <AlertDialog
+        open={duplicateDialog !== null}
+        title="Duplicate tag"
+        message={duplicateDialog ?? ""}
+        onClose={() => setDuplicateDialog(null)}
+      />
     </div>
   );
 }

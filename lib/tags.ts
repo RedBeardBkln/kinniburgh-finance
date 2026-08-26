@@ -65,13 +65,14 @@ export function normalizePayee(raw: string): string {
 
 /**
  * Normalize a user-entered payee pattern.
- * Strips punctuation entirely (no space insertion) so "McDonald's" → "mcdonalds".
+ * Preserves symbols (apostrophes, ampersands, commas, etc.) so "Lowe's" and
+ * "Stop & Shop" display as typed. Matching still ignores these symbols — see
+ * matchTagRule(), which compares alnum()-stripped strings on both sides.
  * Use this when storing rule patterns; use normalizePayee for transaction payees.
  */
 export function normalizePattern(raw: string): string {
   return raw
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }

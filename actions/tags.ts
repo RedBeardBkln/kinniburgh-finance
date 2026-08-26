@@ -59,6 +59,11 @@ export async function createTag(
     name = `${parent.name} / ${shortName}`;
   }
 
+  const existing = await db.tag.findUnique({ where: { name } });
+  if (existing) {
+    throw new Error(`A tag named "${name}" already exists.`);
+  }
+
   const tag = await db.tag.create({
     data: { name, shortName, parentId: parentId ?? null },
   });
@@ -87,6 +92,13 @@ export async function updateTag(
     const parent = await db.tag.findUnique({ where: { id: parentId } });
     if (!parent) throw new Error("Parent tag not found");
     name = `${parent.name} / ${shortName}`;
+  }
+
+  if (name !== oldTag.name) {
+    const existing = await db.tag.findUnique({ where: { name } });
+    if (existing) {
+      throw new Error(`A tag named "${name}" already exists.`);
+    }
   }
 
   await db.tag.update({

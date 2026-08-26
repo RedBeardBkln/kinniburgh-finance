@@ -338,10 +338,21 @@ export async function previewRetroactiveRule(
   const alnum = (s: string) => s.replace(/[^a-z0-9]/g, "");
 
   for (const tx of transactions) {
-    // Require exact payee match (alnum-stripped so apostrophes/hyphens don't affect matching)
+    // Payee match — contains (not just exact), alnum-stripped so apostrophes/hyphens
+    // don't affect matching. Mirrors matchTagRule()'s scoring in lib/tags.ts so a
+    // rule for "Lowe's" also matches "Lowe's Home Goods LLC".
+    let isExactMatch = true;
     if (pattern) {
       const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
-      if (alnum(normalizedPayee) !== alnum(pattern)) continue;
+      const sp = alnum(normalizedPayee);
+      const sPattern = alnum(pattern);
+      if (sp === sPattern) {
+        isExactMatch = true;
+      } else if (sp.includes(sPattern)) {
+        isExactMatch = false;
+      } else {
+        continue;
+      }
     }
 
     // Amount range
@@ -368,7 +379,7 @@ export async function previewRetroactiveRule(
         currency: "USD",
       }).format(new Prisma.Decimal(tx.amount).toNumber()),
       existingTags: tx.tags.map((t) => t.tag.name),
-      isExactMatch: true,
+      isExactMatch,
       accountNickname: tx.account?.nickname ?? "",
       accountMask: tx.account?.mask ?? null,
     });

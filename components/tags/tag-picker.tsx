@@ -3,6 +3,7 @@
 import { useState, useMemo, useTransition, useRef, useEffect, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { AlertDialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { createTag } from "@/actions/tags";
 
@@ -37,7 +38,17 @@ export function TagPicker({
   const [createName, setCreateName] = useState("");
   const [createParentId, setCreateParentId] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const [duplicateDialog, setDuplicateDialog] = useState<string | null>(null);
   const [isCreating, startCreateTransition] = useTransition();
+
+  function handleCreateError(err: unknown, fallback: string) {
+    const message = err instanceof Error ? err.message : fallback;
+    if (message.includes("already exists")) {
+      setDuplicateDialog(message);
+    } else {
+      setCreateError(message);
+    }
+  }
   const createNameRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   // Sync ref so the onBlur timeout can check createMode without stale closure
@@ -124,7 +135,7 @@ export function TagPicker({
         // Notify parent to add to its local list AND handle selection
         onCreateTag?.(newTag);
       } catch (err) {
-        setCreateError(err instanceof Error ? err.message : "Failed to create tag");
+        handleCreateError(err, "Failed to create tag");
       }
     });
   }
@@ -293,6 +304,13 @@ export function TagPicker({
       )}
         </>
       )}
+
+      <AlertDialog
+        open={duplicateDialog !== null}
+        title="Duplicate tag"
+        message={duplicateDialog ?? ""}
+        onClose={() => setDuplicateDialog(null)}
+      />
     </div>
   );
 }

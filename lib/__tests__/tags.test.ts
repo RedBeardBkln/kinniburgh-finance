@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTagTree, flattenTagTree, normalizePayee, matchTagRule } from "../tags";
+import { buildTagTree, flattenTagTree, normalizePayee, normalizePattern, matchTagRule } from "../tags";
 
 describe("buildTagTree", () => {
   const flat = [
@@ -67,6 +67,21 @@ describe("normalizePayee", () => {
   });
 });
 
+describe("normalizePattern", () => {
+  it("preserves symbols like apostrophes and ampersands", () => {
+    expect(normalizePattern("Lowe's")).toBe("lowe's");
+    expect(normalizePattern("Stop & Shop")).toBe("stop & shop");
+  });
+
+  it("lowercases and collapses whitespace without stripping symbols", () => {
+    expect(normalizePattern("  Trader   Joe's  ")).toBe("trader joe's");
+  });
+
+  it("handles empty string", () => {
+    expect(normalizePattern("")).toBe("");
+  });
+});
+
 describe("matchTagRule", () => {
   const rules = [
     { tagId: "grocery-tag", payeePattern: "whole foods", amountMin: null, amountMax: null, accountId: null },
@@ -107,5 +122,31 @@ describe("matchTagRule", () => {
     expect(
       matchTagRule(rules, { normalizedPayee: "mystery payee", amount: 500, accountId: "acct-x" })
     ).toBeNull();
+  });
+
+  it("matches a symbol-containing pattern against a longer payee (Lowe's example)", () => {
+    const symbolRules = [
+      { tagId: "home-tag", payeePattern: "lowe's", amountMin: null, amountMax: null, accountId: null },
+    ];
+    expect(
+      matchTagRule(symbolRules, {
+        normalizedPayee: normalizePayee("Lowe's Home Goods LLC"),
+        amount: 42,
+        accountId: "acct-x",
+      })
+    ).toBe("home-tag");
+  });
+
+  it("matches via contains when pattern is in the middle of the payee", () => {
+    const symbolRules = [
+      { tagId: "grocery-tag", payeePattern: "stop & shop", amountMin: null, amountMax: null, accountId: null },
+    ];
+    expect(
+      matchTagRule(symbolRules, {
+        normalizedPayee: normalizePayee("POS DEBIT STOP & SHOP #1234"),
+        amount: 30,
+        accountId: "acct-x",
+      })
+    ).toBe("grocery-tag");
   });
 });
