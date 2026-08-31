@@ -98,6 +98,9 @@ export default async function PaystubDetailPage({ params }: PageProps) {
             initialTaxBreakdown={
               (paystub.taxBreakdown as unknown as LabeledAmount[] | null) ?? []
             }
+            initialAdditionalWithholding={
+              (paystub.additionalWithholding as unknown as LabeledAmount[] | null) ?? []
+            }
             initialNetPayCents={paystub.netPayCents}
             initialNotes={paystub.notes ?? ""}
             extractStatus={paystub.extractStatus}

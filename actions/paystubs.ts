@@ -43,6 +43,7 @@ const confirmSchema = z.object({
   pretaxDeductions: z.array(labeledAmountSchema).default([]),
   taxesCents: z.number().int().nonnegative(),
   taxBreakdown: z.array(labeledAmountSchema).default([]),
+  additionalWithholding: z.array(labeledAmountSchema).default([]),
   netPayCents: z.number().int().nonnegative(),
   notes: z.string().max(500).optional(),
 });
@@ -82,6 +83,7 @@ export async function confirmPaystub(
       pretaxDeductions: data.pretaxDeductions as unknown as never,
       taxesCents: data.taxesCents,
       taxBreakdown: data.taxBreakdown as unknown as never,
+      additionalWithholding: data.additionalWithholding as unknown as never,
       netPayCents: data.netPayCents,
       balanceDiffCents,
       notes: data.notes ?? null,

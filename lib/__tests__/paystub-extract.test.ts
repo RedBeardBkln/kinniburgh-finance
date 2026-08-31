@@ -25,6 +25,7 @@ describe("parseExtractedPaystub", () => {
     grossPayCents: 250000,
     pretaxDeductions: [{ label: "401(k)", amountCents: 10000 }],
     taxBreakdown: [{ label: "Federal", amountCents: 42000 }],
+    additionalWithholding: [{ label: "Federal extra (W-4)", amountCents: 5000 }],
     netPayCents: 188000,
   });
 
@@ -33,6 +34,9 @@ describe("parseExtractedPaystub", () => {
     expect(result.employeeName).toBe("Eric Kinniburgh");
     expect(result.grossPayCents).toBe(250000);
     expect(result.pretaxDeductions).toEqual([{ label: "401(k)", amountCents: 10000 }]);
+    expect(result.additionalWithholding).toEqual([
+      { label: "Federal extra (W-4)", amountCents: 5000 },
+    ]);
     expect(result.payFrequency).toBe("semi_monthly");
   });
 

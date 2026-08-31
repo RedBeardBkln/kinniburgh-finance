@@ -21,6 +21,7 @@ export interface ExtractedPaystub {
   pretaxDeductions: LabeledAmount[];
   taxesCents: number | null;
   taxBreakdown: LabeledAmount[];
+  additionalWithholding: LabeledAmount[];
   netPayCents: number | null;
   raw: string;
 }
@@ -36,6 +37,7 @@ export const EMPTY_PAYSTUB: Omit<ExtractedPaystub, "raw"> = {
   pretaxDeductions: [],
   taxesCents: null,
   taxBreakdown: [],
+  additionalWithholding: [],
   netPayCents: null,
 };
 
@@ -89,6 +91,7 @@ export function parseExtractedPaystub(text: string): ExtractedPaystub {
       pretaxDeductions: toLabeledAmounts(parsed.pretaxDeductions),
       taxesCents: toCents(parsed.taxesCents),
       taxBreakdown: toLabeledAmounts(parsed.taxBreakdown),
+      additionalWithholding: toLabeledAmounts(parsed.additionalWithholding),
       netPayCents: toCents(parsed.netPayCents),
       raw,
     };

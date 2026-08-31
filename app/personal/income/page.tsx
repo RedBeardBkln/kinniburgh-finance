@@ -80,6 +80,16 @@ export default async function IncomePage({ searchParams }: PageProps) {
   );
   const ytdTaxes = yearStubs.reduce((s, p) => s + (p.taxesCents ?? 0), 0);
   const ytdNet = yearStubs.reduce((s, p) => s + (p.netPayCents ?? 0), 0);
+  const ytdExtraWithholding = yearStubs.reduce(
+    (s, p) =>
+      s +
+      ((p.additionalWithholding as unknown as LabeledAmount[] | null)?.reduce(
+        (a, d) => a + d.amountCents,
+        0
+      ) ?? 0),
+    0
+  );
+  const totalWithheldForTaxes = ytdTaxes + ytdExtraWithholding;
   const unconfirmed = paystubs.filter((p) => !p.confirmedAt).length;
   const unbalanced = paystubs.filter(
     (p) => p.balanceDiffCents !== null && p.balanceDiffCents !== 0
@@ -126,6 +136,13 @@ export default async function IncomePage({ searchParams }: PageProps) {
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold">{fmtUSD(ytdTaxes)}</p>
+              {ytdExtraWithholding > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  + {fmtUSD(ytdExtraWithholding)} extra withholding ={" "}
+                  <span className="font-medium">{fmtUSD(totalWithheldForTaxes)}</span> total paid
+                  toward taxes
+                </p>
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -196,6 +213,7 @@ export default async function IncomePage({ searchParams }: PageProps) {
                       <th className="px-4 py-2 font-medium text-right">Gross</th>
                       <th className="px-4 py-2 font-medium text-right">Pre-tax</th>
                       <th className="px-4 py-2 font-medium text-right">Taxes</th>
+                      <th className="px-4 py-2 font-medium text-right">Extra W/H</th>
                       <th className="px-4 py-2 font-medium text-right">Net</th>
                       <th className="px-4 py-2 font-medium">Math</th>
                       <th className="px-4 py-2 font-medium">Status</th>
@@ -205,6 +223,11 @@ export default async function IncomePage({ searchParams }: PageProps) {
                     {paystubs.map((p) => {
                       const pretax =
                         (p.pretaxDeductions as unknown as LabeledAmount[] | null)?.reduce(
+                          (a, d) => a + d.amountCents,
+                          0
+                        ) ?? 0;
+                      const extraWithholding =
+                        (p.additionalWithholding as unknown as LabeledAmount[] | null)?.reduce(
                           (a, d) => a + d.amountCents,
                           0
                         ) ?? 0;
@@ -243,6 +266,13 @@ export default async function IncomePage({ searchParams }: PageProps) {
                           </td>
                           <td className="px-4 py-2 text-right tabular-nums">
                             {fmtUSD(p.taxesCents)}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {extraWithholding > 0 ? (
+                              <span className="text-amber-600">{fmtUSD(extraWithholding)}</span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
                           </td>
                           <td className="px-4 py-2 text-right tabular-nums font-medium">
                             {fmtUSD(p.netPayCents)}

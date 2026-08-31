@@ -108,6 +108,7 @@ export async function POST(req: NextRequest) {
       pretaxDeductions: extracted.pretaxDeductions as unknown as never,
       taxesCents: math.taxesTotalCents,
       taxBreakdown: extracted.taxBreakdown as unknown as never,
+      additionalWithholding: extracted.additionalWithholding as unknown as never,
       netPayCents: extracted.netPayCents,
       balanceDiffCents: math.balanceDiffCents,
       extractionRaw: extracted.raw as unknown as never,

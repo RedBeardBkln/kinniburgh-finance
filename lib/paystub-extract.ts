@@ -32,13 +32,17 @@ const SYSTEM_PROMPT = `You are a paystub data extractor. Given a paystub image o
   "grossPayCents": 0,
   "pretaxDeductions": [{ "label": "401(k) employee", "amountCents": 10000 }],
   "taxBreakdown": [{ "label": "Federal Income Tax", "amountCents": 42000 }],
+  "additionalWithholding": [{ "label": "Federal extra (W-4)", "amountCents": 5000 }],
   "netPayCents": 0
 }
 
 Rules:
 - All amounts in INTEGER CENTS (e.g. $1,234.56 → 123456). Never floats.
-- pretaxDeductions: every deduction taken BEFORE taxes (401k, HSA, FSA, health/dental/vision premiums, etc.). Do NOT include post-tax deductions like Roth 401(k).
-- taxBreakdown: every tax withholding (Federal, Social Security, Medicare, state, local).
+- COMPLETENESS IS CRITICAL: list EVERY deduction line item printed on the stub, in its own category. Read the entire deductions/withholdings section line by line — do not summarize or skip lines. Include every 401(k)/403(b)/457, HSA, FSA, dental/vision/health premium, life/disability insurance, union dues, garnishments, parking/commuter, ESPP, and any other labeled deduction.
+- pretaxDeductions: deductions taken BEFORE taxes (traditional 401k, HSA, FSA, health/dental/vision premiums, etc.).
+- taxBreakdown: every TAX withholding (Federal, Social Security, Medicare, state, local, SDI etc.).
+- additionalWithholding: EXTRA federal or state tax money elected beyond the normal calculated tax lines (e.g. "Additional Federal Withholding", W-4 line 4c/4b amounts, extra state withholding). Do NOT include regular calculated tax lines here — those belong in taxBreakdown.
+- Post-tax deductions (Roth 401(k), garnishments, etc.): include them in pretaxDeductions ONLY if the stub shows them in the pre-tax section; otherwise leave them out — the math check accounts for post-tax items separately.
 - payFrequency: infer from the pay period length ONLY if the stub states it or the dates make it unambiguous; otherwise null.
 - Return null for any field you cannot read with confidence. Empty arrays for lists you cannot read.
 - Dates must be ISO format YYYY-MM-DD.`;

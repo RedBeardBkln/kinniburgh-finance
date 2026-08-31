@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,11 +25,35 @@ interface Props {
   initialPretaxDeductions: LabeledAmount[];
   initialTaxesCents: number | null;
   initialTaxBreakdown: LabeledAmount[];
+  initialAdditionalWithholding: LabeledAmount[];
   initialNetPayCents: number | null;
   initialNotes: string;
   extractStatus: string;
   confirmedAt: string | null;
   accounts: AccountOption[];
+}
+
+// Line items keep raw text so typing works naturally (decimal points,
+// intermediate states like "123." survive until the user finishes).
+interface LineItem {
+  label: string;
+  amountStr: string;
+}
+
+function toLineItems(items: LabeledAmount[]): LineItem[] {
+  return items.map((d) => ({
+    label: d.label,
+    amountStr: d.amountCents !== 0 ? (d.amountCents / 100).toFixed(2) : "",
+  }));
+}
+
+function toLabeledAmounts(items: LineItem[]): LabeledAmount[] {
+  return items
+    .filter((d) => d.label.trim().length > 0)
+    .map((d) => ({
+      label: d.label.trim(),
+      amountCents: centsFromInput(d.amountStr),
+    }));
 }
 
 function fmtUSD(cents: number): string {
@@ -47,6 +71,14 @@ function centsFromInput(value: string): number {
   return Math.round(n * 100);
 }
 
+// Common set of federal/state withholding line names for quick-add buttons
+const WITHHOLDING_PRESETS = [
+  "Federal income tax (extra)",
+  "State income tax — CT (extra)",
+  "Federal — additional $ per pay period",
+  "State — additional $ per pay period",
+];
+
 export function PaystubConfirmForm(props: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -60,11 +92,14 @@ export function PaystubConfirmForm(props: Props) {
   const [grossStr, setGrossStr] = useState(
     props.initialGrossPayCents !== null ? (props.initialGrossPayCents / 100).toFixed(2) : ""
   );
-  const [pretax, setPretax] = useState<LabeledAmount[]>(props.initialPretaxDeductions);
+  const [pretax, setPretax] = useState<LineItem[]>(toLineItems(props.initialPretaxDeductions));
   const [taxesStr, setTaxesStr] = useState(
     props.initialTaxesCents !== null ? (props.initialTaxesCents / 100).toFixed(2) : ""
   );
-  const [taxBreakdown, setTaxBreakdown] = useState<LabeledAmount[]>(props.initialTaxBreakdown);
+  const [taxBreakdown, setTaxBreakdown] = useState<LineItem[]>(toLineItems(props.initialTaxBreakdown));
+  const [additionalWithholding, setAdditionalWithholding] = useState<LineItem[]>(
+    toLineItems(props.initialAdditionalWithholding)
+  );
   const [netStr, setNetStr] = useState(
     props.initialNetPayCents !== null ? (props.initialNetPayCents / 100).toFixed(2) : ""
   );
@@ -76,33 +111,41 @@ export function PaystubConfirmForm(props: Props) {
   const taxesCents = taxesStr ? centsFromInput(taxesStr) : null;
   const netCents = netStr ? centsFromInput(netStr) : null;
 
+  const pretaxLabeled = useMemo(() => toLabeledAmounts(pretax), [pretax]);
+  const taxBreakdownLabeled = useMemo(() => toLabeledAmounts(taxBreakdown), [taxBreakdown]);
+  const additionalWithholdingLabeled = useMemo(
+    () => toLabeledAmounts(additionalWithholding),
+    [additionalWithholding]
+  );
+  const additionalWithholdingTotal = additionalWithholdingLabeled.reduce(
+    (s, d) => s + d.amountCents,
+    0
+  );
+
   const math = useMemo(
     () =>
       verifyPaystubMath({
         grossPayCents: grossCents,
-        pretaxDeductions: pretax,
+        pretaxDeductions: pretaxLabeled,
         taxesCents: taxesCents,
-        taxBreakdown: taxBreakdown,
+        taxBreakdown: taxBreakdownLabeled,
         netPayCents: netCents,
       }),
-    [grossCents, pretax, taxesCents, taxBreakdown, netCents]
+    [grossCents, pretaxLabeled, taxesCents, taxBreakdownLabeled, netCents]
   );
 
-  function setPretaxAmount(index: number, value: string) {
-    setPretax((prev) =>
-      prev.map((d, i) => (i === index ? { ...d, amountCents: centsFromInput(value) } : d))
-    );
+  function updateLineItem(
+    setter: React.Dispatch<React.SetStateAction<LineItem[]>>,
+    index: number,
+    field: "label" | "amountStr",
+    value: string
+  ) {
+    setter((prev) => prev.map((d, i) => (i === index ? { ...d, [field]: value } : d)));
   }
-  function setPretaxLabel(index: number, label: string) {
-    setPretax((prev) => prev.map((d, i) => (i === index ? { ...d, label } : d)));
-  }
-  function setTaxAmount(index: number, value: string) {
-    setTaxBreakdown((prev) =>
-      prev.map((t, i) => (i === index ? { ...t, amountCents: centsFromInput(value) } : t))
-    );
-  }
-  function setTaxLabel(index: number, label: string) {
-    setTaxBreakdown((prev) => prev.map((t, i) => (i === index ? { ...t, label } : t)));
+
+  function addWithholdingPreset(preset: string) {
+    if (additionalWithholding.some((w) => w.label === preset)) return;
+    setAdditionalWithholding((prev) => [...prev, { label: preset, amountStr: "" }]);
   }
 
   async function handleConfirm(e: React.FormEvent<HTMLFormElement>) {
@@ -123,11 +166,12 @@ export function PaystubConfirmForm(props: Props) {
       payPeriodEnd: payPeriodEnd || "",
       payDate,
       payFrequency: payFrequency as "semi_monthly" | "biweekly" | "weekly" | "monthly",
-      grossPayCents: grossCents!,
-      pretaxDeductions: pretax,
-      taxesCents: taxesCents!,
-      taxBreakdown,
-      netPayCents: netCents!,
+      grossPayCents: grossCents,
+      pretaxDeductions: pretaxLabeled,
+      taxesCents: taxesCents,
+      taxBreakdown: taxBreakdownLabeled,
+      additionalWithholding: additionalWithholdingLabeled,
+      netPayCents: netCents,
       notes: notes || undefined,
     });
 
@@ -269,7 +313,7 @@ export function PaystubConfirmForm(props: Props) {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium">Taxes withheld *</label>
+              <label className="text-xs font-medium">Taxes withheld (stub line) *</label>
               <input
                 type="number"
                 step="0.01"
@@ -304,22 +348,23 @@ export function PaystubConfirmForm(props: Props) {
               </label>
               <button
                 type="button"
-                onClick={() => setPretax((prev) => [...prev, { label: "", amountCents: 0 }])}
+                onClick={() => setPretax((prev) => [...prev, { label: "", amountStr: "" }])}
                 className="text-xs text-primary hover:underline"
               >
-                + Add
+                + Add line
               </button>
             </div>
             {pretax.length === 0 && (
               <p className="text-xs text-muted-foreground">
-                No pre-tax deductions listed on this stub.
+                No pre-tax deductions listed on this stub. Use &quot;+ Add line&quot; for any the
+                extraction missed.
               </p>
             )}
             {pretax.map((d, i) => (
               <div key={i} className="flex items-center gap-2">
                 <input
                   value={d.label}
-                  onChange={(e) => setPretaxLabel(i, e.target.value)}
+                  onChange={(e) => updateLineItem(setPretax, i, "label", e.target.value)}
                   className="flex-1 rounded border px-2 py-1 text-sm"
                   placeholder="e.g. 401(k) employee"
                 />
@@ -327,9 +372,11 @@ export function PaystubConfirmForm(props: Props) {
                   type="number"
                   step="0.01"
                   min="0"
-                  value={(d.amountCents / 100).toFixed(2)}
-                  onChange={(e) => setPretaxAmount(i, e.target.value)}
+                  inputMode="decimal"
+                  value={d.amountStr}
+                  onChange={(e) => updateLineItem(setPretax, i, "amountStr", e.target.value)}
                   className="w-28 rounded border px-2 py-1 text-sm tabular-nums text-right"
+                  placeholder="0.00"
                 />
                 <button
                   type="button"
@@ -349,24 +396,26 @@ export function PaystubConfirmForm(props: Props) {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Tax breakdown
+                Tax breakdown (Federal / Social Security / Medicare / State / Local)
               </label>
               <button
                 type="button"
-                onClick={() => setTaxBreakdown((prev) => [...prev, { label: "", amountCents: 0 }])}
+                onClick={() => setTaxBreakdown((prev) => [...prev, { label: "", amountStr: "" }])}
                 className="text-xs text-primary hover:underline"
               >
-                + Add
+                + Add line
               </button>
             </div>
             {taxBreakdown.length === 0 && (
-              <p className="text-xs text-muted-foreground">No breakdown — enter totals only.</p>
+              <p className="text-xs text-muted-foreground">
+                No breakdown — enter the totals only, or add each tax line.
+              </p>
             )}
             {taxBreakdown.map((t, i) => (
               <div key={i} className="flex items-center gap-2">
                 <input
                   value={t.label}
-                  onChange={(e) => setTaxLabel(i, e.target.value)}
+                  onChange={(e) => updateLineItem(setTaxBreakdown, i, "label", e.target.value)}
                   className="flex-1 rounded border px-2 py-1 text-sm"
                   placeholder="e.g. Federal income tax"
                 />
@@ -374,9 +423,11 @@ export function PaystubConfirmForm(props: Props) {
                   type="number"
                   step="0.01"
                   min="0"
-                  value={(t.amountCents / 100).toFixed(2)}
-                  onChange={(e) => setTaxAmount(i, e.target.value)}
+                  inputMode="decimal"
+                  value={t.amountStr}
+                  onChange={(e) => updateLineItem(setTaxBreakdown, i, "amountStr", e.target.value)}
                   className="w-28 rounded border px-2 py-1 text-sm tabular-nums text-right"
+                  placeholder="0.00"
                 />
                 <button
                   type="button"
@@ -392,6 +443,93 @@ export function PaystubConfirmForm(props: Props) {
                 {math.taxesBreakdownBalanced
                   ? "Breakdown sums to the stated taxes total ✓"
                   : "Breakdown does NOT sum to the stated taxes total — check the stub."}
+              </p>
+            )}
+          </div>
+
+          {/* Additional tax withholding (beyond the stub's tax lines) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Additional tax withholding (extra federal / state contributions)
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  setAdditionalWithholding((prev) => [...prev, { label: "", amountStr: "" }])
+                }
+                className="text-xs text-primary hover:underline"
+              >
+                + Add line
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Extra money withheld each paycheck toward federal or state taxes — e.g. a flat
+              additional amount you elected on your W-4, or estimated-tax money routed through
+              payroll. These flow into your tax workspaces as payments already made, so your
+              refund/balance-due math counts them.
+            </p>
+            {additionalWithholding.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {WITHHOLDING_PRESETS.filter(
+                  (p) => !additionalWithholding.some((w) => w.label === p)
+                ).map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => addWithholdingPreset(preset)}
+                    className="rounded-full border border-border bg-background px-2.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                  >
+                    + {preset}
+                  </button>
+                ))}
+              </div>
+            )}
+            {additionalWithholding.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                None recorded. Add a line if you elect extra withholding on your W-4 — every extra
+                dollar withheld is a dollar counted toward your year-end tax bill.
+              </p>
+            )}
+            {additionalWithholding.map((w, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  value={w.label}
+                  onChange={(e) =>
+                    updateLineItem(setAdditionalWithholding, i, "label", e.target.value)
+                  }
+                  className="flex-1 rounded border px-2 py-1 text-sm"
+                  placeholder="e.g. Federal — additional withholding (W-4 line 4c)"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  inputMode="decimal"
+                  value={w.amountStr}
+                  onChange={(e) =>
+                    updateLineItem(setAdditionalWithholding, i, "amountStr", e.target.value)
+                  }
+                  className="w-28 rounded border px-2 py-1 text-sm tabular-nums text-right"
+                  placeholder="0.00"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAdditionalWithholding((prev) => prev.filter((_, j) => j !== i))
+                  }
+                  className="text-xs text-muted-foreground hover:text-destructive"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            {additionalWithholdingTotal > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Extra withholding this stub:{" "}
+                <span className="font-medium text-foreground">
+                  {fmtUSD(additionalWithholdingTotal)}
+                </span>
               </p>
             )}
           </div>
@@ -417,12 +555,19 @@ export function PaystubConfirmForm(props: Props) {
                 >
                   {math.isBalanced
                     ? "✓ Balanced — the math checks out exactly."
-                    : `✗ Off by ${fmtUSD(Math.abs(math.balanceDiffCents ?? 0))} — re-check the stub's numbers.`}
+                    : `✗ Off by ${fmtUSD(Math.abs(math.balanceDiffCents ?? 0))} — re-check the stub's numbers. If the stub includes post-tax deductions (e.g. Roth 401(k)), they legitimately cause part of this difference.`}
                 </p>
               </>
             ) : (
               <p className="text-xs text-muted-foreground">
                 Enter gross, taxes, and net to verify the math.
+              </p>
+            )}
+            {additionalWithholdingTotal > 0 && (
+              <p className="text-xs text-muted-foreground border-t pt-1.5 mt-1.5">
+                Note: additional withholding of {fmtUSD(additionalWithholdingTotal)} is extra tax
+                PAID (it reduces your net deposit), not an extra deduction — the balance check above
+                treats it as part of what explains gross → net.
               </p>
             )}
           </div>

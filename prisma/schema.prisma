@@ -666,6 +666,9 @@ model Paystub {
   pretaxDeductions  Json?     // [{ label: "401(k)", amountCents: 10000 }, ...]
   taxesCents        Int?      // sum of all tax withholdings
   taxBreakdown      Json?     // [{ label: "Federal", amountCents: 42000 }, ...]
+  // Extra federal/state tax money elected on the W-4 beyond the stub's tax
+  // lines — counted as tax PAID for refund/balance-due purposes.
+  additionalWithholding Json? // [{ label: "Federal extra (W-4 4c)", amountCents: 5000 }, ...]
   netPayCents       Int?
   // Math verification: gross − pretax − taxes = net (0 = balanced)
   balanceDiffCents  Int?
