@@ -21,6 +21,10 @@ export default async function TaxPage() {
     db.entity.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 
+  const hasPersonalWorkspace = workspaces.some((w) => w.entity.type === "personal");
+  const currentYear = new Date().getUTCFullYear();
+  const personalWorkspace = workspaces.find((w) => w.entity.type === "personal");
+
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
@@ -30,6 +34,39 @@ export default async function TaxPage() {
             Filing checklists and document collections per entity and tax year.
             Confirm all deadlines with your CPA — this is not tax advice.
           </p>
+        </div>
+
+        {/* Personal tax workspaces */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Personal Taxes</h2>
+            <div className="flex gap-2">
+              <PersonalWorkspaceButton year={2025} label="2025 (on extension)" />
+              <PersonalWorkspaceButton year={currentYear} label={`${currentYear}`} />
+            </div>
+          </div>
+          {personalWorkspace && (
+            <Card>
+              <CardContent className="flex items-center justify-between py-3">
+                <div>
+                  <p className="text-sm font-medium">
+                    Personal — {personalWorkspace.taxYear}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {personalWorkspace.taxYear === 2025
+                      ? "Extension accepted by IRS · extended deadline Oct 15, 2026"
+                      : "Federal + CT state return"}
+                  </p>
+                </div>
+                <Link
+                  href={`/tax/personal/${personalWorkspace.taxYear}` as Route}
+                  className="text-sm text-primary hover:underline"
+                >
+                  Open →
+                </Link>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {workspaces.length === 0 && (
@@ -176,6 +213,26 @@ const TYPE_LABELS: Record<string, string> = {
   extension: "Extension",
   other: "Other",
 };
+
+function PersonalWorkspaceButton({ year, label }: { year: number; label: string }) {
+  return (
+    <form
+      action={async () => {
+        "use server";
+        const { ensurePersonalWorkspace } = await import("@/actions/tax-planning");
+        await ensurePersonalWorkspace(year);
+        redirect(`/tax/personal/${year}`);
+      }}
+    >
+      <button
+        type="submit"
+        className="rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent"
+      >
+        {label}
+      </button>
+    </form>
+  );
+}
 
 function DeadlineStatusBadge({ status }: { status: string }) {
   if (status === "filed") return <Badge variant="outline" className="border-green-300 text-green-700">Filed</Badge>;

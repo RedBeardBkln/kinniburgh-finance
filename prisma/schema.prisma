@@ -464,6 +464,7 @@ model TaxWorkspace {
 
   entity         Entity             @relation(fields: [entityId], references: [id])
   checklistItems TaxChecklistItem[]
+  questions      TaxQuestion[]
 
   @@unique([entityId, taxYear])
 }
@@ -479,6 +480,28 @@ model TaxChecklistItem {
   updatedAt   DateTime  @updatedAt
 
   workspace TaxWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// ─── Tax planning questions (personal workspace) ─────────────────────────────
+// Every question carries context + honest implications of each answer so the
+// user can make critical decisions. Tax records are NEVER hard-deleted.
+
+model TaxQuestion {
+  id          String    @id @default(uuid())
+  workspaceId String
+  key         String    // stable key from the question bank, e.g. "home_office"
+  category    String    // income | deductions | credits | filing_status | entity | other
+  question    String    // full question text with context
+  options     Json?     // [{ value, label, note }] — null = free-text answer
+  answer      Json?     // user's answer (string or selected option value)
+  answeredAt  DateTime?
+  skippedReason String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace TaxWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
 }
 
 // ─── Projects (cross-entity expense tracker with master budget) ───────────────
