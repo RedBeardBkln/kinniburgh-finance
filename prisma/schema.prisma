@@ -113,10 +113,17 @@ model Account {
   minimumBalanceFee  Decimal?    @db.Decimal(14, 2)
   integrationMode    String      @default("manual_entry") // plaid | manual_import | manual_entry
   currency           String      @default("USD")
-  plaidItemId        String?     // references PlaidItem.itemId
-  plaidAccountId     String?     // Plaid's per-account account_id
-  currentBalance     Decimal?    @db.Decimal(14, 2) // manually set or Plaid-synced
+  plaidItemId        String?   // references PlaidItem.itemId
+  plaidAccountId     String?   // Plaid's per-account account_id
+  currentBalance     Decimal?  @db.Decimal(14, 2) // manually set or Plaid-synced
   currentBalanceAt   DateTime?                       // when currentBalance was last set
+  // Credit card statement data — synced from Plaid Liabilities (spec 04).
+  // statementBalance = pay this by dueDate to avoid interest charges.
+  ccDueDate          DateTime?
+  ccStatementBalance Decimal?  @db.Decimal(14, 2)
+  ccMinimumPayment   Decimal?  @db.Decimal(14, 2)
+  ccApr              Decimal?  @db.Decimal(6, 3)   // e.g. 24.990
+  ccDataAt           DateTime?                       // when statement data was last synced
   archivedAt         DateTime?
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt

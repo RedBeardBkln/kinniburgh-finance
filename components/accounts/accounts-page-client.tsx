@@ -26,6 +26,11 @@ export interface SerializedAccount {
   minimumBalanceFee: string | null;
   currentBalance: string | null;
   currentBalanceAt: string | null;
+  ccDueDate: string | null;
+  ccStatementBalance: string | null;
+  ccMinimumPayment: string | null;
+  ccApr: string | null;
+  ccDataAt: string | null;
   entityId: string;
   entityName: string;
   institutionId: string;
@@ -73,6 +78,34 @@ function modeBadge(mode: string) {
       {labels[mode] ?? mode}
     </span>
   );
+}
+
+function DueDateCell({ dueDate }: { dueDate: string }) {
+  const d = new Date(dueDate);
+  const now = new Date();
+  const daysUntil = Math.ceil((d.getTime() - now.getTime()) / 86400000);
+
+  const formatted = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "America/New_York",
+  }).format(d);
+
+  if (daysUntil < 0) {
+    return (
+      <span className="font-medium text-destructive">
+        {formatted} · {Math.abs(daysUntil)}d overdue
+      </span>
+    );
+  }
+  if (daysUntil <= 7) {
+    return (
+      <span className="font-medium text-amber-600">
+        {formatted} · {daysUntil === 0 ? "today" : `${daysUntil}d`}
+      </span>
+    );
+  }
+  return <span className="text-muted-foreground">{formatted}</span>;
 }
 
 function AccountModal({ modal, institutions, entities, onClose }: {
@@ -275,6 +308,8 @@ export function AccountsPageClient({ accounts, institutions, entities }: Props) 
                     <th className="px-4 py-2 font-medium">Type</th>
                     <th className="px-4 py-2 font-medium">Mode</th>
                     <th className="px-4 py-2 font-medium text-right">Balance</th>
+                    <th className="px-4 py-2 font-medium text-right">Statement Due</th>
+                    <th className="px-4 py-2 font-medium">Due Date</th>
                     <th className="px-4 py-2 font-medium">Min. Balance</th>
                     <th className="px-4 py-2 font-medium">Last synced</th>
                     <th className="px-4 py-2 font-medium">Actions</th>
@@ -310,6 +345,31 @@ export function AccountsPageClient({ accounts, institutions, entities }: Props) 
                           ? `$${parseFloat(acct.currentBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}`
                           : <span className="text-muted-foreground">—</span>}
                       </td>
+                      {acct.accountType === "credit_card" ? (
+                        <>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {acct.ccStatementBalance != null ? (
+                              <span className="font-medium text-amber-700 dark:text-amber-300">
+                                ${parseFloat(acct.ccStatementBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2">
+                            {acct.ccDueDate ? (
+                              <DueDateCell dueDate={acct.ccDueDate} />
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-4 py-2 text-muted-foreground">—</td>
+                          <td className="px-4 py-2 text-muted-foreground">—</td>
+                        </>
+                      )}
                       <td className="px-4 py-2 text-muted-foreground tabular-nums">
                         {acct.minimumBalance
                           ? `$${parseFloat(acct.minimumBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}`

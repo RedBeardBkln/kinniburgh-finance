@@ -64,6 +64,67 @@ export function normalizePlaidTransaction(
   };
 }
 
+// ── Credit card liabilities normalization (pure) ──────────────────────────────
+
+export interface PlaidLiabilityCardShape {
+  account_id: string;
+  aprs?: { apr_percentage?: number | null; apr_type?: string }[];
+  minimum_payment_amount?: number | null;
+  next_payment_due_date?: string | null; // ISO date
+  statement_balance?: number | null;     // positive = owed
+  statement_balance_due_date?: string | null;
+  last_statement_balance?: number | null;
+  last_statement_issue_date?: string | null;
+}
+
+export interface NormalizedCardStatement {
+  dueDate: Date | null;
+  statementBalance: Decimal | null;
+  minimumPayment: Decimal | null;
+  apr: Decimal | null;
+}
+
+/**
+ * Normalizes a Plaid credit-card liability into statement fields.
+ * Pay statementBalance by dueDate to avoid interest.
+ * - dueDate: next_payment_due_date (falls back to statement_balance_due_date)
+ * - statementBalance: statement_balance (falls back to last_statement_balance)
+ * - apr: primary (usually purchase) APR if present
+ */
+export function normalizeCardLiability(
+  card: PlaidLiabilityCardShape
+): NormalizedCardStatement {
+  const parseDate = (s: string | null | undefined): Date | null => {
+    if (!s) return null;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const toDecimal = (n: number | null | undefined): Decimal | null => {
+    if (n === null || n === undefined || !Number.isFinite(n)) return null;
+    return new Decimal(n);
+  };
+
+  const dueRaw = card.next_payment_due_date ?? card.statement_balance_due_date ?? null;
+  const balanceRaw =
+    card.statement_balance ?? card.last_statement_balance ?? null;
+
+  // APR: prefer the purchase APR; fall back to any listed APR
+  let apr: Decimal | null = null;
+  if (Array.isArray(card.aprs) && card.aprs.length > 0) {
+    const purchase = card.aprs.find((a) => a.apr_type === "purchase");
+    const chosen = purchase?.apr_percentage ?? card.aprs.find((a) => a.apr_percentage != null)?.apr_percentage;
+    apr = toDecimal(chosen);
+  }
+
+  return {
+    dueDate: parseDate(dueRaw),
+    statementBalance: toDecimal(balanceRaw),
+    minimumPayment: toDecimal(card.minimum_payment_amount),
+    apr,
+  };
+}
+
 // ── DB-aware sync engine ──────────────────────────────────────────────────────
 
 export async function syncPlaidTransactions(itemId: string): Promise<SyncResult> {
@@ -177,6 +238,34 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
   const balanceRes = await getPlaidClient().accountsGet({ access_token: accessToken });
   const freshAccounts = balanceRes.data.accounts;
 
+  // Credit card statement data: pull Liabilities and persist due date +
+  // statement balance + minimum payment + APR per credit-card account.
+  // Non-fatal: institutions without liability data simply skip.
+  const ccUpdatePromises: Promise<unknown>[] = [];
+  try {
+    const liabilitiesRes = await getPlaidClient().liabilitiesGet({ access_token: accessToken });
+    for (const card of liabilitiesRes.data.liabilities?.credit ?? []) {
+      if (!card.account_id) continue;
+      const localAcct = accountByPlaidId.get(card.account_id);
+      if (!localAcct) continue;
+      const normalized = normalizeCardLiability(card as PlaidLiabilityCardShape);
+      ccUpdatePromises.push(
+        db.account.update({
+          where: { id: localAcct.id },
+          data: {
+            ccDueDate: normalized.dueDate,
+            ccStatementBalance: normalized.statementBalance,
+            ccMinimumPayment: normalized.minimumPayment,
+            ccApr: normalized.apr,
+            ccDataAt: syncedAt,
+          },
+        })
+      );
+    }
+  } catch (err) {
+    console.warn("[plaid-sync] liabilitiesGet skipped:", (err as Error).message);
+  }
+
   await Promise.all([
     db.plaidItem.update({
       where: { itemId },
@@ -186,6 +275,7 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
         status: "active",
       },
     }),
+    ...ccUpdatePromises,
     ...freshAccounts.map((pa) => {
       const localAcct = accountByPlaidId.get(pa.account_id);
       if (!localAcct) return Promise.resolve();
