@@ -87,6 +87,7 @@ export async function createIncomeSource(
 }
 
 const PatchSchema = z.object({
+  accountId: z.string().min(1).optional(),
   description: z.string().min(1).max(200).optional(),
   cadence: z.enum(CADENCES).optional(),
   amount: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
@@ -104,14 +105,32 @@ export async function updateIncomeSource(
     return { error: parsed.error.errors[0]?.message ?? "Invalid input" };
   }
 
+  // A cadence change without new dayRules would leave stale rules behind —
+  // require matching rules whenever cadence is touched.
+  if (parsed.data.cadence && parsed.data.dayRules === undefined) {
+    return { error: "Changing cadence requires new day rules" };
+  }
   if (parsed.data.cadence && parsed.data.dayRules !== undefined) {
     const rulesError = validateDayRules(parsed.data.cadence, parsed.data.dayRules);
     if (rulesError) return { error: rulesError };
   }
 
+  // Account (if changing) must exist and belong to the same entity
+  if (parsed.data.accountId) {
+    const source = await db.incomeSource.findUnique({ where: { id } });
+    if (!source) return { error: "Income source not found" };
+    const account = await db.account.findUnique({
+      where: { id: parsed.data.accountId, archivedAt: null },
+    });
+    if (!account || account.entityId !== source.entityId) {
+      return { error: "Account not found for this entity" };
+    }
+  }
+
   await db.incomeSource.update({
     where: { id },
     data: {
+      ...(parsed.data.accountId !== undefined && { accountId: parsed.data.accountId }),
       ...(parsed.data.description !== undefined && { description: parsed.data.description }),
       ...(parsed.data.cadence !== undefined && { cadence: parsed.data.cadence }),
       ...(parsed.data.amount !== undefined && { amount: parsed.data.amount }),
@@ -120,6 +139,8 @@ export async function updateIncomeSource(
   });
 
   revalidatePath("/settings/income-sources");
+  revalidatePath("/forecast");
+  revalidatePath("/personal/income");
   return { success: true };
 }
 

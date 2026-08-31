@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
   const file = formData.get("file");
   const entityId = formData.get("entityId");
   const capturedAt = formData.get("capturedAt");
+  const depositAccountId = formData.get("depositAccountId");
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -30,6 +31,22 @@ export async function POST(req: NextRequest) {
   }
   if (typeof capturedAt !== "string") {
     return NextResponse.json({ error: "capturedAt required" }, { status: 400 });
+  }
+
+  // Optional direct-deposit account — must belong to the same entity
+  let depositAccountRef: string | null = null;
+  if (typeof depositAccountId === "string" && depositAccountId.length > 0) {
+    const account = await db.account.findUnique({
+      where: { id: depositAccountId, archivedAt: null },
+      select: { entityId: true },
+    });
+    if (!account || account.entityId !== entityId) {
+      return NextResponse.json(
+        { error: "Deposit account not found for this entity" },
+        { status: 400 }
+      );
+    }
+    depositAccountRef = depositAccountId;
   }
 
   const mimeType = file.type;
@@ -64,6 +81,7 @@ export async function POST(req: NextRequest) {
       uploadedBy: session.user.id,
       fileKey,
       capturedAt: new Date(capturedAt),
+      depositAccountId: depositAccountRef,
       extractStatus: "pending",
     },
   });

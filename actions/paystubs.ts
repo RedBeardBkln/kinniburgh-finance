@@ -104,10 +104,12 @@ export async function confirmPaystub(
  * forecast reflects actual pay cadence and net take-home per paycheck.
  * The gross amount is used so pre-tax deductions still show as income in,
  * consistent with how budgets and actuals are tracked at the account level.
+ * Uses the paystub's stored direct-deposit account; an explicit accountId
+ * (from the review form) overrides it.
  */
 export async function syncPaystubToIncomeSource(
   paystubId: string,
-  accountId: string
+  accountId?: string
 ): Promise<{ success: true } | { error: string }> {
   await requireAuth();
 
@@ -116,7 +118,12 @@ export async function syncPaystubToIncomeSource(
   if (!paystub.payFrequency) return { error: "Paystub has no pay frequency set" };
   if (!paystub.payDate) return { error: "Paystub has no pay date set" };
 
-  const account = await db.account.findUnique({ where: { id: accountId, archivedAt: null } });
+  const effectiveAccountId = accountId ?? paystub.depositAccountId;
+  if (!effectiveAccountId) return { error: "No deposit account selected for this paystub" };
+
+  const account = await db.account.findUnique({
+    where: { id: effectiveAccountId, archivedAt: null },
+  });
   if (!account) return { error: "Account not found" };
   if (account.entityId !== paystub.entityId) {
     return { error: "Account belongs to a different entity" };
@@ -149,7 +156,7 @@ export async function syncPaystubToIncomeSource(
     await db.incomeSource.update({
       where: { id: existing.id },
       data: {
-        accountId,
+        accountId: effectiveAccountId,
         cadence: paystub.payFrequency,
         dayRules: dayRules as unknown as never,
         amount: grossDollars.toFixed(2),
@@ -160,7 +167,7 @@ export async function syncPaystubToIncomeSource(
     await db.incomeSource.create({
       data: {
         entityId: paystub.entityId,
-        accountId,
+        accountId: effectiveAccountId,
         description,
         cadence: paystub.payFrequency,
         dayRules: dayRules as unknown as never,

@@ -106,6 +106,12 @@ export default async function PaystubDetailPage({ params }: PageProps) {
             extractStatus={paystub.extractStatus}
             confirmedAt={paystub.confirmedAt?.toISOString() ?? null}
             accounts={personalAccounts}
+            depositAccountId={
+              paystub.depositAccountId ??
+              personalAccounts.find((a) => a.nickname === "Primary Checking")?.id ??
+              personalAccounts[0]?.id ??
+              null
+            }
           />
         </div>
       </div>

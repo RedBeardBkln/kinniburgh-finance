@@ -50,7 +50,7 @@ export default async function IncomePage({ searchParams }: PageProps) {
   const yearStart = new Date(Date.UTC(currentYear, 0, 1));
   const yearEnd = new Date(Date.UTC(currentYear + 1, 0, 1));
 
-  const [paystubs, incomeSources] = await Promise.all([
+  const [paystubs, incomeSources, personalAccounts] = await Promise.all([
     entity
       ? db.paystub.findMany({
           where: { entityId: entity.id, archivedAt: null },
@@ -62,6 +62,13 @@ export default async function IncomePage({ searchParams }: PageProps) {
       include: { account: true, entity: true },
       orderBy: { description: "asc" },
     }),
+    entity
+      ? db.account.findMany({
+          where: { entityId: entity.id, archivedAt: null },
+          select: { id: true, nickname: true, mask: true, accountType: true },
+          orderBy: { nickname: "asc" },
+        })
+      : Promise.resolve([]),
   ]);
 
   // YTD rollups from confirmed + extracted stubs
@@ -177,7 +184,15 @@ export default async function IncomePage({ searchParams }: PageProps) {
 
         {/* Upload + sources */}
         <div className="grid gap-6 lg:grid-cols-2">
-          <PaystubUploadCard entityId={entity?.id ?? null} />
+          <PaystubUploadCard
+            entityId={entity?.id ?? null}
+            accounts={personalAccounts.map((a) => ({
+              id: a.id,
+              nickname: a.nickname,
+              mask: a.mask,
+              accountType: a.accountType,
+            }))}
+          />
 
           <IncomeSourcesCard
             sources={incomeSources.map((s) => ({

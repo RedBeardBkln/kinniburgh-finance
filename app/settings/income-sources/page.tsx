@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AddIncomeSourceForm } from "@/components/settings/add-income-source-form";
+import { EditIncomeSourceButton } from "@/components/settings/edit-income-source-button";
 import {
   ToggleIncomeSourceButton,
   DeleteIncomeSourceButton,
@@ -90,6 +91,21 @@ export default async function IncomeSourcesPage() {
                       </td>
                       <td className="px-4 py-2">
                         <div className="flex items-center justify-end gap-3">
+                          <EditIncomeSourceButton
+                            id={s.id}
+                            entityId={s.entityId}
+                            description={s.description}
+                            cadence={s.cadence}
+                            amount={s.amount.toString()}
+                            accountId={s.accountId}
+                            dayRules={s.dayRules}
+                            accounts={accounts.map((a) => ({
+                              id: a.id,
+                              entityId: a.entityId,
+                              nickname: a.nickname,
+                              mask: a.mask,
+                            }))}
+                          />
                           <ToggleIncomeSourceButton id={s.id} active={s.active} />
                           <DeleteIncomeSourceButton id={s.id} description={s.description} />
                         </div>

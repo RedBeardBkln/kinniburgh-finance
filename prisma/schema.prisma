@@ -136,6 +136,7 @@ model Account {
   receipts             Receipt[]
   debtDetail           DebtDetail?
   projectedRevenues    ProjectedRevenue[]
+  paystubDeposits      Paystub[]     @relation("PaystubDepositAccount")
 
   @@unique([entityId, nickname])
 }
@@ -654,6 +655,8 @@ model Paystub {
   uploadedBy        String    // user id
   fileKey           String    // object storage key (encrypted at rest)
   capturedAt        DateTime
+  // Where this paycheck is direct-deposited (defaults to Primary Checking)
+  depositAccountId  String?
   extractStatus     String    @default("pending") // pending | complete | failed
   employeeName      String?
   employerName      String?
@@ -680,7 +683,8 @@ model Paystub {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  entity Entity @relation(fields: [entityId], references: [id])
+  entity  Entity   @relation(fields: [entityId], references: [id])
+  account Account? @relation("PaystubDepositAccount", fields: [depositAccountId], references: [id])
 }
 
 // ─── Projected revenue (manual/forecast-only business income) ─────────────────

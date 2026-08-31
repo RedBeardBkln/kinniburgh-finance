@@ -31,6 +31,7 @@ interface Props {
   extractStatus: string;
   confirmedAt: string | null;
   accounts: AccountOption[];
+  depositAccountId: string | null;
 }
 
 // Line items keep raw text so typing works naturally (decimal points,
@@ -104,6 +105,9 @@ export function PaystubConfirmForm(props: Props) {
     props.initialNetPayCents !== null ? (props.initialNetPayCents / 100).toFixed(2) : ""
   );
   const [notes, setNotes] = useState(props.initialNotes);
+  const [depositAccountId, setDepositAccountId] = useState(
+    props.depositAccountId ?? props.accounts[0]?.id ?? ""
+  );
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -193,12 +197,11 @@ export function PaystubConfirmForm(props: Props) {
   async function handleSyncToForecast() {
     setError(null);
     setSuccessMsg(null);
-    const accountId = props.accounts[0]?.id;
-    if (!accountId) {
-      setError("No accounts available for this entity.");
+    if (!depositAccountId) {
+      setError("Select the direct deposit account first.");
       return;
     }
-    const result = await syncPaystubToIncomeSource(props.paystubId, accountId);
+    const result = await syncPaystubToIncomeSource(props.paystubId, depositAccountId);
     if ("error" in result) {
       setError(result.error);
       return;
@@ -295,6 +298,33 @@ export function PaystubConfirmForm(props: Props) {
                 <option value="monthly">Monthly (12/yr)</option>
               </select>
             </div>
+          </div>
+
+          {/* Direct deposit account */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium">Direct deposit account</label>
+            {props.accounts.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No accounts configured for this entity.
+              </p>
+            ) : (
+              <select
+                value={depositAccountId}
+                onChange={(e) => setDepositAccountId(e.target.value)}
+                className="w-full rounded border px-2 py-1.5 text-sm"
+              >
+                {props.accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.nickname}
+                    {a.mask ? ` (x${a.mask})` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Where this paycheck lands. Used by &quot;Sync to Forecast&quot; — change it here if
+              the deposit account differs from what was selected at upload.
+            </p>
           </div>
 
           {/* Amounts */}
@@ -620,7 +650,7 @@ export function PaystubConfirmForm(props: Props) {
           </div>
           <p className="text-xs text-muted-foreground">
             Sync to Forecast updates the payroll income source (gross per paycheck, {payFrequency.replace("_", " ")}{" "}
-            cadence{props.accounts[0] ? `, deposited into ${props.accounts[0].nickname}` : ""}) so the
+            cadence{depositAccountId ? `, deposited into ${props.accounts.find((a) => a.id === depositAccountId)?.nickname ?? "the selected account"}` : ""}) so the
             predictive balance forecast reflects real take-home.
           </p>
         </form>

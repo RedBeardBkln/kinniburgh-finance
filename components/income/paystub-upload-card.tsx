@@ -4,15 +4,32 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-interface Props {
-  entityId: string | null;
+interface AccountOption {
+  id: string;
+  nickname: string;
+  mask: string | null;
+  accountType: string;
 }
 
-export function PaystubUploadCard({ entityId }: Props) {
+interface Props {
+  entityId: string | null;
+  accounts: AccountOption[];
+}
+
+export function PaystubUploadCard({ entityId, accounts }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const today = new Date().toISOString().split("T")[0]!;
+
+  // Default to the Primary Checking account; fall back to first checking
+  // account, then any account.
+  const defaultAccountId =
+    accounts.find((a) => a.nickname === "Primary Checking")?.id ??
+    accounts.find((a) => a.accountType === "checking")?.id ??
+    accounts[0]?.id ??
+    "";
+  const [accountId, setAccountId] = useState(defaultAccountId);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -28,7 +45,12 @@ export function PaystubUploadCard({ entityId }: Props) {
       setError("Personal entity not found.");
       return;
     }
+    if (!accountId) {
+      setError("Select the direct deposit account.");
+      return;
+    }
     formData.set("entityId", entityId);
+    formData.set("depositAccountId", accountId);
 
     startTransition(async () => {
       try {
@@ -65,6 +87,32 @@ export function PaystubUploadCard({ entityId }: Props) {
               className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium"
             />
             <p className="text-xs text-muted-foreground">JPEG, PNG, WebP, or PDF · max 10MB</p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Direct deposit account</label>
+            {accounts.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No personal accounts configured yet.
+              </p>
+            ) : (
+              <select
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+                className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                required
+              >
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.nickname}
+                    {a.mask ? ` (x${a.mask})` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Where this paycheck lands — defaults to Primary Checking. Change it if the deposit
+              goes elsewhere; &quot;Sync to Forecast&quot; will use this account.
+            </p>
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium">Capture date</label>
