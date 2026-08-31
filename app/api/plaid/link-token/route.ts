@@ -19,6 +19,22 @@ function plaidErrorMessage(err: unknown): { status: number; code: string | null;
   };
 }
 
+/**
+ * Resolves the public origin from forwarded headers. Vercel route handlers
+ * see req.url on an internal host; x-forwarded-host/host carries the real
+ * custom domain (e.g. bananastand.ericandeva.com), which is what OAuth
+ * redirect URIs must match in the Plaid dashboard.
+ */
+function publicOrigin(req: Request): string {
+  const forwardedHost = req.headers.get("x-forwarded-host");
+  const host = forwardedHost ?? req.headers.get("host");
+  const proto =
+    req.headers.get("x-forwarded-proto") ??
+    (host?.startsWith("localhost") || host?.startsWith("127.") ? "http" : "https");
+  if (host) return `${proto}://${host}`;
+  return new URL(req.url).origin;
+}
+
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.user) {
@@ -44,7 +60,7 @@ export async function GET(req: Request) {
     accessToken = decrypt(plaidItem.accessTokenEncrypted);
   }
 
-  const origin = new URL(req.url).origin;
+  const origin = publicOrigin(req);
   const webhookUrl = `${origin}/api/plaid/webhook`;
   const redirectUri = `${origin}/accounts/connect`;
 
