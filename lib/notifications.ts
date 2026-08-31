@@ -559,6 +559,108 @@ export async function checkCardPaymentsDue(): Promise<number> {
   return generated;
 }
 
+// ── Check: Credit card funding shortfall (cards vs x2631) ────────────────────
+
+import { analyzeCardFunding, buildFundingMessage, type CardDue } from "./cc-funding";
+
+/**
+ * Projects the credit-card funding account (x2631 "Credit Cards") across all
+ * upcoming card statement payments. Notifies when the autopayments would dip
+ * it below the $250 minimum — with the exact transfer needed to avoid the
+ * $15 monthly low-balance fee. Also fires a gentler warning when the cushion
+ * after all payments is under $50.
+ */
+export async function checkCcFundingShortfall(): Promise<number> {
+  // The funding account: TD checking named "Credit Cards" with a minimum rule
+  const fundingAccount = await db.account.findFirst({
+    where: {
+      nickname: "Credit Cards",
+      accountType: "checking",
+      archivedAt: null,
+      minimumBalance: { not: null },
+    },
+  });
+  if (!fundingAccount || fundingAccount.currentBalance === null) return 0;
+
+  // All credit cards on the same entity with live statement data
+  const cards = await db.account.findMany({
+    where: {
+      accountType: "credit_card",
+      archivedAt: null,
+      entityId: fundingAccount.entityId,
+      ccDueDate: { not: null },
+      ccStatementBalance: { not: null },
+    },
+    orderBy: { ccDueDate: "asc" },
+  });
+  if (cards.length === 0) return 0;
+
+  const from = startOfDayUTC(new Date());
+  const to = new Date(from.getTime() + 30 * 86400000);
+
+  const cardDues: CardDue[] = cards
+    .map((c) => ({
+      accountNickname: c.nickname,
+      dueDate: c.ccDueDate!,
+      statementBalance: new Decimal(c.ccStatementBalance!.toString()),
+      minimumPayment: c.ccMinimumPayment ? new Decimal(c.ccMinimumPayment.toString()) : null,
+    }))
+    // Only cards with a due date inside the 30-day window
+    .filter((c) => c.dueDate >= from && c.dueDate < to);
+  if (cardDues.length === 0) return 0;
+
+  const result = analyzeCardFunding({
+    currentBalance: new Decimal(fundingAccount.currentBalance.toString()),
+    minimumBalance: fundingAccount.minimumBalance
+      ? new Decimal(fundingAccount.minimumBalance.toString())
+      : null,
+    cards: cardDues,
+    from,
+    to,
+  });
+
+  // Only notify on shortfall or tight cushion — "covered" stays silent
+  if (result.status === "covered") return 0;
+
+  const scopeKey = `cc_funding:${fundingAccount.id}:${result.status === "shortfall" ? "short" : "risk"}`;
+  if (await alreadyNotifiedToday(scopeKey)) return 0;
+
+  const { title, body } = buildFundingMessage({
+    fundingAccountNickname: fundingAccount.nickname,
+    currentBalance: new Decimal(fundingAccount.currentBalance.toString()),
+    minimumBalance: fundingAccount.minimumBalance
+      ? new Decimal(fundingAccount.minimumBalance.toString())
+      : null,
+    minimumBalanceFee: fundingAccount.minimumBalanceFee
+      ? new Decimal(fundingAccount.minimumBalanceFee.toString())
+      : null,
+    result,
+  });
+
+  const userIds = await getAllUserIds();
+  await createNotification({
+    type: "cc_funding_shortfall",
+    entityId: fundingAccount.entityId,
+    payload: {
+      scopeKey,
+      title,
+      body,
+      fundingAccountNickname: fundingAccount.nickname,
+      status: result.status,
+      totalDue: result.totalDue.toFixed(2),
+      shortfall: result.shortfall?.toFixed(2) ?? null,
+      firstShortfallDate: result.firstShortfallDate?.toISOString() ?? null,
+      cards: cardDues.map((c) => ({
+        nickname: c.accountNickname,
+        dueDate: c.dueDate.toISOString(),
+        statementBalance: c.statementBalance.toFixed(2),
+      })),
+    },
+    userIds,
+  });
+  return 1;
+}
+
 // ── Check: Large spend ────────────────────────────────────────────────────────
 
 export async function checkLargeSpend(): Promise<number> {

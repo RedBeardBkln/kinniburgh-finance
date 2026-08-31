@@ -15,6 +15,8 @@ import {
 } from "@/lib/forecast";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
+import { analyzeCardFunding } from "@/lib/cc-funding";
+import { classifyCardDue } from "@/lib/card-due";
 import { setAccountBalance, upsertIncomeSource } from "@/actions/envelope";
 import { ForecastAccountCard, type ChartPoint } from "@/components/forecast/forecast-account-card";
 import { listRecurringExpenses } from "@/actions/recurring-expenses";
@@ -94,6 +96,61 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     },
   });
   const ccFundingAccount = tdAccounts.find((a) => a.nickname === "Credit Cards");
+
+  // Credit card funding analysis: cards vs the funding account's minimum
+  let ccFundingAnalysis: {
+    status: "covered" | "shortfall" | "at_risk";
+    totalDue: Prisma.Decimal;
+    shortfall: Prisma.Decimal | null;
+    firstShortfallDate: Date | null;
+    cards: { accountNickname: string; dueDate: Date; statementBalance: Prisma.Decimal }[];
+    minimumBalance: Prisma.Decimal | null;
+  } | null = null;
+
+  if (ccFundingAccount && ccFundingAccount.currentBalance) {
+    const horizonStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const horizonEnd = new Date(horizonStart.getTime() + 30 * 86400000);
+    const activeCards = creditCards
+      .filter(
+        (c) =>
+          c.ccStatementBalance !== null &&
+          c.ccDueDate !== null &&
+          c.ccDueDate >= horizonStart &&
+          c.ccDueDate < horizonEnd
+      )
+      .map((c) => ({
+        accountNickname: c.nickname,
+        dueDate: c.ccDueDate!,
+        statementBalance: new Prisma.Decimal(c.ccStatementBalance!.toString()),
+        minimumPayment: null,
+      }));
+
+    if (activeCards.length > 0) {
+      const result = analyzeCardFunding({
+        currentBalance: new Prisma.Decimal(ccFundingAccount.currentBalance.toString()),
+        minimumBalance: ccFundingAccount.minimumBalance
+          ? new Prisma.Decimal(ccFundingAccount.minimumBalance.toString())
+          : null,
+        cards: activeCards,
+        from: horizonStart,
+        to: horizonEnd,
+      });
+      ccFundingAnalysis = {
+        status: result.status,
+        totalDue: new Prisma.Decimal(result.totalDue.toString()),
+        shortfall: result.shortfall ? new Prisma.Decimal(result.shortfall.toString()) : null,
+        firstShortfallDate: result.firstShortfallDate,
+        cards: activeCards.map((c) => ({
+          accountNickname: c.accountNickname,
+          dueDate: c.dueDate,
+          statementBalance: c.statementBalance,
+        })),
+        minimumBalance: ccFundingAccount.minimumBalance
+          ? new Prisma.Decimal(ccFundingAccount.minimumBalance.toString())
+          : null,
+      };
+    }
+  }
 
   // Build 90-day forecast for each TD checking account
   const accountForecasts = tdAccounts.map((acct) => {
@@ -317,6 +374,135 @@ export default async function ForecastPage({ searchParams }: PageProps) {
             />
           ))}
         </div>
+
+        {/* ── Credit card funding analysis (cards vs x2631) ──────────── */}
+        {ccFundingAnalysis && ccFundingAnalysis.cards.length > 0 && (
+          <Card
+            className={
+              ccFundingAnalysis.status === "shortfall"
+                ? "border-destructive/50"
+                : ccFundingAnalysis.status === "at_risk"
+                ? "border-amber-300"
+                : ""
+            }
+          >
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Credit Card Funding</CardTitle>
+                <span
+                  className={`rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${
+                    ccFundingAnalysis.status === "shortfall"
+                      ? "border-red-200 bg-red-50 text-red-700"
+                      : ccFundingAnalysis.status === "at_risk"
+                      ? "border-amber-200 bg-amber-50 text-amber-700"
+                      : "border-green-200 bg-green-50 text-green-700"
+                  }`}
+                >
+                  {ccFundingAnalysis.status === "shortfall"
+                    ? "Shortfall — transfer needed"
+                    : ccFundingAnalysis.status === "at_risk"
+                    ? "Tight cushion"
+                    : "Covered"}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Statement payments draw from {ccFundingAccount?.nickname} (x{ccFundingAccount?.mask}).
+                Paying each statement balance by its due date avoids interest; the account must
+                also hold its ${ccFundingAnalysis.minimumBalance?.toNumber() ?? 250} minimum.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="py-2 font-medium whitespace-nowrap">Card</th>
+                      <th className="py-2 px-3 font-medium text-right whitespace-nowrap">Statement due</th>
+                      <th className="py-2 px-3 font-medium whitespace-nowrap">Due date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ccFundingAnalysis.cards.map((card) => {
+                      const info = classifyCardDue(card.dueDate);
+                      return (
+                        <tr key={card.accountNickname} className="border-b last:border-0">
+                          <td className="py-2 font-medium">{card.accountNickname}</td>
+                          <td className="py-2 px-3 text-right tabular-nums text-amber-700 dark:text-amber-300 font-medium">
+                            {formatUSD(card.statementBalance.toNumber())}
+                          </td>
+                          <td className="py-2 px-3">
+                            <span
+                              className={
+                                info.urgency === "overdue"
+                                  ? "font-medium text-destructive"
+                                  : info.urgency === "imminent"
+                                  ? "font-medium text-amber-600"
+                                  : "text-muted-foreground"
+                              }
+                            >
+                              {card.dueDate.toLocaleDateString("en-US", {
+                                month: "long",
+                                day: "numeric",
+                                timeZone: "America/New_York",
+                              })}
+                              {info.urgency === "overdue" && " (overdue)"}
+                              {info.urgency === "imminent" && " (tomorrow/today)"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t bg-muted/30">
+                      <td className="py-2 font-semibold">Total due (30 days)</td>
+                      <td className="py-2 px-3 text-right font-semibold tabular-nums">
+                        {formatUSD(ccFundingAnalysis.totalDue.toNumber())}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {ccFundingAnalysis.status === "shortfall" && ccFundingAnalysis.shortfall && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm">
+                  <p>
+                    Current balance{" "}
+                    <span className="font-medium">
+                      {formatUSD(Number(ccFundingAccount?.currentBalance ?? 0))}
+                    </span>{" "}
+                    — after all payments the account dips below the minimum on{" "}
+                    <span className="font-medium text-destructive">
+                      {ccFundingAnalysis.firstShortfallDate?.toLocaleDateString("en-US", {
+                        month: "long",
+                        day: "numeric",
+                        timeZone: "America/New_York",
+                      })}
+                    </span>
+                    . Transfer{" "}
+                    <span className="font-bold text-destructive">
+                      {formatUSD(ccFundingAnalysis.shortfall.toNumber())}
+                    </span>{" "}
+                    to cover the payments and the minimum balance requirement and avoid the $15
+                    monthly low balance fee.
+                  </p>
+                </div>
+              )}
+              {ccFundingAnalysis.status === "at_risk" && (
+                <p className="text-xs text-amber-600">
+                  Covered, but less than $50 of cushion remains after all payments — a small
+                  surprise could trigger the low balance fee.
+                </p>
+              )}
+              {ccFundingAnalysis.status === "covered" && (
+                <p className="text-xs text-green-600">
+                  All statement payments are covered while holding the minimum balance.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* ── 14-day schedule for Primary Checking ────────────────────── */}
         <Card>
