@@ -44,10 +44,10 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   const entity = await getEntityBySlug(bucket);
   const bucketLabel = entity?.navLabel ?? entity?.name ?? "All Entities";
 
-  const orderBy: Prisma.TransactionOrderByWithRelationInput =
-    sort === "payee" ? { payeeRaw: sortDir } :
-    sort === "amount" ? { amount: sortDir } :
-    { postedAt: sortDir };
+  const orderBy: Prisma.TransactionOrderByWithRelationInput[] =
+    sort === "payee" ? [{ payeeRaw: sortDir }, { id: "asc" }] :
+    sort === "amount" ? [{ amount: sortDir }, { id: "asc" }] :
+    [{ postedAt: sortDir }, { id: "asc" }];
 
   const baseWhere: Prisma.TransactionWhereInput = {
     archivedAt: null,

@@ -142,7 +142,7 @@ export async function findMatchingTransactions(
       ],
     },
     include: { account: true },
-    orderBy: { postedAt: "desc" },
+    orderBy: [{ postedAt: "desc" }, { id: "asc" }],
     take: 5,
   });
 

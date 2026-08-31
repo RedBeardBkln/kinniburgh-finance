@@ -43,7 +43,7 @@ export async function getTagTransactions(
     include: {
       tags: { select: { tagId: true } },
     },
-    orderBy: { postedAt: "desc" },
+    orderBy: [{ postedAt: "desc" }, { id: "asc" }],
     take: 200,
   });
 

@@ -47,7 +47,7 @@ export async function exportTransactionsCsv(filters: {
       entity: { select: { name: true } },
       tags: { include: { tag: { select: { shortName: true } } } },
     },
-    orderBy: { postedAt: "desc" },
+    orderBy: [{ postedAt: "desc" }, { id: "asc" }],
   });
 
   const header = toCsvRow(["Date", "Account", "Entity", "Payee", "Amount", "Tags", "Source"]);

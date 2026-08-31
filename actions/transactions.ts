@@ -284,7 +284,7 @@ export async function listTransactions(filters: TransactionFilters = {}) {
         entity: true,
         tags: { include: { tag: true } },
       },
-      orderBy: { postedAt: "desc" },
+      orderBy: [{ postedAt: "desc" }, { id: "asc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),

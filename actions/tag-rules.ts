@@ -325,7 +325,7 @@ export async function previewRetroactiveRule(
       account: { select: { nickname: true, mask: true } },
       tags: { select: { tag: { select: { name: true } } } },
     },
-    orderBy: { postedAt: "desc" },
+    orderBy: [{ postedAt: "desc" }, { id: "asc" }],
     // No take limit — scan the full date range
   });
 

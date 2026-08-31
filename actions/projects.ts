@@ -88,7 +88,7 @@ export async function getProjectTransactions(projectId: string) {
       entity: { select: { id: true, name: true, navLabel: true } },
       tags: { include: { tag: { select: { id: true, name: true, shortName: true } } } },
     },
-    orderBy: { postedAt: "desc" },
+    orderBy: [{ postedAt: "desc" }, { id: "asc" }],
   });
 }
 
