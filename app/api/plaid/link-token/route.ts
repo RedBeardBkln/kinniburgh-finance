@@ -5,6 +5,20 @@ import { decrypt } from "@/lib/encrypt";
 import { NextResponse } from "next/server";
 import { Products, CountryCode } from "plaid";
 
+function plaidErrorMessage(err: unknown): { status: number; code: string | null; message: string } {
+  const response = (err as { response?: { status?: number; data?: { error_code?: string; error_message?: string; display_message?: string | null } } })?.response;
+  const status = response?.status ?? 500;
+  const data = response?.data;
+  return {
+    status,
+    code: data?.error_code ?? null,
+    message:
+      data?.display_message ??
+      data?.error_message ??
+      (err instanceof Error ? err.message : "Plaid request failed"),
+  };
+}
+
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.user) {
@@ -34,20 +48,57 @@ export async function GET(req: Request) {
   const webhookUrl = `${origin}/api/plaid/webhook`;
   const redirectUri = `${origin}/accounts/connect`;
 
-  const response = await getPlaidClient().linkTokenCreate({
-    user: { client_user_id: session.user.id! },
-    client_name: "Banana Stand",
-    // New connections request Transactions + Liabilities. Update mode
-    // (accessToken present) omits `products`, but passing an access_token
-    // through Link re-authorizes the item and adds products granted then —
-    // re-linking an existing card item brings in Liabilities.
-    products: accessToken ? undefined : [Products.Transactions, Products.Liabilities],
-    access_token: accessToken,
-    country_codes: [CountryCode.Us],
-    language: "en",
-    webhook: webhookUrl,
-    redirect_uri: redirectUri,
-  });
+  try {
+    const response = await getPlaidClient().linkTokenCreate({
+      user: { client_user_id: session.user.id! },
+      client_name: "Banana Stand",
+      // Update mode (re-link, accessToken present) omits `products` — Link
+      // re-authorizes the item and any newly granted products are picked up.
+      // New connections request Transactions + Liabilities so card statement
+      // data is available from day one.
+      products: accessToken ? undefined : [Products.Transactions, Products.Liabilities],
+      access_token: accessToken,
+      country_codes: [CountryCode.Us],
+      language: "en",
+      webhook: webhookUrl,
+      redirect_uri: redirectUri,
+    });
 
-  return NextResponse.json({ linkToken: response.data.link_token });
+    return NextResponse.json({ linkToken: response.data.link_token });
+  } catch (err) {
+    const { status, code, message } = plaidErrorMessage(err);
+    console.error("[plaid/link-token] failed", { status, code, message });
+
+    // If the combined product list fails (some production institutions don't
+    // support Liabilities in the same flow as Transactions), retry with
+    // Transactions only — statement data then arrives on a later re-link
+    // for institutions that do support it.
+    if (!accessToken) {
+      try {
+        const fallback = await getPlaidClient().linkTokenCreate({
+          user: { client_user_id: session.user.id! },
+          client_name: "Banana Stand",
+          products: [Products.Transactions],
+          country_codes: [CountryCode.Us],
+          language: "en",
+          webhook: webhookUrl,
+          redirect_uri: redirectUri,
+        });
+        console.warn("[plaid/link-token] fell back to Transactions-only", { originalCode: code });
+        return NextResponse.json({ linkToken: fallback.data.link_token, productsGranted: "transactions" });
+      } catch (fallbackErr) {
+        const fb = plaidErrorMessage(fallbackErr);
+        console.error("[plaid/link-token] fallback also failed", { status: fb.status, code: fb.code, message: fb.message });
+        return NextResponse.json(
+          { error: fb.message, code: fb.code },
+          { status: fb.status >= 400 && fb.status < 600 ? fb.status : 500 }
+        );
+      }
+    }
+
+    return NextResponse.json(
+      { error: message, code },
+      { status: status >= 400 && status < 600 ? status : 500 }
+    );
+  }
 }

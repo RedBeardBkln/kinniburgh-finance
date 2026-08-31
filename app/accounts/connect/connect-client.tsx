@@ -59,16 +59,24 @@ function ConnectInner() {
       ? `/api/plaid/link-token?itemId=${updateItemId}`
       : "/api/plaid/link-token";
     fetch(url)
-      .then((r) => r.json())
-      .then((data: { linkToken?: string; error?: string }) => {
+      .then(async (r) => {
+        const data = (await r.json().catch(() => ({}))) as {
+          linkToken?: string;
+          error?: string;
+          code?: string;
+        };
         if (data.linkToken) {
           sessionStorage.setItem(LINK_TOKEN_KEY, data.linkToken);
           setLinkToken(data.linkToken);
         } else {
-          setLinkError(data.error ?? "Failed to get link token");
+          setLinkError(
+            data.error
+              ? `${data.error}${data.code ? ` (code: ${data.code})` : ""}`
+              : `Failed to get link token (HTTP ${r.status})`
+          );
         }
       })
-      .catch(() => setLinkError("Network error fetching link token"));
+      .catch(() => setLinkError("Network error fetching link token — check your connection and try again"));
   }, [updateItemId, isOAuthReturn]);
 
   useEffect(() => {
