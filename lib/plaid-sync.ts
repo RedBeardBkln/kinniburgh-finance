@@ -280,7 +280,22 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
       });
     }
   } catch (err) {
-    liabilitiesNote = `Statement data unavailable: ${(err as Error).message}`;
+    // Extract Plaid's structured error code for a precise note
+    const plaidData = (err as { response?: { data?: { error_code?: string; error_message?: string } } })?.response?.data;
+    const code = plaidData?.error_code ?? null;
+    const msg = plaidData?.error_message ?? (err as Error).message;
+    if (code === "PRODUCTS_NOT_SUPPORTED") {
+      liabilitiesNote = "This bank does not provide statement data through Plaid (Liabilities not supported). Enter the due date and statement balance manually via Edit on the account row.";
+    } else if (code === "INVALID_PRODUCT") {
+      liabilitiesNote = "Statement access was never granted for this bank login. Re-link the bank (Accounts → Re-link) and include card/statement access to enable it.";
+    } else {
+      liabilitiesNote = `Statement data unavailable: ${code ?? msg}`;
+    }
+    console.warn("[plaid-sync] liabilitiesGet failed", {
+      itemId,
+      code,
+      message: msg,
+    });
   }
 
   await Promise.all([
@@ -311,6 +326,20 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
   ]);
 
   const institutionName = plaidItem.institutionName ?? null;
+
+  // Log which products this item actually has granted (diagnoses why
+  // liabilitiesGet fails when Liabilities wasn't granted at link time)
+  try {
+    const itemRes = await getPlaidClient().itemGet({ access_token: accessToken });
+    console.log("[plaid-sync] item products", {
+      itemId,
+      institutionName,
+      products: itemRes.data.item.products,
+      billedProducts: itemRes.data.item.billed_products,
+    });
+  } catch {
+    // Non-fatal diagnostic
+  }
 
   console.log("[plaid-sync] complete", {
     itemId,
