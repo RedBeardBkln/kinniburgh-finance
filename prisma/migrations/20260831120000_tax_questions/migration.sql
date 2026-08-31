@@ -1,8 +1,5 @@
--- Tax planning questions for personal tax workspaces + paystub additional withholding.
+-- Tax planning questions for personal tax workspaces.
 -- Tax-related records are never hard-deleted.
-
--- Additional federal/state withholding on paystubs (extra W-4 elections)
-ALTER TABLE "Paystub" ADD COLUMN "additionalWithholding" JSONB;
 
 CREATE TABLE "TaxQuestion" (
     "id" TEXT NOT NULL,
