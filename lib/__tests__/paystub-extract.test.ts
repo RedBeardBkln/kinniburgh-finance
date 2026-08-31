@@ -4,7 +4,7 @@ import {
   verifyPaystubMath,
   inferPayFrequency,
   type LabeledAmount,
-} from "@/lib/paystub-extract";
+} from "@/lib/paystub-math";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
