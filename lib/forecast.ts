@@ -327,6 +327,53 @@ export function generateBillOccurrences(
   }));
 }
 
+// ─── Credit card statement payments (forecast) ───────────────────────────────
+
+export interface CardStatementLike {
+  id: string;
+  nickname: string;
+  /** Account that funds the card payment (e.g. x2631 Credit Cards) */
+  fundingAccountId: string;
+  ccDueDate: Date | string;
+  ccStatementBalance: Decimal | string | number | null;
+}
+
+/**
+ * Projects the statement balance as a single outflow on the card's due date
+ * into the funding account. Paying this amount avoids interest — so the
+ * forecast assumes the full statement balance is paid (the household's
+ * stated goal), not the minimum payment.
+ */
+export function generateCardStatementPayment(
+  card: CardStatementLike,
+  from: Date,
+  to: Date
+): ScheduleEvent[] {
+  if (card.ccStatementBalance === null || card.ccStatementBalance === undefined) return [];
+
+  const amount = new Decimal(String(card.ccStatementBalance));
+  if (amount.isZero() || amount.isNegative()) return [];
+
+  const dueDate = new Date(card.ccDueDate);
+  if (isNaN(dueDate.getTime())) return [];
+
+  // Normalize to UTC start-of-day; only project if inside [from, to)
+  const due = new Date(
+    Date.UTC(dueDate.getUTCFullYear(), dueDate.getUTCMonth(), dueDate.getUTCDate())
+  );
+  if (due < from || due >= to) return [];
+
+  return [
+    {
+      date: due,
+      amount: amount.negated(),
+      description: `${card.nickname} statement payment`,
+      accountId: card.fundingAccountId,
+      type: "bill",
+    },
+  ];
+}
+
 // ── Suggested transfer increase ───────────────────────────────────────────────
 
 /**

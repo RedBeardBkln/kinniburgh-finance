@@ -464,6 +464,101 @@ export async function checkDocumentExpiry(): Promise<number> {
   return generated;
 }
 
+// ── Check: Credit card payment due (avoid interest) ───────────────────────────
+
+import { classifyCardDue, shouldRemindCardPayment } from "./card-due";
+
+/**
+ * Reminds before each credit card's payment due date with the statement
+ * balance — paying that amount by the due date avoids interest charges.
+ * Escalates separately for overdue statements.
+ */
+export async function checkCardPaymentsDue(): Promise<number> {
+  const cards = await db.account.findMany({
+    where: {
+      accountType: "credit_card",
+      archivedAt: null,
+      ccDueDate: { not: null },
+    },
+    include: { entity: { select: { id: true } } },
+  });
+
+  const now = new Date();
+  const userIds = await getAllUserIds();
+  let generated = 0;
+
+  for (const card of cards) {
+    const dueDate = card.ccDueDate!;
+    const info = classifyCardDue(dueDate, now);
+    const balance = card.ccStatementBalance;
+
+    // Standard reminder inside the window
+    if (shouldRemindCardPayment(dueDate, now)) {
+      const scopeKey = `card_due:${card.id}:${dueDate.toISOString().slice(0, 10)}`;
+      if (await alreadyNotifiedToday(scopeKey)) continue;
+
+      const dueStr = dueDate.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "America/New_York",
+      });
+      const balStr = balance ? ` Pay ${formatUSD(balance)} to avoid interest.` : "";
+      const whenStr =
+        info.urgency === "imminent"
+          ? info.daysUntilDue <= 0
+            ? "today"
+            : "tomorrow"
+          : `in ${info.daysUntilDue} days`;
+
+      const title = `Card payment due ${whenStr}: ${card.nickname}`;
+      const body = `${card.nickname} statement${balStr} Due ${dueStr}.${balance ? "" : " Check your statement for the payoff amount."}`;
+
+      await createNotification({
+        type: "cc_payment_due",
+        entityId: card.entity.id,
+        payload: {
+          scopeKey,
+          title,
+          body,
+          accountNickname: card.nickname,
+          dueDate: dueDate.toISOString(),
+          statementBalance: balance?.toFixed(2) ?? null,
+          daysUntilDue: info.daysUntilDue,
+        },
+        userIds,
+      });
+      generated++;
+    }
+    // Escalated overdue notice (fires daily until a sync shows a new cycle)
+    else if (info.urgency === "overdue" && balance) {
+      const scopeKey = `card_overdue:${card.id}:${dueDate.toISOString().slice(0, 10)}`;
+      if (await alreadyNotifiedToday(scopeKey)) continue;
+
+      const overdueDays = Math.abs(info.daysUntilDue);
+      const title = `Overdue card statement: ${card.nickname}`;
+      const body = `${card.nickname} was due ${overdueDays} day${overdueDays !== 1 ? "s" : ""} ago — ${formatUSD(balance)} unpaid. Interest may already be accruing on new purchases.`;
+
+      await createNotification({
+        type: "cc_payment_overdue",
+        entityId: card.entity.id,
+        payload: {
+          scopeKey,
+          title,
+          body,
+          accountNickname: card.nickname,
+          dueDate: dueDate.toISOString(),
+          statementBalance: balance.toFixed(2),
+          daysOverdue: overdueDays,
+        },
+        userIds,
+      });
+      generated++;
+    }
+  }
+
+  return generated;
+}
+
 // ── Check: Large spend ────────────────────────────────────────────────────────
 
 export async function checkLargeSpend(): Promise<number> {

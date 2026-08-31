@@ -9,6 +9,7 @@ import {
   generateTransferOccurrences,
   generateIncomeOccurrences,
   generateBillOccurrences,
+  generateCardStatementPayment,
   buildAccountForecast,
   findBreachDays,
 } from "@/lib/forecast";
@@ -76,6 +77,24 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     entity ? listRentalBookings(entity.id) : Promise.resolve([]),
   ]);
 
+  // Load credit cards with statement data; they draw from the Credit Cards
+  // funding account (x2631) per spec 02.
+  const creditCards = await db.account.findMany({
+    where: {
+      accountType: "credit_card",
+      archivedAt: null,
+      ccDueDate: { not: null },
+      ...(entity && { entityId: entity.id }),
+    },
+    select: {
+      id: true,
+      nickname: true,
+      ccDueDate: true,
+      ccStatementBalance: true,
+    },
+  });
+  const ccFundingAccount = tdAccounts.find((a) => a.nickname === "Credit Cards");
+
   // Build 90-day forecast for each TD checking account
   const accountForecasts = tdAccounts.map((acct) => {
     const startBal = acct.currentBalance
@@ -98,7 +117,24 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       generateBillOccurrences(b, forecastStart, forecastEnd90)
     ).filter((e) => e.accountId === acct.id);
 
-    const allEvents = [...transferEvents, ...incomeEvents, ...billEvents];
+    // Credit card statement payments funded by this account (Credit Cards x2631)
+    const cardEvents = ccFundingAccount && acct.id === ccFundingAccount.id
+      ? creditCards.flatMap((card) =>
+          generateCardStatementPayment(
+            {
+              id: card.id,
+              nickname: card.nickname,
+              fundingAccountId: acct.id,
+              ccDueDate: card.ccDueDate!,
+              ccStatementBalance: card.ccStatementBalance,
+            },
+            forecastStart,
+            forecastEnd90
+          )
+        )
+      : [];
+
+    const allEvents = [...transferEvents, ...incomeEvents, ...billEvents, ...cardEvents];
     const forecast = buildAccountForecast(startBal, allEvents, minBal, forecastStart, forecastEnd90);
     const breaches = findBreachDays(forecast);
 
@@ -112,8 +148,9 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     return { acct, forecast, breaches, chartData90, startBal, minBal };
   });
 
-  // 14-day schedule for Primary Checking
-  const primaryAcct = tdAccounts.find((a) => a.nickname === "Primary Checking");
+  // 14-day schedule for Primary Checking (or Credit Cards funding account
+  // when it exists and Primary Checking isn't present)
+  const primaryAcct = tdAccounts.find((a) => a.nickname === "Primary Checking") ?? ccFundingAccount;
   const schedule14: { date: string; description: string; amount: number; type: string }[] = [];
 
   if (primaryAcct) {
@@ -129,7 +166,24 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       generateBillOccurrences(b, forecastStart, forecastEnd14)
     ).filter((e) => e.accountId === primaryAcct.id);
 
-    for (const ev of [...xferEvents, ...incEvents, ...billEventsForSchedule].sort((a, b) => a.date.getTime() - b.date.getTime())) {
+    const cardEventsForSchedule =
+      ccFundingAccount && primaryAcct.id === ccFundingAccount.id
+        ? creditCards.flatMap((card) =>
+            generateCardStatementPayment(
+              {
+                id: card.id,
+                nickname: card.nickname,
+                fundingAccountId: primaryAcct.id,
+                ccDueDate: card.ccDueDate!,
+                ccStatementBalance: card.ccStatementBalance,
+              },
+              forecastStart,
+              forecastEnd14
+            )
+          )
+        : [];
+
+    for (const ev of [...xferEvents, ...incEvents, ...billEventsForSchedule, ...cardEventsForSchedule].sort((a, b) => a.date.getTime() - b.date.getTime())) {
       schedule14.push({
         date: ev.date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }),
         description: ev.description,
