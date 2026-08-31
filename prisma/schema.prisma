@@ -87,6 +87,8 @@ model Entity {
   projects           Project[]
   recurringExpenses  RecurringExpense[]
   rentalBookings     RentalBooking[]
+  paystubs           Paystub[]
+  projectedRevenues  ProjectedRevenue[]
 }
 
 model Institution {
@@ -126,13 +128,14 @@ model Account {
   budgets                  Budget[]
   scheduledTransfersFrom   ScheduledTransfer[] @relation("FromAccount")
   scheduledTransfersTo     ScheduledTransfer[] @relation("ToAccount")
-  scheduledBills           ScheduledBill[]
-  accrualEnvelopes         AccrualEnvelope[]
-  tagRules                 TagRule[]
-  incomeSources            IncomeSource[]
-  projects                 Project[]
-  receipts                 Receipt[]
-  debtDetail               DebtDetail?
+  scheduledBills       ScheduledBill[]
+  accrualEnvelopes     AccrualEnvelope[]
+  tagRules             TagRule[]
+  incomeSources        IncomeSource[]
+  projects             Project[]
+  receipts             Receipt[]
+  debtDetail           DebtDetail?
+  projectedRevenues    ProjectedRevenue[]
 
   @@unique([entityId, nickname])
 }
@@ -616,6 +619,64 @@ model IncomeSource {
 
   entity  Entity  @relation(fields: [entityId], references: [id])
   account Account @relation(fields: [accountId], references: [id])
+}
+
+// ─── Paystubs (personal income verification) ──────────────────────────────────
+// Amounts in integer cents — never floats. Ground rules: no fabricated data;
+// a null field means the stub didn't state it.
+
+model Paystub {
+  id                String    @id @default(uuid())
+  entityId          String
+  uploadedBy        String    // user id
+  fileKey           String    // object storage key (encrypted at rest)
+  capturedAt        DateTime
+  extractStatus     String    @default("pending") // pending | complete | failed
+  employeeName      String?
+  employerName      String?
+  payPeriodStart    DateTime?
+  payPeriodEnd      DateTime?
+  payDate           DateTime?
+  // Pay frequency inferred at extraction; user confirms at review
+  payFrequency      String?   // semi_monthly | biweekly | weekly | monthly
+  grossPayCents     Int?
+  pretaxDeductions  Json?     // [{ label: "401(k)", amountCents: 10000 }, ...]
+  taxesCents        Int?      // sum of all tax withholdings
+  taxBreakdown      Json?     // [{ label: "Federal", amountCents: 42000 }, ...]
+  netPayCents       Int?
+  // Math verification: gross − pretax − taxes = net (0 = balanced)
+  balanceDiffCents  Int?
+  extractionRaw     Json?     // raw Claude extraction response
+  confirmedAt       DateTime?
+  confirmedById     String?
+  notes             String?
+  archivedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  entity Entity @relation(fields: [entityId], references: [id])
+}
+
+// ─── Projected revenue (manual/forecast-only business income) ─────────────────
+// NOT a booked transaction — tentative income for predictive purposes.
+// Captured revenue comes from bank deposits (JCSB/QuickBooks) instead.
+
+model ProjectedRevenue {
+  id          String    @id @default(uuid())
+  entityId    String
+  accountId   String?   // account the revenue is expected to land in (optional)
+  description String
+  expectedDate DateTime
+  amountCents Int       // cents — never float; positive amount
+  source      String    @default("manual") // manual | other
+  notes       String?
+  realizedAt  DateTime? // set when matching deposit is observed (manual flag)
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  entity  Entity   @relation(fields: [entityId], references: [id])
+  account Account? @relation(fields: [accountId], references: [id])
 }
 
 // ─── Plaid items (one per institution login) ──────────────────────────────────

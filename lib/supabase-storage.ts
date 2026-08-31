@@ -1,6 +1,7 @@
 import { request as httpsRequest } from "node:https";
 
 const BUCKET = "receipts";
+const PAYSTUB_BUCKET = "paystubs";
 
 function getStorageConfig() {
   const url = process.env.SUPABASE_URL?.trim();
@@ -152,6 +153,36 @@ export async function getReceiptSignedUrl(fileKey: string): Promise<string> {
 
 export async function downloadReceiptFile(fileKey: string): Promise<Buffer> {
   return downloadFile(BUCKET, fileKey);
+}
+
+export async function uploadPaystubFile(
+  buffer: Buffer,
+  fileKey: string,
+  mimeType: string
+): Promise<void> {
+  return uploadFile(buffer, PAYSTUB_BUCKET, fileKey, mimeType, false);
+}
+
+export async function getPaystubSignedUrl(fileKey: string): Promise<string> {
+  const { url, key } = getStorageConfig();
+  const res = await fetch(
+    `${url}/storage/v1/object/sign/${PAYSTUB_BUCKET}/${encodeURIComponent(fileKey)}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn: 3600 }),
+      cache: "no-store",
+    }
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(
+      `Signed URL failed: ${(body as { message?: string }).message ?? res.statusText}`
+    );
+  }
+  const data = (await res.json()) as { signedURL?: string; signedUrl?: string };
+  const path = data.signedURL ?? data.signedUrl ?? "";
+  return path.startsWith("http") ? path : `${url}/storage/v1${path}`;
 }
 
 export async function uploadLogoFile(

@@ -43,6 +43,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
   const envelopeItem = { label: "Envelopes", base: "/envelope" };
 
   const businessItems = [
+    { label: "Revenue", base: `/business/${activeBucket}/revenue`, href: buildHref(`/business/${activeBucket}/revenue`) },
     { label: "Receipts", base: "/receipts", href: buildHref("/receipts") },
     {
       label: "P&L Report",
@@ -54,6 +55,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
   ];
 
   const personalItems = [
+    { label: "Income", base: "/personal/income", href: "/personal/income" as Route },
     { label: "Net Worth", base: "/personal/net-worth", href: "/personal/net-worth" as Route },
     { label: "Mortgage", base: "/personal/mortgage", href: "/personal/mortgage" as Route },
     { label: "Debt Tracker", base: "/personal/debt-free", href: "/personal/debt-free" as Route },
