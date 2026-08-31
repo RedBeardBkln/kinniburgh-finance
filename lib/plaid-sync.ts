@@ -33,6 +33,12 @@ export interface SyncResult {
   added: number;
   modified: number;
   removed: number;
+  /** Institution login name that was synced (all sibling accounts share one Item) */
+  institutionName: string | null;
+  /** Credit cards whose statement data was refreshed this sync */
+  cardsUpdated: { accountNickname: string; dueDate: string | null; statementBalance: string | null }[];
+  /** Why statement data was unavailable, if it was (e.g. product not granted yet) */
+  liabilitiesNote: string | null;
 }
 
 // ── Pure normalization (testable without DB) ──────────────────────────────────
@@ -144,7 +150,7 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
   // Load account→entity mapping for this item
   const accounts = await db.account.findMany({
     where: { plaidItemId: itemId },
-    select: { id: true, entityId: true, plaidAccountId: true },
+    select: { id: true, entityId: true, plaidAccountId: true, nickname: true },
   });
   const accountByPlaidId = new Map(
     accounts
@@ -241,10 +247,16 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
   // Credit card statement data: pull Liabilities and persist due date +
   // statement balance + minimum payment + APR per credit-card account.
   // Non-fatal: institutions without liability data simply skip.
+  const cardsUpdated: SyncResult["cardsUpdated"] = [];
+  let liabilitiesNote: string | null = null;
   const ccUpdatePromises: Promise<unknown>[] = [];
   try {
     const liabilitiesRes = await getPlaidClient().liabilitiesGet({ access_token: accessToken });
-    for (const card of liabilitiesRes.data.liabilities?.credit ?? []) {
+    const creditCards = liabilitiesRes.data.liabilities?.credit ?? [];
+    if (creditCards.length === 0) {
+      liabilitiesNote = "No credit card liability data returned — the bank may not support Liabilities, or the item may need re-linking to grant it.";
+    }
+    for (const card of creditCards) {
       if (!card.account_id) continue;
       const localAcct = accountByPlaidId.get(card.account_id);
       if (!localAcct) continue;
@@ -261,9 +273,14 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
           },
         })
       );
+      cardsUpdated.push({
+        accountNickname: localAcct.nickname,
+        dueDate: normalized.dueDate?.toISOString() ?? null,
+        statementBalance: normalized.statementBalance?.toString() ?? null,
+      });
     }
   } catch (err) {
-    console.warn("[plaid-sync] liabilitiesGet skipped:", (err as Error).message);
+    liabilitiesNote = `Statement data unavailable: ${(err as Error).message}`;
   }
 
   await Promise.all([
@@ -293,8 +310,18 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
     }),
   ]);
 
-  console.log("[plaid-sync] complete", { itemId, added, modified, removed });
-  return { added, modified, removed };
+  const institutionName = plaidItem.institutionName ?? null;
+
+  console.log("[plaid-sync] complete", {
+    itemId,
+    institutionName,
+    added,
+    modified,
+    removed,
+    cardsUpdated: cardsUpdated.length,
+    liabilitiesNote,
+  });
+  return { added, modified, removed, institutionName, cardsUpdated, liabilitiesNote };
 }
 
 // ── Auto-tag uncategorized transactions against saved tag rules ───────────────

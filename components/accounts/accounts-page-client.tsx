@@ -244,12 +244,29 @@ export function AccountsPageClient({ accounts, institutions, entities }: Props) 
   const [modal, setModal] = useState<ModalState>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [syncingItemId, setSyncingItemId] = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<{
+    itemId: string;
+    institutionName: string | null;
+    added: number;
+    cardsUpdated: { accountNickname: string; dueDate: string | null; statementBalance: string | null }[];
+    liabilitiesNote: string | null;
+  } | null>(null);
   const [, startTransition] = useTransition();
 
   async function onSync(itemId: string) {
     setSyncingItemId(itemId);
+    setSyncResult(null);
     try {
-      await fetch(`/api/plaid/sync/${itemId}`, { method: "POST" });
+      const resp = await fetch(`/api/plaid/sync/${itemId}`, { method: "POST" });
+      if (resp.ok) {
+        const data = (await resp.json()) as {
+          added: number;
+          institutionName: string | null;
+          cardsUpdated: { accountNickname: string; dueDate: string | null; statementBalance: string | null }[];
+          liabilitiesNote: string | null;
+        };
+        setSyncResult({ itemId, ...data });
+      }
       router.refresh();
     } finally {
       setSyncingItemId(null);
@@ -294,129 +311,164 @@ export function AccountsPageClient({ accounts, institutions, entities }: Props) 
           </div>
         </div>
 
+        {/* Sync result feedback */}
+        {syncResult && (
+          <div className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm space-y-1">
+            <p className="font-medium">
+              Synced {syncResult.institutionName ? `${syncResult.institutionName}` : "bank"} — {syncResult.added} new transaction{syncResult.added !== 1 ? "s" : ""}.
+              <span className="ml-1 font-normal text-muted-foreground">
+                (A sync covers every account under the same bank login.)
+              </span>
+            </p>
+            {syncResult.cardsUpdated.length > 0 && (
+              <p className="text-green-600">
+                Statement data refreshed for {syncResult.cardsUpdated.length} card{syncResult.cardsUpdated.length !== 1 ? "s" : ""}:{" "}
+                {syncResult.cardsUpdated
+                  .map((c) => {
+                    const due = c.dueDate ? new Date(c.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "no due date";
+                    const bal = c.statementBalance ? `$${parseFloat(c.statementBalance).toFixed(2)}` : "no balance";
+                    return `${c.accountNickname} (${bal} due ${due})`;
+                  })
+                  .join("; ")}.
+              </p>
+            )}
+            {syncResult.cardsUpdated.length === 0 && syncResult.liabilitiesNote && (
+              <p className="text-amber-600">
+                {syncResult.liabilitiesNote}{" "}
+                <Link href={`/accounts/connect?itemId=${syncResult.itemId}`} className="underline underline-offset-2">
+                  Re-link the bank
+                </Link>{" "}
+                to grant statement access.
+              </p>
+            )}
+          </div>
+        )}
+
         {[...byEntity.entries()].map(([entityName, entityAccounts]) => (
           <Card key={entityName}>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">{entityName}</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-2 font-medium">Account</th>
-                    <th className="px-4 py-2 font-medium">Institution</th>
-                    <th className="px-4 py-2 font-medium">Type</th>
-                    <th className="px-4 py-2 font-medium">Mode</th>
-                    <th className="px-4 py-2 font-medium text-right">Balance</th>
-                    <th className="px-4 py-2 font-medium text-right">Statement Due</th>
-                    <th className="px-4 py-2 font-medium">Due Date</th>
-                    <th className="px-4 py-2 font-medium">Min. Balance</th>
-                    <th className="px-4 py-2 font-medium">Last synced</th>
-                    <th className="px-4 py-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entityAccounts.map((acct) => (
-                    <tr key={acct.id} className={`border-b last:border-0 hover:bg-muted/30 ${archivingId === acct.id ? "opacity-30" : ""}`}>
-                      <td className="px-4 py-2">
-                        <span className="font-medium">{acct.nickname}</span>
-                        {acct.mask && <span className="ml-1.5 font-mono text-xs text-muted-foreground">···{acct.mask}</span>}
-                      </td>
-                      <td className="px-4 py-2 text-muted-foreground">
-                        {acct.institutionName}
-                        {acct.plaidStatus === null && acct.integrationMode !== "plaid" ? null : null}
-                      </td>
-                      <td className="px-4 py-2 text-muted-foreground capitalize">
-                        {acct.accountType.replace("_", " ")}
-                      </td>
-                      <td className="px-4 py-2">
-                        <div className="flex items-center gap-2">
-                          {modeBadge(acct.integrationMode)}
-                          {acct.plaidStatus === "requires_login" && (
-                            <span className="inline-flex items-center rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">Re-link required</span>
-                          )}
-                          {acct.plaidStatus === "pending_expiration" && (
-                            <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Expiring soon</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-2 text-right font-medium tabular-nums">
-                        {acct.currentBalance != null
-                          ? `$${parseFloat(acct.currentBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}`
-                          : <span className="text-muted-foreground">—</span>}
-                      </td>
-                      {acct.accountType === "credit_card" ? (
-                        <>
-                          <td className="px-4 py-2 text-right tabular-nums">
-                            {acct.ccStatementBalance != null ? (
-                              <span className="font-medium text-amber-700 dark:text-amber-300">
-                                ${parseFloat(acct.ccStatementBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-2">
-                            {acct.ccDueDate ? (
-                              <DueDateCell dueDate={acct.ccDueDate} />
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-4 py-2 text-muted-foreground">—</td>
-                          <td className="px-4 py-2 text-muted-foreground">—</td>
-                        </>
-                      )}
-                      <td className="px-4 py-2 text-muted-foreground tabular-nums">
-                        {acct.minimumBalance
-                          ? `$${parseFloat(acct.minimumBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}`
-                          : "—"}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-muted-foreground">
-                        {acct.plaidLastSyncedAt
-                          ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(acct.plaidLastSyncedAt))
-                          : acct.currentBalanceAt
-                          ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(acct.currentBalanceAt))
-                          : "—"}
-                      </td>
-                      <td className="px-4 py-2">
-                        <div className="flex items-center gap-3">
-                          <button onClick={() => setModal({ mode: "edit", account: acct })} className="text-xs text-primary hover:underline">Edit</button>
-                          {acct.integrationMode === "plaid" && acct.plaidItemId ? (
-                            acct.plaidStatus === "requires_login" || acct.plaidStatus === "pending_expiration" ? (
-                              <Link href={`/accounts/connect?itemId=${acct.plaidItemId}`} className="text-xs font-medium text-red-600 hover:underline">Re-link</Link>
-                            ) : (
-                              <button
-                                onClick={() => onSync(acct.plaidItemId!)}
-                                disabled={syncingItemId === acct.plaidItemId}
-                                className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-                              >
-                                {syncingItemId === acct.plaidItemId ? "Syncing…" : "Sync now"}
-                              </button>
-                            )
-                          ) : acct.accountType === "loan" || acct.accountType === "insurance" ? (
-                            <span className="text-xs text-muted-foreground">Manual entry</span>
-                          ) : acct.institutionName !== "unsupported" ? (
-                            <Link href="/accounts/connect" className="text-xs text-primary hover:underline">Connect to Plaid</Link>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Import CSV</span>
-                          )}
-                          <button
-                            onClick={() => onArchive(acct.id, acct.nickname)}
-                            disabled={archivingId === acct.id}
-                            className="text-xs text-destructive hover:underline disabled:opacity-50"
-                          >
-                            Archive
-                          </button>
-                        </div>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[980px] text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-2 font-medium whitespace-nowrap">Account</th>
+                      <th className="px-4 py-2 font-medium whitespace-nowrap">Institution</th>
+                      <th className="px-4 py-2 font-medium whitespace-nowrap">Type</th>
+                      <th className="px-4 py-2 font-medium whitespace-nowrap">Mode</th>
+                      <th className="px-4 py-2 font-medium text-right whitespace-nowrap">Balance</th>
+                      <th className="px-4 py-2 font-medium text-right whitespace-nowrap">Statement Due</th>
+                      <th className="px-4 py-2 font-medium whitespace-nowrap">Due Date</th>
+                      <th className="px-4 py-2 font-medium whitespace-nowrap">Min. Balance</th>
+                      <th className="px-4 py-2 font-medium whitespace-nowrap">Last synced</th>
+                      <th className="px-4 py-2 font-medium whitespace-nowrap text-right">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {entityAccounts.map((acct) => (
+                      <tr key={acct.id} className={`border-b last:border-0 hover:bg-muted/30 ${archivingId === acct.id ? "opacity-30" : ""}`}>
+                        <td className="px-4 py-2 whitespace-nowrap">
+                          <span className="font-medium">{acct.nickname}</span>
+                          {acct.mask && <span className="ml-1.5 font-mono text-xs text-muted-foreground">···{acct.mask}</span>}
+                        </td>
+                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                          {acct.institutionName}
+                        </td>
+                        <td className="px-4 py-2 text-muted-foreground capitalize whitespace-nowrap">
+                          {acct.accountType.replace("_", " ")}
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center gap-2">
+                            {modeBadge(acct.integrationMode)}
+                            {acct.plaidStatus === "requires_login" && (
+                              <span className="inline-flex items-center rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 whitespace-nowrap">Re-link required</span>
+                            )}
+                            {acct.plaidStatus === "pending_expiration" && (
+                              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 whitespace-nowrap">Expiring soon</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 text-right font-medium tabular-nums whitespace-nowrap">
+                          {acct.currentBalance != null
+                            ? `$${parseFloat(acct.currentBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+                            : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        {acct.accountType === "credit_card" ? (
+                          <>
+                            <td className="px-4 py-2 text-right tabular-nums whitespace-nowrap">
+                              {acct.ccStatementBalance != null ? (
+                                <span className="font-medium text-amber-700 dark:text-amber-300">
+                                  ${parseFloat(acct.ccStatementBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 whitespace-nowrap">
+                              {acct.ccDueDate ? (
+                                <DueDateCell dueDate={acct.ccDueDate} />
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-4 py-2 text-right text-muted-foreground">—</td>
+                            <td className="px-4 py-2 text-muted-foreground">—</td>
+                          </>
+                        )}
+                        <td className="px-4 py-2 text-muted-foreground tabular-nums whitespace-nowrap">
+                          {acct.minimumBalance
+                            ? `$${parseFloat(acct.minimumBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                          {acct.plaidLastSyncedAt
+                            ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(acct.plaidLastSyncedAt))
+                            : acct.currentBalanceAt
+                            ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(acct.currentBalanceAt))
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+                            <button onClick={() => setModal({ mode: "edit", account: acct })} className="text-xs text-primary hover:underline">Edit</button>
+                            {acct.integrationMode === "plaid" && acct.plaidItemId ? (
+                              acct.plaidStatus === "requires_login" || acct.plaidStatus === "pending_expiration" ? (
+                                <Link href={`/accounts/connect?itemId=${acct.plaidItemId}`} className="text-xs font-medium text-red-600 hover:underline">Re-link</Link>
+                              ) : (
+                                <button
+                                  onClick={() => onSync(acct.plaidItemId!)}
+                                  disabled={syncingItemId === acct.plaidItemId}
+                                  title="Syncs this bank login (all accounts under it share one connection)"
+                                  className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                                >
+                                  {syncingItemId === acct.plaidItemId ? "Syncing…" : "Sync now"}
+                                </button>
+                              )
+                            ) : acct.accountType === "loan" || acct.accountType === "insurance" ? (
+                              <span className="text-xs text-muted-foreground">Manual entry</span>
+                            ) : acct.institutionName !== "unsupported" ? (
+                              <Link href="/accounts/connect" className="text-xs text-primary hover:underline">Connect to Plaid</Link>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Import CSV</span>
+                            )}
+                            <button
+                              onClick={() => onArchive(acct.id, acct.nickname)}
+                              disabled={archivingId === acct.id}
+                              className="text-xs text-destructive hover:underline disabled:opacity-50"
+                            >
+                              Archive
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </CardContent>
           </Card>
         ))}

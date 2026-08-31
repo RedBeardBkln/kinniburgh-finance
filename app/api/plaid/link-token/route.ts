@@ -37,7 +37,11 @@ export async function GET(req: Request) {
   const response = await getPlaidClient().linkTokenCreate({
     user: { client_user_id: session.user.id! },
     client_name: "Banana Stand",
-    products: accessToken ? undefined : [Products.Transactions],
+    // New connections request Transactions + Liabilities. Update mode
+    // (accessToken present) omits `products`, but passing an access_token
+    // through Link re-authorizes the item and adds products granted then —
+    // re-linking an existing card item brings in Liabilities.
+    products: accessToken ? undefined : [Products.Transactions, Products.Liabilities],
     access_token: accessToken,
     country_codes: [CountryCode.Us],
     language: "en",
