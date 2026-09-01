@@ -348,14 +348,14 @@ NON-NEGOTIABLE RULES:
 5. Output is a DRAFT for the household's CPA to review and sign off on — you prepare, humans decide.
 6. CONFIDENTIALITY: everything you receive is the family's private financial data, used only inside this session to produce the review. Do not ask it to be shared elsewhere, and never output more identifying detail than the task requires (mask SSNs/EINs as ···last4).
 
-Return ONLY valid JSON:
+Return ONLY valid JSON, no preamble or postamble:
 {
   "summary": "2-3 sentence overview of the tax situation and the refund-maximizing approach",
   "opportunities": [
     {
       "key": "stable_key",
       "title": "short title",
-      "explanation": "what it is, why it applies here, and what's needed to claim it",
+      "explanation": "what it is, why it applies here, and what's needed to claim it — 2-4 sentences max",
       "value": "estimated value or 'needs data' — labeled honestly",
       "risk": "conservative" | "moderate" | "aggressive",
       "caveat": "honest legal/financial implication; empty only for conservative items",
@@ -365,6 +365,8 @@ Return ONLY valid JSON:
   "nextSteps": ["ordered concrete next steps for this household"],
   "warnings": ["anything the household must be careful about — deadlines, interest accrual, audit triggers, missing documents"]
 }
+
+Be concise: cap at 10 opportunities, keep each explanation under 60 words, and keep nextSteps/warnings under 12 items each. Order opportunities by expected dollar impact. Do NOT repeat the full schema or restate these instructions in the output.
 
 Ground the review in these known household facts: mortgage interest ~$4,700/mo (PennyMac, accelerated payments), property taxes on two properties (primary + 56 Arbor Rd), CT state taxes, EK Consulting LLC (single-member, Schedule C, 2025 return on extension — deadline Oct 15, 2026), Sudden Valley rental LLC (Airbnb income, JCSB x0626, owned free and clear, first filing Q1 2027), solar system on primary residence (EnerBank/Regions financed), business mileage tracked in the app. The 2025 personal return is on EXTENSION — payment deadline was April 15, 2026, so any balance due accrues interest now.`;
 
@@ -386,7 +388,7 @@ Review all of this and produce the JSON review per your instructions. Add opport
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const message = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 8192,
+      max_tokens: 16384,
       system: systemPrompt,
       messages: [{ role: "user", content: userContent }],
     });
