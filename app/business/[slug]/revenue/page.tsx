@@ -5,8 +5,8 @@ import { AppShell } from "@/components/app-shell";
 import { getEntityBySlug } from "@/lib/entity";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RevenueBarChart } from "@/components/business/revenue-bar-chart";
-import { ForecastBookingsCard } from "@/components/business/forecast-bookings-card";
 import { ProjectedRevenueCard } from "@/components/business/projected-revenue-card";
+import Link from "next/link";
 import type { Route } from "next";
 
 interface PageProps {
@@ -229,21 +229,125 @@ export default async function RevenuePage({ params }: PageProps) {
 
         {/* Sudden Valley: future reservations (tentative) */}
         {isSuddenValley && (
-          <ForecastBookingsCard
-            entityId={entity.id}
-            entityLabel={entityLabel}
-            bookings={rentalBookings.map((b) => ({
-              id: b.id,
-              confirmationCode: b.confirmationCode,
-              startDate: b.startDate.toISOString(),
-              endDate: b.endDate.toISOString(),
-              nights: b.nights,
-              guest: b.guest,
-              listing: b.listing,
-              grossEarnings: b.grossEarnings.toString(),
-              payoutDate: b.payoutDate.toISOString(),
-            }))}
-          />
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="text-base">Future reservations — forecasted revenue</CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Tentative Airbnb reservations for {entityLabel}. Bookings can be modified or
+                    cancelled — used for predictive purposes only. Captured revenue appears in
+                    the transaction list once deposits post to the bank account.
+                  </p>
+                </div>
+                <Link
+                  href="/forecast?bucket=sudden-valley#rental-bookings"
+                  className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  Upload / manage CSV →
+                </Link>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {rentalBookings.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No reservation bookings uploaded yet. Upload the Airbnb reservations CSV from
+                  the Forecast page — the button above takes you straight to it.
+                </p>
+              ) : (
+                <>
+                  {(() => {
+                    const today = new Date();
+                    today.setUTCHours(0, 0, 0, 0);
+                    const upcoming = rentalBookings.filter((b) => b.endDate >= today);
+                    const byMonth = new Map<string, number>();
+                    for (const b of upcoming) {
+                      const key = b.payoutDate.toLocaleDateString("en-US", {
+                        month: "long",
+                        year: "numeric",
+                        timeZone: "UTC",
+                      });
+                      byMonth.set(key, (byMonth.get(key) ?? 0) + Number(b.grossEarnings));
+                    }
+                    const totalUpcoming = upcoming.reduce(
+                      (s, b) => s + Number(b.grossEarnings),
+                      0
+                    );
+                    if (byMonth.size === 0) return null;
+                    return (
+                      <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          Forecasted payout revenue by month
+                        </p>
+                        <div className="grid gap-1">
+                          {Array.from(byMonth.entries()).map(([month, total]) => (
+                            <div key={month} className="flex justify-between text-sm">
+                              <span>{month}</span>
+                              <span className="font-medium text-green-600">{fmtUSD(total)}</span>
+                            </div>
+                          ))}
+                          <div className="flex justify-between text-sm font-semibold border-t pt-1.5 mt-0.5">
+                            <span>Total upcoming (tentative)</span>
+                            <span className="text-green-600">{fmtUSD(totalUpcoming)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-muted-foreground">
+                          <th className="pb-2 font-medium">Guest</th>
+                          <th className="pb-2 px-3 font-medium">Check-in</th>
+                          <th className="pb-2 px-3 font-medium">Check-out</th>
+                          <th className="pb-2 px-3 font-medium text-center">Nights</th>
+                          <th className="pb-2 px-3 font-medium text-right">Gross earnings</th>
+                          <th className="pb-2 px-3 font-medium text-right">Payout</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rentalBookings.slice(0, 10).map((b) => {
+                          const isPast = b.endDate < new Date();
+                          return (
+                            <tr
+                              key={b.id}
+                              className={`border-b last:border-0 hover:bg-muted/30 ${isPast ? "opacity-50" : ""}`}
+                            >
+                              <td className="py-2 font-medium">{b.guest}</td>
+                              <td className="py-2 px-3 text-muted-foreground">
+                                {b.startDate.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                              </td>
+                              <td className="py-2 px-3 text-muted-foreground">
+                                {b.endDate.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                              </td>
+                              <td className="py-2 px-3 text-center text-muted-foreground">{b.nights}</td>
+                              <td className="py-2 px-3 text-right font-medium text-green-600">
+                                {fmtUSD(Number(b.grossEarnings))}
+                              </td>
+                              <td className="py-2 px-3 text-right text-xs text-muted-foreground">
+                                {b.payoutDate.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {rentalBookings.length > 10 && (
+                    <p className="text-xs text-muted-foreground">
+                      Showing 10 of {rentalBookings.length} reservations —{" "}
+                      <Link href="/forecast?bucket=sudden-valley#rental-bookings" className="text-primary hover:underline">
+                        view all on the Forecast page
+                      </Link>
+                      .
+                    </p>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* Projected revenue (manual, forecast-only) */}

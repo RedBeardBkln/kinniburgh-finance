@@ -560,16 +560,18 @@ export default async function ForecastPage({ searchParams }: PageProps) {
 
         {/* ── Rental bookings ──────────────────────────────────────────── */}
         {entity && (
-          <RentalBookingsSection
-            entityId={entity.id}
-            entityName={entity.name}
-            bookings={rentalBookings.map((b) => ({
-              ...b,
-              startDate: new Date(b.startDate),
-              endDate: new Date(b.endDate),
-              payoutDate: new Date(b.payoutDate),
-            }))}
-          />
+          <div id="rental-bookings" className="scroll-mt-20">
+            <RentalBookingsSection
+              entityId={entity.id}
+              entityName={entity.name}
+              bookings={rentalBookings.map((b) => ({
+                ...b,
+                startDate: new Date(b.startDate),
+                endDate: new Date(b.endDate),
+                payoutDate: new Date(b.payoutDate),
+              }))}
+            />
+          </div>
         )}
 
         {/* ── Income sources ────────────────────────────────────────────── */}
