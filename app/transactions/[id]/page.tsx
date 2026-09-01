@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { TransactionTagsEditor } from "@/components/transactions/transaction-tags-editor";
+import { TransactionNotesEditor } from "@/components/transactions/transaction-notes-editor";
 import type { Route } from "next";
 
 export default async function TransactionDetailPage({
@@ -153,6 +154,16 @@ export default async function TransactionDetailPage({
               accountNickname={tx.account.nickname}
               accountMask={tx.account.mask}
             />
+          </CardContent>
+        </Card>
+
+        {/* Notes */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Note</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TransactionNotesEditor transactionId={id} initialNotes={tx.notes} />
           </CardContent>
         </Card>
       </div>

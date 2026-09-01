@@ -159,6 +159,7 @@ model Transaction {
   payeeRaw           String?
   payeeNormalized    String?
   description        String?
+  notes              String?   // user-entered note about this transaction
   source             String    // plaid | import | manual | receipt
   plaidTransactionId String?   @unique
   pending            Boolean   @default(false)

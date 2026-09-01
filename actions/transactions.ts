@@ -200,6 +200,43 @@ export async function updateTransactionTags(
   return { success: true };
 }
 
+// ── Update transaction notes ──────────────────────────────────────────────────
+
+const notesSchema = z.string().max(2000).nullable();
+
+export async function updateTransactionNotes(
+  transactionId: string,
+  notes: string | null
+) {
+  const user = await requireAuth();
+  const parsed = notesSchema.parse(notes);
+
+  const tx = await db.transaction.findUnique({
+    where: { id: transactionId, archivedAt: null },
+  });
+  if (!tx) throw new Error("Transaction not found");
+
+  // Audit log
+  await db.auditLog.create({
+    data: {
+      transactionId,
+      changedBy: user.id!,
+      changeType: "note_change",
+      before: { notes: tx.notes ?? null },
+      after: { notes: parsed },
+    },
+  });
+
+  await db.transaction.update({
+    where: { id: transactionId, archivedAt: null },
+    data: { notes: parsed },
+  });
+
+  revalidatePath("/transactions");
+  revalidatePath(`/transactions/${transactionId}`);
+  return { success: true };
+}
+
 // ── Assign transaction to project ────────────────────────────────────────────
 
 export async function updateTransactionProject(
