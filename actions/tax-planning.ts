@@ -8,6 +8,7 @@ import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 import { uploadTaxFile, downloadTaxFile } from "@/lib/supabase-storage";
 import { extractDocument, classifyDocType, type ExtractedDocument } from "@/lib/doc-extract";
+import { generateDocumentName } from "@/lib/doc-naming";
 import { TAX_QUESTION_BANK, baseOpportunitiesForHousehold } from "@/lib/tax-guidance";
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -141,7 +142,7 @@ const MAX_SIZE = 20 * 1024 * 1024;
 
 export async function uploadTaxDocument(
   formData: FormData
-): Promise<{ documentId: string; extraction: ExtractedDocument | null }> {
+): Promise<{ documentId: string; documentName: string | null; extraction: ExtractedDocument | null }> {
   const user = await requireAuth();
 
   const file = formData.get("file");
@@ -180,6 +181,7 @@ export async function uploadTaxDocument(
 
   // Extract immediately (tax docs: W-2/1099/1098/returns have structured data)
   let extraction: ExtractedDocument | null = null;
+  let documentName: string | null = null;
   const extractable =
     docType === "w2" || docType === "1099" || docType === "k1" ||
     docType === "mortgage_interest" || docType === "tax_return" ||
@@ -189,9 +191,12 @@ export async function uploadTaxDocument(
     try {
       const mappedType = classifyDocType(docType, fileKey);
       extraction = await extractDocument(buffer, mimeType, mappedType);
+      // Autogenerate a human-friendly name from the parsed data
+      documentName = generateDocumentName(docType, taxYear, extraction);
       await db.document.update({
         where: { id: docId },
         data: {
+          documentName,
           extractionStatus: "complete",
           extractionData: extraction as unknown as Prisma.InputJsonValue,
           extractionModel: "claude-sonnet-4-6",
@@ -206,9 +211,52 @@ export async function uploadTaxDocument(
     }
   }
 
+  // Non-extractable docs still get a type + year name
+  if (!documentName) {
+    documentName = generateDocumentName(docType, taxYear, null);
+    await db.document.update({
+      where: { id: docId },
+      data: { documentName },
+    });
+  }
+
   revalidatePath("/documents");
   revalidatePath("/tax");
-  return { documentId: docId, extraction };
+  return { documentId: docId, documentName, extraction };
+}
+
+// ── Edit document name / type ────────────────────────────────────────────────
+
+const updateDocSchema = z.object({
+  documentId: z.string().uuid(),
+  documentName: z.string().min(1).max(200),
+  docType: z.enum(TAX_DOC_TYPES),
+});
+
+export async function updateTaxDocument(
+  input: z.input<typeof updateDocSchema>
+): Promise<{ success: true } | { error: string }> {
+  await requireAuth();
+
+  const parsed = updateDocSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  }
+
+  const doc = await db.document.findUnique({ where: { id: parsed.data.documentId } });
+  if (!doc || doc.archivedAt) return { error: "Document not found" };
+
+  await db.document.update({
+    where: { id: parsed.data.documentId },
+    data: {
+      documentName: parsed.data.documentName.trim(),
+      docType: parsed.data.docType,
+    },
+  });
+
+  revalidatePath("/tax");
+  revalidatePath("/documents");
+  return { success: true };
 }
 
 export async function getTaxDocumentSignedUrl(documentId: string) {

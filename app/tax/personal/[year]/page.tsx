@@ -110,6 +110,7 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
           documents={docs.map((d) => ({
             id: d.id,
             docType: d.docType,
+            documentName: d.documentName,
             notes: d.notes,
             extractionStatus: d.extractionStatus,
             createdAt: d.createdAt.toISOString(),

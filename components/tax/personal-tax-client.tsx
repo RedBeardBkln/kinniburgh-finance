@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
+import { documentTypeLabel } from "@/lib/doc-naming";
 import {
   uploadTaxDocument,
   answerTaxQuestion,
   generateTaxReview,
+  updateTaxDocument,
   type TaxReviewResult,
 } from "@/actions/tax-planning";
 
@@ -27,6 +29,7 @@ interface Question {
 interface DocumentRow {
   id: string;
   docType: string;
+  documentName: string | null;
   notes: string | null;
   extractionStatus: string | null;
   createdAt: string;
@@ -133,8 +136,8 @@ export function PersonalTaxClient(props: Props) {
       const result = await uploadTaxDocument(formData);
       setUploadMsg(
         result.extraction
-          ? `Uploaded & parsed. ${result.extraction.summary ?? ""}`
-          : "Uploaded. Use the AI Review to analyze it."
+          ? `✓ Uploaded & parsed — saved as "${result.documentName ?? "document"}" below. ${result.extraction.summary ?? ""}`
+          : `✓ Uploaded — saved as "${result.documentName ?? "document"}" in your document list below.`
       );
       formEl.reset();
       startTransition(() => router.refresh());
@@ -257,7 +260,11 @@ export function PersonalTaxClient(props: Props) {
               {uploading ? "Uploading & parsing…" : "Upload & Parse"}
             </button>
           </form>
-          {uploadMsg && <p className="text-xs text-green-600">{uploadMsg}</p>}
+          {uploadMsg && (
+            <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950 dark:text-green-300">
+              {uploadMsg}
+            </p>
+          )}
           {uploadError && <p className="text-xs text-destructive">{uploadError}</p>}
 
           {props.documents.length > 0 && (
@@ -265,36 +272,16 @@ export function PersonalTaxClient(props: Props) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-2 font-medium">Type</th>
+                    <th className="py-2 font-medium">Document</th>
+                    <th className="py-2 px-3 font-medium">Type</th>
                     <th className="py-2 px-3 font-medium">Parsed</th>
                     <th className="py-2 px-3 font-medium">Uploaded</th>
-                    <th className="py-2 px-3 font-medium">Notes</th>
+                    <th className="py-2 px-3 font-medium text-right">Edit</th>
                   </tr>
                 </thead>
                 <tbody>
                   {props.documents.map((d) => (
-                    <tr key={d.id} className="border-b last:border-0">
-                      <td className="py-2 text-xs">
-                        <span className="rounded bg-muted px-1.5 py-0.5 font-medium">
-                          {d.docType}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-xs">
-                        {d.extractionStatus === "complete" ? (
-                          <span className="text-green-600">✓ Extracted</span>
-                        ) : d.extractionStatus === "failed" ? (
-                          <span className="text-destructive">Failed</span>
-                        ) : d.extractionStatus ? (
-                          <span className="text-amber-600">{d.extractionStatus}</span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 text-xs text-muted-foreground">{fmtDate(d.createdAt)}</td>
-                      <td className="py-2 px-3 text-xs text-muted-foreground max-w-xs truncate">
-                        {d.notes ?? "—"}
-                      </td>
-                    </tr>
+                    <DocumentRowEditable key={d.id} doc={d} />
                   ))}
                 </tbody>
               </table>
@@ -588,5 +575,118 @@ export function PersonalTaxClient(props: Props) {
         pendingHrefRef={pendingHrefRef}
       />
     </div>
+  );
+}
+
+// ── Editable document row ─────────────────────────────────────────────────────
+
+function DocumentRowEditable({ doc }: { doc: DocumentRow }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(doc.documentName ?? documentTypeLabel(doc.docType));
+  const [docType, setDocType] = useState<string>(doc.docType);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    if (!name.trim()) {
+      setError("Name can't be empty.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const result = await updateTaxDocument({
+      documentId: doc.id,
+      documentName: name.trim(),
+      docType: docType as "w2" | "1099" | "k1" | "extension" | "property_tax" | "mortgage_interest" | "tax_return" | "bank_statement" | "other",
+    });
+    setSaving(false);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    setEditing(false);
+  }
+
+  const typeLabel = documentTypeLabel(docType);
+
+  return (
+    <tr className="border-b last:border-0">
+      <td className="py-2">
+        {editing ? (
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={200}
+            className="w-full min-w-[180px] rounded border px-2 py-1 text-sm"
+            placeholder="Document name"
+            autoFocus
+          />
+        ) : (
+          <span className="font-medium">{doc.documentName ?? documentTypeLabel(doc.docType)}</span>
+        )}
+        {error && <span className="block text-xs text-destructive mt-0.5">{error}</span>}
+      </td>
+      <td className="py-2 px-3">
+        {editing ? (
+          <select
+            value={docType}
+            onChange={(e) => setDocType(e.target.value)}
+            className="rounded border bg-background px-2 py-1 text-sm"
+          >
+            {DOC_TYPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        ) : (
+          <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium">{typeLabel}</span>
+        )}
+      </td>
+      <td className="py-2 px-3 text-xs">
+        {doc.extractionStatus === "complete" ? (
+          <span className="text-green-600">✓ Parsed</span>
+        ) : doc.extractionStatus === "failed" ? (
+          <span className="text-destructive">Failed</span>
+        ) : doc.extractionStatus ? (
+          <span className="text-amber-600">{doc.extractionStatus}</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="py-2 px-3 text-xs text-muted-foreground whitespace-nowrap">
+        {fmtDate(doc.createdAt)}
+      </td>
+      <td className="py-2 px-3 text-right whitespace-nowrap">
+        {editing ? (
+          <span className="inline-flex items-center gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="text-xs font-medium text-primary hover:underline disabled:opacity-60"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => {
+                setEditing(false);
+                setName(doc.documentName ?? documentTypeLabel(doc.docType));
+                setDocType(doc.docType);
+                setError(null);
+              }}
+              disabled={saving}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setEditing(true)}
+            className="text-xs text-primary hover:underline"
+          >
+            Rename / retype
+          </button>
+        )}
+      </td>
+    </tr>
   );
 }
