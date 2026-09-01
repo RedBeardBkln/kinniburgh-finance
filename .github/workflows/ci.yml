@@ -30,11 +30,13 @@ jobs:
         run: pnpm db:generate
         env:
           DATABASE_URL: "postgresql://postgres:postgres@localhost/test"
+          DIRECT_URL: "postgresql://postgres:postgres@localhost/test"
 
       - name: Type-check
         run: pnpm typecheck
         env:
           DATABASE_URL: "postgresql://postgres:postgres@localhost/test"
+          DIRECT_URL: "postgresql://postgres:postgres@localhost/test"
           AUTH_SECRET: "ci-test-secret"
 
       - name: Lint
@@ -44,9 +46,11 @@ jobs:
         run: pnpm exec prisma validate
         env:
           DATABASE_URL: "postgresql://postgres:postgres@localhost/test"
+          DIRECT_URL: "postgresql://postgres:postgres@localhost/test"
 
       - name: Run tests
         run: pnpm test
         env:
           DATABASE_URL: "postgresql://postgres:postgres@localhost/test"
+          DIRECT_URL: "postgresql://postgres:postgres@localhost/test"
           AUTH_SECRET: "ci-test-secret"
