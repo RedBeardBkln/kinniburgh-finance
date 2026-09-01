@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { Route } from "next";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import type { NavBucket } from "@/lib/entity";
+import { bucketPathFor } from "@/lib/buckets";
 import { BananaLogo } from "@/components/logo";
 
 interface AppHeaderProps {
@@ -34,9 +35,10 @@ export function AppHeader({ userName, unreadCount = 0, navBuckets, logoUrl }: Ap
     inferBucketFromPathname(pathname) ?? searchParams.get("bucket") ?? "personal";
 
   function switchBucket(slug: string) {
+    const nextPath = bucketPathFor(pathname, slug);
     const params = new URLSearchParams(searchParams.toString());
     params.set("bucket", slug);
-    router.push(`${pathname}?${params.toString()}` as Route);
+    router.push(`${nextPath}?${params.toString()}` as Route);
   }
 
   return (

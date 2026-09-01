@@ -6,6 +6,16 @@ import { Settings, LockKeyhole } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
 
+function inferBucketFromPathname(pathname: string): string | null {
+  if (pathname.startsWith("/tax")) return "taxes";
+  if (pathname.startsWith("/projects")) return "projects";
+  if (pathname.startsWith("/business/")) {
+    const slug = pathname.split("/")[2];
+    return slug ?? null;
+  }
+  return null;
+}
+
 const TAX_BUCKET = "taxes";
 const ENVELOPE_BUCKETS = ["personal", "taxes", "sudden-valley"] as const;
 
@@ -16,7 +26,8 @@ interface AppSidebarProps {
 export function AppSidebar({ businessSlugs }: AppSidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const activeBucket = searchParams.get("bucket") ?? "personal";
+  const inferredBucket = inferBucketFromPathname(pathname);
+  const activeBucket = inferredBucket ?? searchParams.get("bucket") ?? "personal";
   const isBusinessBucket = businessSlugs.includes(activeBucket);
   const isTaxBucket = activeBucket === TAX_BUCKET;
   const isProjectsBucket = pathname.startsWith("/projects");
