@@ -71,9 +71,21 @@ export function ForecastBookingsCard({ entityId, entityLabel, bookings }: Props)
         startTransition(() => router.refresh());
       }
     } catch (err) {
-      // Server-action rejections can arrive as opaque errors — keep the page
-      // alive and surface a readable message instead of a blank screen.
+      // Stale-build transport failures (app deployed while this tab was open)
+      // can't be served by the old running JS — reload once to pick up the
+      // new build, preserving the page.
+      const msg = String((err as Error)?.message ?? err).toLowerCase();
+      const isStaleBuild =
+        msg.includes("failed to fetch") ||
+        msg.includes("cannot find module") ||
+        msg.includes("missing client reference") ||
+        msg.includes("loading chunk");
       console.error("[bookings-upload] failed", err);
+      if (isStaleBuild && !sessionStorage.getItem("stale-build-reloaded")) {
+        sessionStorage.setItem("stale-build-reloaded", "1");
+        window.location.reload();
+        return;
+      }
       setError("Upload failed — check the CSV is an Airbnb earnings export, then retry.");
     } finally {
       setUploading(false);
