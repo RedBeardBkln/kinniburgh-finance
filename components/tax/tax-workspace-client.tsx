@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
 import {
   updateWorkspace,
   toggleChecklistItem,
@@ -79,6 +80,17 @@ export function TaxWorkspaceClient({
   const [isToggling, startToggle] = useTransition();
   const [isAdding, startAdd] = useTransition();
   const [isRemoving, startRemove] = useTransition();
+  const [savedSnapshot, setSavedSnapshot] = useState({
+    status: initialStatus,
+    deadline: initialDeadline ? initialDeadline.split("T")[0] : "",
+    notes: initialNotes ?? "",
+  });
+  const pendingHrefRef = useRef<string | null>(null);
+
+  const isDirty =
+    status !== savedSnapshot.status ||
+    deadline !== savedSnapshot.deadline ||
+    notes !== savedSnapshot.notes;
 
   function handleSave() {
     startSave(async () => {
@@ -88,12 +100,29 @@ export function TaxWorkspaceClient({
           deadline: deadline || null,
           notes: notes || null,
         });
+        setSavedSnapshot({ status, deadline, notes });
         setSaveError(null);
         router.refresh();
       } catch (e) {
         setSaveError(e instanceof Error ? e.message : "Save failed");
       }
     });
+  }
+
+  // Guard's save path — used when leaving with unsaved edits
+  async function saveForGuard(): Promise<boolean | void> {
+    try {
+      await updateWorkspace(workspaceId, {
+        status,
+        deadline: deadline || null,
+        notes: notes || null,
+      });
+      setSavedSnapshot({ status, deadline, notes });
+      return true;
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Save failed");
+      return false;
+    }
   }
 
   function handleToggle(itemId: string, completed: boolean) {
@@ -195,6 +224,11 @@ export function TaxWorkspaceClient({
             >
               {isSaving ? "Saving…" : "Save Changes"}
             </button>
+            {isDirty && !isSaving && (
+              <span className="text-xs font-medium text-amber-600">
+                ● Unsaved changes — save before leaving
+              </span>
+            )}
             <a
               href={exportUrl}
               className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 h-9 text-sm font-medium hover:bg-accent"
@@ -295,6 +329,12 @@ export function TaxWorkspaceClient({
           )}
         </CardContent>
       </Card>
+
+      <UnsavedChangesGuard
+        isDirty={isDirty}
+        onSave={saveForGuard}
+        pendingHrefRef={pendingHrefRef}
+      />
     </div>
   );
 }

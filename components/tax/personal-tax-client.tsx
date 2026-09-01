@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
 import {
   uploadTaxDocument,
   answerTaxQuestion,
@@ -108,6 +109,12 @@ export function PersonalTaxClient(props: Props) {
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Unsaved free-text draft tracking (typed but not yet saved via "Save answer")
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const pendingHrefRef = useRef<string | null>(null);
+
+  const hasUnsavedDrafts = Object.values(drafts).some((v) => v.trim().length > 0);
+
   async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setUploadMsg(null);
@@ -166,6 +173,20 @@ export function PersonalTaxClient(props: Props) {
     } finally {
       setReviewLoading(false);
     }
+  }
+
+  // Guard save path: persist any typed-but-unsaved free-text drafts
+  async function saveDraftsForGuard(): Promise<boolean | void> {
+    const pending = Object.entries(drafts).filter(([, v]) => v.trim().length > 0);
+    for (const [questionId, answer] of pending) {
+      try {
+        await answerTaxQuestion({ questionId, answer });
+      } catch {
+        return false;
+      }
+    }
+    setDrafts({});
+    return true;
   }
 
   const unanswered = questions.filter((q) => q.answer === null);
@@ -324,11 +345,16 @@ export function PersonalTaxClient(props: Props) {
                       e.preventDefault();
                       const value = (e.currentTarget.elements.namedItem("answer") as HTMLInputElement).value;
                       handleAnswer(q.id, value || null);
+                      setDrafts((prev) => ({ ...prev, [q.id]: "" }));
                     }}
                   >
                     <input
                       name="answer"
                       placeholder="Type your answer…"
+                      value={drafts[q.id] ?? ""}
+                      onChange={(e) =>
+                        setDrafts((prev) => ({ ...prev, [q.id]: e.target.value }))
+                      }
                       className="w-full rounded-md border px-3 py-2 text-sm"
                     />
                     <button
@@ -555,6 +581,12 @@ export function PersonalTaxClient(props: Props) {
         CPA&apos;s sign-off before filing. Your documents and answers are confidential and stay
         inside this platform.
       </p>
+
+      <UnsavedChangesGuard
+        isDirty={hasUnsavedDrafts}
+        onSave={saveDraftsForGuard}
+        pendingHrefRef={pendingHrefRef}
+      />
     </div>
   );
 }
