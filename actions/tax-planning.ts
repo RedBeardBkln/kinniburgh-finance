@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { uploadTaxFile, downloadTaxFile } from "@/lib/supabase-storage";
 import { extractDocument, classifyDocType, type ExtractedDocument } from "@/lib/doc-extract";
 import { generateDocumentName } from "@/lib/doc-naming";
+import { parseModelJson } from "@/lib/model-json";
 import { TAX_QUESTION_BANK, baseOpportunitiesForHousehold } from "@/lib/tax-guidance";
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -385,22 +386,30 @@ Review all of this and produce the JSON review per your instructions. Add opport
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const message = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: "user", content: userContent }],
     });
+
+    if (message.stop_reason === "max_tokens") {
+      console.error("Tax review truncated at max_tokens — response incomplete");
+      return {
+        error:
+          "The AI review was too long to generate in one pass — try again (or answer more planning questions first).",
+      };
+    }
 
     const text = message.content
       .filter((b) => b.type === "text")
       .map((b) => (b as { type: "text"; text: string }).text)
       .join("");
 
-    const jsonText = text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
-    const parsed = JSON.parse(jsonText) as TaxReviewResult;
+    const parsed = parseModelJson<TaxReviewResult>(text);
 
     revalidatePath("/tax");
     return { success: true, review: parsed };
-  } catch {
+  } catch (err) {
+    console.error("Tax review generation failed:", err);
     return { error: "AI review failed to generate — try again in a moment." };
   }
 }
