@@ -52,7 +52,7 @@ export default async function RetirementPage() {
             <p className="text-3xl font-bold">{fmtMoney(totalCents)}</p>
             <p className="text-sm text-muted-foreground">Estimated retirement assets</p>
             <p className="text-xs text-muted-foreground mt-2 italic">
-              These figures are informational snapshots based on balances you've entered. This app does not provide investment or retirement advice.
+              These figures are informational snapshots based on balances you&apos;ve entered. This app does not provide investment or retirement advice.
             </p>
           </CardContent>
         </Card>

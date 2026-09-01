@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { ensurePersonalWorkspace } from "@/actions/tax-planning";
 import { getTaxWorkspace } from "@/actions/tax";
@@ -68,7 +69,7 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
       <div className="space-y-6">
         <div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-            <a href="/tax" className="hover:underline">Tax Workspaces</a>
+            <Link href="/tax" className="hover:underline">Tax Workspaces</Link>
             <span>/</span>
             <span>Personal {year}</span>
           </div>

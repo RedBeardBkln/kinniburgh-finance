@@ -197,7 +197,7 @@ export function MortgageClient() {
                 )}
                 {insuranceCents > 0 && (
                   <div className="flex justify-between">
-                    <span>Homeowner's insurance</span>
+                    <span>Homeowner&apos;s insurance</span>
                     <span className="tabular-nums">{formatMoney(insuranceCents)}</span>
                   </div>
                 )}

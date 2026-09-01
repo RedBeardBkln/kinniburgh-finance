@@ -36,6 +36,30 @@ interface Props {
 
 const FREQUENCIES = ["monthly", "weekly", "biweekly", "quarterly", "annually"] as const;
 
+function SortBtn({
+  k,
+  label,
+  active,
+  dir,
+  onToggle,
+}: {
+  k: SortKey;
+  label: string;
+  active: boolean;
+  dir: "asc" | "desc";
+  onToggle: (k: SortKey) => void;
+}) {
+  return (
+    <button
+      onClick={() => onToggle(k)}
+      className={`text-left font-medium transition-colors ${active ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+    >
+      {label}
+      {active && <span className="ml-0.5">{dir === "asc" ? " ↑" : " ↓"}</span>}
+    </button>
+  );
+}
+
 export function RecurringExpensesSection({ expenses, entities, tags, defaultEntityId }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -73,19 +97,6 @@ export function RecurringExpensesSection({ expenses, entities, tags, defaultEnti
     else if (sortKey === "dueDay") cmp = (a.dueDay ?? 99) - (b.dueDay ?? 99);
     return sortDir === "asc" ? cmp : -cmp;
   });
-
-  function SortBtn({ k, label }: { k: SortKey; label: string }) {
-    const active = sortKey === k;
-    return (
-      <button
-        onClick={() => toggleSort(k)}
-        className={`text-left font-medium transition-colors ${active ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-      >
-        {label}
-        {active && <span className="ml-0.5">{sortDir === "asc" ? " ↑" : " ↓"}</span>}
-      </button>
-    );
-  }
 
   async function handleAdd() {
     const amountDollars = parseFloat(amount);
@@ -259,11 +270,11 @@ export function RecurringExpensesSection({ expenses, entities, tags, defaultEnti
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="px-4 py-2"><SortBtn k="name" label="Name" /></th>
+                  <th className="px-4 py-2"><SortBtn k="name" label="Name" active={sortKey === "name"} dir={sortDir} onToggle={toggleSort} /></th>
                   <th className="px-4 py-2">Frequency</th>
-                  <th className="px-4 py-2 text-right"><SortBtn k="amount" label="Amount" /></th>
+                  <th className="px-4 py-2 text-right"><SortBtn k="amount" label="Amount" active={sortKey === "amount"} dir={sortDir} onToggle={toggleSort} /></th>
                   <th className="px-4 py-2 text-right">Monthly equiv.</th>
-                  <th className="px-4 py-2"><SortBtn k="dueDay" label="Due" /></th>
+                  <th className="px-4 py-2"><SortBtn k="dueDay" label="Due" active={sortKey === "dueDay"} dir={sortDir} onToggle={toggleSort} /></th>
                   <th className="px-4 py-2">Budget line</th>
                   <th className="px-4 py-2"></th>
                 </tr>

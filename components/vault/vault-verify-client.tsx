@@ -32,7 +32,7 @@ export function VaultVerifyClient() {
   // Auto-send on mount
   useEffect(() => {
     sendOtp();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- sendOtp is a stable page-level action
   }, []);
 
   async function verify(e: React.FormEvent) {

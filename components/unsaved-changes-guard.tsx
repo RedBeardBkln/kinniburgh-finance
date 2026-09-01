@@ -24,7 +24,11 @@ export function UnsavedChangesGuard({ isDirty, onSave, pendingHrefRef }: Unsaved
   const [leavingWithoutSave, setLeavingWithoutSave] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isDirtyRef = useRef(isDirty);
-  isDirtyRef.current = isDirty;
+
+  // Keep the ref in sync outside of render
+  useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
 
   // Native browser guard (tab close / reload / external navigation)
   useEffect(() => {

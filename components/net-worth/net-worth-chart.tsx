@@ -76,7 +76,7 @@ export function NetWorthChart({ snapshots, currentNetWorthCents }: Props) {
       <CardContent>
         {chartData.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            No snapshots yet. Click "Take snapshot" to record today's net worth.
+            No snapshots yet. Click &ldquo;Take snapshot&rdquo; to record today&apos;s net worth.
           </p>
         ) : (
           <ResponsiveContainer width="100%" height={220}>

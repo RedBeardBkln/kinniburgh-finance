@@ -81,7 +81,7 @@ export function CreateRuleForm({ allTags, defaultPayee, defaultAmount, accountId
           placeholder="e.g. amazon"
         />
         <p className="text-xs text-muted-foreground">
-          Partial match — "amazon" tags "amazon.com", "amazon prime", etc.
+          Partial match — &ldquo;amazon&rdquo; tags &ldquo;amazon.com&rdquo;, &ldquo;amazon prime&rdquo;, etc.
         </p>
       </div>
 

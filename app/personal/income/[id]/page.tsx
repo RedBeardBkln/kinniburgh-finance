@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getPaystubSignedUrl } from "@/lib/supabase-storage";
@@ -37,12 +38,12 @@ export default async function PaystubDetailPage({ params }: PageProps) {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Review Paystub</h1>
-          <a
+          <Link
             href="/personal/income"
             className="text-sm text-muted-foreground hover:text-foreground"
           >
             ← Back to Income
-          </a>
+          </Link>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">

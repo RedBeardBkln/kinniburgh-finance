@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,9 +41,22 @@ export function InsurancePolicyCard({ policy }: { policy: Policy }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const daysUntilExpiry = policy.expiryDate
-    ? Math.ceil((policy.expiryDate.getTime() - Date.now()) / 86400000)
-    : null;
+  const [daysUntilExpiry, setDaysUntilExpiry] = useState<number | null>(null);
+
+  // Days-to-expiry depends on "now", so compute it in an effect (external input)
+  useEffect(() => {
+    if (!policy.expiryDate) {
+      setDaysUntilExpiry(null);
+      return;
+    }
+    const calc = () =>
+      setDaysUntilExpiry(
+        Math.ceil((policy.expiryDate!.getTime() - Date.now()) / 86400000)
+      );
+    calc();
+    const t = setInterval(calc, 60 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [policy.expiryDate]);
 
   // Cash value
   const [showAddCV, setShowAddCV] = useState(false);

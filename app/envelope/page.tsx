@@ -171,7 +171,7 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
           <CardContent>
             <p className="text-sm text-muted-foreground">
               Available after 2–3 months of linked transaction data. The app will analyze
-              your actual cash-flow surplus and propose an affordable "pay yourself first"
+              your actual cash-flow surplus and propose an affordable &ldquo;pay yourself first&rdquo;
               recurring transfer to Savings (x3950) for your approval.
             </p>
           </CardContent>
