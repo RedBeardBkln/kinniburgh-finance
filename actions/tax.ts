@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 
 async function requireAuth() {
@@ -12,6 +13,52 @@ async function requireAuth() {
 }
 
 const STATUSES = ["in_progress", "extended", "filed"] as const;
+
+const ensureSchema = z.object({
+  entityId: z.string().uuid(),
+  taxYear: z.number().int().min(2000).max(2100),
+});
+
+/**
+ * Creates (or returns) a tax workspace for any entity + year, then redirects
+ * to it. Used by the year-grouped tax page to open a workspace that doesn't
+ * exist yet. Tax records are never hard-deleted — creation is idempotent.
+ */
+export async function ensureTaxWorkspace(formData: FormData): Promise<void> {
+  await requireAuth();
+
+  const parsed = ensureSchema.parse({
+    entityId: formData.get("entityId") ?? "",
+    taxYear: formData.get("taxYear") ? Number(formData.get("taxYear")) : NaN,
+  });
+
+  const entity = await db.entity.findUnique({ where: { id: parsed.entityId } });
+  if (!entity) throw new Error("Entity not found");
+
+  const existing = await db.taxWorkspace.findUnique({
+    where: { entityId_taxYear: { entityId: entity.id, taxYear: parsed.taxYear } },
+  });
+
+  let workspaceId = existing?.id;
+  if (!workspaceId) {
+    const workspace = await db.taxWorkspace.create({
+      data: {
+        entityId: entity.id,
+        taxYear: parsed.taxYear,
+        status: "in_progress",
+        deadline: new Date(`${parsed.taxYear + 1}-04-15T04:00:00Z`),
+        notes:
+          entity.type === "business"
+            ? `${entity.name} — tax year ${parsed.taxYear}. Draft is prepared by the platform and reviewed by your CPA.`
+            : `Personal federal + CT state return. Draft is prepared by the platform and reviewed by your CPA.`,
+      },
+    });
+    workspaceId = workspace.id;
+  }
+
+  revalidatePath("/tax");
+  redirect(`/tax/${workspaceId}`);
+}
 
 export async function listTaxWorkspaces() {
   await requireAuth();

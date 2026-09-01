@@ -2,28 +2,124 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { listTaxWorkspaces } from "@/actions/tax";
+import { Card, CardContent } from "@/components/ui/card";
 import { listTaxDeadlines } from "@/actions/tax-deadlines";
 import { MarkFiledButton } from "@/components/tax/deadline-actions";
 import { AddDeadlineForm } from "@/components/tax/add-deadline-form";
-import Link from "next/link";
-import type { Route } from "next";
+import { TaxEntityWidget, type TaxWidgetData } from "@/components/tax/tax-entity-widget";
+import { computePL } from "@/lib/reports";
 
 export default async function TaxPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
   const [workspaces, deadlines, allEntities] = await Promise.all([
-    listTaxWorkspaces(),
+    db.taxWorkspace.findMany({
+      include: { entity: true, checklistItems: true },
+      orderBy: [{ taxYear: "desc" }, { createdAt: "asc" }],
+    }),
     listTaxDeadlines(),
-    db.entity.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    db.entity.findMany({
+      where: { archivedAt: null, type: { in: ["personal", "business"] } },
+      orderBy: [{ type: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, type: true, foundedDate: true, slug: true },
+    }),
   ]);
 
-  const hasPersonalWorkspace = workspaces.some((w) => w.entity.type === "personal");
+  // Documents per entity+year for the widgets
+  const docYearCounts = await db.document.groupBy({
+    by: ["entityId", "taxYear"],
+    where: { archivedAt: null },
+    _count: { _all: true },
+  });
+  const docKey = (entityId: string, year: number) => `${entityId}:${year}`;
+  const docCountMap = new Map(
+    docYearCounts
+      .filter((d) => d.taxYear !== null)
+      .map((d) => [docKey(d.entityId, d.taxYear!), d._count._all])
+  );
+
+  // ── Build year-grouped widget data ────────────────────────────────────────
+  // Years: every workspace year, plus the current year.
   const currentYear = new Date().getUTCFullYear();
-  const personalWorkspace = workspaces.find((w) => w.entity.type === "personal");
+  const yearSet = new Set<number>(workspaces.map((w) => w.taxYear));
+  yearSet.add(currentYear);
+  const years = Array.from(yearSet).sort((a, b) => b - a);
+
+  const shortName = (name: string) => name.split(",")[0] ?? name;
+
+  // Per-entity P&L totals, computed per year (only for years with a workspace
+  // or the current year, to bound the work).
+  const plCache = new Map<string, { totalIncome: string; totalExpenses: string }>();
+  await Promise.all(
+    years.flatMap((year) =>
+      allEntities.map(async (e) => {
+        const key = docKey(e.id, year);
+        void key;
+        const from = new Date(Date.UTC(year, 0, 1));
+        const to = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
+        try {
+          const pl = await computePL(e.id, from, to);
+          plCache.set(docKey(e.id, year), {
+            totalIncome: pl.totalIncome.toString(),
+            totalExpenses: pl.totalExpenses.toString(),
+          });
+        } catch {
+          // P&L is a nice-to-have — a failure must not break the page
+        }
+      })
+    )
+  );
+
+  function widgetData(entityId: string, year: number): TaxWidgetData {
+    const entity = allEntities.find((e) => e.id === entityId)!;
+    const ws = workspaces.find((w) => w.entityId === entityId && w.taxYear === year);
+    const pl = plCache.get(docKey(entityId, year)) ?? null;
+
+    // Personal workspaces use the dedicated personal flow (questions, AI
+    // review, form plan); business workspaces use the generic workspace view.
+    const workspaceHref = ws
+      ? entity.type === "personal"
+        ? `/tax/personal/${year}`
+        : `/tax/${ws.id}`
+      : null;
+
+    return {
+      entityId: entity.id,
+      entityName: entity.name,
+      entityShortName: shortName(entity.name),
+      entityType: entity.type,
+      taxYear: year,
+      workspaceId: ws?.id ?? null,
+      status: ws?.status ?? null,
+      deadline: ws?.deadline?.toISOString() ?? null,
+      totalIncome: pl?.totalIncome ?? null,
+      totalExpenses: pl?.totalExpenses ?? null,
+      documentCount: docCountMap.get(docKey(entity.id, year)) ?? 0,
+      completedItems: ws
+        ? ws.checklistItems.filter((i) => i.completed).length
+        : 0,
+      totalItems: ws ? ws.checklistItems.length : 0,
+      plUrl: ws ? `/api/export/${entity.id}?year=${year}` : null,
+      balanceSheetUrl:
+        ws && entity.type === "business" && entity.slug
+          ? `/business/${entity.slug}/balance-sheet`
+          : null,
+      workspaceHref,
+    };
+  }
+
+  // Entities eligible per year: Personal + businesses. A business formed after
+  // the year started has no filing for that year (e.g. Sudden Valley, founded
+  // Feb 2026, has no 2025 workspace).
+  function entitiesForYear(year: number) {
+    return allEntities.filter((e) => {
+      if (e.type === "personal") return true;
+      if (!e.foundedDate) return true; // no founding date recorded — show it
+      // Entity must have existed during the tax year
+      return e.foundedDate.getUTCFullYear() <= year;
+    });
+  }
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
@@ -31,114 +127,29 @@ export default async function TaxPage() {
         <div>
           <h1 className="text-2xl font-semibold">Tax Workspaces</h1>
           <p className="text-sm text-muted-foreground">
-            Filing checklists and document collections per entity and tax year.
-            Confirm all deadlines with your CPA — this is not tax advice.
+            Filing workspaces organized by tax year — one per entity. Financial
+            data, documents, and drafts all live in one place. Confirm all
+            deadlines with your CPA — this is not tax advice.
           </p>
         </div>
 
-        {/* Personal tax workspaces */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Personal Taxes</h2>
-            <div className="flex gap-2">
-              <PersonalWorkspaceButton year={2025} label="2025 (on extension)" />
-              <PersonalWorkspaceButton year={currentYear} label={`${currentYear}`} />
+        {years.map((year) => (
+          <section key={year} className="space-y-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold">{year}</h2>
+              {year === currentYear && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                  Current year
+                </span>
+              )}
             </div>
-          </div>
-          {personalWorkspace && (
-            <Card>
-              <CardContent className="flex items-center justify-between py-3">
-                <div>
-                  <p className="text-sm font-medium">
-                    Personal — {personalWorkspace.taxYear}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {personalWorkspace.taxYear === 2025
-                      ? "Extension accepted by IRS · extended deadline Oct 15, 2026"
-                      : "Federal + CT state return"}
-                  </p>
-                </div>
-                <Link
-                  href={`/tax/personal/${personalWorkspace.taxYear}` as Route}
-                  className="text-sm text-primary hover:underline"
-                >
-                  Open →
-                </Link>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        {workspaces.length === 0 && (
-          <p className="text-muted-foreground">No tax workspaces yet.</p>
-        )}
-
-        <div className="grid gap-4 md:grid-cols-2">
-          {workspaces.map((ws) => {
-            const progress = ws.totalItems > 0 ? (ws.completedItems / ws.totalItems) * 100 : 0;
-            const deadlineInfo = ws.deadline ? getDeadlineInfo(ws.deadline) : null;
-
-            return (
-              <Card key={ws.id} className={deadlineInfo?.overdue ? "border-destructive/40" : ""}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <CardTitle className="text-base">
-                        {ws.entity.name.split(",")[0]} — {ws.taxYear}
-                      </CardTitle>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {ws.entity.type === "business" ? "Business" : "Personal"}
-                      </p>
-                    </div>
-                    <StatusBadge status={ws.status} />
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {/* Deadline */}
-                  {deadlineInfo && (
-                    <div className={`flex items-center gap-2 text-sm ${deadlineInfo.overdue ? "text-destructive" : "text-muted-foreground"}`}>
-                      <span className="text-xs font-medium">Deadline:</span>
-                      <span className="text-xs">
-                        {ws.deadline!.toLocaleDateString("en-US", {
-                          month: "long",
-                          day: "numeric",
-                          year: "numeric",
-                          timeZone: "America/New_York",
-                        })}
-                      </span>
-                      <span className={`text-xs font-medium ${deadlineInfo.overdue ? "text-destructive" : "text-amber-600"}`}>
-                        {deadlineInfo.label}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Progress bar */}
-                  {ws.totalItems > 0 && (
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Checklist</span>
-                        <span>{ws.completedItems}/{ws.totalItems}</span>
-                      </div>
-                      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all"
-                          style={{ width: `${progress}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  <Link
-                    href={`/tax/${ws.id}` as Route}
-                    className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground px-3 h-8 text-xs font-medium hover:bg-primary/90"
-                  >
-                    Open Workspace →
-                  </Link>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              {entitiesForYear(year).map((entity) => (
+                <TaxEntityWidget key={entity.id} data={widgetData(entity.id, year)} />
+              ))}
+            </div>
+          </section>
+        ))}
 
         {/* Tax Deadlines */}
         <div className="space-y-3">
@@ -214,36 +225,10 @@ const TYPE_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-function PersonalWorkspaceButton({ year, label }: { year: number; label: string }) {
-  return (
-    <form
-      action={async () => {
-        "use server";
-        const { ensurePersonalWorkspace } = await import("@/actions/tax-planning");
-        await ensurePersonalWorkspace(year);
-        redirect(`/tax/personal/${year}`);
-      }}
-    >
-      <button
-        type="submit"
-        className="rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent"
-      >
-        {label}
-      </button>
-    </form>
-  );
-}
-
 function DeadlineStatusBadge({ status }: { status: string }) {
-  if (status === "filed") return <Badge variant="outline" className="border-green-300 text-green-700">Filed</Badge>;
-  if (status === "waived") return <Badge variant="secondary">Waived</Badge>;
-  return <Badge variant="secondary">Upcoming</Badge>;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  if (status === "filed") return <Badge variant="outline" className="border-green-300 text-green-700">Filed</Badge>;
-  if (status === "extended") return <Badge variant="destructive">Extended</Badge>;
-  return <Badge variant="secondary">In Progress</Badge>;
+  if (status === "filed") return <span className="rounded-full border border-green-300 px-2 py-0.5 text-xs text-green-700">Filed</span>;
+  if (status === "waived") return <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Waived</span>;
+  return <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Upcoming</span>;
 }
 
 function getDeadlineInfo(deadline: Date): { label: string; overdue: boolean; soon: boolean } {
