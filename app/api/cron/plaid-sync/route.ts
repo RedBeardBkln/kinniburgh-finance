@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { syncPlaidTransactions, autoTagUncategorizedTransactions } from "@/lib/plaid-sync";
+import { runDuplicateDetectionEngine } from "@/lib/dedupe-runner";
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("Authorization");
@@ -30,9 +31,21 @@ export async function GET(request: NextRequest) {
 
   const autoTag = await autoTagUncategorizedTransactions();
 
+  // Background duplicate sweep: exact matches are archived + logged (undoable
+  // in Settings → Duplicate Log)
+  let dedupe: { archived: number; groups: number } | { error: string } | null = null;
+  try {
+    dedupe = await runDuplicateDetectionEngine("cron");
+  } catch (err) {
+    dedupe = { error: err instanceof Error ? err.message : String(err) };
+  }
+
   console.log(
     `[cron/plaid-sync] ${succeeded} succeeded, ${failed} failed; auto-tagged ${autoTag.tagged}/${autoTag.scanned} uncategorized`,
   );
+  if (dedupe && "archived" in dedupe && dedupe.archived > 0) {
+    console.log(`[cron/plaid-sync] dedupe archived ${dedupe.archived} duplicate(s) across ${dedupe.groups} group(s)`);
+  }
 
-  return NextResponse.json({ synced: succeeded, failed, items: summary, autoTag });
+  return NextResponse.json({ synced: succeeded, failed, items: summary, autoTag, dedupe });
 }

@@ -64,6 +64,11 @@ export default async function SettingsPage() {
             description="Upload a custom logo for the header, login screen, and browser icon."
             href={"/settings/branding" as Route}
           />
+          <SettingsCard
+            title="Duplicate Log"
+            description="Automatically removed duplicate transactions (same date, amount, payee, account) — review and undo removals."
+            href={"/settings/duplicate-log" as Route}
+          />
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">GL Codes</CardTitle>

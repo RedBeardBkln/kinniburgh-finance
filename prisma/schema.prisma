@@ -851,3 +851,28 @@ model AppSetting {
   key   String @id
   value String
 }
+
+// ─── Duplicate transaction actions (reversible log) ──────────────────────────
+// Exact duplicates (date, amount, payee, account) are archived automatically.
+// The KEPT transaction id is logged so an action can be undone (the duplicate
+// is restored via undo, not the kept one). Undo un-archives and deletes the log.
+
+model DedupAction {
+  id                String   @id @default(uuid())
+  duplicateTxId     String   @unique // the archived duplicate's transaction id
+  keptTxId           String            // the surviving original
+  accountId          String
+  entityId           String
+  postedAt           DateTime
+  amount             Decimal  @db.Decimal(14, 2)
+  payeeNormalized    String?
+  reason             String   @default("exact_match") // exact_match | undo_reversal
+  detectedBy         String   @default("cron")        // cron | manual
+  undoneAt           DateTime?
+  undoneById         String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([entityId])
+}
