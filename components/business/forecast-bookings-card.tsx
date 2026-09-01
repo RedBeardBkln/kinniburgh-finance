@@ -63,11 +63,18 @@ export function ForecastBookingsCard({ entityId, entityLabel, bookings }: Props)
       if ("error" in result) {
         setError(result.error);
       } else {
-        setMsg(`Imported ${result.imported} reservation${result.imported !== 1 ? "s" : ""}`);
+        const skippedNote =
+          result.skipped > 0 ? ` · ${result.skipped} row(s) skipped (unparseable)` : "";
+        setMsg(
+          `Imported ${result.imported} reservation${result.imported !== 1 ? "s" : ""}${skippedNote}`
+        );
         startTransition(() => router.refresh());
       }
-    } catch {
-      setError("Upload failed — please try again");
+    } catch (err) {
+      // Server-action rejections can arrive as opaque errors — keep the page
+      // alive and surface a readable message instead of a blank screen.
+      console.error("[bookings-upload] failed", err);
+      setError("Upload failed — check the CSV is an Airbnb earnings export, then retry.");
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";

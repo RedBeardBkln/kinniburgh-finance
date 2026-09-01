@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
+import { parseCsvCells, splitCsvLines, parseMoney, parseMdyDate } from "@/lib/csv";
 
 async function requireAuth() {
   const session = await auth();
@@ -11,22 +12,16 @@ async function requireAuth() {
   return session.user;
 }
 
-function parseDate(s: string): Date {
-  // Airbnb format: MM/DD/YYYY
-  const [m, d, y] = s.trim().split("/");
-  return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
-}
-
 export async function uploadRentalBookings(
   entityId: string,
   csvText: string
-): Promise<{ imported: number } | { error: string }> {
+): Promise<{ imported: number; skipped: number } | { error: string }> {
   await requireAuth();
 
-  const lines = csvText.trim().split("\n").filter(Boolean);
+  const lines = splitCsvLines(csvText);
   if (lines.length < 2) return { error: "CSV has no data rows" };
 
-  const headers = lines[0]!.split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
+  const headers = parseCsvCells(lines[0]!).map((h) => h.trim());
   const idx = (name: string) => headers.indexOf(name);
 
   const col = {
@@ -48,22 +43,36 @@ export async function uploadRentalBookings(
 
   const rows = lines.slice(1);
   let imported = 0;
+  let skipped = 0;
 
   for (const row of rows) {
-    // Simple CSV split (no embedded commas in these Airbnb fields)
-    const cells = row.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+    // RFC-4180 parse: quoted fields may contain commas ("$1,200.00")
+    const cells = parseCsvCells(row).map((c) => c.trim());
     const type = cells[col.type] ?? "";
     if (type !== "Reservation") continue;
 
     const confirmationCode = cells[col.code] ?? "";
-    const grossRaw = cells[col.gross] ?? "0";
-    const grossEarnings = parseFloat(grossRaw);
-    if (!confirmationCode || isNaN(grossEarnings)) continue;
+    if (!confirmationCode) {
+      skipped++;
+      continue;
+    }
 
-    const startDate = parseDate(cells[col.start] ?? "");
-    const endDate = parseDate(cells[col.end] ?? "");
-    const payoutDate = parseDate(cells[col.payout] ?? "");
-    const nights = parseInt(cells[col.nights] ?? "0", 10);
+    const grossEarnings = parseMoney(cells[col.gross] ?? "0");
+    if (isNaN(grossEarnings)) {
+      skipped++;
+      continue;
+    }
+
+    const startDate = col.start >= 0 ? parseMdyDate(cells[col.start] ?? "") : null;
+    const endDate = col.end >= 0 ? parseMdyDate(cells[col.end] ?? "") : null;
+    const payoutDate = col.payout >= 0 ? parseMdyDate(cells[col.payout] ?? "") : null;
+    if (!startDate || !endDate || !payoutDate) {
+      skipped++;
+      continue;
+    }
+
+    const nightsRaw = parseInt((cells[col.nights] ?? "0").replace(/[^\d-]/g, ""), 10);
+    const nights = isNaN(nightsRaw) ? 0 : nightsRaw;
     const guest = cells[col.guest] ?? "";
     const listing = cells[col.listing] ?? "";
     const currency = cells[col.currency] ?? "USD";
@@ -79,7 +88,7 @@ export async function uploadRentalBookings(
         nights,
         guest,
         listing,
-        grossEarnings: new Prisma.Decimal(grossEarnings),
+        grossEarnings: new Prisma.Decimal(grossEarnings.toFixed(2)),
         currency,
       },
       update: {
@@ -89,7 +98,7 @@ export async function uploadRentalBookings(
         nights,
         guest,
         listing,
-        grossEarnings: new Prisma.Decimal(grossEarnings),
+        grossEarnings: new Prisma.Decimal(grossEarnings.toFixed(2)),
         currency,
       },
     });
@@ -97,7 +106,8 @@ export async function uploadRentalBookings(
   }
 
   revalidatePath("/forecast");
-  return { imported };
+  revalidatePath(`/business/sudden-valley/revenue`);
+  return { imported, skipped };
 }
 
 export async function listRentalBookings(entityId: string) {
@@ -112,4 +122,5 @@ export async function clearRentalBookings(entityId: string): Promise<void> {
   await requireAuth();
   await db.rentalBooking.deleteMany({ where: { entityId } });
   revalidatePath("/forecast");
+  revalidatePath(`/business/sudden-valley/revenue`);
 }
