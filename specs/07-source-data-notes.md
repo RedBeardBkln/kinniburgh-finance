@@ -5,8 +5,8 @@ Found while transcribing the owner's source document and CSVs. **Do not silently
 ## Resolved by owner (June 2026 walkthrough)
 
 1. **Car payments.** `Car Payment` budget $1,500/mo = Eva's Lexus **$250/week** (avg $1,083.33/mo) + Eric's Toyota truck **$420/month** (= $1,503.33; budget rounds to $1,500). The Lexus is the only weekly-paid bill the owner recalls. **The Lexus is paid from x2566 (Primary), not x2558** — only the Toyota draws on x2558. This resolves the apparent x2558 funding shortfall: outflows ≈ $6,096.58/mo vs $6,433.33/mo inflows (~$337/mo cushion).
-2. **Auto insurance.** Doc figures are current: Amica $206/mo + Progressive motorcycle $127/yr (~$10.58/mo) ≈ $217/mo combined. The v2 budget line ($120) is stale — update to ~$217 at seed time with owner confirmation.
-3. **Slush Funds (x3612).** $1,200/mo of budget, no existing funding transfer. App should PROPOSE a recurring transfer (~$277/wk) for approval at setup; do not auto-create.
+2. **Auto insurance.** Doc figures are current: Amica $206/mo + Progressive motorcycle $127/yr (~$10.58/mo) ≈ $217/mo combined. The v2 budget line ($120) was stale — **owner confirmed 2026-09-11; updated to $217/mo for the 2026-09 through 2026-12 `Budget` rows** (already-closed Jan–Aug periods left as historical record, not restated).
+3. **Slush Funds (x3612).** $1,200/mo of budget, no existing funding transfer. The app proposed a recurring transfer at the spec-estimated ~$277/wk (≈$1,200/mo); **owner corrected and approved 2026-09-11: the real transfer is $190/wk**, not $277/wk — a `ScheduledTransfer` (x2566 → x3612, weekly, Monday) now exists at that amount. The lower figure means Slush Funds is not fully funded to its $1,200/mo budget by this transfer alone (~$823/mo vs. $1,200/mo) — worth flagging to the owner if the app ever surfaces an accrual-shortfall warning for this envelope; that's expected given the corrected amount, not a bug.
 4. **Arbor Retreat budget lines → Sudden Valley PM LLC entity from day one** (mapped to JCSB x0626). `Business Ventures` $50/mo line stays personal, mapped to x2566.
 5. **Budget file v2** (`budgets 2026 v2 (with accounts).csv`) supersedes v1. Owner cleaned the data and added account mapping; amounts are starting points and may be updated. v1 is retained only as historical reference (its Rollover column holds real opening balances; its Available column was unreliable — see "v1 anomalies" below).
 6. **Solar lender naming:** "Regions Bank" (prose) and "Ener Bank" (table) are the same lender — EnerBank USA was acquired by Regions Bank (2021). Record as Regions/EnerBank.
@@ -15,8 +15,8 @@ Found while transcribing the owner's source document and CSVs. **Do not silently
 9. **Savings (x3950):** app recommends the "pay ourselves first" amount after 2–3 months of linked data, from actual cash-flow surplus, for owner approval.
 10. **$250/$15 minimum-balance rule: TD Bank accounts only.** JCSB x0626 has no such rule.
 11. **JetBlue card is Barclays-issued** — same login as the other Barclays card.
-12. **Property values:** owner will supply approximate values for 27 Old Barry Rd and 56 Arbor Rd (editable fields; numbers still pending).
-13. **Loan balances (PennyMac, solar):** pull via Plaid Liabilities where supported; otherwise prompt for manual entry at setup.
+12. **Property values (owner-supplied 2026-09-11, Zillow estimates):** 27 Old Barry Rd = **$529,500**; 56 Arbor Rd = **$337,400**. Recorded as `ManualAsset` rows (`real_estate` category) feeding net worth.
+13. **Loan balances (PennyMac, solar):** PennyMac mortgage balance **is already pulled via Plaid Liabilities** — confirmed 2026-09-11, no manual entry needed. Solar loan balance still pending manual entry (owner to retrieve total due).
 14. **GL chart of accounts:** to be IMPORTED from the CPA/QuickBooks (build a QuickBooks COA import); freeform receipt classification until then.
 
 ## Remaining arithmetic / consistency notes (informational)
@@ -40,9 +40,9 @@ In v1, 12 of 53 rows had `Available ≠ Budgeted − EXPENSE + Rollover` (e.g., 
 
 ## Remaining open items (collect from the user in-app or before the relevant phase)
 
-1. Approximate property values for 27 Old Barry Rd and 56 Arbor Rd (owner agreed to supply; numbers not yet given).
-2. CPA confirmation of the October 15, 2026 extended deadline for the 2025 Schedule C filing.
-3. The QuickBooks/CPA chart-of-accounts export file (needed before Phase 5 GL mapping).
-4. Confirm the Auto Insurance budget line update to ~$217/mo, and whether Progressive gets its own line.
-5. Approve (or adjust) the proposed Slush Funds transfer (~$277/wk default) and the app-recommended savings transfer when proposed.
-6. Loan balances for PennyMac and the solar loan IF Plaid Liabilities doesn't cover them at link time.
+1. ~~Approximate property values for 27 Old Barry Rd and 56 Arbor Rd~~ — **resolved 2026-09-11**, see item 12 above.
+2. ~~CPA confirmation of the October 15, 2026 extended deadline~~ — **confirmed by owner 2026-09-11.**
+3. The QuickBooks/CPA chart-of-accounts export file (needed before Phase 5 GL mapping) — owner will send when available; still pending.
+4. ~~Confirm the Auto Insurance budget line update to ~$217/mo~~ — **confirmed and applied 2026-09-11**, see item 2 above. Whether Progressive gets its own line is still open (currently combined into the single Auto Insurance line).
+5. ~~Approve the proposed Slush Funds transfer~~ — **resolved 2026-09-11: $190/wk, not the ~$277/wk estimate**, see item 3 above. The app-recommended savings transfer (x3950) is still unproposed — pending the "2–3 months of linked data" trigger from item 9 above (plenty of history now exists; worth revisiting whether that trigger has effectively already been met).
+6. Solar loan balance — owner to retrieve total due (PennyMac mortgage balance is confirmed already flowing via Plaid Liabilities, see item 13 above).
