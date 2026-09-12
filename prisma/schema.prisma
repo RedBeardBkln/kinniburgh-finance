@@ -89,6 +89,8 @@ model Entity {
   rentalBookings     RentalBooking[]
   paystubs           Paystub[]
   projectedRevenues  ProjectedRevenue[]
+  bankStatements     BankStatement[]
+  tagGlCodeMappings  TagGlCodeMapping[]
 }
 
 model Institution {
@@ -144,6 +146,7 @@ model Account {
   debtDetail           DebtDetail?
   projectedRevenues    ProjectedRevenue[]
   paystubDeposits      Paystub[]     @relation("PaystubDepositAccount")
+  bankStatements       BankStatement[]
 
   @@unique([entityId, nickname])
 }
@@ -197,6 +200,7 @@ model Tag {
   tagRules           TagRule[]
   recurringExpenses  RecurringExpense[]
   debtDetails        DebtDetail[]
+  glCodeMappings     TagGlCodeMapping[]
 }
 
 model TransactionTag {
@@ -372,8 +376,64 @@ model GlCode {
 
   entity       Entity        @relation(fields: [entityId], references: [id])
   transactions Transaction[]
+  tagMappings  TagGlCodeMapping[]
 
   @@unique([entityId, code])
+}
+
+// ─── Tag → GL code mapping (per-entity auto-assignment config) ────────────────
+// No DB-level constraint that glCodeId's entity matches entityId — Prisma can't
+// express a composite FK against GlCode's own @@unique([entityId, code]).
+// This MUST be enforced in application code (see actions/gl-code-mappings.ts
+// upsertTagGlMapping) by checking glCode.entityId === entityId before writing,
+// or it becomes possible to silently map a tag to another entity's GL code.
+
+model TagGlCodeMapping {
+  id        String   @id @default(uuid())
+  entityId  String
+  tagId     String
+  glCodeId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entity Entity @relation(fields: [entityId], references: [id])
+  tag    Tag    @relation(fields: [tagId], references: [id])
+  glCode GlCode @relation(fields: [glCodeId], references: [id])
+
+  @@unique([entityId, tagId])
+}
+
+// ─── Bank statements (uploaded PDFs/images + extracted balances) ──────────────
+// Source of truth for period balance sheets (monthly/quarterly/annual).
+// Tax-relevant: archive only, never hard-delete. Amounts integer cents.
+
+model BankStatement {
+  id                String    @id @default(uuid())
+  entityId          String
+  documentId        String?   @unique // linked source Document in the vault
+  accountId         String?   // null = entity-level statement (multi-account)
+  periodStart       DateTime  // statement period start (UTC)
+  periodEnd         DateTime  // statement period end (UTC)
+  institutionName   String?
+  accountMask       String?
+  openingBalance    Decimal?  @db.Decimal(14, 2)
+  closingBalance    Decimal?  @db.Decimal(14, 2)
+  extractStatus     String    @default("pending") // pending | processing | complete | failed | skipped
+  extractionData    Json?     // raw structured extraction (per-account rows if multi-account)
+  extractModel      String?
+  confirmedAt       DateTime?
+  confirmedById     String?
+  notes             String?
+  uploadedBy         String    // user id
+  archivedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  entity  Entity   @relation(fields: [entityId], references: [id])
+  account Account? @relation(fields: [accountId], references: [id])
+  document Document? @relation(fields: [documentId], references: [id])
+
+  @@index([entityId, periodEnd])
 }
 
 // ─── Documents (tax vault + document intelligence) ───────────────────────────
@@ -399,6 +459,7 @@ model Document {
   entity          Entity           @relation(fields: [entityId], references: [id])
   insurancePolicy InsurancePolicy?
   solarEntries    SolarEntry[]
+  bankStatement   BankStatement?
 }
 
 // ─── Insurance policies ───────────────────────────────────────────────────────

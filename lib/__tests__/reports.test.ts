@@ -41,7 +41,7 @@ describe("computePL", () => {
       { glCodeId: glId, _sum: { amount: new Prisma.Decimal("5000.00") } },
     ]);
     mockGlFind.mockResolvedValue([
-      { id: glId, code: "4000", name: "Consulting Revenue", type: "income" },
+      { id: glId, code: "4000", name: "Consulting Revenue", type: "revenue" },
     ]);
 
     const pl = await computePL(ENTITY_ID, FROM, TO);
@@ -74,7 +74,7 @@ describe("computePL", () => {
       { glCodeId: glExp, _sum: { amount: new Prisma.Decimal("-3000.00") } },
     ]);
     mockGlFind.mockResolvedValue([
-      { id: glIncome, code: "4000", name: "Revenue", type: "income" },
+      { id: glIncome, code: "4000", name: "Revenue", type: "revenue" },
       { id: glExp, code: "5000", name: "Expenses", type: "expense" },
     ]);
 

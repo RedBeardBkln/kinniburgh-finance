@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { normalizePayee, matchTagRule } from "@/lib/tags";
+import { autoAssignGlCodes } from "@/lib/gl-code-resolver";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -32,7 +33,7 @@ const createSchema = z.object({
 export type CreateTransactionInput = z.infer<typeof createSchema>;
 
 export async function createTransaction(input: CreateTransactionInput) {
-  await requireAuth();
+  const user = await requireAuth();
   const parsed = createSchema.parse(input);
 
   const amount = new Prisma.Decimal(parsed.amount);
@@ -68,6 +69,7 @@ export async function createTransaction(input: CreateTransactionInput) {
       amount: amount.abs(),
       payeeRaw: parsed.payeeRaw,
       description: parsed.description,
+      userId: user.id!,
     });
   }
 
@@ -90,6 +92,10 @@ export async function createTransaction(input: CreateTransactionInput) {
       data: tagIds.map((tagId) => ({ transactionId: tx.id, tagId })),
       skipDuplicates: true,
     });
+    await autoAssignGlCodes(
+      [{ transactionId: tx.id, entityId: parsed.entityId, tagIds }],
+      user.id!
+    );
   }
 
   revalidatePath("/transactions");
@@ -107,8 +113,9 @@ async function createTransferPair(opts: {
   amount: Prisma.Decimal; // absolute value
   payeeRaw: string;
   description?: string;
+  userId: string;
 }) {
-  const { fromAccountId, toAccountId, entityId, postedAt, amount, payeeRaw, description } = opts;
+  const { fromAccountId, toAccountId, entityId, postedAt, amount, payeeRaw, description, userId } = opts;
 
   // Find Transfer Out / Transfer In tags
   const [outTag, inTag] = await Promise.all([
@@ -152,6 +159,13 @@ async function createTransferPair(opts: {
   if (inTag) tagAssignments.push({ transactionId: inTx.id, tagId: inTag.id });
   if (tagAssignments.length > 0) {
     await db.transactionTag.createMany({ data: tagAssignments, skipDuplicates: true });
+    // computePL already excludes transferPairId != null transactions from GL
+    // aggregation, so this is a no-op for P&L today — included anyway for
+    // consistency (future GL-code features may not always filter transfers).
+    await autoAssignGlCodes(
+      tagAssignments.map((t) => ({ transactionId: t.transactionId, entityId, tagIds: [t.tagId] })),
+      userId
+    );
   }
 
   revalidatePath("/transactions");
@@ -195,6 +209,11 @@ export async function updateTransactionTags(
         ]
       : []),
   ]);
+
+  await autoAssignGlCodes(
+    [{ transactionId, entityId: tx.entityId, tagIds }],
+    user.id!
+  );
 
   revalidatePath("/transactions");
   return { success: true };

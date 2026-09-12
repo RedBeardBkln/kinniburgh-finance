@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getPlaidClient } from "@/lib/plaid";
 import { encrypt, decrypt } from "@/lib/encrypt";
 import { normalizePayee, matchTagRule } from "@/lib/tags";
+import { autoAssignGlCodes } from "@/lib/gl-code-resolver";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -365,7 +366,7 @@ export async function autoTagUncategorizedTransactions(): Promise<{ tagged: numb
     db.tagRule.findMany(),
     db.transaction.findMany({
       where: { archivedAt: null, tags: { none: {} } },
-      select: { id: true, payeeNormalized: true, amount: true, accountId: true },
+      select: { id: true, entityId: true, payeeNormalized: true, amount: true, accountId: true },
     }),
   ]);
 
@@ -383,6 +384,7 @@ export async function autoTagUncategorizedTransactions(): Promise<{ tagged: numb
   }));
 
   const assignments: { transactionId: string; tagId: string }[] = [];
+  const entityById = new Map(uncategorized.map((tx) => [tx.id, tx.entityId]));
   for (const tx of uncategorized) {
     if (!tx.payeeNormalized) continue;
     const matched = matchTagRule(ruleInput, {
@@ -395,6 +397,15 @@ export async function autoTagUncategorizedTransactions(): Promise<{ tagged: numb
 
   if (assignments.length > 0) {
     await db.transactionTag.createMany({ data: assignments, skipDuplicates: true });
+    // No user session in this cron path — see notifications.ts's TD fee-tag
+    // site for the same pattern; assignment happens, audit row is skipped.
+    await autoAssignGlCodes(
+      assignments.map((a) => ({
+        transactionId: a.transactionId,
+        entityId: entityById.get(a.transactionId)!,
+        tagIds: [a.tagId],
+      }))
+    );
   }
 
   console.log("[plaid-sync] auto-tag complete", { scanned: uncategorized.length, tagged: assignments.length });

@@ -61,7 +61,7 @@ export async function computePL(
     if (!gl) continue;
     const total = row._sum.amount ?? new Prisma.Decimal(0);
 
-    if (gl.type === "income") {
+    if (gl.type === "revenue") {
       // Income transactions are positive inflows
       incomeLines.push({ glCodeId: id, code: gl.code, name: gl.name, total: total.abs() });
     } else if (gl.type === "expense") {

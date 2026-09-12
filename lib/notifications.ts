@@ -12,6 +12,7 @@ import {
 import { sendPushToUser } from "./web-push";
 import { evaluateBudgetPace, PACE_TRAILING_MONTHS } from "./budget-pace";
 import type { MonthlySpendPoint } from "./budget-pace";
+import { autoAssignGlCodes } from "./gl-code-resolver";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -330,6 +331,12 @@ export async function checkLowBalance(): Promise<number> {
             },
           });
           await db.transactionTag.create({ data: { transactionId: tx.id, tagId: feeTag.id } });
+          // No user session in this cron path — GL auto-assignment still
+          // happens, only its audit row is skipped (matches this site's
+          // existing choice to skip an audit log for the tag write itself).
+          await autoAssignGlCodes([
+            { transactionId: tx.id, entityId: entity.id, tagIds: [feeTag.id] },
+          ]);
         }
       }
     }

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { normalizePayee, matchTagRule } from "@/lib/tags";
+import { autoAssignGlCodes } from "@/lib/gl-code-resolver";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -172,8 +173,9 @@ const importSchema = z.object({
 });
 
 export async function confirmImport(input: z.infer<typeof importSchema>) {
-  await auth().then((s) => {
-    if (!s?.user) throw new Error("Unauthorized");
+  const userId = await auth().then((s) => {
+    if (!s?.user?.id) throw new Error("Unauthorized");
+    return s.user.id;
   });
 
   const parsed = importSchema.parse(input);
@@ -282,6 +284,14 @@ export async function confirmImport(input: z.infer<typeof importSchema>) {
 
   if (tagData.length > 0) {
     await db.transactionTag.createMany({ data: tagData, skipDuplicates: true });
+    await autoAssignGlCodes(
+      tagData.map((t) => ({
+        transactionId: t.transactionId,
+        entityId: parsed.entityId,
+        tagIds: [t.tagId],
+      })),
+      userId
+    );
   }
 
   revalidatePath("/transactions");

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { normalizePayee, normalizePattern, matchTagRule } from "@/lib/tags";
+import { autoAssignGlCodes } from "@/lib/gl-code-resolver";
 import { updateTransactionTags } from "@/actions/transactions";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -417,6 +418,10 @@ export async function applyRetroactiveTag(
 
     await db.transactionTag.deleteMany({ where: { transactionId: txId } });
     await db.transactionTag.create({ data: { transactionId: txId, tagId } });
+    await autoAssignGlCodes(
+      [{ transactionId: txId, entityId: tx.entityId, tagIds: [tagId] }],
+      user.id!
+    );
     applied++;
   }
 

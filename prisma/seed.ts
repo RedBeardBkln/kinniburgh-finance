@@ -579,7 +579,7 @@ async function seedPhase5(
 
   // Sudden Valley PM LLC — rental property chart
   const svCodes: Array<{ code: string; name: string; type: string }> = [
-    { code: "4000", name: "Rental Revenue", type: "income" },
+    { code: "4000", name: "Rental Revenue", type: "revenue" },
     { code: "5010", name: "Property Management Fees", type: "expense" },
     { code: "5020", name: "Repairs & Maintenance", type: "expense" },
     { code: "5030", name: "Insurance", type: "expense" },
@@ -594,7 +594,7 @@ async function seedPhase5(
 
   // EK Consulting LLC — Schedule C
   const ekcCodes: Array<{ code: string; name: string; type: string }> = [
-    { code: "4000", name: "Consulting Revenue", type: "income" },
+    { code: "4000", name: "Consulting Revenue", type: "revenue" },
     { code: "5010", name: "Software & Subscriptions", type: "expense" },
     { code: "5020", name: "Professional Development", type: "expense" },
     { code: "5030", name: "Home Office", type: "expense" },

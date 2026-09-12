@@ -4,7 +4,9 @@ import { db } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
 import { getEntityBySlug } from "@/lib/entity";
 import { listGlCodes } from "@/actions/gl-codes";
+import { listTagMappingsForEntity } from "@/actions/gl-code-mappings";
 import { GlPageClient } from "@/components/business/gl-page-client";
+import { TagGlMappingSection } from "@/components/business/tag-gl-mapping-section";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -23,7 +25,7 @@ export default async function GlPage({ params }: PageProps) {
 
   if (!entity) redirect("/business" as Route);
 
-  const [glCodes, uncodedTxs] = await Promise.all([
+  const [glCodes, uncodedTxs, tagMappings] = await Promise.all([
     listGlCodes(entity.id),
     db.transaction.findMany({
       where: {
@@ -36,6 +38,7 @@ export default async function GlPage({ params }: PageProps) {
       orderBy: { postedAt: "desc" },
       take: 100,
     }),
+    listTagMappingsForEntity(entity.id),
   ]);
 
   const uncodedRows = uncodedTxs.map((tx) => ({
@@ -69,6 +72,13 @@ export default async function GlPage({ params }: PageProps) {
           entityId={entity.id}
           glCodes={glCodes.map((g) => ({ id: g.id, code: g.code, name: g.name, type: g.type }))}
           uncodedTransactions={uncodedRows}
+        />
+
+        <TagGlMappingSection
+          entityId={entity.id}
+          glCodes={glCodes.map((g) => ({ id: g.id, code: g.code, name: g.name }))}
+          inUse={tagMappings.inUse}
+          unused={tagMappings.unused}
         />
       </div>
     </AppShell>

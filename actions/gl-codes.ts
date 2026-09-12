@@ -50,6 +50,8 @@ export async function deleteGlCode(id: string) {
   await requireAuth();
   const inUse = await db.transaction.count({ where: { glCodeId: id } });
   if (inUse > 0) throw new Error("GL code is in use by transactions and cannot be deleted.");
+  const mappedByTags = await db.tagGlCodeMapping.count({ where: { glCodeId: id } });
+  if (mappedByTags > 0) throw new Error("GL code is mapped to a tag and cannot be deleted.");
   await db.glCode.delete({ where: { id } });
   revalidatePath("/business");
 }
