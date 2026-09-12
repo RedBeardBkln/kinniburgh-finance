@@ -1,0 +1,147 @@
+﻿Account name,Account type,Detail type
+Cash,Bank,Checking
+QuickBooks Checking Account,Bank,Checking
+Accounts Receivable (A/R),Accounts receivable (A/R),Accounts Receivable (A/R)
+Inventory Asset,Other Current Assets,Inventory
+Loans to others,Other Current Assets,Loans to Others
+Payments to deposit,Other Current Assets,Undeposited Funds
+Prepaid expenses,Other Current Assets,Prepaid Expenses
+Uncategorized Asset,Other Current Assets,Other Current Assets
+Buildings,Fixed Assets,Buildings
+Land,Fixed Assets,Land
+Long-term office equipment,Fixed Assets,Other fixed assets
+Long-term office equipment:Computers & tablets,Fixed Assets,Fixed Asset Computers
+Long-term office equipment:Copiers,Fixed Assets,Fixed Asset Copiers
+Long-term office equipment:Custom software or app,Fixed Assets,Fixed Asset Software
+Long-term office equipment:Furniture,Fixed Assets,Fixed Asset Furniture
+Long-term office equipment:Phones,Fixed Assets,Fixed Asset Phone
+Long-term office equipment:Photo & video equipment,Fixed Assets,Fixed Asset Photo Video
+"Tools, machinery, and equipment",Fixed Assets,Machinery & Equipment
+Vehicles,Fixed Assets,Vehicles
+Accounts Payable (A/P),Accounts payable (A/P),Accounts Payable (A/P)
+XXXX1909 - 3,Credit Card,Credit Card
+Connecticut Department of Revenue Services Payable,Other Current Liabilities,Global Tax Payable
+Customer prepayments,Other Current Liabilities,Other Current Liabilities
+Deferred Revenue,Other Current Liabilities,Deferred Revenue
+Due to Owner,Other Current Liabilities,Deferred Revenue
+Lines of credit,Other Current Liabilities,Line of Credit
+Out Of Scope Agency Payable,Other Current Liabilities,Global Tax Payable
+Sales tax to pay,Other Current Liabilities,Sales Tax Payable
+Short-term business loans,Other Current Liabilities,Loan Payable
+Long-term business loans,Long Term Liabilities,Other Long Term Liabilities
+Mortgages,Long Term Liabilities,Other Long Term Liabilities
+Federal estimated taxes,Equity,Estimated Taxes
+Opening balance equity,Equity,Opening Balance Equity
+Owner draws,Equity,Owner's Equity
+Owner investments,Equity,Owner's Equity
+Personal expenses,Equity,Personal Expense
+Personal expenses:Federal taxes,Equity,Personal Expense
+Personal expenses:Owner retirement plans,Equity,Personal Expense
+Personal expenses:State taxes,Equity,Personal Expense
+Personal healthcare,Equity,Health Insurance Premium
+Personal healthcare:Health insurance premiums,Equity,Health Insurance Premium
+Personal healthcare:HSA contributions,Equity,Health Savings Account Contribution
+Retained Earnings,Equity,Retained Earnings
+State estimated taxes,Equity,Personal Expense
+Billable Expense Income,Income,Service/Fee Income
+Refunds to customers,Income,Discounts/Refunds Given
+Sales,Income,Sales of Product Income
+Sales of Product Income,Income,Sales of Product Income
+Services,Income,Service/Fee Income
+Shipping Income,Income,Service/Fee Income
+Unapplied Cash Payment Income,Income,Unapplied Cash Payment Income
+Uncategorized Income,Income,Service/Fee Income
+Cost of goods sold,Cost of Goods Sold,Supplies & Materials - COGS
+Cost of goods sold:Equipment rental,Cost of Goods Sold,Equipment Rental - COS
+Cost of goods sold:Subcontractor expenses,Cost of Goods Sold,Cost of labor - COS
+Cost of goods sold:Supplies & materials,Cost of Goods Sold,Supplies & Materials - COGS
+Advertising & marketing,Expenses,Advertising/Promotional
+Advertising & marketing:Listing fees,Expenses,Advertising/Promotional
+Advertising & marketing:Social media,Expenses,Advertising/Promotional
+Advertising & marketing:Website ads,Expenses,Advertising/Promotional
+Building & property rent,Expenses,Rent or Lease of Buildings
+Business licences,Expenses,Taxes Paid
+Commissions & fees,Expenses,Commissions & fees
+Contract labor,Expenses,Cost of Labor
+Contributions to charities,Expenses,Charitable Contributions
+Employee benefits,Expenses,Payroll Expenses
+Employee benefits:Employee retirement plans,Expenses,Payroll Expenses
+Employee benefits:Group term life insurance,Expenses,Payroll Expenses
+Employee benefits:Health & accident plans,Expenses,Payroll Expenses
+Employee benefits:Worker's compensation insurance,Expenses,Payroll Expenses
+Entertainment with clients,Expenses,Entertainment
+Equipment rental,Expenses,Equipment Rental
+General business expenses,Expenses,Other Business Expenses
+General business expenses:Bad Debt,Expenses,Bad Debts
+General business expenses:Bank fees & service charges,Expenses,Other Business Expenses
+General business expenses:Continuing education,Expenses,Other Business Expenses
+General business expenses:Memberships & subscriptions,Expenses,Dues & subscriptions
+General business expenses:Uniforms,Expenses,Other Business Expenses
+Insurance,Expenses,Insurance
+Insurance:Business insurance,Expenses,Insurance
+Insurance:Liability insurance,Expenses,Insurance
+Insurance:Property insurance,Expenses,Insurance
+Insurance:Rental insurance,Expenses,Insurance
+Interest paid,Expenses,Interest Paid
+Interest paid:Business loan interest,Expenses,Interest Paid
+Interest paid:Credit card interest,Expenses,Interest Paid
+Interest paid:Mortgage interest,Expenses,Interest Paid
+Legal & accounting services,Expenses,Legal & Professional Fees
+Legal & accounting services:Accounting fees,Expenses,Legal & Professional Fees
+Legal & accounting services:Legal fees,Expenses,Legal & Professional Fees
+Legal & Professional Fees,Expenses,Legal & Professional Fees
+Meals,Expenses,Travel Meals
+Meals:Meals with clients,Expenses,Promotional Meals
+Meals:Travel meals,Expenses,Travel Meals
+Office expenses,Expenses,Office/General Administrative Expenses
+Office expenses:Merchant account fees,Expenses,Office/General Administrative Expenses
+Office expenses:Office supplies,Expenses,Office/General Administrative Expenses
+Office expenses:Printing & photocopying,Expenses,Office/General Administrative Expenses
+Office expenses:Shipping & postage,Expenses,"Shipping, Freight & Delivery"
+Office expenses:Small tools and equipment,Expenses,Office/General Administrative Expenses
+Office expenses:Software & apps,Expenses,Office/General Administrative Expenses
+Payroll expenses,Expenses,Payroll Expenses
+Payroll expenses:Wages,Expenses,Payroll Wage Expenses
+Professional Services,Expenses,Other Business Expenses
+Repairs & maintenance,Expenses,Repair & Maintenance
+Supplies,Expenses,Supplies & Materials
+Supplies:Supplies & materials,Expenses,Supplies & Materials
+Taxes paid,Expenses,Taxes Paid
+Taxes paid:Payroll taxes,Expenses,Payroll Tax Expenses
+Taxes paid:Property taxes,Expenses,Taxes Paid
+Travel,Expenses,Travel
+Travel:Airfare,Expenses,Travel
+Travel:Hotels,Expenses,Travel
+Travel:Taxis or shared rides,Expenses,Travel
+Travel:Vehicle rental,Expenses,Travel
+Unapplied Cash Bill Payment Expense,Expenses,Unapplied Cash Bill Payment Expense
+Utilities,Expenses,Utilities
+Utilities:Disposal & waste fees,Expenses,Utilities
+Utilities:Electricity,Expenses,Utilities
+Utilities:Heating & cooling,Expenses,Utilities
+Utilities:Internet & TV services,Expenses,Utilities
+Utilities:Phone service,Expenses,Communication
+Utilities:Water & sewer,Expenses,Utilities
+Other income,Other Income,Other Miscellaneous Income
+Other income:Credit card rewards,Other Income,Other Miscellaneous Income
+Other income:Insurance claims,Other Income,Other Miscellaneous Income
+Other income:Interest earned,Other Income,Other Miscellaneous Income
+Other income:Sale of an asset,Other Income,Other Miscellaneous Income
+Depreciation,Other Expense,Depreciation
+Home office,Other Expense,Home Office
+Home office:Home utilities,Other Expense,Utilities Home Office
+Home office:Homeowner & rental insurance,Other Expense,Homeowner Rental Insurance
+Home office:Mortgage interest,Other Expense,Mortgage Interest Home Office
+Home office:Property taxes,Other Expense,Property Tax Home Office
+Home office:Rent,Other Expense,Rent and Lease Home Office
+Home office:Repairs & maintenance,Other Expense,Repairs and Maintenance Home Office
+Reconciliation Discrepancies,Other Expense,Other Miscellaneous Expense
+Vehicle expenses,Other Expense,Other Vehicle Expenses
+Vehicle expenses:Parking & tolls,Other Expense,Parking and Tolls
+Vehicle expenses:Vehicle gas & fuel,Other Expense,Gas And Fuel
+Vehicle expenses:Vehicle insurance,Other Expense,Vehicle Insurance
+Vehicle expenses:Vehicle leases,Other Expense,Vehicle Lease
+Vehicle expenses:Vehicle loan interest paid,Other Expense,Vehicle Loan Interest
+Vehicle expenses:Vehicle registration,Other Expense,Vehicle Registration
+Vehicle expenses:Vehicle repairs,Other Expense,Vehicle Repairs
+Vehicle expenses:Vehicle wash & road services,Other Expense,Wash and Road Services
