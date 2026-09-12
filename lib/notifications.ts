@@ -10,6 +10,8 @@ import {
   type ScheduleEvent,
 } from "./forecast";
 import { sendPushToUser } from "./web-push";
+import { evaluateBudgetPace, PACE_TRAILING_MONTHS } from "./budget-pace";
+import type { MonthlySpendPoint } from "./budget-pace";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -127,6 +129,118 @@ export async function checkBudgetOverspend(period: string): Promise<number> {
       type: "overspend",
       entityId: budget.entityId,
       payload: { scopeKey, title, body, tagName: budget.tag.shortName, budgeted: summary.effectiveBudget.toFixed(2), actual: actualSpend.abs().toFixed(2), percentUsed: pct },
+      userIds,
+    });
+    generated++;
+  }
+
+  return generated;
+}
+
+// ── Check: Budget pace (forecast-based early warning) ─────────────────────────
+
+/**
+ * Early "trending over budget" warning, distinct from checkBudgetOverspend's
+ * snapshot 80%-used alert. Wraps projectPeriodEndSpend() (lib/spend-forecast.ts)
+ * via evaluateBudgetPace() (lib/budget-pace.ts), which stands down once
+ * percentUsed >= 80 (checkBudgetOverspend owns that signal at that point) and
+ * once forecast.confidence === "low" (too shaky to page on).
+ */
+export async function checkBudgetPace(period: string): Promise<number> {
+  const [year, month] = period.split("-").map(Number) as [number, number];
+  const monthStart = new Date(Date.UTC(year, month - 1, 1));
+  const monthEnd = new Date(Date.UTC(year, month, 1));
+
+  const budgets = await db.budget.findMany({
+    where: { period },
+    include: { tag: true, entity: true },
+  });
+
+  const tagSpendRows = await db.$queryRaw<{ tagId: string; total: string }[]>`
+    SELECT tt."tagId", SUM(t.amount)::text AS total
+    FROM "Transaction" t
+    JOIN "TransactionTag" tt ON tt."transactionId" = t.id
+    WHERE t."archivedAt" IS NULL
+      AND t."transferPairId" IS NULL
+      AND t."postedAt" >= ${monthStart}
+      AND t."postedAt" < ${monthEnd}
+    GROUP BY tt."tagId"
+  `;
+  const spendByTagId = new Map(tagSpendRows.map((r) => [r.tagId, new Decimal(r.total)]));
+
+  const trailingMonths = PACE_TRAILING_MONTHS;
+  const historyStart = new Date(Date.UTC(year, month - 1 - trailingMonths, 1));
+
+  const historyRows = await db.$queryRaw<{ tagId: string; period: string; total: string }[]>`
+    SELECT tt."tagId" AS "tagId", to_char(t."postedAt", 'YYYY-MM') AS period, SUM(t.amount)::text AS total
+    FROM "Transaction" t
+    JOIN "TransactionTag" tt ON tt."transactionId" = t.id
+    WHERE t."archivedAt" IS NULL
+      AND t."transferPairId" IS NULL
+      AND t."postedAt" >= ${historyStart}
+      AND t."postedAt" < ${monthStart}
+    GROUP BY tt."tagId", period
+  `;
+
+  const historyByTagId = new Map<string, MonthlySpendPoint[]>();
+  for (const row of historyRows) {
+    const points = historyByTagId.get(row.tagId) ?? [];
+    points.push({ period: row.period, total: new Decimal(row.total) });
+    historyByTagId.set(row.tagId, points);
+  }
+
+  const userIds = await getAllUserIds();
+  let generated = 0;
+
+  for (const budget of budgets) {
+    const actualSpend = spendByTagId.get(budget.tagId) ?? new Decimal(0);
+    const summary = computeBudgetSummary({
+      budgeted: budget.budgeted,
+      rolloverAmount: budget.rolloverAmount ?? new Decimal(0),
+      actualSpend,
+    });
+
+    const evaluation = evaluateBudgetPace({
+      period,
+      effectiveBudget: summary.effectiveBudget,
+      actualSpend,
+      percentUsed: summary.percentUsed,
+      asOfDate: startOfDayUTC(new Date()),
+      history: historyByTagId.get(budget.tagId) ?? [],
+      trailingMonths: PACE_TRAILING_MONTHS,
+    });
+
+    if (!evaluation.fire) continue;
+
+    const scopeKey = `pace:${budget.tagId}:${period}`;
+    if (await alreadyNotifiedToday(scopeKey)) continue;
+
+    const title = `Trending over budget: ${budget.tag.shortName}`;
+    const body =
+      `${budget.tag.shortName} is on pace to reach ${formatUSD(evaluation.forecast.projectedTotal)} ` +
+      `by month end, above the ${formatUSD(summary.effectiveBudget)} budget — projected from ` +
+      `${formatUSD(actualSpend)} spent so far plus the last ${evaluation.forecast.trailingMonthsUsed} ` +
+      `month${evaluation.forecast.trailingMonthsUsed === 1 ? "" : "s"} of history.`;
+
+    await createNotification({
+      type: "budget_pace",
+      entityId: budget.entityId,
+      payload: {
+        scopeKey,
+        title,
+        body,
+        tagName: budget.tag.shortName,
+        effectiveBudget: summary.effectiveBudget.toFixed(2),
+        actualSpend: actualSpend.abs().toFixed(2),
+        projectedTotal: evaluation.forecast.projectedTotal.abs().toFixed(2),
+        projectedOverage: evaluation.projectedOverageAbs!.toFixed(2),
+        confidence: evaluation.forecast.confidence,
+        method: evaluation.forecast.method,
+        trailingMonthsUsed: evaluation.forecast.trailingMonthsUsed,
+        daysElapsed: evaluation.forecast.daysElapsed,
+        daysInPeriod: evaluation.forecast.daysInPeriod,
+        percentUsed: Math.round(summary.percentUsed),
+      },
       userIds,
     });
     generated++;

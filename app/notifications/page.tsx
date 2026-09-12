@@ -2,7 +2,19 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { getNotifications, markAllRead } from "@/actions/notifications";
-import { AlertTriangle, BarChart2, Calendar, PiggyBank, TrendingDown, Bell } from "lucide-react";
+import {
+  AlertTriangle,
+  BarChart2,
+  Calendar,
+  PiggyBank,
+  TrendingDown,
+  TrendingUp,
+  CreditCard,
+  ShieldAlert,
+  Banknote,
+  Wallet,
+  Bell,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
 
@@ -12,6 +24,12 @@ const TYPE_META: Record<string, { label: string; icon: React.ReactNode; color: s
   accrual_shortfall: { label: "Accrual shortfall", icon: <PiggyBank className="h-4 w-4" />, color: "text-yellow-500" },
   bill_due: { label: "Bill reminder", icon: <Calendar className="h-4 w-4" />, color: "text-blue-500" },
   anomaly: { label: "Spending anomaly", icon: <AlertTriangle className="h-4 w-4" />, color: "text-purple-500" },
+  budget_pace: { label: "Budget pace", icon: <TrendingUp className="h-4 w-4" />, color: "text-amber-500" },
+  cc_payment_due: { label: "Card payment due", icon: <CreditCard className="h-4 w-4" />, color: "text-indigo-500" },
+  cc_payment_overdue: { label: "Card payment overdue", icon: <CreditCard className="h-4 w-4" />, color: "text-red-600" },
+  cc_funding_shortfall: { label: "Card funding shortfall", icon: <Wallet className="h-4 w-4" />, color: "text-orange-600" },
+  policy_expiry: { label: "Policy expiring", icon: <ShieldAlert className="h-4 w-4" />, color: "text-cyan-600" },
+  large_spend: { label: "Large spend", icon: <Banknote className="h-4 w-4" />, color: "text-fuchsia-500" },
 };
 
 function relativeTime(date: Date): string {

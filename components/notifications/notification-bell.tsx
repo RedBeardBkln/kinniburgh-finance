@@ -1,7 +1,20 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Bell, AlertTriangle, TrendingDown, PiggyBank, Calendar, BarChart2, X } from "lucide-react";
+import {
+  Bell,
+  AlertTriangle,
+  TrendingDown,
+  TrendingUp,
+  PiggyBank,
+  Calendar,
+  BarChart2,
+  CreditCard,
+  ShieldAlert,
+  Banknote,
+  Wallet,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getNotifications, markRead, markAllRead } from "@/actions/notifications";
 
@@ -13,6 +26,12 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   accrual_shortfall: <PiggyBank className="h-4 w-4 text-yellow-500 shrink-0" />,
   bill_due: <Calendar className="h-4 w-4 text-blue-500 shrink-0" />,
   anomaly: <AlertTriangle className="h-4 w-4 text-purple-500 shrink-0" />,
+  budget_pace: <TrendingUp className="h-4 w-4 text-amber-500 shrink-0" />,
+  cc_payment_due: <CreditCard className="h-4 w-4 text-indigo-500 shrink-0" />,
+  cc_payment_overdue: <CreditCard className="h-4 w-4 text-red-600 shrink-0" />,
+  cc_funding_shortfall: <Wallet className="h-4 w-4 text-orange-600 shrink-0" />,
+  policy_expiry: <ShieldAlert className="h-4 w-4 text-cyan-600 shrink-0" />,
+  large_spend: <Banknote className="h-4 w-4 text-fuchsia-500 shrink-0" />,
 };
 
 function relativeTime(date: Date): string {
