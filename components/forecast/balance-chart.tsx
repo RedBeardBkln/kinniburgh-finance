@@ -22,14 +22,23 @@ interface BalanceChartProps {
   minimumBalance: number | null;
   accountName: string;
   days?: number;
+  subtitleOverride?: string; // when set, replaces the "{days}-day projection" subtitle text entirely
 }
 
-export function BalanceChart({ data, minimumBalance, accountName, days = 30 }: BalanceChartProps) {
+export function BalanceChart({
+  data,
+  minimumBalance,
+  accountName,
+  days = 30,
+  subtitleOverride,
+}: BalanceChartProps) {
   const hasBreaches = data.some((d) => d.isBreachDay);
 
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium">{accountName} — {days}-day projection</p>
+      <p className="text-sm font-medium">
+        {accountName} — {subtitleOverride ?? `${days}-day projection`}
+      </p>
       <ResponsiveContainer width="100%" height={200}>
         <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />

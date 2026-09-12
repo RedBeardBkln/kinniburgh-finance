@@ -13,6 +13,10 @@ import {
   buildAccountForecast,
   findBreachDays,
 } from "@/lib/forecast";
+import { rollupForecast, type RollupBucket } from "@/lib/forecast-rollup";
+import { projectPeriodEndSpend } from "@/lib/spend-forecast";
+import { computeBudgetSummary } from "@/lib/budget";
+import { PACE_TRAILING_MONTHS } from "@/lib/budget-pace";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import { analyzeCardFunding } from "@/lib/cc-funding";
@@ -23,6 +27,7 @@ import { listRecurringExpenses } from "@/actions/recurring-expenses";
 import { listRentalBookings } from "@/actions/rental-bookings";
 import { RecurringExpensesSection } from "@/components/forecast/recurring-expenses-section";
 import { RentalBookingsSection } from "@/components/forecast/rental-bookings-section";
+import { SpendPaceSection, type TagPaceRow } from "@/components/forecast/spend-pace-section";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -202,7 +207,50 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       isBreachDay: day.isBreachDay,
     }));
 
-    return { acct, forecast, breaches, chartData90, startBal, minBal };
+    // Weekly/monthly/quarterly rollups (server-computed — money/date math
+    // stays in Decimal/Date land, never crosses into the client component).
+    const fmtShort = (dt: Date) =>
+      dt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+    function toChartPoints(
+      buckets: RollupBucket[],
+      labelFor: (b: RollupBucket) => string
+    ): ChartPoint[] {
+      return buckets.map((b) => ({
+        label: labelFor(b),
+        balance: b.endingBalance.toNumber(),
+        isBreachDay: b.hasBreach,
+      }));
+    }
+
+    const chartDataWeekly = toChartPoints(
+      rollupForecast(forecast, "weekly"),
+      (b) => `Week ${b.index + 1} (${fmtShort(b.periodStart)}–${fmtShort(b.periodEnd)})`
+    );
+    const chartDataMonthly = toChartPoints(rollupForecast(forecast, "monthly"), (b) => {
+      const label = b.periodStart.toLocaleDateString("en-US", {
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+      return `${label}${b.isPartial ? " (partial)" : ""}`;
+    });
+    const chartDataQuarterly = toChartPoints(rollupForecast(forecast, "quarterly"), (b) => {
+      const q = Math.floor(b.periodStart.getUTCMonth() / 3) + 1;
+      return `Q${q} ${b.periodStart.getUTCFullYear()}${b.isPartial ? " (partial)" : ""}`;
+    });
+
+    return {
+      acct,
+      forecast,
+      breaches,
+      chartData90,
+      chartDataWeekly,
+      chartDataMonthly,
+      chartDataQuarterly,
+      startBal,
+      minBal,
+    };
   });
 
   // 14-day schedule for Primary Checking (or Credit Cards funding account
@@ -248,6 +296,91 @@ export default async function ForecastPage({ searchParams }: PageProps) {
         type: ev.type,
       });
     }
+  }
+
+  // ── Category spend pace (Personal bucket only) ────────────────────────────
+  const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const [pYear, pMonth] = period.split("-").map(Number) as [number, number];
+  const monthStart = new Date(Date.UTC(pYear, pMonth - 1, 1));
+  const monthEnd = new Date(Date.UTC(pYear, pMonth, 1));
+  const historyStart = new Date(Date.UTC(pYear, pMonth - 1 - PACE_TRAILING_MONTHS, 1));
+
+  const paceRows: TagPaceRow[] = [];
+  if (entity?.slug === "personal") {
+    const paceBudgets = await db.budget.findMany({
+      where: { entityId: entity.id, period },
+      include: { tag: true },
+    });
+
+    const tagSpendRows = await db.$queryRaw<{ tagId: string; total: string }[]>`
+      SELECT tt."tagId", SUM(t.amount)::text AS total
+      FROM "Transaction" t
+      JOIN "TransactionTag" tt ON tt."transactionId" = t.id
+      WHERE t."entityId" = ${entity.id}
+        AND t."archivedAt" IS NULL
+        AND t."transferPairId" IS NULL
+        AND t."postedAt" >= ${monthStart}
+        AND t."postedAt" < ${monthEnd}
+      GROUP BY tt."tagId"
+    `;
+    const spendByTagId = new Map(tagSpendRows.map((r) => [r.tagId, new Prisma.Decimal(r.total)]));
+
+    const historyRows = await db.$queryRaw<{ tagId: string; period: string; total: string }[]>`
+      SELECT tt."tagId" AS "tagId", to_char(t."postedAt", 'YYYY-MM') AS period, SUM(t.amount)::text AS total
+      FROM "Transaction" t
+      JOIN "TransactionTag" tt ON tt."transactionId" = t.id
+      WHERE t."entityId" = ${entity.id}
+        AND t."archivedAt" IS NULL
+        AND t."transferPairId" IS NULL
+        AND t."postedAt" >= ${historyStart}
+        AND t."postedAt" < ${monthStart}
+      GROUP BY tt."tagId", period
+    `;
+    const historyByTagId = new Map<string, { period: string; total: Prisma.Decimal }[]>();
+    for (const row of historyRows) {
+      const pts = historyByTagId.get(row.tagId) ?? [];
+      pts.push({ period: row.period, total: new Prisma.Decimal(row.total) });
+      historyByTagId.set(row.tagId, pts);
+    }
+
+    for (const b of paceBudgets) {
+      const actualSpend = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
+      const summary = computeBudgetSummary({
+        budgeted: b.budgeted,
+        rolloverAmount: b.rolloverAmount ?? new Prisma.Decimal(0),
+        actualSpend,
+      });
+      if (summary.effectiveBudget.lessThanOrEqualTo(0)) continue;
+
+      const spendForecast = projectPeriodEndSpend({
+        period,
+        spendToDate: actualSpend,
+        asOfDate: forecastStart,
+        history: historyByTagId.get(b.tagId) ?? [],
+        trailingMonths: PACE_TRAILING_MONTHS,
+      });
+
+      const projectedPercentOfBudget = summary.effectiveBudget.isZero()
+        ? 0
+        : Math.min(
+            spendForecast.projectedTotal.abs().div(summary.effectiveBudget.abs()).times(100).toNumber(),
+            999
+          );
+
+      paceRows.push({
+        tagId: b.tagId,
+        tagName: b.tag.shortName,
+        budgeted: summary.effectiveBudget.toNumber(),
+        actualSpend: actualSpend.abs().toNumber(),
+        projectedTotal: spendForecast.projectedTotal.abs().toNumber(),
+        percentUsed: Math.round(summary.percentUsed),
+        projectedPercentOfBudget: Math.round(projectedPercentOfBudget),
+        confidence: spendForecast.confidence,
+        method: spendForecast.method,
+        trailingMonthsUsed: spendForecast.trailingMonthsUsed,
+      });
+    }
+    paceRows.sort((a, b) => b.projectedPercentOfBudget - a.projectedPercentOfBudget);
   }
 
   const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -363,16 +496,21 @@ export default async function ForecastPage({ searchParams }: PageProps) {
 
         {/* ── Per-account balance charts (30/60/90 day selectable) ───── */}
         <div className="grid gap-6 lg:grid-cols-2">
-          {accountForecasts.map(({ acct, chartData90, minBal }) => (
-            <ForecastAccountCard
-              key={acct.id}
-              accountName={acct.nickname}
-              mask={acct.mask}
-              minimumBalance={minBal?.toNumber() ?? null}
-              currentBalance={acct.currentBalance ? Number(acct.currentBalance) : null}
-              chartData90={chartData90}
-            />
-          ))}
+          {accountForecasts.map(
+            ({ acct, chartData90, chartDataWeekly, chartDataMonthly, chartDataQuarterly, minBal }) => (
+              <ForecastAccountCard
+                key={acct.id}
+                accountName={acct.nickname}
+                mask={acct.mask}
+                minimumBalance={minBal?.toNumber() ?? null}
+                currentBalance={acct.currentBalance ? Number(acct.currentBalance) : null}
+                chartData90={chartData90}
+                chartDataWeekly={chartDataWeekly}
+                chartDataMonthly={chartDataMonthly}
+                chartDataQuarterly={chartDataQuarterly}
+              />
+            )
+          )}
         </div>
 
         {/* ── Credit card funding analysis (cards vs x2631) ──────────── */}
@@ -545,6 +683,19 @@ export default async function ForecastPage({ searchParams }: PageProps) {
             )}
           </CardContent>
         </Card>
+
+        {/* ── Category spend pace (Personal bucket only) ──────────────── */}
+        {entity?.slug === "personal" && paceRows.length > 0 && (
+          <SpendPaceSection
+            period={period}
+            periodLabel={monthStart.toLocaleDateString("en-US", {
+              month: "long",
+              year: "numeric",
+              timeZone: "UTC",
+            })}
+            rows={paceRows}
+          />
+        )}
 
         {/* ── Recurring expenses ───────────────────────────────────────── */}
         <RecurringExpensesSection
