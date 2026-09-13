@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
+import { TaxDocumentUpload, type DocumentRow } from "@/components/tax/tax-document-upload";
+import { OtherYearDocuments, type OtherYearDocument } from "@/components/tax/other-year-documents";
 import {
   updateWorkspace,
   toggleChecklistItem,
@@ -20,14 +22,6 @@ interface ChecklistItem {
   dueDate: string | null;
 }
 
-interface Document {
-  id: string;
-  docType: string;
-  notes: string | null;
-  taxYear: number | null;
-  createdAt: string;
-}
-
 interface Props {
   workspaceId: string;
   entityId: string;
@@ -38,7 +32,8 @@ interface Props {
   initialNotes: string | null;
   filedAt: string | null;
   checklistItems: ChecklistItem[];
-  relatedDocuments: Document[];
+  relatedDocuments: DocumentRow[];
+  otherYearDocs: OtherYearDocument[];
   exportUrl: string;
 }
 
@@ -48,14 +43,9 @@ const STATUS_OPTIONS = [
   { value: "filed", label: "Filed" },
 ] as const;
 
-const DOC_TYPE_LABELS: Record<string, string> = {
-  w2: "W-2", "1099": "1099", k1: "K-1", extension: "Extension",
-  property_tax: "Property Tax", mortgage_interest: "Mortgage Interest (1098)",
-  policy: "Policy", statement: "Statement", other: "Other",
-};
-
 export function TaxWorkspaceClient({
   workspaceId,
+  entityId,
   entityName,
   taxYear,
   initialStatus,
@@ -64,6 +54,7 @@ export function TaxWorkspaceClient({
   filedAt,
   checklistItems: initialItems,
   relatedDocuments,
+  otherYearDocs,
   exportUrl,
 }: Props) {
   const router = useRouter();
@@ -296,39 +287,14 @@ export function TaxWorkspaceClient({
         </CardContent>
       </Card>
 
-      {/* Related documents */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Related Documents</CardTitle>
-            <a href="/documents" className="text-xs text-primary hover:underline">Upload document →</a>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {relatedDocuments.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No documents for this entity and tax year.{" "}
-              <a href="/documents" className="text-primary hover:underline">Upload one →</a>
-            </p>
-          ) : (
-            <div className="space-y-1">
-              {relatedDocuments.map((doc) => (
-                <div key={doc.id} className="flex items-center justify-between py-1 text-sm">
-                  <span className="font-medium text-xs px-1.5 py-0.5 rounded bg-muted">
-                    {DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
-                  </span>
-                  <span className="flex-1 mx-3 text-muted-foreground truncate">
-                    {doc.notes ?? "—"}
-                  </span>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {new Date(doc.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Documents */}
+      <TaxDocumentUpload
+        entityId={entityId}
+        taxYear={taxYear}
+        documents={relatedDocuments}
+      />
+
+      <OtherYearDocuments documents={otherYearDocs} />
 
       <UnsavedChangesGuard
         isDirty={isDirty}

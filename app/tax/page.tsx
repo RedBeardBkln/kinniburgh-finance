@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { listTaxDeadlines } from "@/actions/tax-deadlines";
 import { MarkFiledButton } from "@/components/tax/deadline-actions";
 import { AddDeadlineForm } from "@/components/tax/add-deadline-form";
+import { AddPriorYearForm } from "@/components/tax/add-prior-year-form";
 import { TaxEntityWidget, type TaxWidgetData } from "@/components/tax/tax-entity-widget";
 import { computePL } from "@/lib/reports";
 
@@ -124,13 +125,16 @@ export default async function TaxPage() {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold">Tax Workspaces</h1>
-          <p className="text-sm text-muted-foreground">
-            Filing workspaces organized by tax year — one per entity. Financial
-            data, documents, and drafts all live in one place. Confirm all
-            deadlines with your CPA — this is not tax advice.
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold">Tax Workspaces</h1>
+            <p className="text-sm text-muted-foreground">
+              Filing workspaces organized by tax year — one per entity. Financial
+              data, documents, and drafts all live in one place. Confirm all
+              deadlines with your CPA — this is not tax advice.
+            </p>
+          </div>
+          <AddPriorYearForm entities={allEntities} />
         </div>
 
         {years.map((year) => (

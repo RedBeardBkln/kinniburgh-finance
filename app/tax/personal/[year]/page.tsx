@@ -30,16 +30,18 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
   const workspaceId = await ensurePersonalWorkspace(year);
   const workspace = await getTaxWorkspace(workspaceId);
 
-  const [questions, docs] = await Promise.all([
+  const [questions, allDocs] = await Promise.all([
     db.taxQuestion.findMany({
       where: { workspaceId },
       orderBy: { createdAt: "asc" },
     }),
     db.document.findMany({
-      where: { entityId: workspace.entityId, taxYear: year, archivedAt: null },
+      where: { entityId: workspace.entityId, archivedAt: null },
       orderBy: { createdAt: "desc" },
     }),
   ]);
+  const docs = allDocs.filter((d) => d.taxYear === year);
+  const otherYearDocs = allDocs.filter((d) => d.taxYear !== year);
 
   // Evaluate which opportunities the answers act on / exclude
   const answerMap: Record<string, unknown> = {};
@@ -114,6 +116,14 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
             documentName: d.documentName,
             notes: d.notes,
             extractionStatus: d.extractionStatus,
+            createdAt: d.createdAt.toISOString(),
+          }))}
+          otherYearDocs={otherYearDocs.map((d) => ({
+            id: d.id,
+            docType: d.docType,
+            documentName: d.documentName,
+            notes: d.notes,
+            taxYear: d.taxYear,
             createdAt: d.createdAt.toISOString(),
           }))}
           opportunities={baseOps}

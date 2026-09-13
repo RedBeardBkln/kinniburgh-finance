@@ -25,10 +25,12 @@ export default async function TaxWorkspacePage({ params }: PageProps) {
     redirect("/tax" as Route);
   }
 
-  const [relatedDocs, entity] = await Promise.all([
-    listDocuments({ entityId: workspace.entityId, taxYear: workspace.taxYear }),
+  const [allDocs, entity] = await Promise.all([
+    listDocuments({ entityId: workspace.entityId }),
     db.entity.findUnique({ where: { id: workspace.entityId } }),
   ]);
+  const relatedDocs = allDocs.filter((d) => d.taxYear === workspace.taxYear);
+  const otherYearDocs = allDocs.filter((d) => d.taxYear !== workspace.taxYear);
 
   const exportUrl = `/api/export/${workspace.entityId}?year=${workspace.taxYear}`;
 
@@ -65,6 +67,15 @@ export default async function TaxWorkspacePage({ params }: PageProps) {
           relatedDocuments={relatedDocs.map((d) => ({
             id: d.id,
             docType: d.docType,
+            documentName: d.documentName,
+            notes: d.notes,
+            extractionStatus: d.extractionStatus,
+            createdAt: d.createdAt.toISOString(),
+          }))}
+          otherYearDocs={otherYearDocs.map((d) => ({
+            id: d.id,
+            docType: d.docType,
+            documentName: d.documentName,
             notes: d.notes,
             taxYear: d.taxYear,
             createdAt: d.createdAt.toISOString(),
