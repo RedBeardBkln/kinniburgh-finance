@@ -88,8 +88,10 @@ function OtherYearDocRow({ doc }: { doc: OtherYearDocument }) {
     try {
       const url = await getTaxDocumentSignedUrl(doc.id);
       window.open(url, "_blank", "noopener,noreferrer");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't open this document — try again.");
+    } catch {
+      // Server action errors are sanitized boilerplate in production (Next.js
+      // strips the real message) — never show err.message to the user here.
+      setError("Couldn't open this document — it may be missing from storage.");
     } finally {
       setLoading(false);
     }

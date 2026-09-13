@@ -74,8 +74,14 @@ export function TaxDocumentUpload({ entityId, taxYear, documents }: Props) {
       setUploadMsg(summarizeUploadBatch(results));
       formEl.reset();
       startTransition(() => router.refresh());
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } catch {
+      // Server action errors are sanitized boilerplate in production (Next.js
+      // strips the real message) — never show err.message to the user here.
+      // Per-file failures (bad type, too large, extraction error) are already
+      // surfaced individually via the returned batch results, not this catch —
+      // this only fires for a genuinely unexpected failure (e.g. too many
+      // files selected at once, or an auth/network problem).
+      setUploadError("Upload failed — check your files and try again.");
     } finally {
       setUploading(false);
     }
