@@ -16,7 +16,8 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getNotifications, markRead, markAllRead } from "@/actions/notifications";
+import { getNotifications, markRead, markAllRead, approveNotification } from "@/actions/notifications";
+import { isApprovableNotificationType } from "@/lib/notification-types";
 
 type NotifRow = Awaited<ReturnType<typeof getNotifications>>[number];
 
@@ -94,6 +95,12 @@ export function NotificationBell({ initialUnreadCount }: Props) {
     setUnread(0);
   }
 
+  async function handleApprove(notificationId: string) {
+    await approveNotification(notificationId);
+    const rows = await getNotifications();
+    setItems(rows);
+  }
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -140,6 +147,8 @@ export function NotificationBell({ initialUnreadCount }: Props) {
                 const body = (payload["body"] as string) ?? "";
                 const type = item.notification.type;
                 const isUnread = !item.readAt;
+                const isApprovable = isApprovableNotificationType(type);
+                const approvedBy = item.notification.approvedBy;
                 return (
                   <div
                     key={item.id}
@@ -154,15 +163,30 @@ export function NotificationBell({ initialUnreadCount }: Props) {
                       <p className="mt-1 text-[10px] text-muted-foreground">
                         {relativeTime(item.notification.createdAt)}
                       </p>
+                      {isApprovable && approvedBy && item.notification.approvedAt && (
+                        <p className="mt-1 text-[10px] text-muted-foreground">
+                          Approved by {approvedBy.name} · {relativeTime(item.notification.approvedAt)}
+                        </p>
+                      )}
                     </div>
-                    {isUnread && (
-                      <button
-                        onClick={() => handleMarkRead(item.id)}
-                        className="shrink-0 text-[10px] text-primary hover:underline"
-                      >
-                        Read
-                      </button>
-                    )}
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      {isUnread && (
+                        <button
+                          onClick={() => handleMarkRead(item.id)}
+                          className="text-[10px] text-primary hover:underline"
+                        >
+                          Read
+                        </button>
+                      )}
+                      {isApprovable && !approvedBy && (
+                        <button
+                          onClick={() => handleApprove(item.notification.id)}
+                          className="text-[10px] text-primary hover:underline"
+                        >
+                          Approve
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}

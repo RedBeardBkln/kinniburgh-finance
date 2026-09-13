@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { getNotifications, markAllRead } from "@/actions/notifications";
+import { getNotifications, markAllRead, approveNotification } from "@/actions/notifications";
+import { isApprovableNotificationType } from "@/lib/notification-types";
 import {
   AlertTriangle,
   BarChart2,
@@ -90,6 +91,8 @@ export default async function NotificationsPage() {
             const payload = item.notification.payload as Record<string, unknown>;
             const body = (payload["body"] as string) ?? "";
             const isUnread = !item.readAt;
+            const isApprovable = isApprovableNotificationType(item.notification.type);
+            const approvedBy = item.notification.approvedBy;
             return (
               <div
                 key={item.id}
@@ -112,7 +115,27 @@ export default async function NotificationsPage() {
                   <p className="mt-1 text-xs text-muted-foreground">
                     {relativeTime(item.notification.createdAt)}
                   </p>
+                  {isApprovable && approvedBy && item.notification.approvedAt && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Approved by {approvedBy.name} · {relativeTime(item.notification.approvedAt)}
+                    </p>
+                  )}
                 </div>
+                {isApprovable && !approvedBy && (
+                  <form
+                    action={async () => {
+                      "use server";
+                      await approveNotification(item.notification.id);
+                    }}
+                  >
+                    <button
+                      type="submit"
+                      className="shrink-0 rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
+                    >
+                      Approve
+                    </button>
+                  </form>
+                )}
               </div>
             );
           })}

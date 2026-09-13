@@ -32,6 +32,7 @@ model User {
   vaultOtps             VaultOtp[]
   vaultSessions         VaultSession[]
   passwordResetTokens   PasswordResetToken[]
+  approvedNotifications Notification[]        @relation("NotificationApprovedBy")
 }
 
 model PasswordResetToken {
@@ -645,15 +646,23 @@ model TagRule {
 model Notification {
   id        String    @id @default(uuid())
   entityId  String?
-  type      String    // overspend | low_balance | accrual_shortfall | bill_due | anomaly
+  type      String    // overspend | low_balance | accrual_shortfall | bill_due | anomaly | ... | large_spend
   payload   Json
   sentAt    DateTime?
   channel   String    // push | email | in_app
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  entity Entity?            @relation(fields: [entityId], references: [id])
-  users  NotificationUser[]
+  // Shared approval flow (spec 05 §8 item 9). Applies only to "large_spend" and
+  // "anomaly" types at the app layer (see lib/notification-types.ts) — no DB-level
+  // type constraint. Stored on this shared row (not NotificationUser) so approval
+  // is visible to every recipient, not a private per-user marker.
+  approvedByUserId String?
+  approvedAt       DateTime?
+
+  entity     Entity?            @relation(fields: [entityId], references: [id])
+  approvedBy User?              @relation("NotificationApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  users      NotificationUser[]
 }
 
 model NotificationUser {

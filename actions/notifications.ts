@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { isApprovableNotificationType } from "@/lib/notification-types";
 
 function requireAuth() {
   return auth().then((session) => {
@@ -18,7 +19,11 @@ export async function getNotifications() {
   const user = await requireAuth();
   return db.notificationUser.findMany({
     where: { userId: user.id },
-    include: { notification: true },
+    include: {
+      notification: {
+        include: { approvedBy: { select: { id: true, name: true } } },
+      },
+    },
     orderBy: { notification: { createdAt: "desc" } },
     take: 50,
   });
@@ -45,6 +50,30 @@ export async function markAllRead(): Promise<void> {
   await db.notificationUser.updateMany({
     where: { userId: user.id, readAt: null },
     data: { readAt: new Date() },
+  });
+  revalidatePath("/notifications");
+}
+
+export async function approveNotification(notificationId: string): Promise<void> {
+  const user = await requireAuth();
+
+  const notification = await db.notification.findUnique({
+    where: { id: notificationId },
+    include: { users: { where: { userId: user.id } } },
+  });
+  if (!notification) throw new Error("Notification not found");
+  if (!isApprovableNotificationType(notification.type)) {
+    throw new Error("This notification type does not support approval");
+  }
+  if (notification.users.length === 0) {
+    // Not a recipient of this notification — refuse silently-wrong approvals.
+    throw new Error("Unauthorized");
+  }
+  if (notification.approvedByUserId) return; // already approved — idempotent, first approver wins
+
+  await db.notification.update({
+    where: { id: notificationId },
+    data: { approvedByUserId: user.id, approvedAt: new Date() },
   });
   revalidatePath("/notifications");
 }
