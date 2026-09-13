@@ -74,6 +74,8 @@ pnpm db:seed      # seed from data/*.csv
 
 **Money** — `NUMERIC(14,2)` in Postgres; `Decimal.js` at runtime. **Negative = outflow, positive = inflow.** Never use floats for amounts.
 
+**"income" vs "revenue"** — `GlCode.type` (business entities) uses `revenue` (the enum is `asset|liability|equity|revenue|expense`, defined in `actions/gl-codes.ts`'s `GL_TYPES` — never `income`, confirmed against live production data). `"income"` is reserved for personal-finance concepts (e.g. `lib/forecast.ts`'s `ScheduleEventType`, `lib/tax-guidance.ts`'s question categories). This exact mix-up recurred across three separate tasks before being fixed for good in the `gl-code-tag-mapping` change — grep for `"income"` near any `GlCode`/`glCodeId`/`computePL` code before assuming it's correct.
+
 **Encryption** — `lib/encrypt.ts`: AES-256-GCM, format `iv:authTag:ciphertext` (hex). Used for Plaid access tokens, cursors, vault credentials. Key from `ENCRYPTION_KEY` env var (64-char hex → 32 bytes).
 
 **Plaid sync** — `lib/plaid-sync.ts`: use `normalizePlaidTransaction()` for all Plaid tx conversion (flips sign, handles payee priority). Use `normalizePayee()` from `lib/tags.ts` (not `.toLowerCase()`) for `payeeNormalized` field.
