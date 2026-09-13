@@ -6,42 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
 import { GenerateButton } from "@/components/monthly-review/generate-button";
+import type { ReviewData } from "@/lib/monthly-review-build";
 
 interface PageProps {
   params: Promise<{ year: string; month: string }>;
-}
-
-interface ReviewData {
-  period: string;
-  generatedAt: string;
-  budgetHealth: Array<{
-    tagName: string;
-    entityName: string;
-    budgetedCents: number;
-    actualCents: number;
-    percentUsed: number;
-    status: "ok" | "warning" | "over";
-  }>;
-  accountSnapshot: Array<{
-    nickname: string;
-    balanceCents: number;
-    minimumCents: number | null;
-    marginCents: number | null;
-  }>;
-  upcomingBills: Array<{
-    payee: string;
-    amountCents: number | null;
-    autopayDay: number | null;
-    entityName: string;
-  }>;
-  accrualStatus: Array<{
-    name: string;
-    currentCents: number;
-    targetCents: number;
-    proRataCents: number;
-    pct: number;
-    status: "on_track" | "watch" | "behind";
-  }>;
 }
 
 function fmtMoney(cents: number): string {
@@ -61,6 +29,24 @@ const STATUS_BG = {
   ok: "bg-green-50 border-green-200",
   warning: "bg-amber-50 border-amber-200",
   over: "bg-red-50 border-red-200",
+};
+
+// Derived, not stored — cheaply computable from projectedPercentUsed at
+// render time using the same >100/>80 thresholds `status` already uses.
+function projectedStatus(pct: number): "ok" | "warning" | "over" {
+  return pct > 100 ? "over" : pct > 80 ? "warning" : "ok";
+}
+
+function confidenceLabel(confidence: "low" | "medium" | "high" | undefined): string | null {
+  if (confidence === "low") return "low confidence";
+  if (confidence === "medium") return "medium confidence";
+  return null; // "high" is the unmarked default — never suppress the row itself
+}
+
+const DIRECTION_COPY: Record<"over" | "under" | "exact", string> = {
+  over: "Projected higher than actual",
+  under: "Projected lower than actual",
+  exact: "Close match",
 };
 
 export default async function MonthlyReviewPage({ params }: PageProps) {
@@ -143,6 +129,7 @@ export default async function MonthlyReviewPage({ params }: PageProps) {
                   <th className="px-4 py-3 font-medium text-right">Budgeted</th>
                   <th className="px-4 py-3 font-medium text-right">Actual</th>
                   <th className="px-4 py-3 font-medium text-right">Used</th>
+                  <th className="px-4 py-3 font-medium text-right">Projected</th>
                 </tr>
               </thead>
               <tbody>
@@ -156,6 +143,31 @@ export default async function MonthlyReviewPage({ params }: PageProps) {
                       <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(b.actualCents)}</td>
                       <td className={cn("px-4 py-2 text-right font-semibold tabular-nums", STATUS_COLORS[b.status])}>
                         {b.percentUsed}%
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        {b.projectedCents != null && b.projectedPercentUsed != null ? (
+                          <>
+                            <div>
+                              {b.forecastConfidence === "low" ? "~" : ""}
+                              {fmtMoney(b.projectedCents)}{" "}
+                              <span
+                                className={cn(
+                                  "font-semibold",
+                                  STATUS_COLORS[projectedStatus(b.projectedPercentUsed)]
+                                )}
+                              >
+                                ({b.projectedPercentUsed}%)
+                              </span>
+                            </div>
+                            {confidenceLabel(b.forecastConfidence) && (
+                              <div className="text-xs font-normal text-muted-foreground">
+                                {confidenceLabel(b.forecastConfidence)}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -251,6 +263,57 @@ export default async function MonthlyReviewPage({ params }: PageProps) {
               </table>
             </CardContent>
           </Card>
+        )}
+
+        {/* Forecast accuracy — retrospective comparison for the prior period */}
+        {data.forecastAccuracy && data.forecastAccuracy.length > 0 ? (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">
+                Forecast accuracy — {data.forecastAccuracyPeriod}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                What the current projection model would have estimated partway through{" "}
+                {data.forecastAccuracyPeriod}, compared to what actually happened — not
+                necessarily what was shown to you at the time.
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-4 py-3 font-medium">Category</th>
+                    <th className="px-4 py-3 font-medium">Entity</th>
+                    <th className="px-4 py-3 font-medium text-right">Projected</th>
+                    <th className="px-4 py-3 font-medium text-right">Actual</th>
+                    <th className="px-4 py-3 font-medium text-right">Miss</th>
+                    <th className="px-4 py-3 font-medium">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.forecastAccuracy.map((row, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="px-4 py-2 font-medium">{row.tagName}</td>
+                      <td className="px-4 py-2 text-muted-foreground text-xs">{row.entityName}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(row.projectedCents)}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(row.actualCents)}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        {row.percentOff !== null ? `${row.percentOff}%` : fmtMoney(row.missCents)}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground">
+                        {DIRECTION_COPY[row.direction]}
+                        {confidenceLabel(row.confidence) ? ` · ${confidenceLabel(row.confidence)}` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Not enough historical data yet to evaluate last month&apos;s forecast accuracy.
+          </p>
         )}
       </div>
     </AppShell>
