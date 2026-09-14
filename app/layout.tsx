@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { getLogoMeta, getFaviconMeta } from "@/lib/settings";
 import { GlobalErrorSafetyNet } from "@/components/global-error-safety-net";
+import { OfflineIndicator } from "@/components/offline-indicator";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -46,6 +47,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <GlobalErrorSafetyNet />
+        <OfflineIndicator />
         {children}
       </body>
     </html>
