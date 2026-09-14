@@ -31,11 +31,6 @@ function daysRemaining(period: string): number {
   return Math.max(0, Math.ceil((endOfMonth.getTime() - now.getTime()) / 86400000));
 }
 
-async function getAllUserIds(): Promise<string[]> {
-  const users = await db.user.findMany({ select: { id: true } });
-  return users.map((u) => u.id);
-}
-
 async function alreadyNotifiedToday(scopeKey: string): Promise<boolean> {
   const today = startOfDayUTC(new Date());
   const existing = await db.notification.findFirst({
@@ -105,7 +100,7 @@ export async function checkBudgetOverspend(period: string): Promise<number> {
   `;
 
   const spendByTagId = new Map(tagSpendRows.map((r) => [r.tagId, new Decimal(r.total)]));
-  const userIds = await getAllUserIds();
+  const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
   let generated = 0;
 
   for (const budget of budgets) {
@@ -116,7 +111,17 @@ export async function checkBudgetOverspend(period: string): Promise<number> {
       actualSpend,
     });
 
-    if (summary.percentUsed < 80) continue;
+    const eligibleUserIds = users
+      .filter((u) => {
+        const prefs = (u.notificationPrefs ?? {}) as Record<string, unknown>;
+        const p = prefs["overspend"] as { enabled?: boolean; threshold?: number } | undefined;
+        if (p?.enabled === false) return false;
+        const threshold = p?.threshold ?? 80;
+        return summary.percentUsed >= threshold;
+      })
+      .map((u) => u.id);
+
+    if (eligibleUserIds.length === 0) continue;
 
     const scopeKey = `overspend:${budget.tagId}:${period}`;
     if (await alreadyNotifiedToday(scopeKey)) continue;
@@ -130,7 +135,7 @@ export async function checkBudgetOverspend(period: string): Promise<number> {
       type: "overspend",
       entityId: budget.entityId,
       payload: { scopeKey, title, body, tagName: budget.tag.shortName, budgeted: summary.effectiveBudget.toFixed(2), actual: actualSpend.abs().toFixed(2), percentUsed: pct },
-      userIds,
+      userIds: eligibleUserIds,
     });
     generated++;
   }
@@ -190,7 +195,7 @@ export async function checkBudgetPace(period: string): Promise<number> {
     historyByTagId.set(row.tagId, points);
   }
 
-  const userIds = await getAllUserIds();
+  const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
   let generated = 0;
 
   for (const budget of budgets) {
@@ -212,6 +217,16 @@ export async function checkBudgetPace(period: string): Promise<number> {
     });
 
     if (!evaluation.fire) continue;
+
+    const eligibleUserIds = users
+      .filter((u) => {
+        const prefs = (u.notificationPrefs ?? {}) as Record<string, unknown>;
+        const p = prefs["budget_pace"] as { enabled?: boolean } | undefined;
+        return p?.enabled !== false;
+      })
+      .map((u) => u.id);
+
+    if (eligibleUserIds.length === 0) continue;
 
     const scopeKey = `pace:${budget.tagId}:${period}`;
     if (await alreadyNotifiedToday(scopeKey)) continue;
@@ -242,7 +257,7 @@ export async function checkBudgetPace(period: string): Promise<number> {
         daysInPeriod: evaluation.forecast.daysInPeriod,
         percentUsed: Math.round(summary.percentUsed),
       },
-      userIds,
+      userIds: eligibleUserIds,
     });
     generated++;
   }
@@ -269,7 +284,7 @@ export async function checkLowBalance(): Promise<number> {
 
   const from = startOfDayUTC(new Date());
   const to = new Date(from.getTime() + 30 * 86400000);
-  const userIds = await getAllUserIds();
+  const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
   let generated = 0;
 
   for (const account of accounts) {
@@ -343,6 +358,16 @@ export async function checkLowBalance(): Promise<number> {
 
     if (breaches.length === 0) continue;
 
+    const eligibleUserIds = users
+      .filter((u) => {
+        const prefs = (u.notificationPrefs ?? {}) as Record<string, unknown>;
+        const p = prefs["low_balance"] as { enabled?: boolean } | undefined;
+        return p?.enabled !== false;
+      })
+      .map((u) => u.id);
+
+    if (eligibleUserIds.length === 0) continue;
+
     const scopeKey = `low_balance:${account.id}`;
     if (await alreadyNotifiedToday(scopeKey)) continue;
 
@@ -360,7 +385,7 @@ export async function checkLowBalance(): Promise<number> {
       type: "low_balance",
       entityId: account.entityId,
       payload: { scopeKey, title, body, accountNickname: account.nickname, projectedBreachDate: firstBreach.date.toISOString(), minimumBalance: account.minimumBalance!.toFixed(2) },
-      userIds,
+      userIds: eligibleUserIds,
     });
     generated++;
   }
@@ -378,7 +403,7 @@ export async function checkAccrualShortfall(): Promise<number> {
   const now = new Date();
   const monthsElapsed = now.getUTCMonth() + 1;
   const currentMonth = now.getUTCMonth() + 1;
-  const userIds = await getAllUserIds();
+  const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
   let generated = 0;
 
   for (const envelope of envelopes) {
@@ -391,6 +416,16 @@ export async function checkAccrualShortfall(): Promise<number> {
 
     const proRataTarget = envelope.targetAnnualAmount.div(12).times(monthsElapsed);
     if (!envelope.currentBalance.lessThan(proRataTarget)) continue;
+
+    const eligibleUserIds = users
+      .filter((u) => {
+        const prefs = (u.notificationPrefs ?? {}) as Record<string, unknown>;
+        const p = prefs["accrual_shortfall"] as { enabled?: boolean } | undefined;
+        return p?.enabled !== false;
+      })
+      .map((u) => u.id);
+
+    if (eligibleUserIds.length === 0) continue;
 
     const scopeKey = `accrual_shortfall:${envelope.id}`;
     if (await alreadyNotifiedToday(scopeKey)) continue;
@@ -409,7 +444,7 @@ export async function checkAccrualShortfall(): Promise<number> {
       type: "accrual_shortfall",
       entityId: envelope.account.entityId,
       payload: { scopeKey, title, body, envelopeName: envelope.name, currentBalance: envelope.currentBalance.toFixed(2), target: proRataTarget.toFixed(2) },
-      userIds,
+      userIds: eligibleUserIds,
     });
     generated++;
   }
@@ -426,7 +461,7 @@ export async function checkBillReminders(): Promise<number> {
   });
 
   const now = new Date();
-  const userIds = await getAllUserIds();
+  const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
   let generated = 0;
 
   for (const bill of bills) {
@@ -436,7 +471,19 @@ export async function checkBillReminders(): Promise<number> {
     const upcoming = thisMonth.getTime() >= startOfDayUTC(now).getTime() ? thisMonth : nextMonth;
     const daysUntil = Math.floor((upcoming.getTime() - startOfDayUTC(now).getTime()) / 86400000);
 
-    if (daysUntil < 0 || daysUntil > 3) continue;
+    if (daysUntil < 0) continue;
+
+    const eligibleUserIds = users
+      .filter((u) => {
+        const prefs = (u.notificationPrefs ?? {}) as Record<string, unknown>;
+        const p = prefs["bill_due"] as { enabled?: boolean; daysAhead?: number } | undefined;
+        if (p?.enabled === false) return false;
+        const daysAhead = p?.daysAhead ?? 3;
+        return daysUntil <= daysAhead;
+      })
+      .map((u) => u.id);
+
+    if (eligibleUserIds.length === 0) continue;
 
     const scopeKey = `bill_due:${bill.id}:${upcoming.toISOString().slice(0, 10)}`;
     if (await alreadyNotifiedToday(scopeKey)) continue;
@@ -454,7 +501,7 @@ export async function checkBillReminders(): Promise<number> {
       type: "bill_due",
       entityId: bill.entityId,
       payload: { scopeKey, title, body, payee: bill.payee, dueDate: upcoming.toISOString(), amount: bill.expectedAmount?.toFixed(2) ?? null },
-      userIds,
+      userIds: eligibleUserIds,
     });
     generated++;
   }
@@ -502,7 +549,7 @@ export async function checkAnomalies(period: string): Promise<number> {
   const tags = await db.tag.findMany({ select: { id: true, shortName: true } });
   const tagNames = new Map(tags.map((t) => [t.id, t.shortName]));
 
-  const userIds = await getAllUserIds();
+  const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
   let generated = 0;
 
   for (const row of currentSpendRows) {
@@ -512,7 +559,18 @@ export async function checkAnomalies(period: string): Promise<number> {
 
     if (current.lessThan(noiseFloor)) continue;
     if (avg.isZero()) continue;
-    if (current.lessThanOrEqualTo(avg.times(1.5))) continue;
+
+    const eligibleUserIds = users
+      .filter((u) => {
+        const prefs = (u.notificationPrefs ?? {}) as Record<string, unknown>;
+        const p = prefs["anomaly"] as { enabled?: boolean; multiplier?: number } | undefined;
+        if (p?.enabled === false) return false;
+        const multiplier = p?.multiplier ?? 1.5;
+        return current.greaterThan(avg.times(multiplier));
+      })
+      .map((u) => u.id);
+
+    if (eligibleUserIds.length === 0) continue;
 
     const scopeKey = `anomaly:${row.entityId}:${row.tagId}:${period}`;
     if (await alreadyNotifiedToday(scopeKey)) continue;
@@ -526,7 +584,7 @@ export async function checkAnomalies(period: string): Promise<number> {
       type: "anomaly",
       entityId: row.entityId,
       payload: { scopeKey, title, body, tagName, current: current.toFixed(2), avg: avg.toFixed(2), multiple },
-      userIds,
+      userIds: eligibleUserIds,
     });
     generated++;
   }
@@ -605,10 +663,19 @@ export async function checkCardPaymentsDue(): Promise<number> {
   });
 
   const now = new Date();
-  const userIds = await getAllUserIds();
+  const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
+  const eligibleUserIds = users
+    .filter((u) => {
+      const prefs = (u.notificationPrefs ?? {}) as Record<string, unknown>;
+      const p = prefs["cc_payment_due"] as { enabled?: boolean } | undefined;
+      return p?.enabled !== false;
+    })
+    .map((u) => u.id);
   let generated = 0;
 
   for (const card of cards) {
+    if (eligibleUserIds.length === 0) continue;
+
     const dueDate = card.ccDueDate!;
     const info = classifyCardDue(dueDate, now);
     const balance = card.ccStatementBalance;
@@ -646,7 +713,7 @@ export async function checkCardPaymentsDue(): Promise<number> {
           statementBalance: balance?.toFixed(2) ?? null,
           daysUntilDue: info.daysUntilDue,
         },
-        userIds,
+        userIds: eligibleUserIds,
       });
       generated++;
     }
@@ -671,7 +738,7 @@ export async function checkCardPaymentsDue(): Promise<number> {
           statementBalance: balance.toFixed(2),
           daysOverdue: overdueDays,
         },
-        userIds,
+        userIds: eligibleUserIds,
       });
       generated++;
     }
@@ -743,6 +810,16 @@ export async function checkCcFundingShortfall(): Promise<number> {
   // Only notify on shortfall or tight cushion — "covered" stays silent
   if (result.status === "covered") return 0;
 
+  const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
+  const eligibleUserIds = users
+    .filter((u) => {
+      const prefs = (u.notificationPrefs ?? {}) as Record<string, unknown>;
+      const p = prefs["cc_funding_shortfall"] as { enabled?: boolean } | undefined;
+      return p?.enabled !== false;
+    })
+    .map((u) => u.id);
+  if (eligibleUserIds.length === 0) return 0;
+
   const scopeKey = `cc_funding:${fundingAccount.id}:${result.status === "shortfall" ? "short" : "risk"}`;
   if (await alreadyNotifiedToday(scopeKey)) return 0;
 
@@ -758,7 +835,6 @@ export async function checkCcFundingShortfall(): Promise<number> {
     result,
   });
 
-  const userIds = await getAllUserIds();
   await createNotification({
     type: "cc_funding_shortfall",
     entityId: fundingAccount.entityId,
@@ -777,7 +853,7 @@ export async function checkCcFundingShortfall(): Promise<number> {
         statementBalance: c.statementBalance.toFixed(2),
       })),
     },
-    userIds,
+    userIds: eligibleUserIds,
   });
   return 1;
 }

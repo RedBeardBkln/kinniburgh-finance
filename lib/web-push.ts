@@ -23,8 +23,17 @@ export async function sendPushToUser(
           { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
           JSON.stringify(payload)
         )
-        .catch(() => {
-          // Stale subscriptions are silently ignored; endpoint cleanup happens on 410
+        .catch(async (err: unknown) => {
+          // A 404/410 from the push service means the subscription is
+          // confirmed gone — delete it so it stops being retried forever.
+          // Any other error (network blip, 5xx, etc.) is left alone since
+          // it isn't confirmed-gone.
+          if (err instanceof webpush.WebPushError && (err.statusCode === 404 || err.statusCode === 410)) {
+            await db.pushSubscription.delete({ where: { endpoint: s.endpoint } }).catch(() => {
+              // Already deleted by a concurrent call (e.g. dispatchPending's
+              // safety-net sweep racing this same endpoint) — ignore.
+            });
+          }
         })
     )
   );

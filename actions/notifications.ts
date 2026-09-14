@@ -88,6 +88,9 @@ const prefsSchema = z.object({
   anomaly: z.object({ enabled: z.boolean(), multiplier: z.number().min(1.1) }).optional(),
   policy_expiry: z.object({ enabled: z.boolean() }).optional(),
   large_spend: z.object({ enabled: z.boolean(), thresholdCents: z.number().int().min(1000) }).optional(),
+  budget_pace: z.object({ enabled: z.boolean() }).optional(),
+  cc_payment_due: z.object({ enabled: z.boolean() }).optional(),
+  cc_funding_shortfall: z.object({ enabled: z.boolean() }).optional(),
 });
 
 export type NotifPrefs = z.infer<typeof prefsSchema>;

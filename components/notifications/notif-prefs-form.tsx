@@ -11,6 +11,9 @@ const PREF_TYPES = [
   { key: "anomaly" as const, label: "Spending anomaly", description: "Alert when tag spending is significantly above historical average." },
   { key: "policy_expiry" as const, label: "Policy expiry reminders", description: "Alert 30 days before an insurance policy expiry date." },
   { key: "large_spend" as const, label: "Large spend alert", description: "Alert when a transaction exceeds a configurable threshold." },
+  { key: "budget_pace" as const, label: "Budget pace warning", description: "Early alert when a tag is trending toward going over budget based on spending pace." },
+  { key: "cc_payment_due" as const, label: "Credit card payment due", description: "Alert before a credit card statement is due, and again if it becomes overdue." },
+  { key: "cc_funding_shortfall" as const, label: "Credit card funding shortfall", description: "Alert when the credit card funding account won't cover upcoming card payments." },
 ];
 
 interface Props {
