@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getDocumentFileSignedUrl, downloadDocumentFile } from "@/lib/supabase-storage";
+import {
+  getDocumentFileSignedUrl,
+  downloadDocumentFile,
+  getReceiptSignedUrl,
+  getPaystubSignedUrl,
+  getTaxSignedUrl,
+  getSignedUploadUrl,
+  downloadReceiptFile,
+} from "@/lib/supabase-storage";
 
 // Regression coverage for the Document Vault crash fixed in this task: a
 // Document.fileKey with an unrecognized/new prefix (e.g. "statements/...")
@@ -125,5 +133,118 @@ describe("downloadDocumentFile", () => {
 
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toContain("/object/receipts/");
+  });
+});
+
+// Regression coverage for the InvalidSignature bug fixed in this task:
+// `encodeURIComponent(fileKey)` on the whole multi-segment key percent-encodes
+// the "/" separators as "%2F" too, which Supabase Storage signs successfully
+// but then rejects on the follow-up GET against the signed URL with 400
+// InvalidSignature (confirmed against production 2026-09-13). The fix encodes
+// each path segment individually and rejoins with a literal "/". These tests
+// assert on the RAW (non-decoded) request URL — `decodeURIComponent(url)`
+// would round-trip "%2F" back to "/" and mask this exact bug, which is why
+// the pre-existing tests above didn't catch it.
+describe("per-segment path encoding (fileKey slashes must stay literal)", () => {
+  function mockSignFetch(signedURL: string) {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ signedURL }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("getReceiptSignedUrl keeps '/' separators literal in the request path", async () => {
+    const fetchMock = mockSignFetch("/object/sign/receipts/documents/e1/d1.pdf?token=x");
+
+    await getReceiptSignedUrl("documents/e1/d1.pdf");
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain("/object/sign/receipts/documents/e1/d1.pdf");
+    expect(url).not.toContain("%2F");
+  });
+
+  it("getPaystubSignedUrl keeps '/' separators literal in the request path", async () => {
+    const fetchMock = mockSignFetch("/object/sign/paystubs/p1/stub1.pdf?token=x");
+
+    await getPaystubSignedUrl("p1/stub1.pdf");
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain("/object/sign/paystubs/p1/stub1.pdf");
+    expect(url).not.toContain("%2F");
+  });
+
+  it("getTaxSignedUrl keeps '/' separators literal in the request path", async () => {
+    const fetchMock = mockSignFetch("/object/sign/taxes/taxes/e1/d1.pdf?token=x");
+
+    await getTaxSignedUrl("taxes/e1/d1.pdf");
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain("/object/sign/taxes/taxes/e1/d1.pdf");
+    expect(url).not.toContain("%2F");
+  });
+
+  it("getSignedUploadUrl keeps '/' separators literal in the request path", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: "/object/upload/sign/receipts/documents/e1/d1.pdf?token=x" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getSignedUploadUrl("documents/e1/d1.pdf");
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain("/object/upload/sign/receipts/documents/e1/d1.pdf");
+    expect(url).not.toContain("%2F");
+  });
+
+  it("downloadReceiptFile (GET download path) keeps '/' separators literal", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await downloadReceiptFile("documents/e1/d1.pdf");
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain("/object/receipts/documents/e1/d1.pdf");
+    expect(url).not.toContain("%2F");
+  });
+
+  it("getDocumentFileSignedUrl (taxes/ prefix) keeps all '/' separators literal end-to-end", async () => {
+    const fetchMock = mockSignFetch("/object/sign/taxes/taxes/e1/d1.pdf?token=x");
+
+    await getDocumentFileSignedUrl("taxes/e1/d1.pdf");
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain("/object/sign/taxes/taxes/e1/d1.pdf");
+    expect(url).not.toContain("%2F");
+  });
+
+  it("downloadDocumentFile (statements/ prefix) keeps all '/' separators literal end-to-end", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await downloadDocumentFile("statements/e1/s1.pdf");
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain("/object/taxes/statements/e1/s1.pdf");
+    expect(url).not.toContain("%2F");
+  });
+
+  it("still percent-encodes non-slash special characters within a segment", async () => {
+    const fetchMock = mockSignFetch("/object/sign/receipts/documents/e 1/d1.pdf?token=x");
+
+    await getReceiptSignedUrl("documents/e 1/d1.pdf");
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    // The space inside the "e 1" segment must still be escaped (%20), even
+    // though the "/" separators around it are preserved literally.
+    expect(url).toContain("/object/sign/receipts/documents/e%201/d1.pdf");
   });
 });

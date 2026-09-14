@@ -24,6 +24,20 @@ function getStorageConfig() {
   return { url, key };
 }
 
+// Encodes a multi-segment storage key (e.g. "taxes/{entityId}/{docId}.pdf")
+// for use in a Supabase Storage REST request path. `encodeURIComponent()` on
+// the whole key also encodes the "/" separators as "%2F", which breaks
+// Supabase Storage's signature verification on the follow-up GET against the
+// resulting signed URL — confirmed against production 2026-09-13: the sign
+// request itself returns 200 either way, but the GET on the signed URL
+// returns 400 InvalidSignature when the slashes were percent-encoded.
+// `fileKey` segments (prefix, entityId, docId.ext) never legitimately
+// contain "/" themselves, so encoding each segment individually and
+// rejoining with a literal "/" is always correct.
+function encodeStoragePath(key: string): string {
+  return key.split("/").map(encodeURIComponent).join("/");
+}
+
 // Used by documents.ts for server-side uploads that cannot go through the
 // signed-URL flow. Uses node:https to bypass Next.js's instrumented global
 // fetch, which tries to btoa() binary bodies for OTel tracing.
@@ -71,7 +85,7 @@ async function uploadFile(
 ): Promise<void> {
   const { url, key } = getStorageConfig();
   const res = await httpsPost(
-    `${url}/storage/v1/object/${bucket}/${fileKey}`,
+    `${url}/storage/v1/object/${bucket}/${encodeStoragePath(fileKey)}`,
     {
       Authorization: `Bearer ${key}`,
       "Content-Type": mimeType,
@@ -90,7 +104,7 @@ async function uploadFile(
 async function downloadFile(bucket: string, fileKey: string): Promise<Buffer> {
   const { url, key } = getStorageConfig();
   const res = await fetch(
-    `${url}/storage/v1/object/${bucket}/${encodeURIComponent(fileKey)}`,
+    `${url}/storage/v1/object/${bucket}/${encodeStoragePath(fileKey)}`,
     { headers: { Authorization: `Bearer ${key}` }, cache: "no-store" }
   );
   if (!res.ok) throw new Error(`Storage download failed: ${res.statusText}`);
@@ -110,7 +124,7 @@ export async function uploadReceiptFile(
 export async function getSignedUploadUrl(fileKey: string): Promise<string> {
   const { url, key } = getStorageConfig();
   const res = await fetch(
-    `${url}/storage/v1/object/upload/sign/${BUCKET}/${encodeURIComponent(fileKey)}`,
+    `${url}/storage/v1/object/upload/sign/${BUCKET}/${encodeStoragePath(fileKey)}`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -133,7 +147,7 @@ export async function getSignedUploadUrl(fileKey: string): Promise<string> {
 export async function getReceiptSignedUrl(fileKey: string): Promise<string> {
   const { url, key } = getStorageConfig();
   const res = await fetch(
-    `${url}/storage/v1/object/sign/${BUCKET}/${encodeURIComponent(fileKey)}`,
+    `${url}/storage/v1/object/sign/${BUCKET}/${encodeStoragePath(fileKey)}`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -167,7 +181,7 @@ export async function uploadPaystubFile(
 export async function getPaystubSignedUrl(fileKey: string): Promise<string> {
   const { url, key } = getStorageConfig();
   const res = await fetch(
-    `${url}/storage/v1/object/sign/${PAYSTUB_BUCKET}/${encodeURIComponent(fileKey)}`,
+    `${url}/storage/v1/object/sign/${PAYSTUB_BUCKET}/${encodeStoragePath(fileKey)}`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -213,7 +227,7 @@ export async function downloadTaxFile(fileKey: string): Promise<Buffer> {
 export async function getTaxSignedUrl(fileKey: string): Promise<string> {
   const { url, key } = getStorageConfig();
   const res = await fetch(
-    `${url}/storage/v1/object/sign/${TAX_BUCKET}/${encodeURIComponent(fileKey)}`,
+    `${url}/storage/v1/object/sign/${TAX_BUCKET}/${encodeStoragePath(fileKey)}`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
