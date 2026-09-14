@@ -4,7 +4,11 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { uploadReceiptFile, getReceiptSignedUrl, downloadReceiptFile } from "@/lib/supabase-storage";
+import {
+  uploadReceiptFile,
+  getDocumentFileSignedUrl,
+  downloadDocumentFile,
+} from "@/lib/supabase-storage";
 import { randomUUID } from "crypto";
 import { extractDocument, classifyDocType, type ExtractedDocument } from "@/lib/doc-extract";
 import { Prisma } from "@prisma/client";
@@ -95,7 +99,7 @@ export async function listDocuments(filters: { entityId?: string; taxYear?: numb
 export async function getDocumentSignedUrl(documentId: string): Promise<string> {
   await requireAuth();
   const doc = await db.document.findUniqueOrThrow({ where: { id: documentId } });
-  return getReceiptSignedUrl(doc.fileKey);
+  return getDocumentFileSignedUrl(doc.fileKey);
 }
 
 export async function archiveDocument(documentId: string): Promise<void> {
@@ -121,7 +125,7 @@ export async function triggerExtraction(documentId: string): Promise<ExtractedDo
   });
 
   try {
-    const buffer = await downloadReceiptFile(doc.fileKey);
+    const buffer = await downloadDocumentFile(doc.fileKey);
     const mimeType = doc.fileKey.endsWith(".pdf") ? "application/pdf" : "image/jpeg";
     const docType = classifyDocType(doc.docType, doc.fileKey);
     const result = await extractDocument(buffer, mimeType, docType);

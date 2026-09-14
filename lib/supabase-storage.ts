@@ -231,3 +231,44 @@ export async function getTaxSignedUrl(fileKey: string): Promise<string> {
   const path = data.signedURL ?? data.signedUrl ?? "";
   return path.startsWith("http") ? path : `${url}/storage/v1${path}`;
 }
+
+// ── Document.fileKey bucket routing ──────────────────────────────────────────
+//
+// `Document.fileKey` (prisma/schema.prisma) carries a routing prefix telling
+// us which bucket — and, for the "taxes/" prefix, which physical sub-path —
+// the underlying object actually lives in. Every reader of a Document's
+// fileKey (signed URL, download-for-extraction, etc.) must agree with
+// whichever uploader actually wrote the bytes, or the read 404s / throws.
+// Centralizing that decision here means a new prefix only needs to be taught
+// to these two functions, not to every call site.
+//
+// Prefixes currently in use (grep `fileKey = \`` under actions/** and
+// app/api/**):
+//   - "documents/{entityId}/..."   (actions/documents.ts, insurance policy
+//     upload route) -> receipts bucket, key used exactly as stored.
+//   - "taxes/{entityId}/..."       (actions/tax-planning.ts) -> taxes bucket;
+//     `uploadTaxDocumentCore` calls `uploadTaxFile(buffer, fileKey, ...)` with
+//     this fileKey UNSTRIPPED, so the physical object lives at the nested
+//     path "taxes/{entityId}/..." *inside* the already-taxes-named bucket
+//     (a redundant folder segment, but that's what was actually written —
+//     confirmed against production storage on 2026-09-13). The key must be
+//     used exactly as stored on read too, or the request 404s. Do NOT strip
+//     this prefix — a prior version of this helper did, which broke every
+//     real tax-document upload (see tax-document-bucket-path-fix task).
+//   - "statements/{entityId}/..."  (actions/bank-statements.ts) -> taxes
+//     bucket, key used exactly as stored (that module uploads and downloads
+//     with the same unstripped key already).
+// Anything else (legacy/unrecognized keys) falls back to the receipts bucket
+// with the key used as-is, matching this app's original single-bucket
+// behavior before the taxes/statements buckets existed.
+export async function getDocumentFileSignedUrl(fileKey: string): Promise<string> {
+  if (fileKey.startsWith("taxes/")) return getTaxSignedUrl(fileKey);
+  if (fileKey.startsWith("statements/")) return getTaxSignedUrl(fileKey);
+  return getReceiptSignedUrl(fileKey);
+}
+
+export async function downloadDocumentFile(fileKey: string): Promise<Buffer> {
+  if (fileKey.startsWith("taxes/")) return downloadTaxFile(fileKey);
+  if (fileKey.startsWith("statements/")) return downloadTaxFile(fileKey);
+  return downloadReceiptFile(fileKey);
+}

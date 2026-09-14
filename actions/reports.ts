@@ -171,6 +171,76 @@ export async function exportBalanceSheetCsv(entityId: string): Promise<string> {
   return [header, ...assetRows, ...liabilityRows, ...totals].join("\n");
 }
 
+// ── Period Balance Sheet CSV export (statement-driven) ────────────────────────
+
+export async function exportPeriodBalanceSheetCsv(
+  entityId: string,
+  selector: string
+): Promise<string> {
+  await requireAuth();
+
+  const {
+    parsePeriodSelector,
+    buildPeriodBalanceSheet,
+  } = await import("@/lib/period-balance-sheet");
+  const { getPeriodBalanceSheet } = await import("@/actions/bank-statements");
+  const { computeBalanceSheet } = await import("@/lib/reports");
+
+  const period = parsePeriodSelector(selector);
+  if (!period) throw new Error("Invalid period selector");
+
+  const { snapshots, accounts } = await getPeriodBalanceSheet(
+    entityId,
+    period.start,
+    period.end
+  );
+  const fromStatements = buildPeriodBalanceSheet(snapshots, accounts, period);
+
+  // Live fallback for accounts with no statement in the period
+  const live = await computeBalanceSheet(entityId);
+  const covered = new Set(
+    fromStatements.assets.map((a) => a.key).concat(fromStatements.liabilities.map((l) => l.key))
+  );
+  const liveAssets = live.assets.filter((a) => !covered.has(a.id));
+  const liveLiabilities = live.liabilities.filter((l) => !covered.has(l.id));
+
+  function fmtDollars(cents: number) {
+    return (cents / 100).toFixed(2);
+  }
+
+  const header = toCsvRow(["Section", "Account", "Mask", "Amount", "Source"]);
+  const assetRows = [
+    ...fromStatements.assets.map((a) =>
+      toCsvRow(["Asset", a.label, a.mask ?? "", fmtDollars(a.balanceCents), "statement"])
+    ),
+    ...liveAssets.map((a) =>
+      toCsvRow(["Asset", a.label, a.mask ?? "", fmtDollars(a.amountCents), "live balance"])
+    ),
+  ];
+  const liabilityRows = [
+    ...fromStatements.liabilities.map((l) =>
+      toCsvRow(["Liability", l.label, l.mask ?? "", fmtDollars(l.balanceCents), "statement"])
+    ),
+    ...liveLiabilities.map((l) =>
+      toCsvRow(["Liability", l.label, l.mask ?? "", fmtDollars(l.amountCents), "live balance"])
+    ),
+  ];
+
+  const totalAssets = fromStatements.totalAssetsCents + liveAssets.reduce((s, a) => s + a.amountCents, 0);
+  const totalLiabilities = fromStatements.totalLiabilitiesCents + liveLiabilities.reduce((s, l) => s + l.amountCents, 0);
+
+  const meta = [
+    toCsvRow(["", "Period", "", `${period.start} to ${period.end}`, period.label]),
+  ];
+  const totals = [
+    toCsvRow(["", "Total Assets", "", fmtDollars(totalAssets)]),
+    toCsvRow(["", "Total Liabilities", "", fmtDollars(totalLiabilities)]),
+    toCsvRow(["", "Equity", "", fmtDollars(totalAssets - totalLiabilities)]),
+  ];
+
+  return [header, ...assetRows, ...liabilityRows, ...totals, ...meta].join("\n");
+}
+
 // ── CPA export bundle (multi-section CSV) ─────────────────────────────────────
 
 export async function exportCpaBundle(

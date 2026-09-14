@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
-import { uploadTaxFile, downloadTaxFile } from "@/lib/supabase-storage";
+import { uploadTaxFile, getDocumentFileSignedUrl, downloadDocumentFile } from "@/lib/supabase-storage";
 import { extractDocument, classifyDocType, type ExtractedDocument } from "@/lib/doc-extract";
 import { generateDocumentName } from "@/lib/doc-naming";
 import { parseModelJson } from "@/lib/model-json";
@@ -352,29 +352,17 @@ export async function updateTaxDocument(
 export async function getTaxDocumentSignedUrl(documentId: string) {
   await requireAuth();
   const doc = await db.document.findUniqueOrThrow({ where: { id: documentId } });
-  return getTaxSignedUrlSafe(doc.fileKey);
-}
-
-async function getTaxSignedUrlSafe(fileKey: string): Promise<string> {
-  // A Document's fileKey can come from either upload path: the tax-specific
-  // flow writes "taxes/{entityId}/..." keys into the taxes bucket, while the
-  // generic document-vault flow (actions/documents.ts#uploadDocument) writes
-  // "documents/{entityId}/..." keys into the receipts bucket. Route to the
-  // correct bucket based on the prefix so prior-year documents uploaded via
-  // either path get a working signed URL.
-  if (fileKey.startsWith("taxes/")) {
-    const { getTaxSignedUrl } = await import("@/lib/supabase-storage");
-    return getTaxSignedUrl(fileKey.slice("taxes/".length));
-  }
-  const { getReceiptSignedUrl } = await import("@/lib/supabase-storage");
-  return getReceiptSignedUrl(fileKey);
+  // A Document's fileKey can come from any upload path (tax-specific,
+  // generic document-vault, or bank-statement) — bucket/prefix resolution is
+  // centralized in lib/supabase-storage.ts's getDocumentFileSignedUrl so all
+  // three agree on where a given fileKey's bytes actually live.
+  return getDocumentFileSignedUrl(doc.fileKey);
 }
 
 export async function downloadTaxDocument(documentId: string): Promise<Buffer> {
   await requireAuth();
   const doc = await db.document.findUniqueOrThrow({ where: { id: documentId } });
-  const key = doc.fileKey.startsWith("taxes/") ? doc.fileKey.slice("taxes/".length) : doc.fileKey;
-  return downloadTaxFile(key);
+  return downloadDocumentFile(doc.fileKey);
 }
 
 // ── AI tax review ─────────────────────────────────────────────────────────────

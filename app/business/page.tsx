@@ -122,6 +122,14 @@ export default async function BusinessPage() {
                     >
                       Balance Sheet →
                     </Link>
+                    {(b.slug === "sudden-valley" || b.slug === "ek-consulting") && (
+                      <Link
+                        href={`/business/${b.slug}/statements` as Route}
+                        className="text-sm text-primary hover:underline"
+                      >
+                        Bank Statements →
+                      </Link>
+                    )}
                     <Link
                       href={`/business/${b.slug}/mileage` as Route}
                       className="text-sm text-primary hover:underline"

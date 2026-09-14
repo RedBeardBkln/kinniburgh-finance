@@ -61,6 +61,16 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
       base: `/business/${activeBucket}/pl`,
       href: buildHref(`/business/${activeBucket}/pl`),
     },
+    {
+      label: "Balance Sheet",
+      base: `/business/${activeBucket}/balance-sheet`,
+      href: buildHref(`/business/${activeBucket}/balance-sheet`),
+    },
+    {
+      label: "Bank Statements",
+      base: `/business/${activeBucket}/statements`,
+      href: buildHref(`/business/${activeBucket}/statements`),
+    },
     { label: "Tax Workspaces", base: "/tax", href: buildHref("/tax") },
     { label: "Debt Tracker", base: "/personal/debt-free", href: buildHref("/personal/debt-free") },
   ];
