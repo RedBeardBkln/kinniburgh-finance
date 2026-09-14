@@ -9,9 +9,11 @@ import {
   baseOpportunitiesForHousehold,
   evaluateAnswers,
   formatOpportunityForDisplay,
-  PERSONAL_FORM_PLAN,
   REFUND_OBJECTIVE_STATEMENT,
 } from "@/lib/tax-guidance";
+import { computePersonalFormPlan } from "@/lib/tax-form-plan";
+import { getEntityBySlug } from "@/lib/entity";
+import { computePL } from "@/lib/reports";
 import { PersonalTaxClient } from "@/components/tax/personal-tax-client";
 import type { Route } from "next";
 
@@ -42,6 +44,49 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
   ]);
   const docs = allDocs.filter((d) => d.taxYear === year);
   const otherYearDocs = allDocs.filter((d) => d.taxYear !== year);
+
+  // ── Inputs for the computed form-readiness plan ─────────────────────────────
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
+
+  const [ekcEntity, svEntity, solarLoanAccount] = await Promise.all([
+    getEntityBySlug("ek-consulting"),
+    getEntityBySlug("sudden-valley"),
+    db.account.findUnique({
+      where: {
+        entityId_nickname: { entityId: workspace.entityId, nickname: "Solar loan" },
+        archivedAt: null,
+      },
+      include: { debtDetail: true },
+    }),
+  ]);
+
+  const [ekcPL, svPL, ekcMileageCount] = await Promise.all([
+    ekcEntity ? computePL(ekcEntity.id, yearStart, yearEnd) : Promise.resolve(null),
+    svEntity ? computePL(svEntity.id, yearStart, yearEnd) : Promise.resolve(null),
+    ekcEntity
+      ? db.mileageEntry.count({
+          where: { entityId: ekcEntity.id, archivedAt: null, date: { gte: yearStart, lte: yearEnd } },
+        })
+      : Promise.resolve(0),
+  ]);
+
+  const formPlan = computePersonalFormPlan({
+    documents: docs.map((d) => ({
+      docType: d.docType,
+      extractionStatus: d.extractionStatus,
+      extractionData: d.extractionData,
+    })),
+    questions: questions.map((q) => ({
+      key: q.key,
+      answer: q.answer,
+      skippedReason: q.skippedReason,
+    })),
+    ekConsultingPL: ekcPL ? { incomeLines: ekcPL.incomeLines, expenseLines: ekcPL.expenseLines } : null,
+    suddenValleyPL: svPL ? { incomeLines: svPL.incomeLines, expenseLines: svPL.expenseLines } : null,
+    ekConsultingMileageCount: ekcMileageCount,
+    solarLoanOriginalCostCents: solarLoanAccount?.debtDetail?.originalBalanceCents ?? null,
+  });
 
   // Evaluate which opportunities the answers act on / exclude
   const answerMap: Record<string, unknown> = {};
@@ -127,7 +172,7 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
             createdAt: d.createdAt.toISOString(),
           }))}
           opportunities={baseOps}
-          formPlan={PERSONAL_FORM_PLAN}
+          formPlan={formPlan}
           refundObjective={REFUND_OBJECTIVE_STATEMENT}
           unansweredCount={unanswered}
         />
