@@ -1,8 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Settings, LockKeyhole } from "lucide-react";
+import { Settings, LockKeyhole, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
 
@@ -21,27 +22,33 @@ const ENVELOPE_BUCKETS = ["personal", "taxes", "sudden-valley"] as const;
 
 interface AppSidebarProps {
   businessSlugs: string[];
+  mobileOpen: boolean;
+  onMobileClose: () => void;
 }
 
-export function AppSidebar({ businessSlugs }: AppSidebarProps) {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const inferredBucket = inferBucketFromPathname(pathname);
-  const activeBucket = inferredBucket ?? searchParams.get("bucket") ?? "personal";
-  const isBusinessBucket = businessSlugs.includes(activeBucket);
-  const isTaxBucket = activeBucket === TAX_BUCKET;
-  const isProjectsBucket = pathname.startsWith("/projects");
-  const isPersonalBucket = !isBusinessBucket && !isTaxBucket && !isProjectsBucket;
+interface SidebarNavContentProps {
+  pathname: string;
+  activeBucket: string;
+  isBusinessBucket: boolean;
+  isTaxBucket: boolean;
+  isProjectsBucket: boolean;
+  isPersonalBucket: boolean;
+  buildHref: (base: string) => Route;
+  isActive: (base: string) => boolean;
+  onNavigate?: () => void;
+}
 
-  function buildHref(base: string): Route {
-    return (activeBucket !== "personal" ? `${base}?bucket=${activeBucket}` : base) as Route;
-  }
-
-  function isActive(base: string): boolean {
-    if (base === "/") return pathname === "/";
-    return pathname === base || pathname.startsWith(base + "/");
-  }
-
+function SidebarNavContent({
+  pathname,
+  activeBucket,
+  isBusinessBucket,
+  isTaxBucket,
+  isProjectsBucket,
+  isPersonalBucket,
+  buildHref,
+  isActive,
+  onNavigate,
+}: SidebarNavContentProps) {
   const coreItems = [
     { label: "Dashboard", base: "/" },
     { label: "Transactions", base: "/transactions" },
@@ -94,13 +101,14 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
   ];
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r bg-background">
+    <>
       <nav className="flex-1 overflow-y-auto py-4">
         <ul className="space-y-0.5 px-2">
           {coreItems.map(({ label, base }) => (
             <li key={base}>
               <Link
                 href={buildHref(base)}
+                onClick={onNavigate}
                 className={cn(
                   "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
                   isActive(base)
@@ -117,6 +125,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
             <li>
               <Link
                 href={buildHref(envelopeItem.base)}
+                onClick={onNavigate}
                 className={cn(
                   "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
                   isActive(envelopeItem.base)
@@ -140,6 +149,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
                 <li key={base}>
                   <Link
                     href={href}
+                    onClick={onNavigate}
                     className={cn(
                       "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
                       isActive(base)
@@ -165,6 +175,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
                 <li key={base}>
                   <Link
                     href={href}
+                    onClick={onNavigate}
                     className={cn(
                       "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
                       isActive(base)
@@ -189,6 +200,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
               <li>
                 <Link
                   href={"/projects" as Route}
+                  onClick={onNavigate}
                   className={cn(
                     "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
                     pathname === "/projects"
@@ -213,6 +225,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
                 <li key={base}>
                   <Link
                     href={href}
+                    onClick={onNavigate}
                     className={cn(
                       "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
                       isActive(base)
@@ -232,6 +245,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
       <div className="border-t px-2 py-3 space-y-0.5">
         <Link
           href={"/vault" as Route}
+          onClick={onNavigate}
           className={cn(
             "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
             pathname.startsWith("/vault")
@@ -244,6 +258,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
         </Link>
         <Link
           href={"/tags" as Route}
+          onClick={onNavigate}
           className={cn(
             "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
             pathname.startsWith("/tags") && !pathname.startsWith("/tag-rules")
@@ -256,6 +271,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
         </Link>
         <Link
           href={"/tag-rules" as Route}
+          onClick={onNavigate}
           className={cn(
             "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
             pathname.startsWith("/tag-rules")
@@ -268,6 +284,7 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
         </Link>
         <Link
           href={"/settings" as Route}
+          onClick={onNavigate}
           className={cn(
             "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
             pathname.startsWith("/settings")
@@ -279,6 +296,88 @@ export function AppSidebar({ businessSlugs }: AppSidebarProps) {
           Settings
         </Link>
       </div>
-    </aside>
+    </>
+  );
+}
+
+export function AppSidebar({ businessSlugs, mobileOpen, onMobileClose }: AppSidebarProps) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const inferredBucket = inferBucketFromPathname(pathname);
+  const activeBucket = inferredBucket ?? searchParams.get("bucket") ?? "personal";
+  const isBusinessBucket = businessSlugs.includes(activeBucket);
+  const isTaxBucket = activeBucket === TAX_BUCKET;
+  const isProjectsBucket = pathname.startsWith("/projects");
+  const isPersonalBucket = !isBusinessBucket && !isTaxBucket && !isProjectsBucket;
+
+  function buildHref(base: string): Route {
+    return (activeBucket !== "personal" ? `${base}?bucket=${activeBucket}` : base) as Route;
+  }
+
+  function isActive(base: string): boolean {
+    if (base === "/") return pathname === "/";
+    return pathname === base || pathname.startsWith(base + "/");
+  }
+
+  // Safety net: close the mobile drawer on any pathname change, even one
+  // that doesn't go through a plain <Link onClick> (e.g. a future
+  // router.push call elsewhere in the tree).
+  useEffect(() => {
+    onMobileClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  const navProps = {
+    pathname,
+    activeBucket,
+    isBusinessBucket,
+    isTaxBucket,
+    isProjectsBucket,
+    isPersonalBucket,
+    buildHref,
+    isActive,
+  };
+
+  return (
+    <>
+      <aside className="hidden w-56 shrink-0 flex-col border-r bg-background md:flex">
+        <SidebarNavContent {...navProps} />
+      </aside>
+
+      <div
+        className={cn(
+          "fixed inset-0 z-50 md:hidden",
+          mobileOpen ? "pointer-events-auto" : "pointer-events-none"
+        )}
+        inert={!mobileOpen}
+      >
+        <div
+          className={cn(
+            "fixed inset-0 bg-black/40 transition-opacity",
+            mobileOpen ? "opacity-100" : "opacity-0"
+          )}
+          onClick={onMobileClose}
+          aria-hidden="true"
+        />
+        <aside
+          className={cn(
+            "fixed inset-y-0 left-0 z-50 flex w-64 max-w-[80vw] flex-col border-r bg-background shadow-xl transition-transform",
+            mobileOpen ? "translate-x-0" : "-translate-x-full"
+          )}
+        >
+          <div className="flex items-center justify-between border-b px-3 py-3">
+            <span className="text-sm font-semibold">Menu</span>
+            <button
+              onClick={onMobileClose}
+              aria-label="Close navigation menu"
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <SidebarNavContent {...navProps} onNavigate={onMobileClose} />
+        </aside>
+      </div>
+    </>
   );
 }

@@ -1,7 +1,6 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { AppHeader } from "./app-header";
-import { AppSidebar } from "./app-sidebar";
+import { AppShellNav } from "./app-shell-nav";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getNavBuckets } from "@/lib/entity";
@@ -35,16 +34,16 @@ export async function AppShell({ children, userName }: AppShellProps) {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <Suspense fallback={<div className="h-14 border-b bg-background" />}>
-        <AppHeader userName={userName} unreadCount={unreadCount} navBuckets={navBuckets} logoUrl={logoUrl} />
+        <AppShellNav
+          userName={userName}
+          unreadCount={unreadCount}
+          navBuckets={navBuckets}
+          logoUrl={logoUrl}
+          businessSlugs={businessSlugs}
+        >
+          {children}
+        </AppShellNav>
       </Suspense>
-      <div className="flex flex-1 overflow-hidden">
-        <Suspense fallback={<div className="w-56 shrink-0 border-r" />}>
-          <AppSidebar businessSlugs={businessSlugs} />
-        </Suspense>
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl px-6 py-6">{children}</div>
-        </main>
-      </div>
     </div>
   );
 }

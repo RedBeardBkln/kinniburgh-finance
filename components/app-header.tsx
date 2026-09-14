@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -15,6 +16,7 @@ interface AppHeaderProps {
   unreadCount?: number;
   navBuckets: NavBucket[];
   logoUrl?: string | null;
+  onMenuClick: () => void;
 }
 
 function inferBucketFromPathname(pathname: string): string | null {
@@ -27,7 +29,7 @@ function inferBucketFromPathname(pathname: string): string | null {
   return null;
 }
 
-export function AppHeader({ userName, unreadCount = 0, navBuckets, logoUrl }: AppHeaderProps) {
+export function AppHeader({ userName, unreadCount = 0, navBuckets, logoUrl, onMenuClick }: AppHeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -44,6 +46,13 @@ export function AppHeader({ userName, unreadCount = 0, navBuckets, logoUrl }: Ap
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
       <div className="flex h-14 items-center gap-4 px-4">
+        <button
+          onClick={onMenuClick}
+          aria-label="Open navigation menu"
+          className="rounded-md p-2 text-muted-foreground hover:bg-accent md:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
         <Link href="/" className="shrink-0">
           {logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
