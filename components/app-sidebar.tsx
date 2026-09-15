@@ -226,21 +226,21 @@ function SidebarNavContent({
                 </span>
               </li>
               {[
-                { label: "Workspaces", base: "/tax", href: "/tax" as Route },
-                { label: "Documents", base: "/documents", href: "/documents" as Route },
+                { label: "Workspaces", href: "/tax" as Route, exact: true },
+                { label: "Documents", href: "/documents" as Route, exact: false },
                 ...(taxMileageHref
-                  ? [{ label: "Mileage", base: taxMileageHref, href: taxMileageHref as Route }]
+                  ? [{ label: "Mileage", href: taxMileageHref as Route, exact: false }]
                   : []),
-                { label: "Forms", base: taxFormsHref, href: taxFormsHref as Route },
-                { label: "Envelopes", base: "/envelope", href: "/envelope?bucket=taxes" as Route },
-              ].map(({ label, base, href }) => (
-                <li key={base}>
+                { label: "Forms", href: taxFormsHref as Route, exact: false },
+                { label: "Envelopes", href: "/envelope?bucket=taxes" as Route, exact: false },
+              ].map(({ label, href, exact }) => (
+                <li key={href}>
                   <Link
                     href={href}
                     onClick={onNavigate}
                     className={cn(
                       "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
-                      isActive(base)
+                      (exact ? pathname === "/tax" : isActive(href))
                         ? "bg-accent font-medium text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     )}
