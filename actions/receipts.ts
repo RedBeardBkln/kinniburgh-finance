@@ -171,6 +171,7 @@ export async function getReceiptFormData(entityId: string) {
       orderBy: { name: "asc" },
     }),
     db.glCode.findMany({
+      where: { archivedAt: null },
       select: { id: true, code: true, name: true },
       orderBy: { code: "asc" },
     }),

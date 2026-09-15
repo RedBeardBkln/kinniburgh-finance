@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
 import { getEntityBySlug } from "@/lib/entity";
-import { listGlCodes } from "@/actions/gl-codes";
+import { listGlCodes, listArchivedGlCodes } from "@/actions/gl-codes";
 import { listTagMappingsForEntity } from "@/actions/gl-code-mappings";
 import { GlPageClient } from "@/components/business/gl-page-client";
 import { TagGlMappingSection } from "@/components/business/tag-gl-mapping-section";
@@ -25,8 +25,9 @@ export default async function GlPage({ params }: PageProps) {
 
   if (!entity) redirect("/business" as Route);
 
-  const [glCodes, uncodedTxs, tagMappings] = await Promise.all([
+  const [glCodes, archivedGlCodes, uncodedTxs, tagMappings] = await Promise.all([
     listGlCodes(entity.id),
+    listArchivedGlCodes(entity.id),
     db.transaction.findMany({
       where: {
         entityId: entity.id,
@@ -71,6 +72,7 @@ export default async function GlPage({ params }: PageProps) {
         <GlPageClient
           entityId={entity.id}
           glCodes={glCodes.map((g) => ({ id: g.id, code: g.code, name: g.name, type: g.type }))}
+          archivedGlCodes={archivedGlCodes.map((g) => ({ id: g.id, code: g.code, name: g.name, type: g.type }))}
           uncodedTransactions={uncodedRows}
         />
 

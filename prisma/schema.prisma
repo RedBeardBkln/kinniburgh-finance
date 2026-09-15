@@ -367,13 +367,14 @@ model Receipt {
 // ─── GL codes (chart of accounts, imported from QB/CPA in Phase 5) ────────────
 
 model GlCode {
-  id        String   @id @default(uuid())
-  entityId  String
-  code      String
-  name      String
-  type      String   // asset | liability | equity | revenue | expense
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String    @id @default(uuid())
+  entityId   String
+  code       String
+  name       String
+  type       String    // asset | liability | equity | revenue | expense
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   entity       Entity        @relation(fields: [entityId], references: [id])
   transactions Transaction[]

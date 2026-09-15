@@ -23,7 +23,15 @@ const createSchema = z.object({
 export async function listGlCodes(entityId: string) {
   await requireAuth();
   return db.glCode.findMany({
-    where: { entityId },
+    where: { entityId, archivedAt: null },
+    orderBy: [{ type: "asc" }, { code: "asc" }],
+  });
+}
+
+export async function listArchivedGlCodes(entityId: string) {
+  await requireAuth();
+  return db.glCode.findMany({
+    where: { entityId, archivedAt: { not: null } },
     orderBy: [{ type: "asc" }, { code: "asc" }],
   });
 }
@@ -31,12 +39,13 @@ export async function listGlCodes(entityId: string) {
 export async function createGlCode(input: z.infer<typeof createSchema>) {
   await requireAuth();
   const data = createSchema.parse(input);
-  await db.glCode.upsert({
+  const glCode = await db.glCode.upsert({
     where: { entityId_code: { entityId: data.entityId, code: data.code } },
-    update: { name: data.name, type: data.type },
+    update: { name: data.name, type: data.type, archivedAt: null },
     create: data,
   });
   revalidatePath("/business");
+  return { id: glCode.id, code: glCode.code, name: glCode.name, type: glCode.type };
 }
 
 export async function updateGlCode(id: string, patch: { name?: string; type?: string }) {
@@ -46,14 +55,45 @@ export async function updateGlCode(id: string, patch: { name?: string; type?: st
   revalidatePath("/business");
 }
 
-export async function deleteGlCode(id: string) {
+export async function deleteGlCode(id: string): Promise<{ mode: "deleted" | "archived" }> {
   await requireAuth();
   const inUse = await db.transaction.count({ where: { glCodeId: id } });
-  if (inUse > 0) throw new Error("GL code is in use by transactions and cannot be deleted.");
   const mappedByTags = await db.tagGlCodeMapping.count({ where: { glCodeId: id } });
-  if (mappedByTags > 0) throw new Error("GL code is mapped to a tag and cannot be deleted.");
-  await db.glCode.delete({ where: { id } });
+
+  if (inUse === 0 && mappedByTags === 0) {
+    await db.glCode.delete({ where: { id } });
+    revalidatePath("/business");
+    return { mode: "deleted" };
+  }
+
+  await db.$transaction([
+    db.glCode.update({ where: { id }, data: { archivedAt: new Date() } }),
+    ...(mappedByTags > 0 ? [db.tagGlCodeMapping.deleteMany({ where: { glCodeId: id } })] : []),
+  ]);
   revalidatePath("/business");
+  return { mode: "archived" };
+}
+
+export async function restoreGlCode(id: string) {
+  await requireAuth();
+  await db.glCode.update({ where: { id }, data: { archivedAt: null } });
+  revalidatePath("/business");
+}
+
+export async function getGlCodeUsageImpact(
+  id: string
+): Promise<{ transactionCount: number; distinctPeriods: number }> {
+  await requireAuth();
+  const [transactionCount, periodRows] = await Promise.all([
+    db.transaction.count({ where: { glCodeId: id } }),
+    db.$queryRaw<{ cnt: bigint }[]>`
+      SELECT COUNT(DISTINCT to_char("postedAt", 'YYYY-MM')) AS cnt
+      FROM "Transaction"
+      WHERE "glCodeId" = ${id}
+    `,
+  ]);
+  const distinctPeriods = Number(periodRows[0]?.cnt ?? 0);
+  return { transactionCount, distinctPeriods };
 }
 
 const ImportRowSchema = z.object({
@@ -81,7 +121,7 @@ export async function importGlCodes(
     const { code, name, type } = result.data;
     await db.glCode.upsert({
       where: { entityId_code: { entityId, code } },
-      update: { name, type },
+      update: { name, type, archivedAt: null },
       create: { entityId, code, name, type },
     });
     imported++;
