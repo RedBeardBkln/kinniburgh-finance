@@ -6,24 +6,24 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Settings, LockKeyhole, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
-
-function inferBucketFromPathname(pathname: string): string | null {
-  if (pathname.startsWith("/tax")) return "taxes";
-  if (pathname.startsWith("/projects")) return "projects";
-  if (pathname.startsWith("/business/")) {
-    const slug = pathname.split("/")[2];
-    return slug ?? null;
-  }
-  return null;
-}
+import { inferBucketFromPathname } from "@/lib/buckets";
 
 const TAX_BUCKET = "taxes";
-const ENVELOPE_BUCKETS = ["personal", "taxes", "sudden-valley"] as const;
+const ENVELOPE_BUCKETS = ["personal", "sudden-valley"] as const;
+
+export interface TaxEntityLink {
+  slug: string;
+  label: string;
+  href: string;
+}
 
 interface AppSidebarProps {
   businessSlugs: string[];
   mobileOpen: boolean;
   onMobileClose: () => void;
+  taxEntityLinks: TaxEntityLink[];
+  taxFormsHref: string;
+  taxMileageHref: string | null;
 }
 
 interface SidebarNavContentProps {
@@ -35,6 +35,9 @@ interface SidebarNavContentProps {
   isPersonalBucket: boolean;
   buildHref: (base: string) => Route;
   isActive: (base: string) => boolean;
+  taxEntityLinks: TaxEntityLink[];
+  taxFormsHref: string;
+  taxMileageHref: string | null;
   onNavigate?: () => void;
 }
 
@@ -47,6 +50,9 @@ function SidebarNavContent({
   isPersonalBucket,
   buildHref,
   isActive,
+  taxEntityLinks,
+  taxFormsHref,
+  taxMileageHref,
   onNavigate,
 }: SidebarNavContentProps) {
   const coreItems = [
@@ -94,48 +100,46 @@ function SidebarNavContent({
     { label: "Receipts", base: "/receipts", href: "/receipts" as Route },
   ];
 
-  const taxItems = [
-    { label: "Tax Workspaces", base: "/tax", href: "/tax" as Route },
-    { label: "Documents", base: "/documents", href: "/documents" as Route },
-    { label: "Mileage", base: "/personal/mileage", href: "/personal/mileage" as Route },
-  ];
-
   return (
     <>
       <nav className="flex-1 overflow-y-auto py-4">
         <ul className="space-y-0.5 px-2">
-          {coreItems.map(({ label, base }) => (
-            <li key={base}>
-              <Link
-                href={buildHref(base)}
-                onClick={onNavigate}
-                className={cn(
-                  "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
-                  isActive(base)
-                    ? "bg-accent font-medium text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )}
-              >
-                {label}
-              </Link>
-            </li>
-          ))}
+          {!isTaxBucket && !isProjectsBucket && (
+            <>
+              {coreItems.map(({ label, base }) => (
+                <li key={base}>
+                  <Link
+                    href={buildHref(base)}
+                    onClick={onNavigate}
+                    className={cn(
+                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                      isActive(base)
+                        ? "bg-accent font-medium text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    )}
+                  >
+                    {label}
+                  </Link>
+                </li>
+              ))}
 
-          {(ENVELOPE_BUCKETS as readonly string[]).includes(activeBucket) && (
-            <li>
-              <Link
-                href={buildHref(envelopeItem.base)}
-                onClick={onNavigate}
-                className={cn(
-                  "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
-                  isActive(envelopeItem.base)
-                    ? "bg-accent font-medium text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )}
-              >
-                {envelopeItem.label}
-              </Link>
-            </li>
+              {(ENVELOPE_BUCKETS as readonly string[]).includes(activeBucket) && (
+                <li>
+                  <Link
+                    href={buildHref(envelopeItem.base)}
+                    onClick={onNavigate}
+                    className={cn(
+                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                      isActive(envelopeItem.base)
+                        ? "bg-accent font-medium text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    )}
+                  >
+                    {envelopeItem.label}
+                  </Link>
+                </li>
+              )}
+            </>
           )}
 
           {isPersonalBucket && (
@@ -221,7 +225,15 @@ function SidebarNavContent({
                   Taxes
                 </span>
               </li>
-              {taxItems.map(({ label, base, href }) => (
+              {[
+                { label: "Workspaces", base: "/tax", href: "/tax" as Route },
+                { label: "Documents", base: "/documents", href: "/documents" as Route },
+                ...(taxMileageHref
+                  ? [{ label: "Mileage", base: taxMileageHref, href: taxMileageHref as Route }]
+                  : []),
+                { label: "Forms", base: taxFormsHref, href: taxFormsHref as Route },
+                { label: "Envelopes", base: "/envelope", href: "/envelope?bucket=taxes" as Route },
+              ].map(({ label, base, href }) => (
                 <li key={base}>
                   <Link
                     href={href}
@@ -229,6 +241,28 @@ function SidebarNavContent({
                     className={cn(
                       "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
                       isActive(base)
+                        ? "bg-accent font-medium text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    )}
+                  >
+                    {label}
+                  </Link>
+                </li>
+              ))}
+
+              <li className="pt-4 pb-1">
+                <span className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  Entities
+                </span>
+              </li>
+              {taxEntityLinks.map(({ slug, label, href }) => (
+                <li key={slug}>
+                  <Link
+                    href={href as Route}
+                    onClick={onNavigate}
+                    className={cn(
+                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                      pathname === href
                         ? "bg-accent font-medium text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     )}
@@ -300,14 +334,21 @@ function SidebarNavContent({
   );
 }
 
-export function AppSidebar({ businessSlugs, mobileOpen, onMobileClose }: AppSidebarProps) {
+export function AppSidebar({
+  businessSlugs,
+  mobileOpen,
+  onMobileClose,
+  taxEntityLinks,
+  taxFormsHref,
+  taxMileageHref,
+}: AppSidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const inferredBucket = inferBucketFromPathname(pathname);
   const activeBucket = inferredBucket ?? searchParams.get("bucket") ?? "personal";
   const isBusinessBucket = businessSlugs.includes(activeBucket);
   const isTaxBucket = activeBucket === TAX_BUCKET;
-  const isProjectsBucket = pathname.startsWith("/projects");
+  const isProjectsBucket = activeBucket === "projects";
   const isPersonalBucket = !isBusinessBucket && !isTaxBucket && !isProjectsBucket;
 
   function buildHref(base: string): Route {
@@ -336,6 +377,9 @@ export function AppSidebar({ businessSlugs, mobileOpen, onMobileClose }: AppSide
     isPersonalBucket,
     buildHref,
     isActive,
+    taxEntityLinks,
+    taxFormsHref,
+    taxMileageHref,
   };
 
   return (

@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { Route } from "next";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import type { NavBucket } from "@/lib/entity";
-import { bucketPathFor } from "@/lib/buckets";
+import { bucketPathFor, inferBucketFromPathname } from "@/lib/buckets";
 import { BananaLogo } from "@/components/logo";
 
 interface AppHeaderProps {
@@ -17,16 +17,6 @@ interface AppHeaderProps {
   navBuckets: NavBucket[];
   logoUrl?: string | null;
   onMenuClick: () => void;
-}
-
-function inferBucketFromPathname(pathname: string): string | null {
-  if (pathname.startsWith("/tax")) return "taxes";
-  if (pathname.startsWith("/projects")) return "projects";
-  if (pathname.startsWith("/business/")) {
-    const slug = pathname.split("/")[2];
-    return slug ?? null;
-  }
-  return null;
 }
 
 export function AppHeader({ userName, unreadCount = 0, navBuckets, logoUrl, onMenuClick }: AppHeaderProps) {

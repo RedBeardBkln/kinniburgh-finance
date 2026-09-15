@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AppHeader } from "./app-header";
-import { AppSidebar } from "./app-sidebar";
+import { AppSidebar, type TaxEntityLink } from "./app-sidebar";
 import type { NavBucket } from "@/lib/entity";
 
 interface AppShellNavProps {
@@ -11,6 +11,9 @@ interface AppShellNavProps {
   navBuckets: NavBucket[];
   logoUrl: string | null;
   businessSlugs: string[];
+  taxEntityLinks: TaxEntityLink[];
+  taxFormsHref: string;
+  taxMileageHref: string | null;
   children: React.ReactNode;
 }
 
@@ -20,6 +23,9 @@ export function AppShellNav({
   navBuckets,
   logoUrl,
   businessSlugs,
+  taxEntityLinks,
+  taxFormsHref,
+  taxMileageHref,
   children,
 }: AppShellNavProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -38,6 +44,9 @@ export function AppShellNav({
           businessSlugs={businessSlugs}
           mobileOpen={mobileNavOpen}
           onMobileClose={() => setMobileNavOpen(false)}
+          taxEntityLinks={taxEntityLinks}
+          taxFormsHref={taxFormsHref}
+          taxMileageHref={taxMileageHref}
         />
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-6xl px-6 py-6">{children}</div>

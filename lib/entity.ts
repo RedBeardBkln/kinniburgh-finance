@@ -12,6 +12,7 @@ export type NavBucket = {
   slug: string;
   label: string;
   type: "personal" | "business" | "taxes" | "projects";
+  id: string | null;
 };
 
 /**
@@ -36,7 +37,7 @@ export async function getNavBuckets(): Promise<NavBucket[]> {
   const entities = await db.entity.findMany({
     where: { slug: { not: null }, hiddenInNav: false },
     orderBy: { navLabel: "asc" },
-    select: { slug: true, navLabel: true, name: true, type: true },
+    select: { id: true, slug: true, navLabel: true, name: true, type: true },
   });
 
   const personal = entities.find((e) => e.slug === "personal");
@@ -44,16 +45,44 @@ export async function getNavBuckets(): Promise<NavBucket[]> {
 
   return [
     ...(personal
-      ? [{ slug: "personal", label: personal.navLabel ?? "Personal", type: "personal" as const }]
+      ? [{ slug: "personal", label: personal.navLabel ?? "Personal", type: "personal" as const, id: personal.id }]
       : []),
     ...businesses.map((e) => ({
       slug: e.slug!,
       label: e.navLabel ?? e.name,
       type: "business" as const,
+      id: e.id,
     })),
-    { slug: "taxes", label: "Taxes", type: "taxes" as const },
-    { slug: "projects", label: "Projects", type: "projects" as const },
+    { slug: "taxes", label: "Taxes", type: "taxes" as const, id: null },
+    { slug: "projects", label: "Projects", type: "projects" as const, id: null },
   ];
+}
+
+/**
+ * Returns a deep-link href into each entity's current-year tax workspace
+ * (Personal → the personal tax-form-plan flow; business → its TaxWorkspace,
+ * falling back to an anchor on the Taxes overview page if none exists yet).
+ * Used to build the "Entities" section of the Taxes sidebar.
+ */
+export async function getTaxEntityLinks(
+  entityBuckets: { id: string; slug: string; label: string }[],
+  currentYear: number
+): Promise<{ slug: string; label: string; href: string }[]> {
+  const workspaces = await db.taxWorkspace.findMany({
+    where: { taxYear: currentYear, entityId: { in: entityBuckets.map((e) => e.id) } },
+    select: { entityId: true, id: true },
+  });
+  const wsByEntity = new Map(workspaces.map((w) => [w.entityId, w.id]));
+  return entityBuckets.map((e) => ({
+    slug: e.slug,
+    label: e.label,
+    href:
+      e.slug === "personal"
+        ? `/tax/personal/${currentYear}`
+        : wsByEntity.has(e.id)
+          ? `/tax/${wsByEntity.get(e.id)}`
+          : `/tax#year-${currentYear}`,
+  }));
 }
 
 /**

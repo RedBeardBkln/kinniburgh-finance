@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { bucketPathFor } from "@/lib/buckets";
+import { bucketPathFor, inferBucketFromPathname } from "@/lib/buckets";
 
 describe("bucketPathFor", () => {
   describe("bucket-scoped core pages keep the same page", () => {
@@ -65,11 +65,14 @@ describe("bucketPathFor", () => {
     });
   });
 
-  describe("envelope is limited to personal / sudden-valley / taxes", () => {
+  describe("envelope is limited to personal / sudden-valley (entity targets)", () => {
+    // Note: "taxes" was previously included in ENVELOPE_BUCKETS/this check, but
+    // targetBucket === "taxes" is now handled unconditionally by the
+    // "switching to taxes/projects" block above (any non-/tax* pathname → "/tax"),
+    // which takes priority — see that block for the taxes case.
     it("keeps envelope when the target bucket supports it", () => {
       expect(bucketPathFor("/envelope", "sudden-valley")).toBe("/envelope");
       expect(bucketPathFor("/envelope", "personal")).toBe("/envelope");
-      expect(bucketPathFor("/envelope", "taxes")).toBe("/envelope");
     });
 
     it("falls back to dashboard for buckets without envelopes", () => {
@@ -78,12 +81,43 @@ describe("bucketPathFor", () => {
     });
   });
 
-  describe("tax and projects are aggregate views — unchanged", () => {
+  describe("switching away from tax/projects lands on the dashboard", () => {
     it.each(["/tax", "/tax/some-workspace", "/projects", "/projects/abc"])(
-      "%s stays the same for any bucket",
+      "%s → / for any entity bucket",
       (pathname) => {
-        expect(bucketPathFor(pathname, "ek-consulting")).toBe(pathname);
-        expect(bucketPathFor(pathname, "personal")).toBe(pathname);
+        expect(bucketPathFor(pathname, "ek-consulting")).toBe("/");
+        expect(bucketPathFor(pathname, "sudden-valley")).toBe("/");
+        expect(bucketPathFor(pathname, "personal")).toBe("/");
+      }
+    );
+  });
+
+  describe("switching to taxes/projects", () => {
+    it.each(["/", "/transactions", "/business/ek-consulting/revenue", "/personal/mortgage"])(
+      "%s → /tax when targeting taxes",
+      (pathname) => {
+        expect(bucketPathFor(pathname, "taxes")).toBe("/tax");
+      }
+    );
+
+    it.each(["/", "/transactions", "/business/ek-consulting/revenue", "/personal/mortgage"])(
+      "%s → /projects when targeting projects",
+      (pathname) => {
+        expect(bucketPathFor(pathname, "projects")).toBe("/projects");
+      }
+    );
+
+    it.each(["/tax", "/tax/some-workspace"])(
+      "%s stays the same when already targeting taxes",
+      (pathname) => {
+        expect(bucketPathFor(pathname, "taxes")).toBe(pathname);
+      }
+    );
+
+    it.each(["/projects", "/projects/abc"])(
+      "%s stays the same when already targeting projects",
+      (pathname) => {
+        expect(bucketPathFor(pathname, "projects")).toBe(pathname);
       }
     );
   });
@@ -96,5 +130,25 @@ describe("bucketPathFor", () => {
         expect(bucketPathFor(pathname, "personal")).toBe("/");
       }
     );
+  });
+});
+
+describe("inferBucketFromPathname", () => {
+  it.each([
+    ["/tax", "taxes"],
+    ["/tax/foo", "taxes"],
+    ["/projects", "projects"],
+    ["/projects/foo", "projects"],
+    ["/business/sudden-valley/revenue", "sudden-valley"],
+  ] as const)("%s → %s", (pathname, expected) => {
+    expect(inferBucketFromPathname(pathname)).toBe(expected);
+  });
+
+  it("/business/ (no slug) → \"\" (split(\"/\")[2] on a trailing slash is an empty string, not undefined)", () => {
+    expect(inferBucketFromPathname("/business/")).toBe("");
+  });
+
+  it.each(["/", "/transactions"])("%s → null", (pathname) => {
+    expect(inferBucketFromPathname(pathname)).toBeNull();
   });
 });

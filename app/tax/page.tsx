@@ -138,7 +138,7 @@ export default async function TaxPage() {
         </div>
 
         {years.map((year) => (
-          <section key={year} className="space-y-3">
+          <section key={year} id={`year-${year}`} className="space-y-3">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold">{year}</h2>
               {year === currentYear && (
