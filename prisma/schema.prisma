@@ -275,8 +275,9 @@ model ScheduledBill {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  account Account @relation(fields: [accountId], references: [id])
-  entity  Entity  @relation(fields: [entityId], references: [id])
+  account         Account          @relation(fields: [accountId], references: [id])
+  entity          Entity           @relation(fields: [entityId], references: [id])
+  accrualEnvelope AccrualEnvelope? // back-relation only, no column here
 
   @@unique([budgetTagId, budgetEntityId])
 }
@@ -330,10 +331,25 @@ model AccrualEnvelope {
   fundingTransferId  String?
   currentBalance     Decimal  @db.Decimal(14, 2) @default(0)
   expectedDrawMonths Json     // [10, 11, 12, 1, 2, 3] = Oct–Mar for oil
+  scheduledBillId    String?  @unique // optional link to the ScheduledBill this envelope funds
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  account Account @relation(fields: [accountId], references: [id])
+  account       Account        @relation(fields: [accountId], references: [id])
+  scheduledBill ScheduledBill? @relation(fields: [scheduledBillId], references: [id])
+  draws         AccrualDraw[]
+}
+
+model AccrualDraw {
+  id                String   @id @default(uuid())
+  accrualEnvelopeId String
+  estimatedDate     DateTime
+  estimatedAmount   Decimal  @db.Decimal(14, 2)
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  accrualEnvelope AccrualEnvelope @relation(fields: [accrualEnvelopeId], references: [id], onDelete: Cascade)
 }
 
 // ─── Receipts ─────────────────────────────────────────────────────────────────

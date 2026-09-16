@@ -3,6 +3,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import {
   generateTransferOccurrences,
   generateIncomeOccurrences,
+  generateBillOccurrences,
   buildAccountForecast,
   findBreachDays,
 } from "@/lib/forecast";
@@ -50,6 +51,42 @@ function makeIncome(
     amount: dec(amount),
     active: true,
   };
+}
+
+function makeAccrualBill(overrides: Partial<{
+  amountType: string;
+  expectedAmount: string | null;
+  autopayDay: number | null;
+  annualBudget: string | null;
+}> = {}) {
+  return {
+    id: "b1",
+    accountId: ACCT_A,
+    payee: "McCarthy Heating & Oil",
+    amountType: overrides.amountType ?? "accrued",
+    expectedAmount: overrides.expectedAmount !== undefined ? overrides.expectedAmount : null,
+    autopayDay: overrides.autopayDay !== undefined ? overrides.autopayDay : null,
+    annualBudget: overrides.annualBudget !== undefined ? overrides.annualBudget : "1200.00",
+  };
+}
+
+function makeStaticBill(overrides: Partial<{
+  expectedAmount: string | null;
+  autopayDay: number | null;
+}> = {}) {
+  return {
+    id: "b2",
+    accountId: ACCT_A,
+    payee: "Eversource",
+    amountType: "static",
+    expectedAmount: overrides.expectedAmount !== undefined ? overrides.expectedAmount : "184.00",
+    autopayDay: overrides.autopayDay !== undefined ? overrides.autopayDay : 20,
+    annualBudget: null,
+  };
+}
+
+function makeDraw(estimatedDate: string, estimatedAmount: string, notes?: string) {
+  return { estimatedDate: d(estimatedDate), estimatedAmount: dec(estimatedAmount), notes };
 }
 
 // ── generateTransferOccurrences ───────────────────────────────────────────────
@@ -180,6 +217,100 @@ describe("generateIncomeOccurrences", () => {
   it("inactive income source produces no events", () => {
     const s = { ...makeIncome("semi_monthly", { daysOfMonth: [15, 30] }), active: false };
     const events = generateIncomeOccurrences(s, d("2026-06-01"), d("2026-08-01"));
+    expect(events).toHaveLength(0);
+  });
+});
+
+// ── generateBillOccurrences ───────────────────────────────────────────────────
+
+describe("generateBillOccurrences", () => {
+  it("static/fluctuating bill: one event per month on autopayDay at expectedAmount", () => {
+    const from = d("2026-06-01");
+    const to = d("2026-08-01"); // June, July
+    const events = generateBillOccurrences(makeStaticBill(), from, to);
+    expect(events).toHaveLength(2);
+    const dates = events.map((e) => e.date.toISOString().slice(0, 10));
+    expect(dates).toContain("2026-06-20");
+    expect(dates).toContain("2026-07-20");
+    for (const e of events) {
+      expect(e.amount.equals(dec("-184.00"))).toBe(true);
+      expect(e.type).toBe("bill");
+    }
+  });
+
+  it("accrued bill, no draws arg: falls back to flat annualBudget/12 spread on autopayDay (default day 1)", () => {
+    const from = d("2026-06-01");
+    const to = d("2026-08-01"); // June, July
+    const events = generateBillOccurrences(makeAccrualBill({ annualBudget: "1200.00" }), from, to);
+    expect(events).toHaveLength(2);
+    for (const e of events) {
+      expect(e.amount.equals(dec("-100.00"))).toBe(true); // 1200/12
+    }
+    const dates = events.map((e) => e.date.toISOString().slice(0, 10));
+    expect(dates).toContain("2026-06-01");
+    expect(dates).toContain("2026-07-01");
+  });
+
+  it("accrued bill, empty draws array: falls back to flat spread (envelope with zero draws)", () => {
+    const from = d("2026-06-01");
+    const to = d("2026-07-01");
+    const events = generateBillOccurrences(makeAccrualBill({ annualBudget: "1200.00" }), from, to, []);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.amount.equals(dec("-100.00"))).toBe(true);
+  });
+
+  it("accrued bill with draws inside [from, to): emits exactly the draw dates/amounts, no flat-spread events", () => {
+    const from = d("2026-10-01");
+    const to = d("2026-12-01");
+    const draws = [makeDraw("2026-10-15", "500.00"), makeDraw("2026-11-10", "300.00")];
+    const events = generateBillOccurrences(makeAccrualBill({ annualBudget: "4000.00" }), from, to, draws);
+    expect(events).toHaveLength(2);
+    expect(events[0]!.date.toISOString().slice(0, 10)).toBe("2026-10-15");
+    expect(events[0]!.amount.equals(dec("-500.00"))).toBe(true);
+    expect(events[1]!.date.toISOString().slice(0, 10)).toBe("2026-11-10");
+    expect(events[1]!.amount.equals(dec("-300.00"))).toBe(true);
+    // No flat-spread event should also appear (e.g. on the 1st of either month)
+    const dates = events.map((e) => e.date.toISOString().slice(0, 10));
+    expect(dates).not.toContain("2026-10-01");
+    expect(dates).not.toContain("2026-11-01");
+  });
+
+  it("accrued bill with draws partially outside [from, to): only in-window draws are emitted", () => {
+    const from = d("2026-10-01");
+    const to = d("2026-11-01");
+    const draws = [
+      makeDraw("2026-09-15", "400.00"), // before window
+      makeDraw("2026-10-20", "500.00"), // inside window
+      makeDraw("2026-12-01", "300.00"), // after window
+    ];
+    const events = generateBillOccurrences(makeAccrualBill({ annualBudget: "4000.00" }), from, to, draws);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.date.toISOString().slice(0, 10)).toBe("2026-10-20");
+  });
+
+  it("non-accrued bill with a stray draws arg: draws are ignored, expectedAmount behavior unaffected", () => {
+    const from = d("2026-06-01");
+    const to = d("2026-07-01");
+    const draws = [makeDraw("2026-06-05", "999.00")];
+    const events = generateBillOccurrences(makeStaticBill(), from, to, draws);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.date.toISOString().slice(0, 10)).toBe("2026-06-20");
+    expect(events[0]!.amount.equals(dec("-184.00"))).toBe(true);
+  });
+
+  it("a draw with a zero estimatedAmount is skipped", () => {
+    const from = d("2026-06-01");
+    const to = d("2026-07-01");
+    const draws = [makeDraw("2026-06-10", "0.00")];
+    const events = generateBillOccurrences(makeAccrualBill(), from, to, draws);
+    expect(events).toHaveLength(0);
+  });
+
+  it("a draw with a negative estimatedAmount is skipped", () => {
+    const from = d("2026-06-01");
+    const to = d("2026-07-01");
+    const draws = [makeDraw("2026-06-10", "-50.00")];
+    const events = generateBillOccurrences(makeAccrualBill(), from, to, draws);
     expect(events).toHaveLength(0);
   });
 });

@@ -361,7 +361,7 @@ async function main() {
   });
 
   // McCarthy Oil and Firewood are accrued (seasonal) — handled by AccrualEnvelope records below.
-  await upsertBill({
+  const mccarthyOilBill = await upsertBill({
     accountId: heatingElectric.id,
     entityId: personal.id,
     payee: "McCarthy Heating & Oil",
@@ -370,7 +370,7 @@ async function main() {
     annualBudget: new Prisma.Decimal("4000.00"),
   });
 
-  await upsertBill({
+  const firewoodBill = await upsertBill({
     accountId: heatingElectric.id,
     entityId: personal.id,
     payee: "Firewood",
@@ -474,7 +474,7 @@ async function main() {
   });
 
   // Property taxes (Arbor Retreat): accrued at $281.67/mo; budget line $275.
-  await upsertBill({
+  const propertyTaxBill = await upsertBill({
     accountId: jcsbOperating.id,
     entityId: suddenValley.id,
     payee: "Property taxes — 56 Arbor Rd",
@@ -501,6 +501,7 @@ async function main() {
     name: "McCarthy Oil",
     targetAnnualAmount: new Prisma.Decimal("4000.00"),
     expectedDrawMonths: [10, 11, 12, 1, 2, 3],
+    scheduledBillId: mccarthyOilBill.id,
   });
 
   // Firewood: typically purchased in fall for winter
@@ -509,6 +510,7 @@ async function main() {
     name: "Firewood",
     targetAnnualAmount: new Prisma.Decimal("1000.00"),
     expectedDrawMonths: [9, 10, 11],
+    scheduledBillId: firewoodBill.id,
   });
 
   // Property taxes (Arbor Retreat): typically billed semi-annually in CT
@@ -517,6 +519,7 @@ async function main() {
     name: "Property taxes — 56 Arbor Rd",
     targetAnnualAmount: new Prisma.Decimal("3380.04"),
     expectedDrawMonths: [7, 1], // July and January (typical CT semi-annual cycle — confirm with owner)
+    scheduledBillId: propertyTaxBill.id,
   });
 
   console.log("Seeding users (Eric + Eva)…");

@@ -89,8 +89,23 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           where: { active: true },
           include: { account: true, entity: true },
         }),
-        db.scheduledBill.findMany({ where: { active: true, budgetTagId: { not: null } } }),
+        db.scheduledBill.findMany({
+          where: { active: true, budgetTagId: { not: null } },
+          include: { accrualEnvelope: { include: { draws: true } } },
+        }),
       ]);
+
+  // Maps a scheduled bill's linked AccrualEnvelope draws (if any) into the
+  // plain shape generateBillOccurrences expects. Non-accrued bills / bills
+  // with no linked envelope simply have an empty accrualEnvelope, so this
+  // always returns [] for them — generateBillOccurrences ignores draws for
+  // non-accrued bills anyway, but this keeps the call sites simple.
+  function billDraws(b: (typeof scheduledBills)[number]) {
+    return (b.accrualEnvelope?.draws ?? []).map((d) => ({
+      estimatedDate: d.estimatedDate,
+      estimatedAmount: d.estimatedAmount,
+    }));
+  }
 
   // Load entities for the income source form
   const entities = await db.entity.findMany({
@@ -364,7 +379,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     ).filter((e) => e.accountId === acct.id);
 
     const billEvents = scheduledBills.flatMap((b) =>
-      generateBillOccurrences(b, forecastStart, forecastEnd90)
+      generateBillOccurrences(b, forecastStart, forecastEnd90, billDraws(b))
     ).filter((e) => e.accountId === acct.id);
 
     // Credit card statement payments funded by this account (Credit Cards x2631)
@@ -456,7 +471,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     ).filter((e) => e.accountId === primaryAcct.id);
 
     const billEventsForSchedule = scheduledBills.flatMap((b) =>
-      generateBillOccurrences(b, forecastStart, forecastEnd14)
+      generateBillOccurrences(b, forecastStart, forecastEnd14, billDraws(b))
     ).filter((e) => e.accountId === primaryAcct.id);
 
     const cardEventsForSchedule =

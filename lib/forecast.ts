@@ -293,16 +293,42 @@ interface ScheduledBillLike {
   annualBudget: Decimal | string | number | null;
 }
 
+export interface AccrualDrawLike {
+  estimatedDate: Date | string;
+  estimatedAmount: Decimal | string | number;
+}
+
 /**
  * Expands a ScheduledBill into outflow ScheduleEvents within [from, to).
- * static/fluctuating → monthly on autopayDay at expectedAmount
- * accrued           → monthly on autopayDay at annualBudget/12
+ * static/fluctuating              → monthly on autopayDay at expectedAmount
+ * accrued, with draws entered     → real draw-date events (no flat spread)
+ * accrued, no draws (or none in window-defining set) → monthly on autopayDay
+ *                                     at annualBudget/12 (unchanged fallback)
  */
 export function generateBillOccurrences(
   bill: ScheduledBillLike,
   from: Date,
-  to: Date
+  to: Date,
+  draws: AccrualDrawLike[] = []
 ): ScheduleEvent[] {
+  if (bill.amountType === "accrued" && draws.length > 0) {
+    const events: ScheduleEvent[] = [];
+    for (const draw of draws) {
+      const date = startOfDayUTC(new Date(draw.estimatedDate));
+      if (date < from || date >= to) continue;
+      const amount = new Decimal(String(draw.estimatedAmount));
+      if (amount.isZero() || amount.isNegative()) continue;
+      events.push({
+        date,
+        amount: amount.negated(),
+        description: bill.payee,
+        accountId: bill.accountId,
+        type: "bill" as const,
+      });
+    }
+    return events.sort((a, b) => a.date.getTime() - b.date.getTime());
+  }
+
   const day = bill.autopayDay ?? 1;
 
   let amount: Decimal | null = null;

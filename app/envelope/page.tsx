@@ -7,6 +7,7 @@ import { getEnvelopeSummary, getEnvelopeForecastData, approveSlushFundsTransfer,
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import { ScheduledTransfersClient, type SerializedTransfer } from "@/components/envelope/scheduled-transfers-client";
+import { AccrualDrawsList } from "@/components/envelope/accrual-draws-list";
 import { db } from "@/lib/db";
 
 interface PageProps {
@@ -457,6 +458,17 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
                         Update balance
                       </button>
                     </form>
+
+                    {/* Estimated draw dates/amounts (feeds the forecast) */}
+                    <AccrualDrawsList
+                      envelopeId={env.id}
+                      draws={env.draws.map((d) => ({
+                        id: d.id,
+                        estimatedDateIso: d.estimatedDate.toISOString().slice(0, 10),
+                        estimatedAmount: d.estimatedAmount.toString(),
+                        notes: d.notes,
+                      }))}
+                    />
                   </CardContent>
                 </Card>
               );

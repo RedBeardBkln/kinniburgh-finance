@@ -105,7 +105,7 @@ export async function getEnvelopeSummary(bucket: string = "personal") {
     }),
     db.accrualEnvelope.findMany({
       where: { account: accountWhere },
-      include: { account: true },
+      include: { account: true, draws: { orderBy: { estimatedDate: "asc" } } },
       orderBy: { name: "asc" },
     }),
     db.incomeSource.findMany({
@@ -288,6 +288,110 @@ export async function updateAccrualBalance(id: string, balance: string) {
   return { success: true };
 }
 
+// ── Accrual draws (estimated draw dates/amounts) ──────────────────────────────
+
+const drawAmountSchema = z
+  .string()
+  .regex(/^\d+(\.\d{1,2})?$/)
+  .refine((v) => parseFloat(v) > 0, "Amount must be greater than 0");
+
+const createDrawSchema = z.object({
+  accrualEnvelopeId: z.string().uuid(),
+  estimatedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  estimatedAmount: drawAmountSchema,
+  notes: z.string().max(500).optional(),
+});
+
+export async function createAccrualDraw(
+  input: z.infer<typeof createDrawSchema>
+) {
+  const user = await requireAuth();
+  const parsed = createDrawSchema.parse(input);
+
+  const draw = await db.accrualDraw.create({
+    data: {
+      accrualEnvelopeId: parsed.accrualEnvelopeId,
+      estimatedDate: new Date(`${parsed.estimatedDate}T00:00:00Z`),
+      estimatedAmount: new Prisma.Decimal(parsed.estimatedAmount),
+      notes: parsed.notes ?? null,
+    },
+  });
+
+  await db.auditLog.create({
+    data: {
+      changedBy: user.id!,
+      changeType: "accrual_draw_create",
+      before: Prisma.JsonNull,
+      after: { drawId: draw.id, envelopeId: draw.accrualEnvelopeId, estimatedDate: parsed.estimatedDate, estimatedAmount: parsed.estimatedAmount },
+    },
+  });
+
+  revalidatePath("/envelope");
+  revalidatePath("/forecast");
+  return { success: true };
+}
+
+const updateDrawSchema = z.object({
+  id: z.string().uuid(),
+  estimatedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  estimatedAmount: drawAmountSchema,
+  notes: z.string().max(500).optional(),
+});
+
+export async function updateAccrualDraw(
+  input: z.infer<typeof updateDrawSchema>
+) {
+  const user = await requireAuth();
+  const { id, ...patch } = updateDrawSchema.parse(input);
+
+  const existing = await db.accrualDraw.findUnique({ where: { id } });
+  if (!existing) throw new Error("Accrual draw not found");
+
+  await db.accrualDraw.update({
+    where: { id },
+    data: {
+      estimatedDate: new Date(`${patch.estimatedDate}T00:00:00Z`),
+      estimatedAmount: new Prisma.Decimal(patch.estimatedAmount),
+      notes: patch.notes ?? null,
+    },
+  });
+
+  await db.auditLog.create({
+    data: {
+      changedBy: user.id!,
+      changeType: "accrual_draw_update",
+      before: { drawId: id, estimatedDate: existing.estimatedDate.toISOString().slice(0, 10), estimatedAmount: existing.estimatedAmount.toString() },
+      after: { drawId: id, estimatedDate: patch.estimatedDate, estimatedAmount: patch.estimatedAmount },
+    },
+  });
+
+  revalidatePath("/envelope");
+  revalidatePath("/forecast");
+  return { success: true };
+}
+
+export async function deleteAccrualDraw(id: string) {
+  const user = await requireAuth();
+
+  const existing = await db.accrualDraw.findUnique({ where: { id } });
+  if (!existing) throw new Error("Accrual draw not found");
+
+  await db.accrualDraw.delete({ where: { id } });
+
+  await db.auditLog.create({
+    data: {
+      changedBy: user.id!,
+      changeType: "accrual_draw_delete",
+      before: { drawId: id, envelopeId: existing.accrualEnvelopeId, estimatedDate: existing.estimatedDate.toISOString().slice(0, 10), estimatedAmount: existing.estimatedAmount.toString() },
+      after: Prisma.JsonNull,
+    },
+  });
+
+  revalidatePath("/envelope");
+  revalidatePath("/forecast");
+  return { success: true };
+}
+
 // ── Set account balance (for forecast starting point) ────────────────────────
 
 export async function setAccountBalance(accountId: string, balance: string) {
@@ -391,7 +495,10 @@ export async function getEnvelopeForecastData(bucket: string = "personal"): Prom
     include: {
       scheduledTransfersTo: { where: { active: true } },
       scheduledTransfersFrom: { where: { active: true } },
-      scheduledBills: { where: { active: true, budgetTagId: { not: null } } },
+      scheduledBills: {
+        where: { active: true, budgetTagId: { not: null } },
+        include: { accrualEnvelope: { include: { draws: true } } },
+      },
       incomeSources: { where: { active: true } },
     },
   });
@@ -417,7 +524,11 @@ export async function getEnvelopeForecastData(bucket: string = "personal"): Prom
       );
     }
     for (const b of account.scheduledBills) {
-      events.push(...generateBillOccurrences(b, from, to));
+      const draws = (b.accrualEnvelope?.draws ?? []).map((d) => ({
+        estimatedDate: d.estimatedDate,
+        estimatedAmount: d.estimatedAmount,
+      }));
+      events.push(...generateBillOccurrences(b, from, to, draws));
     }
     for (const s of account.incomeSources) {
       events.push(...generateIncomeOccurrences(s, from, to));
