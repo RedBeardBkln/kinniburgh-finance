@@ -11,7 +11,12 @@ import {
   type ExtractedStatement,
   type StatementAccountRow,
 } from "@/lib/bank-statement-extract";
-import { uploadTaxFile, downloadTaxFile } from "@/lib/supabase-storage";
+import { downloadTaxFile, getTaxSignedUploadUrl } from "@/lib/supabase-storage";
+import {
+  MAX_SIZE_BYTES,
+  buildStatementFileKey,
+  validateStatementFile,
+} from "@/lib/bank-statement-upload";
 
 async function requireAuth() {
   const session = await auth();
@@ -19,54 +24,127 @@ async function requireAuth() {
   return session.user as { id: string; name?: string | null; email: string };
 }
 
-const ALLOWED_MIME_TYPES = [
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-] as const;
+// ── Upload (two-phase direct-to-storage) ────────────────────────────────────────
+//
+// Raw file bytes never travel through a Server Action's request body — Vercel
+// enforces a hard, non-configurable 4.5MB cap on Serverless Function request
+// bodies, which broke folder/batch uploads (and any single statement over
+// ~4.4MB) when this used to send FormData with the file attached directly.
+// Instead: (1) requestStatementUploadSlot mints a signed Supabase Storage
+// upload URL, (2) the client PUTs the file bytes straight to storage,
+// bypassing the Next.js server entirely, (3) finalizeStatementUpload creates
+// the Document/BankStatement rows and (single mode only) runs extraction.
 
-const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+const requestSlotSchema = z.object({
+  entityId: z.string().uuid(),
+  fileType: z.string().min(1),
+  fileSize: z.number().int().nonnegative(),
+});
 
-// ── Upload ─────────────────────────────────────────────────────────────────────
+export type RequestStatementUploadSlotInput = z.input<typeof requestSlotSchema>;
 
-interface UploadCoreResult {
-  statementId: string;
-  extraction: ExtractedStatement | null;
-}
+export async function requestStatementUploadSlot(
+  input: RequestStatementUploadSlotInput
+): Promise<
+  | { ok: true; statementId: string; fileKey: string; uploadUrl: string }
+  | { ok: false; error: string }
+> {
+  await requireAuth();
 
-/**
- * Shared core: validates + stores one statement file, creates the Document
- * (tax vault — archive only, never hard-deleted) and BankStatement rows, then
- * runs Claude extraction to pull the statement period and per-account balances.
- */
-async function uploadStatementCore(
-  user: { id: string },
-  entity: { id: string; name: string },
-  file: Blob,
-  options: { accountId?: string; notes?: string }
-): Promise<UploadCoreResult> {
-  if (file.size > MAX_SIZE_BYTES) throw new Error("File exceeds 20MB limit");
-  if (!ALLOWED_MIME_TYPES.includes(file.type as (typeof ALLOWED_MIME_TYPES)[number])) {
-    throw new Error("Unsupported file type. Upload PDF, JPEG, PNG, or WebP.");
+  const parsed = requestSlotSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  }
+  const { entityId, fileType, fileSize } = parsed.data;
+
+  const entity = await db.entity.findUnique({ where: { id: entityId } });
+  if (!entity) return { ok: false, error: "Entity not found" };
+
+  const validation = validateStatementFile(fileType, fileSize);
+  if (!validation.ok) return { ok: false, error: validation.error };
+
+  const statementId = randomUUID();
+  const fileKey = buildStatementFileKey(entityId, statementId, fileType);
+  if (!fileKey) {
+    // Should be unreachable given validateStatementFile above, but keep this
+    // typed-safe rather than asserting non-null.
+    return { ok: false, error: "Unsupported file type" };
   }
 
-  const { accountId, notes } = options;
+  try {
+    const uploadUrl = await getTaxSignedUploadUrl(fileKey);
+    return { ok: true, statementId, fileKey, uploadUrl };
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Could not prepare upload: ${e instanceof Error ? e.message : "unknown error"}`,
+    };
+  }
+}
+
+const finalizeSchema = z.object({
+  statementId: z.string().uuid(),
+  fileKey: z.string().min(1),
+  entityId: z.string().uuid(),
+  fileType: z.string().min(1),
+  mode: z.enum(["single", "batch"]),
+  accountId: z.string().uuid().optional(),
+  notes: z.string().max(500).optional(),
+});
+
+export type FinalizeStatementUploadInput = z.input<typeof finalizeSchema>;
+
+export async function finalizeStatementUpload(
+  input: FinalizeStatementUploadInput
+): Promise<
+  | { ok: true; statementId: string; extraction: ExtractedStatement | null }
+  | { ok: false; error: string }
+> {
+  const user = await requireAuth();
+
+  const parsed = finalizeSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  }
+  const { statementId, fileKey, entityId, fileType, mode, accountId, notes } = parsed.data;
+
+  // Defense-in-depth: reject if the client-supplied fileKey doesn't match
+  // what the server would have generated for this statementId/entityId/type.
+  const expectedFileKey = buildStatementFileKey(entityId, statementId, fileType);
+  if (expectedFileKey !== fileKey) {
+    return { ok: false, error: "Upload reference mismatch" };
+  }
+
+  const entity = await db.entity.findUnique({ where: { id: entityId } });
+  if (!entity) return { ok: false, error: "Entity not found" };
 
   if (accountId) {
     const account = await db.account.findFirst({
       where: { id: accountId, entityId: entity.id, archivedAt: null },
     });
-    if (!account) throw new Error("Account not found for this entity");
+    if (!account) return { ok: false, error: "Account not found for this entity" };
   }
 
-  const ext = file.type === "application/pdf" ? "pdf" : file.type.split("/")[1];
-  const docId = randomUUID();
-  const statementId = randomUUID();
-  const fileKey = `statements/${entity.id}/${statementId}.${ext}`;
+  // downloadTaxFile does double duty here: it's both the source bytes for
+  // single-mode extraction AND the authoritative proof the client's direct
+  // PUT actually landed in storage before we write any DB rows.
+  let buffer: Buffer;
+  try {
+    buffer = await downloadTaxFile(fileKey);
+  } catch {
+    return {
+      ok: false,
+      error: "Upload did not complete — file not found in storage. Please try again.",
+    };
+  }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await uploadTaxFile(buffer, fileKey, file.type);
+  // Authoritative size check — the client-reported fileSize at slot-request
+  // time is trust-but-verify only; this inspects the real uploaded bytes.
+  if (buffer.length > MAX_SIZE_BYTES) {
+    return { ok: false, error: "File exceeds 20MB limit" };
+  }
+
+  const docId = randomUUID();
 
   // Statement is tax-relevant bookkeeping evidence → Document vault too.
   await db.document.create({
@@ -89,15 +167,23 @@ async function uploadStatementCore(
       // Placeholder period until extraction fills it in; required NOT NULL fields
       periodStart: new Date(),
       periodEnd: new Date(),
-      extractStatus: "processing",
+      extractStatus: mode === "single" ? "processing" : "pending",
       notes: notes ?? null,
       uploadedBy: user.id,
     },
   });
 
+  if (mode === "batch") {
+    // Deliberately skip extraction in batch mode (speed/cost for large
+    // folders) — the row lands as "pending" for manual confirmation via the
+    // existing statements table UI.
+    revalidatePath("/business");
+    return { ok: true, statementId, extraction: null };
+  }
+
   let extraction: ExtractedStatement | null = null;
   try {
-    extraction = await extractBankStatement(buffer, file.type);
+    extraction = await extractBankStatement(buffer, fileType);
 
     const periodStart = extraction.periodStart
       ? new Date(`${extraction.periodStart}T00:00:00Z`)
@@ -143,29 +229,8 @@ async function uploadStatementCore(
     });
   }
 
-  return { statementId, extraction };
-}
-
-/**
- * Uploads a single bank statement file. See uploadStatementCore for details.
- */
-export async function uploadBankStatement(formData: FormData): Promise<UploadCoreResult> {
-  const user = await requireAuth();
-
-  const file = formData.get("file");
-  if (!(file instanceof Blob)) throw new Error("No file provided");
-
-  const entityId = z.string().uuid().parse(formData.get("entityId"));
-  const accountId = formData.get("accountId")?.toString() || undefined;
-  const notes = formData.get("notes")?.toString() || undefined;
-
-  const entity = await db.entity.findUnique({ where: { id: entityId } });
-  if (!entity) throw new Error("Entity not found");
-
-  const result = await uploadStatementCore(user, entity, file, { accountId, notes });
-
-  revalidatePath(`/business`);
-  return result;
+  revalidatePath("/business");
+  return { ok: true, statementId, extraction };
 }
 
 export interface BatchUploadItemResult {
@@ -173,53 +238,6 @@ export interface BatchUploadItemResult {
   ok: boolean;
   statementId?: string;
   error?: string;
-}
-
-/**
- * Uploads multiple bank statement files at once (e.g. a folder of prior-year
- * statements via a directory picker). Each file is processed independently —
- * one failure never blocks the others. Returns a per-file result list.
- * NOTE: no AI extraction in batch mode (a 40-file folder would be slow/costly);
- * period + balances can be confirmed on the statements page afterwards.
- */
-export async function uploadBankStatementsBatch(
-  formData: FormData
-): Promise<BatchUploadItemResult[]> {
-  const user = await requireAuth();
-
-  const entityId = z.string().uuid().parse(formData.get("entityId"));
-  const accountId = formData.get("accountId")?.toString() || undefined;
-  const notes = formData.get("notes")?.toString() || undefined;
-
-  const entity = await db.entity.findUnique({ where: { id: entityId } });
-  if (!entity) throw new Error("Entity not found");
-
-  const files = formData.getAll("files").filter((f): f is File => f instanceof File);
-  if (files.length === 0) throw new Error("No files provided");
-  if (files.length > 100) throw new Error("Maximum 100 files per batch");
-
-  const results: BatchUploadItemResult[] = [];
-
-  for (const file of files) {
-    const fileName =
-      file instanceof File && file.name ? file.name : "statement";
-    try {
-      const result = await uploadStatementCore(user, entity, file, {
-        accountId,
-        notes,
-      });
-      results.push({ fileName, ok: true, statementId: result.statementId });
-    } catch (e) {
-      results.push({
-        fileName,
-        ok: false,
-        error: e instanceof Error ? e.message : "Upload failed",
-      });
-    }
-  }
-
-  revalidatePath(`/business`);
-  return results;
 }
 
 function centsToDecimal(cents: number): Prisma.Decimal {

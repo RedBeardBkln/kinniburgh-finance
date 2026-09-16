@@ -119,12 +119,20 @@ export async function uploadReceiptFile(
   return uploadFile(buffer, BUCKET, fileKey, mimeType, false);
 }
 
-// Returns a signed upload URL the browser can PUT the binary file to directly,
-// bypassing the Next.js server entirely for the binary upload step.
-export async function getSignedUploadUrl(fileKey: string): Promise<string> {
+// Shared sign-request logic for "upload/sign" (returns a signed URL the
+// browser can PUT the binary file to directly, bypassing the Next.js server
+// entirely for the binary upload step) — bucket-parameterized so the fix
+// below (and any future signed-upload consumer) only needs to live once.
+// Live-verified against production Supabase Storage 2026-09-16
+// (fix-bank-statement-folder-upload task smoke test): the sign endpoint
+// returns `{ url: "/object/upload/sign/{bucket}/{key}?token=..." }` (a path
+// relative to `/storage/v1`, same shape as the read-side `sign` endpoint),
+// and the follow-up `PUT` to the resolved URL needs no `Authorization`
+// header — the `?token=` query param alone authorizes that specific upload.
+async function signUploadUrl(bucket: string, fileKey: string): Promise<string> {
   const { url, key } = getStorageConfig();
   const res = await fetch(
-    `${url}/storage/v1/object/upload/sign/${BUCKET}/${encodeStoragePath(fileKey)}`,
+    `${url}/storage/v1/object/upload/sign/${bucket}/${encodeStoragePath(fileKey)}`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -141,7 +149,24 @@ export async function getSignedUploadUrl(fileKey: string): Promise<string> {
   const data = (await res.json()) as { url?: string; signedUrl?: string };
   const path = data.url ?? data.signedUrl ?? "";
   if (!path) throw new Error("No signed upload URL returned");
-  return path.startsWith("http") ? path : `${url}${path}`;
+  // BUG FIX (2026-09-16): the pre-fix version of this function resolved a
+  // relative response path as `${url}${path}`, omitting the `/storage/v1`
+  // segment that every other signed-URL function in this file includes when
+  // resolving a relative path (see getReceiptSignedUrl/getPaystubSignedUrl/
+  // getTaxSignedUrl below). This function had zero call sites before this
+  // task, so the bug never fired in production, but it would have broken
+  // every real call once wired up.
+  return path.startsWith("http") ? path : `${url}/storage/v1${path}`;
+}
+
+export async function getSignedUploadUrl(fileKey: string): Promise<string> {
+  return signUploadUrl(BUCKET, fileKey);
+}
+
+// Signed direct-upload URL for the "taxes" bucket (bank statements, tax
+// documents) — mirrors the getTaxSignedUrl (read-side) naming convention.
+export async function getTaxSignedUploadUrl(fileKey: string): Promise<string> {
+  return signUploadUrl(TAX_BUCKET, fileKey);
 }
 
 export async function getReceiptSignedUrl(fileKey: string): Promise<string> {

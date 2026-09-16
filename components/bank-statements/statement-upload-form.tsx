@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  uploadBankStatement,
-  uploadBankStatementsBatch,
+  requestStatementUploadSlot,
+  finalizeStatementUpload,
   type BatchUploadItemResult,
 } from "@/actions/bank-statements";
 import type { ExtractedStatement } from "@/lib/bank-statement-extract";
+import { validateStatementFile } from "@/lib/bank-statement-upload";
+import { runWithConcurrencyLimit } from "@/lib/concurrency";
 
 interface AccountOption {
   id: string;
@@ -25,11 +27,62 @@ interface Props {
 
 const ACCEPT_ATTR = "application/pdf,image/jpeg,image/png,image/webp";
 const ACCEPTED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".webp"];
+// Batch folder uploads run with a bounded concurrency limit rather than
+// fully serial (slow for 100 files) or fully unbounded parallel (risks
+// tripping Supabase/Vercel per-connection throttling). See the plan's Risks
+// section for the reasoning behind this specific value.
+const BATCH_CONCURRENCY_LIMIT = 4;
+// Preserves the pre-existing "up to 100 files per batch" limit that used to
+// be enforced server-side in the old uploadBankStatementsBatch action.
+const MAX_BATCH_FILES = 100;
 
 function isAcceptedFile(file: File): boolean {
   if (file.type && ACCEPT_ATTR.includes(file.type)) return true;
   const lower = file.name.toLowerCase();
   return ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+/**
+ * Runs the 3-step direct-to-storage upload flow for a single file:
+ * request a signed upload slot → PUT the bytes straight to Supabase Storage
+ * → finalize (creates the Document/BankStatement rows, runs extraction in
+ * single mode). Throws with a descriptive message on any step's failure.
+ */
+async function uploadFile(
+  file: File,
+  entityId: string,
+  mode: "single" | "batch",
+  accountId: string,
+  notes: string
+): Promise<{ statementId: string; extraction: ExtractedStatement | null }> {
+  const slot = await requestStatementUploadSlot({
+    entityId,
+    fileType: file.type,
+    fileSize: file.size,
+  });
+  if (!slot.ok) throw new Error(slot.error);
+
+  const putRes = await fetch(slot.uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file,
+  });
+  if (!putRes.ok) {
+    throw new Error(`Upload to storage failed (status ${putRes.status})`);
+  }
+
+  const finalized = await finalizeStatementUpload({
+    statementId: slot.statementId,
+    fileKey: slot.fileKey,
+    entityId,
+    fileType: file.type,
+    mode,
+    accountId: accountId || undefined,
+    notes: notes.trim() || undefined,
+  });
+  if (!finalized.ok) throw new Error(finalized.error);
+
+  return { statementId: finalized.statementId, extraction: finalized.extraction };
 }
 
 export function StatementUploadForm({ entityId, accounts }: Props) {
@@ -63,19 +116,17 @@ export function StatementUploadForm({ entityId, accounts }: Props) {
   function handleSingleUpload() {
     if (!singleFile) { setError("Select a file"); return; }
     const file = singleFile;
+
+    const precheck = validateStatementFile(file.type, file.size);
+    if (!precheck.ok) { setError(precheck.error); return; }
+
     setError(null);
     setSingleResult(null);
     setBatchResults(null);
 
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("entityId", entityId);
-    if (accountId) fd.append("accountId", accountId);
-    if (notes.trim()) fd.append("notes", notes.trim());
-
     startTransition(async () => {
       try {
-        const res = await uploadBankStatement(fd);
+        const res = await uploadFile(file, entityId, "single", accountId, notes);
         setSingleResult({ extraction: res.extraction });
         router.refresh();
         resetInputs();
@@ -88,25 +139,40 @@ export function StatementUploadForm({ entityId, accounts }: Props) {
   function handleBatchUpload() {
     const files = folderFiles;
     if (files.length === 0) { setError("Select a folder with statement files"); return; }
+    if (files.length > MAX_BATCH_FILES) {
+      setError(`Too many files — upload at most ${MAX_BATCH_FILES} at a time.`);
+      return;
+    }
     setError(null);
     setBatchResults(null);
     setSingleResult(null);
 
-    const fd = new FormData();
-    for (const file of files) fd.append("files", file);
-    fd.append("entityId", entityId);
-    if (accountId) fd.append("accountId", accountId);
-    if (notes.trim()) fd.append("notes", notes.trim());
-
     startTransition(async () => {
-      try {
-        const results = await uploadBankStatementsBatch(fd);
-        setBatchResults(results);
-        router.refresh();
-        resetInputs();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Upload failed");
-      }
+      const tasks = files.map((file) => async (): Promise<BatchUploadItemResult> => {
+        const precheck = validateStatementFile(file.type, file.size);
+        if (!precheck.ok) {
+          return { fileName: file.name || "statement", ok: false, error: precheck.error };
+        }
+        try {
+          const res = await uploadFile(file, entityId, "batch", accountId, notes);
+          return { fileName: file.name || "statement", ok: true, statementId: res.statementId };
+        } catch (e) {
+          return {
+            fileName: file.name || "statement",
+            ok: false,
+            error: e instanceof Error ? e.message : "Upload failed",
+          };
+        }
+      });
+
+      const results = await runWithConcurrencyLimit(
+        tasks,
+        BATCH_CONCURRENCY_LIMIT,
+        (task) => task()
+      );
+      setBatchResults(results);
+      router.refresh();
+      resetInputs();
     });
   }
 

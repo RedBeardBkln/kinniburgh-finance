@@ -6,6 +6,7 @@ import {
   getPaystubSignedUrl,
   getTaxSignedUrl,
   getSignedUploadUrl,
+  getTaxSignedUploadUrl,
   downloadReceiptFile,
 } from "@/lib/supabase-storage";
 
@@ -246,5 +247,61 @@ describe("per-segment path encoding (fileKey slashes must stay literal)", () => 
     // The space inside the "e 1" segment must still be escaped (%20), even
     // though the "/" separators around it are preserved literally.
     expect(url).toContain("/object/sign/receipts/documents/e%201/d1.pdf");
+  });
+});
+
+// Coverage for the two-phase direct-to-storage upload flow introduced by the
+// fix-bank-statement-folder-upload task.
+describe("getTaxSignedUploadUrl", () => {
+  it("signs an upload URL against the taxes bucket (not receipts)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: "/object/upload/sign/taxes/statements/e1/s1.pdf?token=x" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getTaxSignedUploadUrl("statements/e1/s1.pdf");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain("/storage/v1/object/upload/sign/taxes/statements/e1/s1.pdf");
+    expect(url).not.toContain("/object/upload/sign/receipts/");
+  });
+});
+
+// Regression coverage for the missing "/storage/v1" prefix bug fixed in this
+// task: the pre-fix getSignedUploadUrl resolved a relative response path as
+// `${url}${path}` instead of `${url}/storage/v1${path}`, unlike every other
+// signed-URL function in this file. Asserting on the function's raw RETURNED
+// value (not just the request URL) is what would have caught this — the sign
+// *request* URL was never wrong, only the resolved upload URL returned to
+// the caller was. Per this repo's own documented testing pitfall (see
+// .claude/agent-memory/coder/storage-path-segment-encoding.md), assert on
+// the raw/undecoded string rather than round-tripping through
+// decodeURIComponent.
+describe("getSignedUploadUrl /storage/v1 prefix regression", () => {
+  it("resolves a relative signed-upload response path with the /storage/v1 prefix", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: "/object/upload/sign/receipts/documents/e1/d1.pdf?token=x" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getSignedUploadUrl("documents/e1/d1.pdf");
+
+    expect(result).toContain("/storage/v1/object/upload/sign/receipts/documents/e1/d1.pdf");
+    expect(result.startsWith("https://example.supabase.co/storage/v1/object/upload/sign/")).toBe(true);
+  });
+
+  it("resolves getTaxSignedUploadUrl's relative response path with the /storage/v1 prefix too", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: "/object/upload/sign/taxes/statements/e1/s1.pdf?token=x" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getTaxSignedUploadUrl("statements/e1/s1.pdf");
+
+    expect(result).toContain("/storage/v1/object/upload/sign/taxes/statements/e1/s1.pdf");
   });
 });
