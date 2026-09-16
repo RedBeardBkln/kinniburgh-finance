@@ -60,7 +60,7 @@ export function ForecastAccountCard({
   return (
     <Card className={hasBreaches ? "border-destructive/50" : ""}>
       <CardContent className="pt-4">
-        {currentBalance ? (
+        {currentBalance !== null ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium">{displayName}</p>

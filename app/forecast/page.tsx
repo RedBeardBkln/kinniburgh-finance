@@ -28,6 +28,12 @@ import { listRentalBookings } from "@/actions/rental-bookings";
 import { RecurringExpensesSection } from "@/components/forecast/recurring-expenses-section";
 import { RentalBookingsSection } from "@/components/forecast/rental-bookings-section";
 import { SpendPaceSection, type TagPaceRow } from "@/components/forecast/spend-pace-section";
+import { capForecastHorizon, prorateExpensesAcrossHorizon } from "@/lib/business-forecast";
+import {
+  BusinessForecastSection,
+  type ForecastAccount as BusinessForecastAccount,
+  type ForecastHorizon as BusinessForecastHorizon,
+} from "@/components/forecast/business-forecast-section";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -41,35 +47,50 @@ export default async function ForecastPage({ searchParams }: PageProps) {
   const bucket = params.bucket ?? "personal";
   const entity = await getEntityBySlug(bucket);
 
+  // Sudden Valley / EK Consulting: balance projection is computed from real
+  // revenue/budget data (lib/business-forecast.ts) instead of the
+  // personal-payroll-shaped ScheduledTransfer/ScheduledBill/IncomeSource engine
+  // below. Personal (entity.type === "personal", or entity === null for the
+  // "taxes" aggregate view) is entirely unchanged.
+  const isBusinessBucket = entity?.type === "business";
+
   const now = new Date();
   const forecastStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const forecastEnd90 = new Date(forecastStart.getTime() + 90 * 86400000);
   const forecastEnd14 = new Date(forecastStart.getTime() + 14 * 86400000);
 
-  // Load checking accounts with a minimum balance rule, filtered to the active bucket's entity
-  const tdAccounts = await db.account.findMany({
-    where: {
-      archivedAt: null,
-      accountType: "checking",
-      minimumBalance: { not: null },
-      ...(entity && { entityId: entity.id }),
-    },
-    include: { institution: true },
-    orderBy: { nickname: "asc" },
-  });
+  // Load checking accounts with a minimum balance rule, filtered to the active bucket's entity.
+  // This TD-Bank-only rule (spec 07 item 10) never matches either business entity's
+  // checking account (neither has a minimumBalance set) — skip the query entirely for
+  // business buckets rather than running it to always get [] back.
+  const tdAccounts = isBusinessBucket
+    ? []
+    : await db.account.findMany({
+        where: {
+          archivedAt: null,
+          accountType: "checking",
+          minimumBalance: { not: null },
+          ...(entity && { entityId: entity.id }),
+        },
+        include: { institution: true },
+        orderBy: { nickname: "asc" },
+      });
 
-  // Load all active scheduled transfers, income sources, and bills
-  const [transfers, incomeSources, scheduledBills] = await Promise.all([
-    db.scheduledTransfer.findMany({
-      where: { active: true },
-      include: { fromAccount: true, toAccount: true },
-    }),
-    db.incomeSource.findMany({
-      where: { active: true },
-      include: { account: true, entity: true },
-    }),
-    db.scheduledBill.findMany({ where: { active: true, budgetTagId: { not: null } } }),
-  ]);
+  // Load all active scheduled transfers, income sources, and bills (Personal's
+  // day-by-day engine only — business buckets don't use any of these).
+  const [transfers, incomeSources, scheduledBills] = isBusinessBucket
+    ? [[], [], []]
+    : await Promise.all([
+        db.scheduledTransfer.findMany({
+          where: { active: true },
+          include: { fromAccount: true, toAccount: true },
+        }),
+        db.incomeSource.findMany({
+          where: { active: true },
+          include: { account: true, entity: true },
+        }),
+        db.scheduledBill.findMany({ where: { active: true, budgetTagId: { not: null } } }),
+      ]);
 
   // Load entities for the income source form
   const entities = await db.entity.findMany({
@@ -83,6 +104,173 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     db.tag.findMany({ orderBy: { name: "asc" } }),
     entity ? listRentalBookings(entity.id) : Promise.resolve([]),
   ]);
+
+  // ── Business-bucket forecast (Sudden Valley / EK Consulting only) ────────
+  // currentBalance + projected revenue (RentalBooking payouts + ProjectedRevenue)
+  // − scheduled transfers out − projected expenses (prorated from Budget rows).
+  // See lib/business-forecast.ts for the horizon-capping/proration math.
+  const businessAccounts: BusinessForecastAccount[] = [];
+  if (isBusinessBucket && entity) {
+    const businessCheckingAccounts = await db.account.findMany({
+      where: { entityId: entity.id, archivedAt: null, accountType: "checking" },
+      orderBy: { nickname: "asc" },
+    });
+
+    const projectedRevenueRows = await db.projectedRevenue.findMany({
+      where: { entityId: entity.id, archivedAt: null, realizedAt: null },
+      orderBy: { expectedDate: "asc" },
+    });
+
+    const businessTransfers = await db.scheduledTransfer.findMany({
+      where: { active: true, fromAccount: { entityId: entity.id } },
+      include: { fromAccount: true, toAccount: true },
+    });
+
+    // Periods touched by the largest (uncapped) 90-day horizon — capping only
+    // ever shrinks the window, so this over-fetches slightly rather than
+    // under-fetching; harmless (Budget.groupBy-equivalent for an unused period
+    // just contributes nothing).
+    const maxHorizonEnd = new Date(forecastStart.getTime() + 90 * 86400000);
+    const touchedPeriods: string[] = [];
+    {
+      let y = forecastStart.getUTCFullYear();
+      let m = forecastStart.getUTCMonth();
+      while (new Date(Date.UTC(y, m, 1)).getTime() < maxHorizonEnd.getTime()) {
+        touchedPeriods.push(`${y}-${String(m + 1).padStart(2, "0")}`);
+        m++;
+        if (m > 11) { m = 0; y++; }
+      }
+    }
+
+    // Budget rows for the touched periods, WITH tag — feeds both the entity-wide
+    // prorated total (aggregatePeriodTotals) and the per-tag itemized breakdown
+    // (periodTotalsByTag) from a single query, rather than a groupBy() for the
+    // total plus a second findMany() for the itemization.
+    const budgetRows = await db.budget.findMany({
+      where: { entityId: entity.id, period: { in: touchedPeriods } },
+      include: { tag: true },
+    });
+    const aggregatePeriodTotals = new Map<string, Prisma.Decimal>();
+    const periodTotalsByTag = new Map<string, { tagName: string; periods: Map<string, Prisma.Decimal> }>();
+    for (const b of budgetRows) {
+      aggregatePeriodTotals.set(
+        b.period,
+        (aggregatePeriodTotals.get(b.period) ?? new Prisma.Decimal(0)).plus(b.budgeted)
+      );
+      const tagEntry = periodTotalsByTag.get(b.tagId) ?? { tagName: b.tag.shortName, periods: new Map() };
+      tagEntry.periods.set(b.period, b.budgeted);
+      periodTotalsByTag.set(b.tagId, tagEntry);
+    }
+
+    // Revenue: RentalBooking payouts (forward-looking only — a past payoutDate
+    // is already reflected in currentBalance once the Airbnb deposit posts) and
+    // unrealized ProjectedRevenue (overdue-but-unrealized rows still count as
+    // expected inflows for every horizon; only forward-looking dates push the cap).
+    const forwardRentalBookings = rentalBookings.filter(
+      (b) => new Date(b.payoutDate).getTime() >= forecastStart.getTime()
+    );
+    const overdueProjectedRevenue = projectedRevenueRows.filter(
+      (r) => new Date(r.expectedDate).getTime() < forecastStart.getTime()
+    );
+    const forwardProjectedRevenue = projectedRevenueRows.filter(
+      (r) => new Date(r.expectedDate).getTime() >= forecastStart.getTime()
+    );
+
+    const forwardRevenueDates = [
+      ...forwardRentalBookings.map((b) => new Date(b.payoutDate)),
+      ...forwardProjectedRevenue.map((r) => new Date(r.expectedDate)),
+    ];
+    const latestConfirmedRevenueDate =
+      forwardRevenueDates.length === 0
+        ? null
+        : forwardRevenueDates.reduce((max, d) => (d.getTime() > max.getTime() ? d : max));
+
+    const HORIZON_DAYS = [30, 60, 90] as const;
+
+    for (const acct of businessCheckingAccounts) {
+      const startingBalance =
+        acct.currentBalance !== null ? new Prisma.Decimal(acct.currentBalance) : new Prisma.Decimal(0);
+
+      const horizons: BusinessForecastHorizon[] = HORIZON_DAYS.map((requestedDays) => {
+        const { days, wasCapped } = capForecastHorizon(requestedDays, latestConfirmedRevenueDate, forecastStart);
+        const horizonEnd = new Date(forecastStart.getTime() + days * 86400000);
+
+        const rentalItems = forwardRentalBookings
+          .filter((b) => new Date(b.payoutDate).getTime() <= horizonEnd.getTime())
+          .map((b) => ({
+            date: new Date(b.payoutDate),
+            description: `Airbnb payout — ${b.guest}`,
+            amountDecimal: new Prisma.Decimal(b.grossEarnings),
+          }));
+        const overdueItems = overdueProjectedRevenue.map((r) => ({
+          date: new Date(r.expectedDate),
+          description: `${r.description} (overdue)`,
+          amountDecimal: new Prisma.Decimal(r.amountCents).div(100),
+        }));
+        const forwardProjectedItems = forwardProjectedRevenue
+          .filter((r) => new Date(r.expectedDate).getTime() <= horizonEnd.getTime())
+          .map((r) => ({
+            date: new Date(r.expectedDate),
+            description: r.description,
+            amountDecimal: new Prisma.Decimal(r.amountCents).div(100),
+          }));
+
+        const revenueDecimalItems = [...rentalItems, ...overdueItems, ...forwardProjectedItems].sort(
+          (a, b) => a.date.getTime() - b.date.getTime()
+        );
+        const revenueTotal = revenueDecimalItems.reduce(
+          (acc, i) => acc.plus(i.amountDecimal),
+          new Prisma.Decimal(0)
+        );
+
+        const transferEvents = businessTransfers
+          .flatMap((t) => generateTransferOccurrences(t, forecastStart, horizonEnd))
+          .filter((e) => e.accountId === acct.id && e.type === "transfer_out");
+        const transfersOutTotal = transferEvents.reduce(
+          (acc, e) => acc.plus(e.amount.abs()),
+          new Prisma.Decimal(0)
+        );
+
+        const expensesTotal = prorateExpensesAcrossHorizon(aggregatePeriodTotals, forecastStart, horizonEnd);
+        const expenseItems = [...periodTotalsByTag.values()]
+          .map((tagEntry) => ({
+            tagName: tagEntry.tagName,
+            amountDecimal: prorateExpensesAcrossHorizon(tagEntry.periods, forecastStart, horizonEnd),
+          }))
+          .filter((item) => item.amountDecimal.greaterThan(0))
+          .sort((a, b) => a.tagName.localeCompare(b.tagName));
+
+        const endingBalance = startingBalance.plus(revenueTotal).minus(transfersOutTotal).minus(expensesTotal);
+
+        return {
+          requestedDays,
+          days,
+          wasCapped,
+          latestConfirmedRevenueDate,
+          startingBalance: decimalToNumber(startingBalance),
+          revenue: decimalToNumber(revenueTotal),
+          transfersOut: decimalToNumber(transfersOutTotal),
+          expenses: decimalToNumber(expensesTotal),
+          endingBalance: decimalToNumber(endingBalance),
+          revenueItems: revenueDecimalItems.map((i) => ({
+            date: i.date,
+            description: i.description,
+            amount: decimalToNumber(i.amountDecimal),
+          })),
+          expenseItems: expenseItems.map((i) => ({ tagName: i.tagName, amount: decimalToNumber(i.amountDecimal) })),
+        };
+      });
+
+      businessAccounts.push({
+        id: acct.id,
+        name: acct.nickname,
+        mask: acct.mask,
+        currentBalance: acct.currentBalance !== null ? decimalToNumber(acct.currentBalance) : null,
+        currentBalanceAt: acct.currentBalanceAt,
+        horizons,
+      });
+    }
+  }
 
   // Load credit cards with statement data; they draw from the Credit Cards
   // funding account (x2631) per spec 02.
@@ -458,6 +646,11 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           </CardContent>
         </Card>
 
+        {/* ── Business-bucket financial forecast (Sudden Valley / EK Consulting) ── */}
+        {isBusinessBucket && entity && businessAccounts.length > 0 && (
+          <BusinessForecastSection entityName={entity.name} accounts={businessAccounts} />
+        )}
+
         {/* ── Breach warnings ──────────────────────────────────────────── */}
         {accountForecasts.some((af) => af.breaches.length > 0) && (
           <div className="space-y-2">
@@ -709,8 +902,9 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           defaultEntityId={entity?.id ?? entities[0]?.id ?? ""}
         />
 
-        {/* ── Rental bookings ──────────────────────────────────────────── */}
-        {entity && (
+        {/* ── Rental bookings (Sudden Valley only — the only entity with Airbnb
+             revenue; EK Consulting's revenue is manually entered via ProjectedRevenue) ── */}
+        {entity?.slug === "sudden-valley" && (
           <div id="rental-bookings" className="scroll-mt-20">
             <RentalBookingsSection
               entityId={entity.id}
@@ -725,7 +919,9 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           </div>
         )}
 
-        {/* ── Income sources ────────────────────────────────────────────── */}
+        {/* ── Income sources (Personal only — business buckets get revenue from
+             their Revenue page, wired into the Business Forecast section above) ── */}
+        {!isBusinessBucket && (
         <Card>
           <CardHeader>
             <CardTitle>Income Sources</CardTitle>
@@ -861,6 +1057,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
     </AppShell>
   );
