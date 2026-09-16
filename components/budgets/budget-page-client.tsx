@@ -95,6 +95,15 @@ export function BudgetPageClient({
   const [savingAdditional, setSavingAdditional] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
+  // A budget line can only be assigned to one tag per entity/period (matches
+  // the DB's @@unique([tagId, entityId, period])) — tags already budgeted
+  // this period shouldn't be offered again. Same-named tags under different
+  // parents (e.g. "Personal / Electric" vs "Sudden Valley / Electric") are
+  // already distinct rows with distinct ids/full names, so filtering by tagId
+  // here never conflates them.
+  const usedTagIds = new Set(budgets.map((b) => b.tagId));
+  const availableTags = tags.filter((t) => !usedTagIds.has(t.id));
+
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -428,7 +437,7 @@ export function BudgetPageClient({
         <BudgetEditModal
           mode="add"
           accounts={accounts}
-          tags={tags}
+          tags={availableTags}
           entityId={entityId}
           period={period}
           onClose={() => setModal(null)}
