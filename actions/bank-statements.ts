@@ -17,6 +17,7 @@ import {
   buildStatementFileKey,
   validateStatementFile,
 } from "@/lib/bank-statement-upload";
+import { runWithConcurrencyLimit } from "@/lib/concurrency";
 
 async function requireAuth() {
   const session = await auth();
@@ -440,6 +441,39 @@ export async function retryStatementExtraction(
     });
     return { error: "Extraction failed" };
   }
+}
+
+export interface RetryAllPendingResult {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+}
+
+/**
+ * Runs extraction for every currently-pending statement in an entity —
+ * i.e. every statement uploaded via batch/folder mode, which deliberately
+ * skips extraction at upload time (see finalizeStatementUpload). Reuses
+ * retryStatementExtraction per statement (it doesn't care what the prior
+ * status was) with bounded concurrency, matching the batch upload's own
+ * concurrency limit.
+ */
+export async function retryAllPendingStatementExtractions(
+  entityId: string
+): Promise<RetryAllPendingResult> {
+  await requireAuth();
+
+  const pending = await db.bankStatement.findMany({
+    where: { entityId, archivedAt: null, extractStatus: "pending" },
+    select: { id: true },
+  });
+
+  const results = await runWithConcurrencyLimit(pending, 4, (s) =>
+    retryStatementExtraction(s.id)
+  );
+
+  const succeeded = results.filter((r) => "success" in r).length;
+  revalidatePath("/business");
+  return { attempted: pending.length, succeeded, failed: pending.length - succeeded };
 }
 
 // ── Archive (never hard-delete — tax bookkeeping evidence) ─────────────────────

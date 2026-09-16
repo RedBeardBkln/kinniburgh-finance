@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import {
   confirmBankStatement,
   retryStatementExtraction,
+  retryAllPendingStatementExtractions,
   archiveBankStatement,
   type ConfirmStatementInput,
 } from "@/actions/bank-statements";
@@ -37,6 +38,7 @@ interface StatementRow {
 interface Props {
   statements: StatementRow[];
   accounts: AccountOption[];
+  entityId: string;
 }
 
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
@@ -72,9 +74,24 @@ function isoDate(d: Date): string {
 
 const LIABILITY_ACCOUNT_TYPES = new Set(["credit_card", "mortgage", "loan"]);
 
-export function StatementsTable({ statements, accounts }: Props) {
+export function StatementsTable({ statements, accounts, entityId }: Props) {
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isParsingAll, startParseAll] = useTransition();
+  const [parseAllResult, setParseAllResult] = useState<string | null>(null);
+
+  const pendingCount = statements.filter((s) => s.extractStatus === "pending").length;
+
+  function handleParseAll() {
+    setParseAllResult(null);
+    startParseAll(async () => {
+      const res = await retryAllPendingStatementExtractions(entityId);
+      setParseAllResult(
+        `Parsed ${res.succeeded} of ${res.attempted}${res.failed > 0 ? ` — ${res.failed} failed, review manually` : ""}.`
+      );
+      router.refresh();
+    });
+  }
 
   if (statements.length === 0) {
     return (
@@ -89,8 +106,22 @@ export function StatementsTable({ statements, accounts }: Props) {
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">Uploaded Statements</CardTitle>
+        {pendingCount > 0 && (
+          <div className="flex items-center gap-2">
+            {parseAllResult && (
+              <span className="text-xs text-muted-foreground">{parseAllResult}</span>
+            )}
+            <button
+              onClick={handleParseAll}
+              disabled={isParsingAll}
+              className="inline-flex items-center rounded-md bg-primary px-3 h-8 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            >
+              {isParsingAll ? "Parsing…" : `Parse All Pending (${pendingCount})`}
+            </button>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="p-0">
         <table className="w-full text-sm">
@@ -239,13 +270,13 @@ function StatementRowItem({
             >
               {editing ? "Close" : needsReview ? "Review" : "Edit"}
             </button>
-            {statement.extractStatus === "failed" && (
+            {(statement.extractStatus === "failed" || statement.extractStatus === "pending") && (
               <button
                 onClick={handleRetry}
                 disabled={isPending}
                 className="text-xs text-primary hover:underline disabled:opacity-50"
               >
-                Retry
+                {isPending ? "Parsing…" : statement.extractStatus === "pending" ? "Parse" : "Retry"}
               </button>
             )}
             <button
