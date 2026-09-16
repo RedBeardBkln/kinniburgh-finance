@@ -604,12 +604,14 @@ export function InlineTagCell({
           accountNickname={accountNickname}
           accountMask={accountMask}
           onCreated={(ruleId, tagName) => {
-            const ids = pendingTagSave;
             setRulePrompt(null);
-            setPendingTagSave(null);
-            if (ids) commitTags(ids);
-            else router.refresh();
             setRetroModal({ ruleId, tagName, accountId });
+            // Don't commitTags() yet — that triggers router.refresh(), which
+            // (when tagging from the "Needs Review" list) removes this row
+            // from the filtered results and unmounts this component,
+            // destroying the retro-apply modal before it can be used. Defer
+            // the commit until the modal itself closes, same as the pattern
+            // already used to protect rulePrompt above.
           }}
           onDismiss={closePrompt}
         />
@@ -620,7 +622,13 @@ export function InlineTagCell({
           ruleId={retroModal.ruleId}
           tagName={retroModal.tagName}
           initialAccountId={retroModal.accountId}
-          onDone={() => setRetroModal(null)}
+          onDone={() => {
+            setRetroModal(null);
+            const ids = pendingTagSave;
+            setPendingTagSave(null);
+            if (ids) commitTags(ids);
+            else router.refresh();
+          }}
         />
       )}
     </>

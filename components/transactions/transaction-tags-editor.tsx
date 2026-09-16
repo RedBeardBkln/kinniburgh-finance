@@ -279,12 +279,13 @@ export function TransactionTagsEditor({
           accountNickname={accountNickname}
           accountMask={accountMask}
           onCreated={(ruleId, tagName) => {
-            const ids = pendingTagSave;
             setRulePrompt(null);
-            setPendingTagSave(null);
-            if (ids) commitTags(ids);
-            else router.refresh();
             setRetroModal({ ruleId, tagName, accountId });
+            // Don't commitTags() yet — see the comment above rulePrompt's
+            // state: a router.refresh() here can unmount this component
+            // (e.g. if this transaction drops out of a filtered list) and
+            // destroy the retro-apply modal before it can be used. Defer
+            // the commit until the modal itself closes.
           }}
           onDismiss={closePrompt}
         />
@@ -295,7 +296,13 @@ export function TransactionTagsEditor({
           ruleId={retroModal.ruleId}
           tagName={retroModal.tagName}
           initialAccountId={retroModal.accountId}
-          onDone={() => setRetroModal(null)}
+          onDone={() => {
+            setRetroModal(null);
+            const ids = pendingTagSave;
+            setPendingTagSave(null);
+            if (ids) commitTags(ids);
+            else router.refresh();
+          }}
         />
       )}
     </>
