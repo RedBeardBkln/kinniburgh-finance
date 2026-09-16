@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { addCashValueEntry } from "@/actions/insurance";
+import { addCashValueEntry, requestInsuranceUploadSlot, finalizeInsuranceUpload } from "@/actions/insurance";
+import { validateDocumentFile } from "@/lib/document-upload";
 
 type Policy = {
   id: string;
@@ -118,14 +119,41 @@ export function InsurancePolicyCard({ policy }: { policy: Policy }) {
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const precheck = validateDocumentFile(file.type, file.size);
+    if (!precheck.ok) {
+      setUploadError(precheck.error);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setUploading(true);
     setUploadError(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch(`/api/insurance/${policy.id}/upload`, { method: "POST", body: fd });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok || data.error) throw new Error(data.error ?? "Upload failed");
+      const slot = await requestInsuranceUploadSlot({
+        policyId: policy.id,
+        fileType: file.type,
+        fileSize: file.size,
+      });
+      if (!slot.ok) throw new Error(slot.error);
+
+      const putRes = await fetch(slot.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!putRes.ok) {
+        throw new Error(`Upload to storage failed (status ${putRes.status})`);
+      }
+
+      const finalized = await finalizeInsuranceUpload({
+        policyId: policy.id,
+        documentId: slot.documentId,
+        fileKey: slot.fileKey,
+        fileType: file.type,
+      });
+      if (!finalized.ok) throw new Error(finalized.error);
+
       setUploadDone(true);
       router.refresh();
     } catch (err) {

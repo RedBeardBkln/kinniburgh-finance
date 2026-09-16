@@ -6,12 +6,21 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
-import { uploadTaxFile, getDocumentFileSignedUrl, downloadDocumentFile } from "@/lib/supabase-storage";
+import {
+  getDocumentFileSignedUrl,
+  downloadDocumentFile,
+  downloadTaxFile,
+  getTaxSignedUploadUrl,
+} from "@/lib/supabase-storage";
 import { extractDocument, classifyDocType, type ExtractedDocument } from "@/lib/doc-extract";
 import { generateDocumentName } from "@/lib/doc-naming";
 import { parseModelJson } from "@/lib/model-json";
 import { TAX_QUESTION_BANK, baseOpportunitiesForHousehold } from "@/lib/tax-guidance";
-import { MAX_BATCH_FILES, type UploadBatchResult } from "@/lib/tax-doc-batch";
+import {
+  MAX_SIZE_BYTES,
+  buildTaxDocumentFileKey,
+  validateTaxDocumentFile,
+} from "@/lib/tax-document-upload";
 import Anthropic from "@anthropic-ai/sdk";
 
 async function requireAuth() {
@@ -125,7 +134,21 @@ export async function getWorkspaceQuestions(workspaceId: string) {
   });
 }
 
-// ── Document intake (taxes bucket) ───────────────────────────────────────────
+// ── Document intake (taxes bucket, two-phase direct-to-storage) ─────────────
+//
+// Raw file bytes never travel through a Server Action's request body — Vercel
+// enforces a hard, non-configurable 4.5MB cap on Serverless Function request
+// bodies, which broke uploads over ~4.4MB (and any batch whose combined size
+// crossed that line) when this used to send FormData with the file attached
+// directly. Instead: (1) requestTaxDocumentUploadSlot mints a signed Supabase
+// Storage upload URL, (2) the client PUTs the file bytes straight to storage,
+// bypassing the Next.js server entirely, (3) finalizeTaxDocumentUpload
+// creates the Document row and runs extraction inline. Unlike bank
+// statements, extraction here runs inline for extractable docTypes in BOTH
+// single-file and multi-file (batch) client flows — uploadTaxDocumentCore's
+// extraction logic was never batch-vs-single gated, and this refactor
+// preserves that exactly (each file gets its own finalize call, so "batch"
+// and "single" are now the same code path from the server's perspective).
 
 const TAX_DOC_TYPES = [
   "w2",
@@ -139,9 +162,6 @@ const TAX_DOC_TYPES = [
   "other",
 ] as const;
 
-const ALLOWED_MIME = ["application/pdf", "image/jpeg", "image/png", "image/webp"] as const;
-const MAX_SIZE = 20 * 1024 * 1024;
-
 interface UploadedTaxDoc {
   documentId: string;
   documentName: string | null;
@@ -149,12 +169,21 @@ interface UploadedTaxDoc {
 }
 
 /**
- * Core single-file upload logic, shared by the singular (`uploadTaxDocument`)
- * and batch (`uploadTaxDocuments`) entry points. Takes already-validated
- * primitives; throws on validation/storage failure exactly as the original
- * inline implementation did.
+ * Core single-file upload logic, invoked once per file by
+ * finalizeTaxDocumentUpload (both single-file and batch client flows use the
+ * same finalize action, once per file). Takes an already-generated
+ * documentId/fileKey (minted by requestTaxDocumentUploadSlot) and the
+ * already-uploaded buffer — it no longer generates its own docId/fileKey or
+ * uploads bytes to storage itself, since the client's direct PUT already put
+ * them there. Everything else (the db.document.create, the
+ * extractable-docType check, the classifyDocType/extractDocument/
+ * generateDocumentName calls, the two db.document.update branches for
+ * extraction success/failure, the non-extractable-doc naming fallback) is
+ * byte-for-byte identical to the pre-fix implementation.
  */
 async function uploadTaxDocumentCore(input: {
+  documentId: string;
+  fileKey: string;
   buffer: Buffer;
   mimeType: string;
   entityId: string;
@@ -162,13 +191,7 @@ async function uploadTaxDocumentCore(input: {
   docType: (typeof TAX_DOC_TYPES)[number];
   notes: string | undefined;
 }): Promise<UploadedTaxDoc> {
-  const { buffer, mimeType, entityId, taxYear, docType, notes } = input;
-
-  const ext = mimeType === "application/pdf" ? "pdf" : mimeType.split("/")[1];
-  const docId = randomUUID();
-  const fileKey = `taxes/${entityId}/${docId}.${ext}`;
-
-  await uploadTaxFile(buffer, fileKey, mimeType);
+  const { documentId: docId, fileKey, buffer, mimeType, entityId, taxYear, docType, notes } = input;
 
   await db.document.create({
     data: {
@@ -225,94 +248,120 @@ async function uploadTaxDocumentCore(input: {
   return { documentId: docId, documentName, extraction };
 }
 
-export async function uploadTaxDocument(
-  formData: FormData
-): Promise<{ documentId: string; documentName: string | null; extraction: ExtractedDocument | null }> {
+const requestSlotSchema = z.object({
+  entityId: z.string().uuid(),
+  fileType: z.string().min(1),
+  fileSize: z.number().int().nonnegative(),
+});
+
+export type RequestTaxDocumentUploadSlotInput = z.input<typeof requestSlotSchema>;
+
+export async function requestTaxDocumentUploadSlot(
+  input: RequestTaxDocumentUploadSlotInput
+): Promise<
+  | { ok: true; documentId: string; fileKey: string; uploadUrl: string }
+  | { ok: false; error: string }
+> {
   await requireAuth();
 
-  const file = formData.get("file");
-  if (!(file instanceof Blob)) throw new Error("No file provided");
-  if (file.size > MAX_SIZE) throw new Error("File exceeds 20MB limit");
-  const mimeType = file.type;
-  if (!ALLOWED_MIME.includes(mimeType as (typeof ALLOWED_MIME)[number])) {
-    throw new Error("Unsupported file type. Upload PDF, JPEG, PNG, or WebP.");
+  const parsed = requestSlotSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  }
+  const { entityId, fileType, fileSize } = parsed.data;
+
+  const validation = validateTaxDocumentFile(fileType, fileSize);
+  if (!validation.ok) return { ok: false, error: validation.error };
+
+  const documentId = randomUUID();
+  const fileKey = buildTaxDocumentFileKey(entityId, documentId, fileType);
+  if (!fileKey) {
+    // Should be unreachable given validateTaxDocumentFile above, but keep
+    // this typed-safe rather than asserting non-null.
+    return { ok: false, error: "Unsupported file type" };
   }
 
-  const entityId = z.string().uuid().parse(formData.get("entityId"));
-  const taxYear = formData.get("taxYear") ? Number(formData.get("taxYear")) : null;
-  if (taxYear !== null && (taxYear < 2000 || taxYear > 2100)) {
-    throw new Error("Invalid tax year");
+  try {
+    const uploadUrl = await getTaxSignedUploadUrl(fileKey);
+    return { ok: true, documentId, fileKey, uploadUrl };
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Could not prepare upload: ${e instanceof Error ? e.message : "unknown error"}`,
+    };
   }
-  const docType = z.enum(TAX_DOC_TYPES).parse(formData.get("docType"));
-  const notes = formData.get("notes")?.toString() || undefined;
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const result = await uploadTaxDocumentCore({ buffer, mimeType, entityId, taxYear, docType, notes });
-
-  revalidatePath("/documents");
-  revalidatePath("/tax");
-  return result;
 }
 
-// ── Batch document intake (multi-file upload) ────────────────────────────────
+const finalizeSchema = z.object({
+  documentId: z.string().uuid(),
+  fileKey: z.string().min(1),
+  entityId: z.string().uuid(),
+  fileType: z.string().min(1),
+  taxYear: z.number().int().nullable(),
+  docType: z.enum(TAX_DOC_TYPES),
+  notes: z.string().optional(),
+});
 
-/**
- * Batch variant of uploadTaxDocument: shared fields (entityId/taxYear/docType/
- * notes) are validated once for the whole batch; each file is then validated
- * and uploaded independently so one bad file in a batch does not abort the
- * others. Only throws for batch-level problems (invalid shared fields, zero
- * files, or too many files) — per-file failures are collected and returned,
- * never thrown.
- */
-export async function uploadTaxDocuments(formData: FormData): Promise<UploadBatchResult[]> {
+export type FinalizeTaxDocumentUploadInput = z.input<typeof finalizeSchema>;
+
+export async function finalizeTaxDocumentUpload(
+  input: FinalizeTaxDocumentUploadInput
+): Promise<
+  | { ok: true; documentId: string; documentName: string | null; extraction: ExtractedDocument | null }
+  | { ok: false; error: string }
+> {
   await requireAuth();
 
-  const entityId = z.string().uuid().parse(formData.get("entityId"));
-  const taxYear = formData.get("taxYear") ? Number(formData.get("taxYear")) : null;
+  const parsed = finalizeSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  }
+  const { documentId, fileKey, entityId, fileType, taxYear, docType, notes } = parsed.data;
+
   if (taxYear !== null && (taxYear < 2000 || taxYear > 2100)) {
-    throw new Error("Invalid tax year");
-  }
-  const docType = z.enum(TAX_DOC_TYPES).parse(formData.get("docType"));
-  const notes = formData.get("notes")?.toString() || undefined;
-
-  const files = formData.getAll("file").filter((f): f is File => f instanceof Blob && f.size > 0);
-  if (files.length === 0) throw new Error("Select at least one file.");
-  if (files.length > MAX_BATCH_FILES) {
-    throw new Error(`Too many files — upload at most ${MAX_BATCH_FILES} at a time.`);
+    return { ok: false, error: "Invalid tax year" };
   }
 
-  const results: UploadBatchResult[] = [];
-
-  for (const file of files) {
-    const fileName = file instanceof File ? file.name : "file";
-    try {
-      if (file.size > MAX_SIZE) throw new Error("File exceeds 20MB limit");
-      const mimeType = file.type;
-      if (!ALLOWED_MIME.includes(mimeType as (typeof ALLOWED_MIME)[number])) {
-        throw new Error("Unsupported file type. Upload PDF, JPEG, PNG, or WebP.");
-      }
-
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const result = await uploadTaxDocumentCore({ buffer, mimeType, entityId, taxYear, docType, notes });
-      results.push({
-        fileName,
-        success: true,
-        documentId: result.documentId,
-        documentName: result.documentName,
-        extraction: result.extraction,
-      });
-    } catch (err) {
-      results.push({
-        fileName,
-        success: false,
-        error: err instanceof Error ? err.message : "Upload failed",
-      });
-    }
+  // Defense-in-depth: reject if the client-supplied fileKey doesn't match
+  // what the server would have generated for this documentId/entityId/type.
+  const expectedFileKey = buildTaxDocumentFileKey(entityId, documentId, fileType);
+  if (expectedFileKey !== fileKey) {
+    return { ok: false, error: "Upload reference mismatch" };
   }
+
+  // downloadTaxFile does double duty here: it's both the source bytes for
+  // inline extraction AND the authoritative proof the client's direct PUT
+  // actually landed in storage before we write any DB rows.
+  let buffer: Buffer;
+  try {
+    buffer = await downloadTaxFile(fileKey);
+  } catch {
+    return {
+      ok: false,
+      error: "Upload did not complete — file not found in storage. Please try again.",
+    };
+  }
+
+  // Authoritative size check — the client-reported fileSize at slot-request
+  // time is trust-but-verify only; this inspects the real uploaded bytes.
+  if (buffer.length > MAX_SIZE_BYTES) {
+    return { ok: false, error: "File exceeds 20MB limit" };
+  }
+
+  const result = await uploadTaxDocumentCore({
+    documentId,
+    fileKey,
+    buffer,
+    mimeType: fileType,
+    entityId,
+    taxYear,
+    docType,
+    notes,
+  });
 
   revalidatePath("/documents");
   revalidatePath("/tax");
-  return results;
+  return { ok: true, ...result };
 }
 
 // ── Edit document name / type ────────────────────────────────────────────────

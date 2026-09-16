@@ -4,7 +4,8 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { uploadDocument } from "@/actions/documents";
+import { requestDocumentUploadSlot, finalizeDocumentUpload } from "@/actions/documents";
+import { validateDocumentFile } from "@/lib/document-upload";
 
 const DOC_TYPES = [
   { value: "bank_statement", label: "Bank Statement (AI extraction)" },
@@ -45,18 +46,41 @@ export function DocumentUploadForm({ entities }: Props) {
   function handleUpload() {
     const file = fileRef.current?.files?.[0];
     if (!file) { setError("Select a file"); return; }
-    setError(null);
 
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("entityId", entityId);
-    fd.append("docType", docType);
-    if (taxYear) fd.append("taxYear", taxYear);
-    if (notes.trim()) fd.append("notes", notes.trim());
+    const precheck = validateDocumentFile(file.type, file.size);
+    if (!precheck.ok) { setError(precheck.error); return; }
+
+    setError(null);
 
     startTransition(async () => {
       try {
-        await uploadDocument(fd);
+        const slot = await requestDocumentUploadSlot({
+          entityId,
+          fileType: file.type,
+          fileSize: file.size,
+        });
+        if (!slot.ok) throw new Error(slot.error);
+
+        const putRes = await fetch(slot.uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        if (!putRes.ok) {
+          throw new Error(`Upload to storage failed (status ${putRes.status})`);
+        }
+
+        const finalized = await finalizeDocumentUpload({
+          documentId: slot.documentId,
+          fileKey: slot.fileKey,
+          entityId,
+          fileType: file.type,
+          docType: docType as (typeof DOC_TYPES)[number]["value"],
+          taxYear: taxYear ? Number(taxYear) : undefined,
+          notes: notes.trim() || undefined,
+        });
+        if (!finalized.ok) throw new Error(finalized.error);
+
         router.refresh();
         if (fileRef.current) fileRef.current.value = "";
         setNotes("");

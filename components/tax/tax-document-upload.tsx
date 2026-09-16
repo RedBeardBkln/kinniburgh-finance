@@ -4,8 +4,14 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { documentTypeLabel } from "@/lib/doc-naming";
-import { summarizeUploadBatch } from "@/lib/tax-doc-batch";
-import { uploadTaxDocuments, updateTaxDocument } from "@/actions/tax-planning";
+import { MAX_BATCH_FILES, summarizeUploadBatch, type UploadBatchResult } from "@/lib/tax-doc-batch";
+import { validateTaxDocumentFile } from "@/lib/tax-document-upload";
+import {
+  requestTaxDocumentUploadSlot,
+  finalizeTaxDocumentUpload,
+  updateTaxDocument,
+} from "@/actions/tax-planning";
+import { runWithConcurrencyLimit } from "@/lib/concurrency";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,6 +41,78 @@ const DOC_TYPE_OPTIONS = [
   { value: "bank_statement", label: "Bank/investment statement" },
   { value: "other", label: "Other document" },
 ];
+
+// Batch uploads run with a bounded concurrency limit rather than fully
+// serial (slow for many files) or fully unbounded parallel (risks tripping
+// Supabase/Vercel per-connection throttling) — matches the bank-statement
+// upload precedent's concurrency value.
+const BATCH_CONCURRENCY_LIMIT = 4;
+
+type TaxDocType =
+  | "w2" | "1099" | "k1" | "extension" | "property_tax"
+  | "mortgage_interest" | "tax_return" | "bank_statement" | "other";
+
+/**
+ * Runs the 3-step direct-to-storage upload flow for a single tax document:
+ * request a signed upload slot → PUT the bytes straight to Supabase Storage
+ * → finalize (creates the Document row, runs extraction inline for
+ * extractable docTypes — in both single-file and batch mode). Returns a
+ * UploadBatchResult-shaped object so summarizeUploadBatch keeps working
+ * unmodified.
+ */
+async function uploadFile(
+  file: File,
+  entityId: string,
+  taxYear: number,
+  docType: TaxDocType,
+  notes: string | undefined
+): Promise<UploadBatchResult> {
+  const fileName = file.name || "file";
+
+  const precheck = validateTaxDocumentFile(file.type, file.size);
+  if (!precheck.ok) {
+    return { fileName, success: false, error: precheck.error };
+  }
+
+  try {
+    const slot = await requestTaxDocumentUploadSlot({
+      entityId,
+      fileType: file.type,
+      fileSize: file.size,
+    });
+    if (!slot.ok) throw new Error(slot.error);
+
+    const putRes = await fetch(slot.uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    if (!putRes.ok) {
+      throw new Error(`Upload to storage failed (status ${putRes.status})`);
+    }
+
+    const finalized = await finalizeTaxDocumentUpload({
+      documentId: slot.documentId,
+      fileKey: slot.fileKey,
+      entityId,
+      fileType: file.type,
+      taxYear,
+      docType,
+      notes,
+    });
+    if (!finalized.ok) throw new Error(finalized.error);
+
+    return {
+      fileName,
+      success: true,
+      documentId: finalized.documentId,
+      documentName: finalized.documentName,
+      extraction: finalized.extraction,
+    };
+  } catch (e) {
+    return { fileName, success: false, error: e instanceof Error ? e.message : "Upload failed" };
+  }
+}
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -67,20 +145,33 @@ export function TaxDocumentUpload({ entityId, taxYear, documents }: Props) {
       setUploadError("Select at least one file.");
       return;
     }
+    // Client-side only — no server-side "whole batch" entry point remains to
+    // enforce this in the new per-file request-slot/finalize design (mirrors
+    // the already-shipped bank-statement precedent, whose own batch cap is
+    // also client-only). Imported from lib/tax-doc-batch.ts, never re-hardcoded.
+    if (files.length > MAX_BATCH_FILES) {
+      setUploadError(`Too many files — upload at most ${MAX_BATCH_FILES} at a time.`);
+      return;
+    }
+
+    const docType = formData.get("docType") as TaxDocType;
+    const notes = formData.get("notes")?.toString().trim() || undefined;
 
     setUploading(true);
     try {
-      const results = await uploadTaxDocuments(formData);
+      const results = await runWithConcurrencyLimit(
+        files,
+        BATCH_CONCURRENCY_LIMIT,
+        (file) => uploadFile(file, entityId, taxYear, docType, notes)
+      );
       setUploadMsg(summarizeUploadBatch(results));
       formEl.reset();
       startTransition(() => router.refresh());
     } catch {
-      // Server action errors are sanitized boilerplate in production (Next.js
-      // strips the real message) — never show err.message to the user here.
       // Per-file failures (bad type, too large, extraction error) are already
       // surfaced individually via the returned batch results, not this catch —
-      // this only fires for a genuinely unexpected failure (e.g. too many
-      // files selected at once, or an auth/network problem).
+      // this only fires for a genuinely unexpected failure (e.g. an
+      // auth/network problem affecting the whole batch).
       setUploadError("Upload failed — check your files and try again.");
     } finally {
       setUploading(false);
