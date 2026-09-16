@@ -78,20 +78,24 @@ function EntryCard({ entry, onEdit, onDelete, deleting }: EntryCardProps) {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => setRevealed(!revealed)}
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            {revealed ? "Hide" : "View"}
-          </button>
-          <button
-            type="button"
-            onClick={onEdit}
-            className="text-xs text-muted-foreground hover:text-primary"
-          >
-            Edit
-          </button>
+          {!entry.undecryptable && (
+            <button
+              type="button"
+              onClick={() => setRevealed(!revealed)}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              {revealed ? "Hide" : "View"}
+            </button>
+          )}
+          {!entry.undecryptable && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="text-xs text-muted-foreground hover:text-primary"
+            >
+              Edit
+            </button>
+          )}
           <button
             type="button"
             onClick={onDelete}
@@ -103,21 +107,28 @@ function EntryCard({ entry, onEdit, onDelete, deleting }: EntryCardProps) {
         </div>
       </div>
 
-      <dl className="grid gap-1.5">
-        {entry.fields.map((f, i) => (
-          <div key={i} className="grid grid-cols-[120px_1fr] gap-2 text-sm">
-            <dt className="text-muted-foreground truncate">{f.key}</dt>
-            <dd className="font-mono truncate">
-              {revealed ? f.value || "—" : "••••••••"}
-            </dd>
-          </div>
-        ))}
-        {entry.notes && revealed && (
-          <div className="pt-1 border-t text-xs text-muted-foreground">
-            {entry.notes}
-          </div>
-        )}
-      </dl>
+      {entry.undecryptable ? (
+        <p className="text-xs text-destructive">
+          Could not decrypt this entry&apos;s data — it may have been saved with a
+          different encryption key. Delete it and re-enter the details.
+        </p>
+      ) : (
+        <dl className="grid gap-1.5">
+          {entry.fields.map((f, i) => (
+            <div key={i} className="grid grid-cols-[120px_1fr] gap-2 text-sm">
+              <dt className="text-muted-foreground truncate">{f.key}</dt>
+              <dd className="font-mono truncate">
+                {revealed ? f.value || "—" : "••••••••"}
+              </dd>
+            </div>
+          ))}
+          {entry.notes && revealed && (
+            <div className="pt-1 border-t text-xs text-muted-foreground">
+              {entry.notes}
+            </div>
+          )}
+        </dl>
+      )}
     </div>
   );
 }

@@ -27,6 +27,13 @@ export interface VaultEntryDecrypted {
   fields: VaultField[];
   notes: string | null;
   sortOrder: number;
+  // Set when this entry's stored data could not be decrypted (e.g. it was
+  // encrypted under a different ENCRYPTION_KEY than the one currently
+  // configured — this has happened before with other encrypted fields in
+  // this app). The row is still shown, with an empty field list, so one
+  // bad entry can never crash the whole Vault page for every entry — the
+  // owner can delete and re-enter it once they notice.
+  undecryptable?: boolean;
 }
 
 export async function listVaultEntries(): Promise<VaultEntryDecrypted[]> {
@@ -37,16 +44,29 @@ export async function listVaultEntries(): Promise<VaultEntryDecrypted[]> {
   });
 
   return entries.map((e) => {
-    const data = JSON.parse(decrypt(e.dataEncrypted)) as { fields: VaultField[] };
-    return {
-      id: e.id,
-      name: e.name,
-      category: e.category,
-      institution: e.institution,
-      fields: data.fields,
-      notes: e.notes,
-      sortOrder: e.sortOrder,
-    };
+    try {
+      const data = JSON.parse(decrypt(e.dataEncrypted)) as { fields: VaultField[] };
+      return {
+        id: e.id,
+        name: e.name,
+        category: e.category,
+        institution: e.institution,
+        fields: data.fields,
+        notes: e.notes,
+        sortOrder: e.sortOrder,
+      };
+    } catch {
+      return {
+        id: e.id,
+        name: e.name,
+        category: e.category,
+        institution: e.institution,
+        fields: [],
+        notes: e.notes,
+        sortOrder: e.sortOrder,
+        undecryptable: true,
+      };
+    }
   });
 }
 
