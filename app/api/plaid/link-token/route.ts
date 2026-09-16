@@ -48,13 +48,16 @@ export async function GET(req: Request) {
   if (itemId) {
     const plaidItem = await db.plaidItem.findUnique({
       where: { itemId },
-      select: {
-        accessTokenEncrypted: true,
-        accounts: { select: { id: true }, take: 1 },
-      },
+      select: { accessTokenEncrypted: true },
     });
-    // Reject itemIds that don't exist or have no mapped accounts
-    if (!plaidItem || plaidItem.accounts.length === 0) {
+    // Reject itemIds that don't exist. Deliberately NOT requiring at least
+    // one mapped Account here (unlike app/api/plaid/sync/[itemId]/route.ts) —
+    // a zero-account item (e.g. the "Accounts pending mapping" resume flow's
+    // re-auth fallback) must still be able to open an update-mode Link
+    // session. The route is already fully auth()-gated and itemId must
+    // correspond to a real PlaidItem row either way, so this doesn't newly
+    // expose anything.
+    if (!plaidItem) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     accessToken = decrypt(plaidItem.accessTokenEncrypted);

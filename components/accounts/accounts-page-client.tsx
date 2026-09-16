@@ -5,16 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createAccount, updateAccount, archiveAccount } from "@/actions/accounts";
+import { ACCOUNT_TYPE_OPTIONS } from "@/lib/account-types";
 
-const ACCOUNT_TYPES = [
-  { value: "checking", label: "Checking" },
-  { value: "savings", label: "Savings" },
-  { value: "credit_card", label: "Credit Card" },
-  { value: "mortgage", label: "Mortgage" },
-  { value: "loan", label: "Loan" },
-  { value: "investment", label: "Investment" },
-  { value: "insurance", label: "Insurance" },
-] as const;
+const NEW_INSTITUTION_SENTINEL = "__new__";
 
 export interface SerializedAccount {
   id: string;
@@ -51,10 +44,18 @@ export interface SerializedEntity {
   name: string;
 }
 
+export interface SerializedPendingPlaidItem {
+  itemId: string;
+  institutionName: string | null;
+  status: string;
+  createdAt: string;
+}
+
 interface Props {
   accounts: SerializedAccount[];
   institutions: SerializedInstitution[];
   entities: SerializedEntity[];
+  pendingPlaidItems: SerializedPendingPlaidItem[];
 }
 
 type ModalState =
@@ -117,6 +118,7 @@ function AccountModal({ modal, institutions, entities, onClose }: {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [addingNewInstitution, setAddingNewInstitution] = useState(false);
 
   const isEdit = modal.mode === "edit";
   const a = isEdit ? modal.account : null;
@@ -137,8 +139,10 @@ function AccountModal({ modal, institutions, entities, onClose }: {
             minimumBalanceFee: (fd.get("minimumBalanceFee") as string) || null,
           });
         } else {
+          const institutionId = fd.get("institutionId") as string;
           await createAccount({
-            institutionId: fd.get("institutionId") as string,
+            institutionId: addingNewInstitution ? undefined : institutionId,
+            newInstitutionName: addingNewInstitution ? ((fd.get("newInstitutionName") as string) || undefined) : undefined,
             entityId: fd.get("entityId") as string,
             nickname: fd.get("nickname") as string,
             mask: (fd.get("mask") as string) || undefined,
@@ -177,10 +181,39 @@ function AccountModal({ modal, institutions, entities, onClose }: {
           {!isEdit && (
             <div className="space-y-1">
               <label className="text-sm font-medium">Institution</label>
-              <select name="institutionId" className="w-full rounded border px-3 py-2 text-sm" required>
-                <option value="">Select institution…</option>
-                {institutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
-              </select>
+              {addingNewInstitution ? (
+                <>
+                  <input
+                    name="newInstitutionName"
+                    type="text"
+                    maxLength={200}
+                    placeholder="e.g. CorePlus Credit Union"
+                    className="w-full rounded border px-3 py-2 text-sm"
+                    autoFocus
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAddingNewInstitution(false)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    ‹ choose existing instead
+                  </button>
+                </>
+              ) : (
+                <select
+                  name="institutionId"
+                  className="w-full rounded border px-3 py-2 text-sm"
+                  required
+                  onChange={(e) => {
+                    if (e.target.value === NEW_INSTITUTION_SENTINEL) setAddingNewInstitution(true);
+                  }}
+                >
+                  <option value="">Select institution…</option>
+                  {institutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  <option value={NEW_INSTITUTION_SENTINEL}>+ Add new institution…</option>
+                </select>
+              )}
             </div>
           )}
 
@@ -189,7 +222,7 @@ function AccountModal({ modal, institutions, entities, onClose }: {
             <label className="text-sm font-medium">Account Type</label>
             <select name="accountType" className="w-full rounded border px-3 py-2 text-sm" required defaultValue={a?.accountType ?? ""}>
               {!isEdit && <option value="">Select type…</option>}
-              {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {ACCOUNT_TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
 
@@ -239,7 +272,7 @@ function AccountModal({ modal, institutions, entities, onClose }: {
   );
 }
 
-export function AccountsPageClient({ accounts, institutions, entities }: Props) {
+export function AccountsPageClient({ accounts, institutions, entities, pendingPlaidItems }: Props) {
   const router = useRouter();
   const [modal, setModal] = useState<ModalState>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
@@ -310,6 +343,32 @@ export function AccountsPageClient({ accounts, institutions, entities }: Props) 
             </Link>
           </div>
         </div>
+
+        {/* Accounts pending mapping — a PlaidItem that connected successfully
+            but has zero linked Account rows yet (e.g. no seeded account to
+            auto-match to). "Finish setup" resumes the mapping step directly,
+            skipping Plaid Link since auth is already done. */}
+        {pendingPlaidItems.length > 0 && (
+          <div className="space-y-2">
+            {pendingPlaidItems.map((item) => (
+              <div
+                key={item.itemId}
+                className="flex items-center justify-between rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm"
+              >
+                <span className="text-amber-800">
+                  <span className="font-medium">{item.institutionName ?? "Unnamed bank"}</span> — connected but not finished
+                  {item.status === "requires_login" && " (needs re-authentication)"}.
+                </span>
+                <Link
+                  href={`/accounts/connect?resumeItemId=${item.itemId}`}
+                  className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+                >
+                  Finish setup
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Sync result feedback */}
         {syncResult && (

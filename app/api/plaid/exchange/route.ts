@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getPlaidClient } from "@/lib/plaid";
 import { encrypt } from "@/lib/encrypt";
+import { getPlaidAccountSuggestions } from "@/lib/plaid-mapping";
 import { NextResponse } from "next/server";
 import { CountryCode } from "plaid";
 
@@ -50,30 +51,9 @@ export async function POST(req: Request) {
     },
   });
 
-  // Fetch Plaid accounts for this item
-  const accountsRes = await getPlaidClient().accountsGet({ access_token });
-  const plaidAccounts = accountsRes.data.accounts;
-
-  // Auto-match to seeded accounts by mask (last 4 digits); exclude archived accounts
-  const seededAccounts = await db.account.findMany({
-    where: { archivedAt: null },
-    select: { id: true, nickname: true, mask: true },
-  });
-
-  const suggestions = plaidAccounts.map((pa) => {
-    const mask = pa.mask ?? null;
-    const match = mask
-      ? seededAccounts.find((sa) => sa.mask === mask)
-      : undefined;
-    return {
-      plaidAccountId: pa.account_id,
-      mask,
-      name: pa.name,
-      subtype: pa.subtype,
-      ourAccountId: match?.id ?? null,
-      ourAccountNickname: match?.nickname ?? null,
-    };
-  });
+  // Fetch Plaid accounts for this item, auto-matched to seeded accounts by
+  // mask (last 4 digits); excludes archived accounts.
+  const suggestions = await getPlaidAccountSuggestions(access_token);
 
   return NextResponse.json({ itemId: item_id, suggestions });
 }

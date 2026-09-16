@@ -2,6 +2,8 @@
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { resolveOrCreateInstitution } from "@/lib/institutions";
+import { ACCOUNT_TYPE_VALUES } from "@/lib/account-types";
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -12,25 +14,33 @@ async function requireAuth() {
   return session.user;
 }
 
-const ACCOUNT_TYPES = ["checking", "savings", "credit_card", "mortgage", "loan", "investment", "insurance"] as const;
-
-const createAccountSchema = z.object({
-  institutionId: z.string().uuid(),
-  entityId: z.string().uuid(),
-  nickname: z.string().min(1).max(100),
-  mask: z.string().max(10).optional(),
-  accountType: z.enum(ACCOUNT_TYPES),
-  minimumBalance: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
-  minimumBalanceFee: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
-});
+const createAccountSchema = z
+  .object({
+    institutionId: z.string().uuid().optional(),
+    newInstitutionName: z.string().trim().min(1).max(200).optional(),
+    entityId: z.string().uuid(),
+    nickname: z.string().min(1).max(100),
+    mask: z.string().max(10).optional(),
+    accountType: z.enum(ACCOUNT_TYPE_VALUES),
+    minimumBalance: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+    minimumBalanceFee: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+  })
+  .refine((v) => !!v.institutionId !== !!v.newInstitutionName, {
+    message: "Provide exactly one of institutionId or newInstitutionName",
+    path: ["institutionId"],
+  });
 
 export async function createAccount(input: z.infer<typeof createAccountSchema>) {
   await requireAuth();
   const parsed = createAccountSchema.parse(input);
 
+  const institutionId = parsed.institutionId
+    ? parsed.institutionId
+    : (await resolveOrCreateInstitution(parsed.newInstitutionName!)).id;
+
   await db.account.create({
     data: {
-      institutionId: parsed.institutionId,
+      institutionId,
       entityId: parsed.entityId,
       nickname: parsed.nickname,
       mask: parsed.mask ?? null,
@@ -49,7 +59,7 @@ export async function createAccount(input: z.infer<typeof createAccountSchema>) 
 const updateAccountSchema = z.object({
   id: z.string().uuid(),
   nickname: z.string().min(1).max(100).optional(),
-  accountType: z.enum(ACCOUNT_TYPES).optional(),
+  accountType: z.enum(ACCOUNT_TYPE_VALUES).optional(),
   minimumBalance: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
   minimumBalanceFee: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
 });

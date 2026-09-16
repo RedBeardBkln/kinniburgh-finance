@@ -3,7 +3,13 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
 import { getEntityBySlug } from "@/lib/entity";
-import { AccountsPageClient, type SerializedAccount, type SerializedInstitution, type SerializedEntity } from "@/components/accounts/accounts-page-client";
+import {
+  AccountsPageClient,
+  type SerializedAccount,
+  type SerializedInstitution,
+  type SerializedEntity,
+  type SerializedPendingPlaidItem,
+} from "@/components/accounts/accounts-page-client";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -17,7 +23,7 @@ export default async function AccountsPage({ searchParams }: PageProps) {
   const bucket = params.bucket ?? "personal";
   const entity = await getEntityBySlug(bucket);
 
-  const [accounts, institutions, entities] = await Promise.all([
+  const [accounts, institutions, entities, pendingPlaidItems] = await Promise.all([
     db.account.findMany({
       where: { archivedAt: null, ...(entity && { entityId: entity.id }) },
       include: {
@@ -29,6 +35,10 @@ export default async function AccountsPage({ searchParams }: PageProps) {
     }),
     db.institution.findMany({ orderBy: { name: "asc" } }),
     db.entity.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" } }),
+    db.plaidItem.findMany({
+      where: { accounts: { none: { archivedAt: null } } },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
 
   const serializedAccounts: SerializedAccount[] = accounts.map((a) => ({
@@ -66,12 +76,20 @@ export default async function AccountsPage({ searchParams }: PageProps) {
     name: e.name,
   }));
 
+  const serializedPendingPlaidItems: SerializedPendingPlaidItem[] = pendingPlaidItems.map((p) => ({
+    itemId: p.itemId,
+    institutionName: p.institutionName,
+    status: p.status,
+    createdAt: p.createdAt.toISOString(),
+  }));
+
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <AccountsPageClient
         accounts={serializedAccounts}
         institutions={serializedInstitutions}
         entities={serializedEntities}
+        pendingPlaidItems={serializedPendingPlaidItems}
       />
     </AppShell>
   );
