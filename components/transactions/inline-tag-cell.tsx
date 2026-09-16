@@ -121,7 +121,7 @@ function RuleDialog({
             autoFocus
             value={payeePattern}
             onChange={(e) => setPayeePattern(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSave()}
+            onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
             placeholder="e.g. amazon"
             className="h-8 text-sm"
           />
