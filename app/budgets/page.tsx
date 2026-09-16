@@ -37,7 +37,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
   const entity = await getEntityBySlug(bucket);
   const bucketLabel = entity?.navLabel ?? entity?.name ?? "All Entities";
 
-  const [budgets, accounts, tags, recurringExpenses] = await Promise.all([
+  const [budgets, accounts, tags, recurringExpenses, budgetedTagIdsAllEntities] = await Promise.all([
     db.budget.findMany({
       where: { ...(entity && { entityId: entity.id }), period },
       include: { tag: true, account: { include: { institution: true } } },
@@ -52,6 +52,10 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
       where: entity ? { entityId: entity.id } : {},
       orderBy: { name: "asc" },
     }),
+    // A tag can only have one budget line per period across the whole
+    // household — once any entity has budgeted it, it's off the table for
+    // every other entity too. Scoped by period only (not entityId).
+    db.budget.findMany({ where: { period }, select: { tagId: true } }),
   ]);
 
   // Build monthly sum per tagId for recurring expenses
@@ -155,6 +159,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
           budgets={serializedBudgets}
           accounts={accounts.map((a) => ({ id: a.id, nickname: a.nickname, mask: a.mask }))}
           tags={tags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName, parentId: t.parentId }))}
+          budgetedTagIdsAllEntities={budgetedTagIdsAllEntities.map((b) => b.tagId)}
           entityId={entity?.id ?? ""}
           period={period}
           totalBudgeted={totalBudgeted}

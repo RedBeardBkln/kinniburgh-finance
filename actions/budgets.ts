@@ -102,6 +102,23 @@ export async function createBudget(
 
   const { tagId, entityId, accountId, period, budgeted, payDay } = parsed.data;
 
+  // A tag can only be budgeted by one entity per period, household-wide —
+  // the UI's Add Budget Line dropdown already hides tags used by ANY entity
+  // this period, but that's just a filtered list; enforce it here too so a
+  // stale dropdown or a direct call can't create a cross-entity duplicate.
+  const existingElsewhere = await db.budget.findFirst({
+    where: { tagId, period },
+    include: { entity: true },
+  });
+  if (existingElsewhere) {
+    return {
+      error:
+        existingElsewhere.entityId === entityId
+          ? "This tag already has a budget line this period."
+          : `This tag already has a budget line under ${existingElsewhere.entity.name} this period.`,
+    };
+  }
+
   await db.budget.create({
     data: {
       tagId,

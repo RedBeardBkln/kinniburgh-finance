@@ -54,6 +54,11 @@ interface BudgetPageClientProps {
   budgets: SerializedBudgetLine[];
   accounts: SerializedAccount[];
   tags: SerializedTag[];
+  /** Every tagId with a budget line this period, across ALL entities — a tag
+   * can only be budgeted by one entity per period household-wide, so this
+   * (not just this entity's own `budgets`) drives the Add Budget Line
+   * dropdown's exclusion list. */
+  budgetedTagIdsAllEntities: string[];
   entityId: string;
   period: string;
   totalBudgeted: number;
@@ -76,6 +81,7 @@ export function BudgetPageClient({
   budgets,
   accounts,
   tags,
+  budgetedTagIdsAllEntities,
   entityId,
   period,
   totalBudgeted,
@@ -97,13 +103,13 @@ export function BudgetPageClient({
   const [savingAdditional, setSavingAdditional] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  // A budget line can only be assigned to one tag per entity/period (matches
-  // the DB's @@unique([tagId, entityId, period])) — tags already budgeted
-  // this period shouldn't be offered again. Same-named tags under different
-  // parents (e.g. "Personal / Electric" vs "Sudden Valley / Electric") are
-  // already distinct rows with distinct ids/full names, so filtering by tagId
-  // here never conflates them.
-  const usedTagIds = new Set(budgets.map((b) => b.tagId));
+  // A tag can only be budgeted by one entity per period, household-wide —
+  // once any entity has a budget line for a tag this period, it's off the
+  // table for every other entity too (owner-confirmed 2026-09-16). Same-named
+  // tags under different parents (e.g. "Personal / Electric" vs "Sudden
+  // Valley / Electric") are already distinct rows with distinct ids/full
+  // names, so filtering by tagId here never conflates them.
+  const usedTagIds = new Set(budgetedTagIdsAllEntities);
   const availableTags = tags.filter((t) => !usedTagIds.has(t.id));
 
   function toggleExpand(id: string) {
