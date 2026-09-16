@@ -51,6 +51,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
 
   const baseWhere: Prisma.TransactionWhereInput = {
     archivedAt: null,
+    transferPairId: null,
     ...(entity && { entityId: entity.id }),
     ...(params.accountId && { accountId: params.accountId }),
     ...(params.tagId && { tags: { some: { tagId: params.tagId } } }),

@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { syncPlaidTransactions, type SyncResult } from "@/lib/plaid-sync";
+import { runTransferMatchingEngine } from "@/lib/transfer-match-runner";
 import { revalidatePath } from "next/cache";
 
 async function requireAuth() {
@@ -61,6 +62,14 @@ export async function syncEntityPlaidAccounts(
   const added = fulfilled.reduce((sum, r) => sum + r.value.added, 0);
   const modified = fulfilled.reduce((sum, r) => sum + r.value.modified, 0);
 
+  // Best-effort: a matching failure shouldn't fail the user-visible sync.
+  try {
+    await runTransferMatchingEngine("manual");
+  } catch (err) {
+    console.error("[syncEntityPlaidAccounts] transfer-match failed:", err);
+  }
+
   revalidatePath("/transactions");
+  revalidatePath("/envelope");
   return { synced, failed, added, modified, needsReauth };
 }

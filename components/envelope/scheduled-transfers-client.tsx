@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,8 @@ import {
   updateScheduledTransfer,
   deleteScheduledTransfer,
 } from "@/actions/envelope";
+import { runTransferMatchingNow } from "@/actions/transfer-match";
+import { TransferHistoryPanel } from "@/components/envelope/transfer-history-panel";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -246,7 +248,10 @@ export function ScheduledTransfersClient({ transfers, accounts }: Props) {
   const router = useRouter();
   const [modal, setModal] = useState<ModalState>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+  const [historyOpenId, setHistoryOpenId] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [detectMessage, setDetectMessage] = useState<string | null>(null);
+  const [detectError, setDetectError] = useState<string | null>(null);
 
   function onDelete(id: string) {
     if (!confirm("Delete this scheduled transfer? This cannot be undone.")) return;
@@ -265,20 +270,61 @@ export function ScheduledTransfersClient({ transfers, accounts }: Props) {
     });
   }
 
+  function onDetectTransfers() {
+    setDetectMessage(null);
+    setDetectError(null);
+    startTransition(async () => {
+      try {
+        const result = await runTransferMatchingNow();
+        setDetectMessage(
+          `Linked ${result.matchedPairs} transfer pair${result.matchedPairs !== 1 ? "s" : ""} ` +
+            `(${result.tiedToSchedule} tied to a schedule) · ${result.leftUnmatched} left unmatched` +
+            (result.retroactivelyLinked > 0
+              ? ` · ${result.retroactivelyLinked} pre-existing pair(s) newly tied to a schedule`
+              : "")
+        );
+        router.refresh();
+      } catch (err) {
+        setDetectError(err instanceof Error ? err.message : "Detection failed");
+      }
+    });
+  }
+
   return (
     <>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             <span>Scheduled Transfers</span>
-            <button
-              onClick={() => setModal({ mode: "add" })}
-              className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              + Add Transfer
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onDetectTransfers}
+                disabled={isPending}
+                className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+              >
+                {isPending ? "Detecting…" : "Detect Transfers Now"}
+              </button>
+              <button
+                onClick={() => setModal({ mode: "add" })}
+                className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                + Add Transfer
+              </button>
+            </div>
           </CardTitle>
         </CardHeader>
+        {(detectMessage || detectError) && (
+          <div className="px-6 pb-2">
+            {detectMessage && (
+              <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950 dark:text-green-300">
+                {detectMessage}
+              </p>
+            )}
+            {detectError && (
+              <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{detectError}</p>
+            )}
+          </div>
+        )}
         <CardContent className="p-0">
           <table className="w-full text-sm">
             <thead>
@@ -301,37 +347,56 @@ export function ScheduledTransfersClient({ transfers, accounts }: Props) {
                 </tr>
               )}
               {transfers.map((t) => (
-                <tr key={t.id} className={`border-b last:border-0 hover:bg-muted/30 ${!t.active ? "opacity-50" : ""} ${deletingId === t.id ? "opacity-30" : ""}`}>
-                  <td className="px-4 py-2">
-                    <span className="font-medium">{t.fromNickname}</span>
-                    {t.fromMask && <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.fromMask}</span>}
-                  </td>
-                  <td className="px-4 py-2">
-                    <span className="font-medium">{t.toNickname}</span>
-                    {t.toMask && <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.toMask}</span>}
-                  </td>
-                  <td className="px-4 py-2 font-medium tabular-nums">
-                    ${parseFloat(t.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="px-4 py-2 text-muted-foreground">
-                    {cadenceLabel(t.cadence, t.dayRules)}
-                  </td>
-                  <td className="px-4 py-2 text-xs text-muted-foreground">{t.purpose ?? "—"}</td>
-                  <td className="px-4 py-2">
-                    <Badge variant={t.active ? "default" : "outline"}>
-                      {t.active ? "Active" : "Paused"}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-2">
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => setModal({ mode: "edit", transfer: t })} className="text-xs text-primary hover:underline">Edit</button>
-                      <button onClick={() => onTogglePause(t)} className="text-xs text-muted-foreground hover:text-foreground">
-                        {t.active ? "Pause" : "Resume"}
-                      </button>
-                      <button onClick={() => onDelete(t.id)} disabled={deletingId === t.id} className="text-xs text-destructive hover:underline disabled:opacity-50">Delete</button>
-                    </div>
-                  </td>
-                </tr>
+                <Fragment key={t.id}>
+                  <tr className={`border-b last:border-0 hover:bg-muted/30 ${!t.active ? "opacity-50" : ""} ${deletingId === t.id ? "opacity-30" : ""}`}>
+                    <td className="px-4 py-2">
+                      <span className="font-medium">{t.fromNickname}</span>
+                      {t.fromMask && <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.fromMask}</span>}
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className="font-medium">{t.toNickname}</span>
+                      {t.toMask && <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.toMask}</span>}
+                    </td>
+                    <td className="px-4 py-2 font-medium tabular-nums">
+                      ${parseFloat(t.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-4 py-2 text-muted-foreground">
+                      {cadenceLabel(t.cadence, t.dayRules)}
+                    </td>
+                    <td className="px-4 py-2 text-xs text-muted-foreground">{t.purpose ?? "—"}</td>
+                    <td className="px-4 py-2">
+                      <Badge variant={t.active ? "default" : "outline"}>
+                        {t.active ? "Active" : "Paused"}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => setModal({ mode: "edit", transfer: t })} className="text-xs text-primary hover:underline">Edit</button>
+                        <button onClick={() => onTogglePause(t)} className="text-xs text-muted-foreground hover:text-foreground">
+                          {t.active ? "Pause" : "Resume"}
+                        </button>
+                        <button
+                          onClick={() => setHistoryOpenId(historyOpenId === t.id ? null : t.id)}
+                          className="text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          {historyOpenId === t.id ? "Hide History" : "History"}
+                        </button>
+                        <button onClick={() => onDelete(t.id)} disabled={deletingId === t.id} className="text-xs text-destructive hover:underline disabled:opacity-50">Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                  {historyOpenId === t.id && (
+                    <tr className="border-b last:border-0">
+                      <td colSpan={7} className="bg-muted/10 px-4 py-3">
+                        <TransferHistoryPanel
+                          scheduledTransferId={t.id}
+                          fromNickname={t.fromNickname}
+                          toNickname={t.toNickname}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

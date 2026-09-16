@@ -22,6 +22,57 @@ async function requireAuth() {
   return session.user;
 }
 
+// ── Scheduled transfer linked-transaction history ────────────────────────────
+
+export interface ScheduledTransferHistoryRow {
+  pairId: string;
+  postedAtIso: string;
+  amount: string; // absolute value, decimal string
+  fromNickname: string;
+  fromMask: string | null;
+  toNickname: string;
+  toMask: string | null;
+}
+
+export async function getScheduledTransferHistory(
+  scheduledTransferId: string
+): Promise<ScheduledTransferHistoryRow[]> {
+  await requireAuth();
+
+  const legs = await db.transaction.findMany({
+    where: { scheduledTransferId, archivedAt: null },
+    include: { account: { select: { nickname: true, mask: true } } },
+    orderBy: { postedAt: "desc" },
+  });
+
+  const byPairId = new Map<string, typeof legs>();
+  for (const leg of legs) {
+    if (!leg.transferPairId) continue;
+    if (!byPairId.has(leg.transferPairId)) byPairId.set(leg.transferPairId, []);
+    byPairId.get(leg.transferPairId)!.push(leg);
+  }
+
+  const rows: ScheduledTransferHistoryRow[] = [];
+  for (const [pairId, pairLegs] of byPairId) {
+    const outgoing = pairLegs.find((l) => new Prisma.Decimal(l.amount).isNegative());
+    const incoming = pairLegs.find((l) => !new Prisma.Decimal(l.amount).isNegative());
+    if (!outgoing || !incoming) continue;
+
+    rows.push({
+      pairId,
+      postedAtIso: outgoing.postedAt.toISOString(),
+      amount: new Prisma.Decimal(incoming.amount).abs().toString(),
+      fromNickname: outgoing.account.nickname,
+      fromMask: outgoing.account.mask,
+      toNickname: incoming.account.nickname,
+      toMask: incoming.account.mask,
+    });
+  }
+
+  rows.sort((a, b) => (a.postedAtIso < b.postedAtIso ? 1 : a.postedAtIso > b.postedAtIso ? -1 : 0));
+  return rows;
+}
+
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
 function buildAccountWhere(entityId: string | null, entityName: string | null): Prisma.AccountWhereInput {

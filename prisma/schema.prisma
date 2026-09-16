@@ -168,6 +168,7 @@ model Transaction {
   plaidTransactionId String?   @unique
   pending            Boolean   @default(false)
   transferPairId     String?   // links the two legs of an internal transfer
+  scheduledTransferId String?  // which ScheduledTransfer this transfer pair fulfills, if any
   receiptId          String?
   glCodeId           String?
   projectId          String?   // optional assignment to a Project
@@ -175,13 +176,14 @@ model Transaction {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  account     Account          @relation(fields: [accountId], references: [id])
-  entity      Entity           @relation(fields: [entityId], references: [id])
-  tags        TransactionTag[]
-  receipt     Receipt?         @relation(fields: [receiptId], references: [id])
-  glCode      GlCode?          @relation(fields: [glCodeId], references: [id])
-  project     Project?         @relation(fields: [projectId], references: [id])
-  auditLogs   AuditLog[]
+  account           Account            @relation(fields: [accountId], references: [id])
+  entity            Entity             @relation(fields: [entityId], references: [id])
+  tags              TransactionTag[]
+  receipt           Receipt?           @relation(fields: [receiptId], references: [id])
+  glCode            GlCode?            @relation(fields: [glCodeId], references: [id])
+  project           Project?           @relation(fields: [projectId], references: [id])
+  scheduledTransfer ScheduledTransfer? @relation(fields: [scheduledTransferId], references: [id])
+  auditLogs         AuditLog[]
 }
 
 // ─── Tags ─────────────────────────────────────────────────────────────────────
@@ -253,8 +255,9 @@ model ScheduledTransfer {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  fromAccount Account @relation("FromAccount", fields: [fromAccountId], references: [id])
-  toAccount   Account @relation("ToAccount", fields: [toAccountId], references: [id])
+  fromAccount  Account       @relation("FromAccount", fields: [fromAccountId], references: [id])
+  toAccount    Account       @relation("ToAccount", fields: [toAccountId], references: [id])
+  transactions Transaction[]
 }
 
 model ScheduledBill {
