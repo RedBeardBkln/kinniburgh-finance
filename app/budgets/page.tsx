@@ -154,7 +154,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
         <BudgetPageClient
           budgets={serializedBudgets}
           accounts={accounts.map((a) => ({ id: a.id, nickname: a.nickname, mask: a.mask }))}
-          tags={tags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName }))}
+          tags={tags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName, parentId: t.parentId }))}
           entityId={entity?.id ?? ""}
           period={period}
           totalBudgeted={totalBudgeted}

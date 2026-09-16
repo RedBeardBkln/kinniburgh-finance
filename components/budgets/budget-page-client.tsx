@@ -8,6 +8,7 @@ import { FREQUENCY_LABELS } from "@/lib/recurring-expenses";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BudgetLineEditor } from "./budget-line-editor";
 import { formatUSD } from "@/lib/utils";
+import { nestBudgetLines, type NestedBudgetRow } from "@/lib/budget-nesting";
 
 type RecurringExpenseSummary = {
   id: string;
@@ -46,6 +47,7 @@ export interface SerializedTag {
   id: string;
   name: string;
   shortName: string;
+  parentId: string | null;
 }
 
 interface BudgetPageClientProps {
@@ -159,8 +161,21 @@ export function BudgetPageClient({
   const sortFn = sortBy === "alpha"
     ? (a: SerializedBudgetLine, b: SerializedBudgetLine) => a.tagName.localeCompare(b.tagName)
     : (a: SerializedBudgetLine, b: SerializedBudgetLine) => (a.payDay ?? 99) - (b.payDay ?? 99);
+
+  // A budget line whose tag's parent also has a budget line in the same
+  // account nests under that parent's row instead of listing as a sibling
+  // (e.g. HBO Max nests under Streaming when both are budgeted on the same
+  // account). Only tags that are actually a parent/child *pair with budget
+  // lines present* nest — an ancestor with no budget line of its own doesn't
+  // pull its descendants up under it.
+  const tagParentById = new Map(tags.map((t) => [t.id, t.parentId]));
+  const tagShortNameById = new Map(tags.map((t) => [t.id, t.shortName]));
+  const orderedByAccount = new Map<string, NestedBudgetRow<SerializedBudgetLine>[]>();
   for (const [key, lines] of byAccount) {
-    byAccount.set(key, [...lines].sort(sortFn));
+    orderedByAccount.set(
+      key,
+      nestBudgetLines(lines, (tagId) => tagParentById.get(tagId), sortFn)
+    );
   }
 
   return (
@@ -232,6 +247,7 @@ export function BudgetPageClient({
         {/* Per-account budget sections */}
         {[...byAccount.entries()].map(([accountName, lines]) => {
           const accountTotal = lines.reduce((s, b) => s + b.budgeted, 0);
+          const orderedLines = orderedByAccount.get(accountName) ?? lines.map((line) => ({ line, depth: 0 }));
           return (
             <Card key={accountName}>
               <CardHeader>
@@ -258,7 +274,7 @@ export function BudgetPageClient({
                     </tr>
                   </thead>
                   <tbody>
-                    {lines.map((b) => {
+                    {orderedLines.map(({ line: b, depth }) => {
                       const hasRecurring = b.recurringExpenses.length > 0;
                       const isExpanded = expandedIds.has(b.id);
                       const additionalDollars = b.additionalAmountCents / 100;
@@ -269,19 +285,24 @@ export function BudgetPageClient({
                             key={b.id}
                             className={`border-b ${hasRecurring && !isExpanded ? "" : "last:border-0"} hover:bg-muted/30 ${deletingId === b.id ? "opacity-50" : ""}`}
                           >
-                            <td className="px-4 py-2 font-medium">
+                            <td className="px-4 py-2 font-medium" style={depth > 0 ? { paddingLeft: `${16 + depth * 20}px` } : undefined}>
+                              {/* Nested rows show just the leaf tag name (parent's full path is
+                                  already shown one row up) prefixed with a connector glyph. */}
+                              {depth > 0 && <span className="mr-1 text-muted-foreground">└</span>}
                               {hasRecurring ? (
                                 <button
                                   onClick={() => toggleExpand(b.id)}
-                                  className="flex items-center gap-1 hover:text-primary"
+                                  className="inline-flex items-center gap-1 hover:text-primary"
                                 >
                                   <span>{isExpanded ? "▾" : "▸"}</span>
-                                  {b.tagName}
+                                  {depth > 0 ? (tagShortNameById.get(b.tagId) ?? b.tagName) : b.tagName}
                                   <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                                     {b.recurringExpenses.length}
                                   </span>
                                 </button>
-                              ) : b.tagName}
+                              ) : (
+                                depth > 0 ? (tagShortNameById.get(b.tagId) ?? b.tagName) : b.tagName
+                              )}
                             </td>
                             <td className="px-4 py-2 text-muted-foreground">
                               {b.payDay ? (
