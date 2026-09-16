@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createAccount, updateAccount, archiveAccount } from "@/actions/accounts";
+import { createAccount, updateAccount, archiveAccount, dismissPendingPlaidItem } from "@/actions/accounts";
 import { ACCOUNT_TYPE_OPTIONS } from "@/lib/account-types";
 
 const NEW_INSTITUTION_SENTINEL = "__new__";
@@ -277,6 +277,8 @@ export function AccountsPageClient({ accounts, institutions, entities, pendingPl
   const [modal, setModal] = useState<ModalState>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [syncingItemId, setSyncingItemId] = useState<string | null>(null);
+  const [dismissingItemId, setDismissingItemId] = useState<string | null>(null);
+  const [dismissError, setDismissError] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<{
     itemId: string;
     institutionName: string | null;
@@ -304,6 +306,22 @@ export function AccountsPageClient({ accounts, institutions, entities, pendingPl
     } finally {
       setSyncingItemId(null);
     }
+  }
+
+  function onDismissPending(itemId: string, institutionName: string | null) {
+    if (!confirm(`Dismiss "${institutionName ?? "this connection"}"? Use this only for a stale/duplicate connection you don't need — it won't delete anything, but the banner won't reappear unless it's re-linked.`)) return;
+    setDismissingItemId(itemId);
+    setDismissError(null);
+    startTransition(async () => {
+      try {
+        await dismissPendingPlaidItem(itemId);
+        router.refresh();
+      } catch (e) {
+        setDismissError(e instanceof Error ? e.message : "Failed to dismiss");
+      } finally {
+        setDismissingItemId(null);
+      }
+    });
   }
 
   function onArchive(id: string, nickname: string) {
@@ -350,6 +368,7 @@ export function AccountsPageClient({ accounts, institutions, entities, pendingPl
             skipping Plaid Link since auth is already done. */}
         {pendingPlaidItems.length > 0 && (
           <div className="space-y-2">
+            {dismissError && <p className="text-sm text-destructive">{dismissError}</p>}
             {pendingPlaidItems.map((item) => (
               <div
                 key={item.itemId}
@@ -359,12 +378,22 @@ export function AccountsPageClient({ accounts, institutions, entities, pendingPl
                   <span className="font-medium">{item.institutionName ?? "Unnamed bank"}</span> — connected but not finished
                   {item.status === "requires_login" && " (needs re-authentication)"}.
                 </span>
-                <Link
-                  href={`/accounts/connect?resumeItemId=${item.itemId}`}
-                  className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
-                >
-                  Finish setup
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/accounts/connect?resumeItemId=${item.itemId}`}
+                    className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+                  >
+                    Finish setup
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => onDismissPending(item.itemId, item.institutionName)}
+                    disabled={dismissingItemId === item.itemId}
+                    className="rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </div>
             ))}
           </div>

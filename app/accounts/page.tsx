@@ -36,7 +36,7 @@ export default async function AccountsPage({ searchParams }: PageProps) {
     db.institution.findMany({ orderBy: { name: "asc" } }),
     db.entity.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" } }),
     db.plaidItem.findMany({
-      where: { accounts: { none: { archivedAt: null } } },
+      where: { accounts: { none: { archivedAt: null } }, status: { not: "dismissed" } },
       orderBy: { createdAt: "asc" },
     }),
   ]);

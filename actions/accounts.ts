@@ -95,3 +95,26 @@ export async function archiveAccount(id: string) {
   revalidatePath("/accounts");
   return { success: true as const };
 }
+
+// Dismisses a "pending mapping" banner for a PlaidItem that never got a real
+// Account created for it (e.g. a stale/duplicate test connection). Only
+// allowed while the item still has zero non-archived accounts — if it's
+// been mapped since the banner was rendered, this is a no-op rather than
+// silently hiding a real connection.
+export async function dismissPendingPlaidItem(itemId: string) {
+  await requireAuth();
+  const item = await db.plaidItem.findUnique({
+    where: { itemId },
+    include: { accounts: { where: { archivedAt: null }, select: { id: true } } },
+  });
+  if (!item) throw new Error("Connection not found");
+  if (item.accounts.length > 0) {
+    throw new Error("This connection already has an account linked — refresh the page.");
+  }
+  await db.plaidItem.update({
+    where: { itemId },
+    data: { status: "dismissed" },
+  });
+  revalidatePath("/accounts");
+  return { success: true as const };
+}
