@@ -23,7 +23,7 @@ export default async function TaxPage() {
     db.entity.findMany({
       where: { archivedAt: null, type: { in: ["personal", "business"] } },
       orderBy: [{ type: "asc" }, { name: "asc" }],
-      select: { id: true, name: true, type: true, foundedDate: true, slug: true },
+      select: { id: true, name: true, type: true, foundedDate: true, slug: true, taxStatusNotes: true },
     }),
   ]);
 
@@ -112,13 +112,17 @@ export default async function TaxPage() {
 
   // Entities eligible per year: Personal + businesses. A business formed after
   // the year started has no filing for that year (e.g. Sudden Valley, founded
-  // Feb 2026, has no 2025 workspace).
+  // Feb 2026, has no 2025 workspace). A business with no foundedDate recorded
+  // is shown by default (undocumented-but-real formation date, e.g. EK
+  // Consulting's "founded 2021, exact date not documented") *unless* its
+  // taxStatusNotes explicitly says it isn't formed yet (e.g. Mezzo) — no
+  // dedicated "formed" field exists on Entity yet, so this string check is a
+  // stopgap; remove it if/when that field is added.
   function entitiesForYear(year: number) {
     return allEntities.filter((e) => {
       if (e.type === "personal") return true;
-      if (!e.foundedDate) return true; // no founding date recorded — show it
-      // Entity must have existed during the tax year
-      return e.foundedDate.getUTCFullYear() <= year;
+      if (e.foundedDate) return e.foundedDate.getUTCFullYear() <= year;
+      return !(e.taxStatusNotes ?? "").toLowerCase().includes("not yet formed");
     });
   }
 
