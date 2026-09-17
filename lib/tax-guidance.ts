@@ -120,12 +120,32 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
     unlocks: ["home_office"],
   },
   {
+    key: "home_office_sqft",
+    category: "deductions",
+    question: "What is the exact square footage of your dedicated EK Consulting home office space?",
+    context:
+      "You've already told us this space is used regularly and exclusively for business — this is the one remaining number needed to compute the simplified-method deduction ($5/sq ft, capped at 300 sq ft, so up to $1,500/yr). Measure the office itself, not the whole home.",
+    placeholder: "e.g. 180 (whole square feet, no unit needed)",
+    options: undefined,
+    unlocks: ["home_office"],
+  },
+  {
     key: "retirement_contributions",
     category: "deductions",
     question: "Did either of you contribute to a traditional IRA, 401(k), HSA, or similar pre-tax account for 2025?",
     context:
       "Pre-tax retirement contributions reduce taxable income dollar-for-dollar — the single most reliable way to lower your tax bill. Traditional IRA contributions may even be deductible even when you have a workplace plan, depending on income. HSA contributions are deductible, grow tax-free, and withdrawals for medical care are never taxed — the only triple-tax-advantaged account.",
     placeholder: "e.g. Eric 401(k) $12,000; Eva traditional IRA $3,000; HSA $4,150",
+    options: undefined,
+    unlocks: ["retirement_savings_credit", "ira_deduction", "hsa"],
+  },
+  {
+    key: "retirement_contribution_amount",
+    category: "deductions",
+    question: "Total 2025 pre-tax retirement/HSA contributions, as a single dollar figure?",
+    context:
+      "A structured follow-up to the question above — a single whole-dollar total (traditional IRA + 401(k) + HSA combined) so the platform can compute an exact deduction instead of just noting that something happened. If you haven't finalized the number yet, skip this and answer once you have it.",
+    placeholder: "e.g. 12000 (whole dollars, no $ sign needed)",
     options: undefined,
     unlocks: ["retirement_savings_credit", "ira_deduction", "hsa"],
   },
@@ -181,6 +201,16 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
     context:
       "Since your 2025 return is on extension, the balance due (if any) has been accruing interest since April 15, 2026 — the extension moves the FILING deadline, not the PAYMENT deadline. Safe-harbor: if you paid at least 100% of last year's tax (110% for high income), there's no underpayment penalty even if you owe more. Getting withholding right going forward avoids both penalties and lending the government money interest-free.",
     placeholder: "e.g. Paid Q1-Q4 estimates totaling $X; or 'none'",
+    options: undefined,
+    unlocks: ["safe_harbor"],
+  },
+  {
+    key: "estimated_tax_payments_amount",
+    category: "other",
+    question: "Total 2025 federal + state estimated tax payments actually made, as a single dollar figure?",
+    context:
+      "A structured follow-up to the question above — a single whole-dollar total across all quarters and both federal/state, so the platform can compute your actual balance due or refund instead of assuming $0 in estimated payments. Enter 0 if you made none.",
+    placeholder: "e.g. 8000 (whole dollars, no $ sign needed)",
     options: undefined,
     unlocks: ["safe_harbor"],
   },

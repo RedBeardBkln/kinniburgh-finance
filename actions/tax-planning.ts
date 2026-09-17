@@ -51,20 +51,25 @@ export async function ensurePersonalWorkspace(taxYear: number) {
   });
 
   if (existing) {
-    // Seed the question bank on first open so the user is prompted for
-    // missing information with full context.
-    if (existing.questions.length === 0) {
-      await db.taxQuestion.createMany({
-        data: TAX_QUESTION_BANK.map((q) => ({
-          workspaceId: existing.id,
-          key: q.key,
-          category: q.category,
-          question: `${q.question}\n\n${q.context}`,
-          options: (q.options ?? null) as unknown as never,
-        })),
-        skipDuplicates: true,
-      });
-    }
+    // Backfill any question-bank keys the workspace doesn't have yet —
+    // always attempted, not just on first open. `skipDuplicates: true` +
+    // the @@unique([workspaceId, key]) constraint make this idempotent and
+    // answer-preserving: it can only ever ADD missing keys, never touch or
+    // overwrite an already-answered row. Previously this only ran when a
+    // workspace had zero existing questions, which meant a newly-added
+    // TAX_QUESTION_BANK entry would silently never appear for any
+    // already-opened workspace (confirmed live: the 2025 workspace already
+    // had 9 questions).
+    await db.taxQuestion.createMany({
+      data: TAX_QUESTION_BANK.map((q) => ({
+        workspaceId: existing.id,
+        key: q.key,
+        category: q.category,
+        question: `${q.question}\n\n${q.context}`,
+        options: (q.options ?? null) as unknown as never,
+      })),
+      skipDuplicates: true,
+    });
     return existing.id;
   }
 
