@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { documentTypeLabel } from "@/lib/doc-naming";
@@ -10,7 +10,9 @@ import {
   requestTaxDocumentUploadSlot,
   finalizeTaxDocumentUpload,
   updateTaxDocument,
+  getTaxDocumentSignedUrl,
 } from "@/actions/tax-planning";
+import { archiveDocument, triggerExtraction } from "@/actions/documents";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -255,6 +257,8 @@ export function TaxDocumentUpload({ entityId, taxYear, documents, flaggedDocumen
                   <DocumentRowEditable
                     key={d.id}
                     doc={d}
+                    entityId={entityId}
+                    taxYear={taxYear}
                     flagged={flaggedDocumentIds.includes(d.id)}
                   />
                 ))}
@@ -269,12 +273,37 @@ export function TaxDocumentUpload({ entityId, taxYear, documents, flaggedDocumen
 
 // ── Editable document row ─────────────────────────────────────────────────────
 
-function DocumentRowEditable({ doc, flagged }: { doc: DocumentRow; flagged: boolean }) {
+function DocumentRowEditable({
+  doc,
+  entityId,
+  taxYear,
+  flagged,
+}: {
+  doc: DocumentRow;
+  entityId: string;
+  taxYear: number;
+  flagged: boolean;
+}) {
+  const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(doc.documentName ?? documentTypeLabel(doc.docType));
   const [docType, setDocType] = useState<string>(doc.docType);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+
+  const [viewLoading, setViewLoading] = useState(false);
+  const [viewError, setViewError] = useState<string | null>(null);
+
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+
+  const [swapping, setSwapping] = useState(false);
+  const [swapError, setSwapError] = useState<string | null>(null);
+  const swapInputRef = useRef<HTMLInputElement>(null);
 
   async function handleSave() {
     if (!name.trim()) {
@@ -283,6 +312,7 @@ function DocumentRowEditable({ doc, flagged }: { doc: DocumentRow; flagged: bool
     }
     setSaving(true);
     setError(null);
+    const originalDocType = doc.docType;
     const result = await updateTaxDocument({
       documentId: doc.id,
       documentName: name.trim(),
@@ -294,9 +324,111 @@ function DocumentRowEditable({ doc, flagged }: { doc: DocumentRow; flagged: bool
       return;
     }
     setEditing(false);
+
+    // Auto re-extract only when the docType actually changed — the old
+    // extraction is only provably wrong in that case. A pure rename (same
+    // docType) would just re-run the same prompt against unchanged data.
+    if (docType !== originalDocType) {
+      setExtracting(true);
+      setExtractError(null);
+      setStatusMsg("DocType changed — re-extracting…");
+      try {
+        await triggerExtraction(doc.id);
+      } catch {
+        setExtractError("Retyped, but re-extraction failed — try the Re-extract button.");
+      } finally {
+        setExtracting(false);
+        setStatusMsg(null);
+        router.refresh();
+      }
+    } else {
+      router.refresh();
+    }
+  }
+
+  async function handleView() {
+    setViewError(null);
+    setViewLoading(true);
+    try {
+      const url = await getTaxDocumentSignedUrl(doc.id);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      // Server action errors are sanitized boilerplate in production (Next.js
+      // strips the real message) — never show the raw error to the user here.
+      setViewError("Couldn't open this document — it may be missing from storage.");
+    } finally {
+      setViewLoading(false);
+    }
+  }
+
+  async function handleReExtract() {
+    setExtractError(null);
+    setExtracting(true);
+    try {
+      await triggerExtraction(doc.id);
+      router.refresh();
+    } catch {
+      setExtractError("Re-extraction failed — try again.");
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  async function handleArchive() {
+    if (!confirm(`Archive "${displayName}"? It will no longer appear in this document list.`)) {
+      return;
+    }
+    setArchiveError(null);
+    setArchiving(true);
+    try {
+      await archiveDocument(doc.id);
+      router.refresh();
+    } catch {
+      setArchiveError("Archive failed — try again.");
+    } finally {
+      setArchiving(false);
+    }
+  }
+
+  async function handleSwapFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset the input so selecting the same file again still fires onChange.
+    e.target.value = "";
+    if (!file) return;
+
+    setSwapError(null);
+    setSwapping(true);
+    try {
+      const result = await uploadFile(
+        file,
+        entityId,
+        taxYear,
+        doc.docType as TaxDocType,
+        doc.notes ?? undefined
+      );
+      if (!result.success) {
+        // Upload failed — the old document is never touched. Nothing lost.
+        setSwapError(result.error);
+        return;
+      }
+      // Deliberate unconditional re-extraction, even though
+      // finalizeTaxDocumentUpload already extracts inline for extractable
+      // docTypes — see plan's swap-design justification (simplicity over
+      // efficiency, avoids duplicating a private server-side gate here).
+      await triggerExtraction(result.documentId);
+      // Only archive the old document after the new one has fully landed —
+      // a failed swap must never strand the household without either file.
+      await archiveDocument(doc.id);
+      router.refresh();
+    } catch {
+      setSwapError("Swap failed — the original document was not changed.");
+    } finally {
+      setSwapping(false);
+    }
   }
 
   const typeLabel = documentTypeLabel(docType);
+  const displayName = doc.documentName ?? documentTypeLabel(doc.docType);
 
   return (
     <tr
@@ -380,13 +512,55 @@ function DocumentRowEditable({ doc, flagged }: { doc: DocumentRow; flagged: bool
             </button>
           </span>
         ) : (
-          <button
-            onClick={() => setEditing(true)}
-            className="text-xs text-primary hover:underline"
-          >
-            Rename / retype
-          </button>
+          <span className="inline-flex items-center gap-2">
+            <button
+              onClick={handleView}
+              disabled={viewLoading}
+              className="text-xs font-medium text-primary hover:underline disabled:opacity-60"
+            >
+              {viewLoading ? "Opening…" : "View"}
+            </button>
+            <button
+              onClick={() => setEditing(true)}
+              className="text-xs text-primary hover:underline"
+            >
+              Rename / retype
+            </button>
+            <button
+              onClick={handleReExtract}
+              disabled={extracting}
+              className="text-xs text-primary hover:underline disabled:opacity-60"
+            >
+              {extracting ? "Re-extracting…" : "Re-extract"}
+            </button>
+            <input
+              ref={swapInputRef}
+              type="file"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={handleSwapFileChange}
+            />
+            <button
+              onClick={() => swapInputRef.current?.click()}
+              disabled={swapping}
+              className="text-xs text-primary hover:underline disabled:opacity-60"
+            >
+              {swapping ? "Swapping…" : "Swap file"}
+            </button>
+            <button
+              onClick={handleArchive}
+              disabled={archiving}
+              className="text-xs font-medium text-destructive hover:underline disabled:opacity-60"
+            >
+              {archiving ? "Archiving…" : "Archive"}
+            </button>
+          </span>
         )}
+        {statusMsg && <span className="block text-xs text-muted-foreground mt-0.5">{statusMsg}</span>}
+        {viewError && <span className="block text-xs text-destructive mt-0.5">{viewError}</span>}
+        {extractError && <span className="block text-xs text-destructive mt-0.5">{extractError}</span>}
+        {archiveError && <span className="block text-xs text-destructive mt-0.5">{archiveError}</span>}
+        {swapError && <span className="block text-xs text-destructive mt-0.5">{swapError}</span>}
       </td>
     </tr>
   );
