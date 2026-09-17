@@ -15,6 +15,9 @@ import { computePersonalFormPlan } from "@/lib/tax-form-plan";
 import { getEntityBySlug } from "@/lib/entity";
 import { computePL } from "@/lib/reports";
 import { PersonalTaxClient } from "@/components/tax/personal-tax-client";
+import { buildPersonalTaxComputeInput, findUnparseableExtractions } from "@/lib/tax-compute-build";
+import { computePersonalTaxReturn } from "@/lib/tax-compute";
+import { serializeTaxComputeResult, type SerializedTaxDraft } from "@/lib/tax-compute-display";
 import type { Route } from "next";
 
 interface PageProps {
@@ -111,6 +114,46 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
   const unanswered = questions.filter((q) => q.answer === null).length;
   const isExtensionYear = year === 2025;
 
+  // ── Real computed draft tax numbers (TY2025-only engine) + gap detection ───
+  let taxDraft: SerializedTaxDraft | null = null;
+  let taxComputeError: string | null = null;
+  let scheduleCDataMissing = false;
+  let buildGaps: string[] = [];
+
+  if (year === 2025) {
+    const resolved = await buildPersonalTaxComputeInput(year);
+    if ("error" in resolved) {
+      taxComputeError = resolved.error;
+    } else {
+      taxDraft = serializeTaxComputeResult(computePersonalTaxReturn(resolved.input));
+      scheduleCDataMissing = resolved.scheduleCDataMissing;
+      buildGaps = resolved.buildGaps;
+    }
+  }
+
+  // Cheap, pure, scans all documents regardless of tax year — matches
+  // findUnparseableExtractions's own existing all-years scan design; a
+  // mistagged document is a data-quality issue independent of which year's
+  // workspace is open. Enriched with createdAt (not part of
+  // findUnparseableExtractions's own return shape) so TaxDraftNumbers can
+  // render "uploaded {date}" without a second query.
+  const unparseableExtractions = findUnparseableExtractions(
+    allDocs.map((d) => ({
+      id: d.id,
+      docType: d.docType,
+      taxYear: d.taxYear,
+      extractionStatus: d.extractionStatus,
+      extractionData: d.extractionData,
+    }))
+  );
+  const allDocsById = new Map(allDocs.map((d) => [d.id, d]));
+  const mistaggedDocs = unparseableExtractions.map((doc) => ({
+    id: doc.id,
+    docType: doc.docType,
+    taxYear: doc.taxYear,
+    createdAt: (allDocsById.get(doc.id)?.createdAt ?? new Date(0)).toISOString(),
+  }));
+
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
@@ -175,6 +218,11 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
           formPlan={formPlan}
           refundObjective={REFUND_OBJECTIVE_STATEMENT}
           unansweredCount={unanswered}
+          taxDraft={taxDraft}
+          taxComputeError={taxComputeError}
+          scheduleCDataMissing={scheduleCDataMissing}
+          buildGaps={buildGaps}
+          mistaggedDocs={mistaggedDocs}
         />
       </div>
     </AppShell>

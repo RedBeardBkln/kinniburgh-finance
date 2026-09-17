@@ -28,6 +28,12 @@ interface Props {
   entityId: string;
   taxYear: number;
   documents: DocumentRow[];
+  /** Document ids findUnparseableExtractions flagged as an unparseable/likely
+   *  -mistagged extraction — defaults to [] (no behavior change for any
+   *  existing caller). Drives a per-row anchor + amber highlight so
+   *  TaxDraftNumbers's "Jump to this document" link resolves to a visible,
+   *  distinguished row. */
+  flaggedDocumentIds?: string[];
 }
 
 const DOC_TYPE_OPTIONS = [
@@ -125,7 +131,7 @@ function fmtDate(iso: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function TaxDocumentUpload({ entityId, taxYear, documents }: Props) {
+export function TaxDocumentUpload({ entityId, taxYear, documents, flaggedDocumentIds = [] }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
 
@@ -246,7 +252,11 @@ export function TaxDocumentUpload({ entityId, taxYear, documents }: Props) {
               </thead>
               <tbody>
                 {documents.map((d) => (
-                  <DocumentRowEditable key={d.id} doc={d} />
+                  <DocumentRowEditable
+                    key={d.id}
+                    doc={d}
+                    flagged={flaggedDocumentIds.includes(d.id)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -259,7 +269,7 @@ export function TaxDocumentUpload({ entityId, taxYear, documents }: Props) {
 
 // ── Editable document row ─────────────────────────────────────────────────────
 
-function DocumentRowEditable({ doc }: { doc: DocumentRow }) {
+function DocumentRowEditable({ doc, flagged }: { doc: DocumentRow; flagged: boolean }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(doc.documentName ?? documentTypeLabel(doc.docType));
   const [docType, setDocType] = useState<string>(doc.docType);
@@ -289,8 +299,15 @@ function DocumentRowEditable({ doc }: { doc: DocumentRow }) {
   const typeLabel = documentTypeLabel(docType);
 
   return (
-    <tr className="border-b last:border-0">
-      <td className="py-2">
+    <tr
+      id={`doc-${doc.id}`}
+      className={
+        flagged
+          ? "border-b border-amber-200 bg-amber-50 last:border-0 dark:border-amber-900 dark:bg-amber-950/40"
+          : "border-b last:border-0"
+      }
+    >
+      <td className={`py-2 ${flagged ? "border-l-2 border-l-amber-500 pl-2" : ""}`}>
         {editing ? (
           <input
             value={name}
@@ -318,6 +335,11 @@ function DocumentRowEditable({ doc }: { doc: DocumentRow }) {
           </select>
         ) : (
           <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium">{typeLabel}</span>
+        )}
+        {flagged && (
+          <span className="ml-1.5 rounded border border-amber-400 bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-900 dark:text-amber-200">
+            ⚠ check type
+          </span>
         )}
       </td>
       <td className="py-2 px-3 text-xs">

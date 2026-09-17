@@ -7,6 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
 import { TaxDocumentUpload, type DocumentRow } from "@/components/tax/tax-document-upload";
 import { OtherYearDocuments, type OtherYearDocument } from "@/components/tax/other-year-documents";
+import { TaxDraftNumbers, type MistaggedDocRef } from "@/components/tax/tax-draft-numbers";
+import {
+  isPromotedTaxQuestion,
+  PROMOTED_TAX_QUESTION_KEYS,
+  type SerializedTaxDraft,
+} from "@/lib/tax-compute-display";
 import {
   answerTaxQuestion,
   generateTaxReview,
@@ -65,6 +71,11 @@ interface Props {
   formPlan: FormPlan[];
   refundObjective: string;
   unansweredCount: number;
+  taxDraft: SerializedTaxDraft | null;
+  taxComputeError: string | null;
+  scheduleCDataMissing: boolean;
+  buildGaps: string[];
+  mistaggedDocs: MistaggedDocRef[];
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -128,9 +139,22 @@ export function PersonalTaxClient(props: Props) {
     return true;
   }
 
-  const unanswered = questions.filter((q) => q.answer === null);
+  const unansweredRaw = questions.filter((q) => q.answer === null);
+  // Promote the 3 structured, code-ready question keys to the top of the
+  // unanswered list (in PROMOTED_TAX_QUESTION_KEYS order) rather than leaving
+  // them to sort by createdAt, which would bury newly-backfilled rows at the
+  // end of a potentially long list — the whole point of this section is
+  // making these already-code-ready gaps unmissable. Never changes WHICH
+  // questions render, only their order; `rest` keeps its original order.
+  const promoted = PROMOTED_TAX_QUESTION_KEYS.map((key) =>
+    unansweredRaw.find((q) => q.key === key)
+  ).filter((q): q is Question => q !== undefined);
+  const rest = unansweredRaw.filter((q) => !isPromotedTaxQuestion(q.key));
+  const unanswered = [...promoted, ...rest];
+  const promotedIds = new Set(promoted.map((q) => q.id));
   const activeOpps = props.opportunities.filter((o) => !o.isExcluded);
   const excludedOpps = props.opportunities.filter((o) => o.isExcluded);
+  const flaggedDocumentIds = props.mistaggedDocs.map((d) => d.id);
 
   return (
     <div className="space-y-6">
@@ -150,11 +174,21 @@ export function PersonalTaxClient(props: Props) {
         </CardContent>
       </Card>
 
+      <TaxDraftNumbers
+        taxYear={props.taxYear}
+        taxDraft={props.taxDraft}
+        taxComputeError={props.taxComputeError}
+        scheduleCDataMissing={props.scheduleCDataMissing}
+        buildGaps={props.buildGaps}
+        mistaggedDocs={props.mistaggedDocs}
+      />
+
       {/* 1. Document intake */}
       <TaxDocumentUpload
         entityId={props.entityId}
         taxYear={props.taxYear}
         documents={props.documents}
+        flaggedDocumentIds={flaggedDocumentIds}
       />
 
       <OtherYearDocuments documents={props.otherYearDocs} />
@@ -174,11 +208,26 @@ export function PersonalTaxClient(props: Props) {
           )}
           {unanswered.map((q) => {
             const [questionText, context] = q.question.split("\n\n");
+            const isPromoted = promotedIds.has(q.id);
             return (
-              <div key={q.id} className="rounded-lg border p-4 space-y-3">
+              <div
+                key={q.id}
+                className={
+                  isPromoted
+                    ? "rounded-lg border-2 border-primary/40 p-4 space-y-3"
+                    : "rounded-lg border p-4 space-y-3"
+                }
+              >
                 <div className="flex items-start justify-between gap-3">
                   <p className="text-sm font-medium">{questionText}</p>
-                  <Badge variant="secondary" className="text-[10px] shrink-0">{q.category}</Badge>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {isPromoted && (
+                      <Badge variant="warning" className="text-[10px]">
+                        Unlocks a real computed number below
+                      </Badge>
+                    )}
+                    <Badge variant="secondary" className="text-[10px]">{q.category}</Badge>
+                  </div>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">{context}</p>
 
