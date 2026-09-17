@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { projectPeriodEndSpend, type MonthlySpendPoint } from "./spend-forecast";
+import { resolveBudgetedAmounts } from "./budget-nesting";
 import {
   previousPeriod,
   periodMidpointDate,
@@ -160,9 +161,26 @@ export async function buildMonthlyReviewData(period: string): Promise<ReviewData
   const historyStart = new Date(Date.UTC(year, month - 1 - REVIEW_FORECAST_TRAILING_MONTHS, 1));
   const historyMap = await queryTagHistory(historyStart, monthStart);
 
+  // Nesting/auto-sum resolution — same-account only. No root-filtering
+  // needed: budgetHealth's downstream consumers only ever count
+  // status==="over"/"warning" rows, never sum dollar amounts.
+  const budgetTagParentById = new Map(budgets.map((b) => [b.tagId, b.tag.parentId]));
+  const budgetsByAccountId = new Map<string, typeof budgets>();
+  for (const b of budgets) {
+    if (!budgetsByAccountId.has(b.accountId)) budgetsByAccountId.set(b.accountId, []);
+    budgetsByAccountId.get(b.accountId)!.push(b);
+  }
+  const resolvedBudgetById = new Map<string, Decimal>();
+  for (const group of budgetsByAccountId.values()) {
+    const resolverInput = group.map((b) => ({ id: b.id, tagId: b.tagId, budgeted: b.budgeted }));
+    for (const [id, amt] of resolveBudgetedAmounts(resolverInput, (tagId) => budgetTagParentById.get(tagId), new Decimal(0))) {
+      resolvedBudgetById.set(id, amt);
+    }
+  }
+
   const budgetHealth: ReviewData["budgetHealth"] = budgets.map((b) => {
     const key = `${b.entityId}:${b.tagId}`;
-    const budgetedCents = Math.round(new Prisma.Decimal(b.budgeted).toNumber() * 100);
+    const budgetedCents = Math.round((resolvedBudgetById.get(b.id) ?? new Decimal(0)).toNumber() * 100);
     const actualCents = spendMap.get(key) ?? 0;
     const percentUsed = budgetedCents > 0 ? Math.round((actualCents / budgetedCents) * 100) : 0;
     const status: "ok" | "warning" | "over" =

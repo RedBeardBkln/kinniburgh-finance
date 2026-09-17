@@ -14,6 +14,7 @@ import {
   type SerializedBudgetLine,
 } from "@/components/budgets/budget-page-client";
 import { monthlyEquivalentCents } from "@/lib/recurring-expenses";
+import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; period?: string }>;
@@ -95,6 +96,44 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
     tagSpend.map((r) => [r.tagId, new Prisma.Decimal(r.total)])
   );
 
+  // Nesting/auto-sum resolution — same-account only (matches nestBudgetLines).
+  // Precedence per line: recurring-linked effective amount (real linked-bill
+  // data) wins over auto-sum from children; explicit non-null `budgeted` wins
+  // next; auto-sum from children is the fallback when neither applies.
+  const tagParentById = new Map(tags.map((t) => [t.id, t.parentId]));
+  const explicitAmountByBudgetId = new Map<string, Prisma.Decimal | null>();
+  for (const b of budgets) {
+    const tagExpenses = recurringByTagId.get(b.tagId) ?? [];
+    if (tagExpenses.length > 0) {
+      const recurringMonthlySumCents = tagExpenses.reduce((s, e) => s + e.monthlyEquivCents, 0);
+      const additionalAmountCents = decimalToNumber(new Prisma.Decimal(b.additionalAmountCents ?? 0));
+      explicitAmountByBudgetId.set(b.id, new Prisma.Decimal((recurringMonthlySumCents + additionalAmountCents) / 100));
+    } else {
+      explicitAmountByBudgetId.set(b.id, b.budgeted);
+    }
+  }
+
+  const byAccountId = new Map<string, typeof budgets>();
+  for (const b of budgets) {
+    if (!byAccountId.has(b.accountId)) byAccountId.set(b.accountId, []);
+    byAccountId.get(b.accountId)!.push(b);
+  }
+  const resolvedByBudgetId = new Map<string, Prisma.Decimal>();
+  const rootBudgetIds = new Set<string>();
+  for (const group of byAccountId.values()) {
+    const resolverInput = group.map((b) => ({
+      id: b.id,
+      tagId: b.tagId,
+      budgeted: explicitAmountByBudgetId.get(b.id) ?? null,
+    }));
+    for (const [id, amt] of resolveBudgetedAmounts(resolverInput, (tagId) => tagParentById.get(tagId), new Prisma.Decimal(0))) {
+      resolvedByBudgetId.set(id, amt);
+    }
+    for (const id of getRootBudgetLineIds(group, (tagId) => tagParentById.get(tagId))) {
+      rootBudgetIds.add(id);
+    }
+  }
+
   // Serialize budget lines with computed summaries
   const serializedBudgets: SerializedBudgetLine[] = budgets.map((b) => {
     const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
@@ -102,10 +141,8 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
     const recurringMonthlySumCents = tagExpenses.reduce((s, e) => s + e.monthlyEquivCents, 0);
     const additionalAmountCents = decimalToNumber(new Prisma.Decimal(b.additionalAmountCents ?? 0));
 
-    // Effective budgeted = recurring monthly sum + additional (in dollars, for budget calcs)
-    const effectiveBudgetedDollars = tagExpenses.length > 0
-      ? (recurringMonthlySumCents + additionalAmountCents) / 100
-      : decimalToNumber(new Prisma.Decimal(b.budgeted));
+    // Effective budgeted = resolved (recurring / explicit / auto-summed) amount
+    const effectiveBudgetedDollars = decimalToNumber(resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0));
 
     const summary = computeBudgetSummary({
       budgeted: new Prisma.Decimal(effectiveBudgetedDollars),
@@ -119,6 +156,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
       accountId: b.accountId,
       accountName: b.account.nickname,
       budgeted: decimalToNumber(summary.budgeted),
+      budgetedRaw: b.budgeted !== null ? decimalToNumber(new Prisma.Decimal(b.budgeted)) : null,
       payDay: b.payDay,
       rolloverAmount: decimalToNumber(summary.rolloverAmount),
       effectiveBudget: decimalToNumber(summary.effectiveBudget),
@@ -132,8 +170,10 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
     };
   });
 
-  // Totals
-  const totalBudgeted = serializedBudgets.reduce((s, b) => s + b.budgeted, 0);
+  // Totals — root-only sum so a parent and its children are never both counted.
+  const totalBudgeted = serializedBudgets
+    .filter((b) => rootBudgetIds.has(b.id))
+    .reduce((s, b) => s + b.budgeted, 0);
   const totalActual = serializedBudgets.reduce((s, b) => s + b.actualSpend, 0);
   const totalRemaining = totalBudgeted + totalActual; // actualSpend is negative
 

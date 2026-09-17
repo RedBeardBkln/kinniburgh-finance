@@ -7,19 +7,23 @@ import { formatUSD } from "@/lib/utils";
 
 interface BudgetLineEditorProps {
   budgetId: string;
-  currentBudgeted: number; // dollars as number for display
+  currentBudgeted: number; // resolved/effective dollars as number, for display
+  /** The raw stored value — null when this line is blank/auto-summed from
+   * its nested children. Used to prefill edit mode so an unmodified Save
+   * round-trips as blank instead of freezing the resolved number in. */
+  rawBudgeted: number | null;
 }
 
-export function BudgetLineEditor({ budgetId, currentBudgeted }: BudgetLineEditorProps) {
+export function BudgetLineEditor({ budgetId, currentBudgeted, rawBudgeted }: BudgetLineEditorProps) {
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(currentBudgeted.toFixed(2));
+  const [value, setValue] = useState(rawBudgeted !== null ? rawBudgeted.toFixed(2) : "");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
   function startEditing() {
-    setValue(currentBudgeted.toFixed(2));
+    setValue(rawBudgeted !== null ? rawBudgeted.toFixed(2) : "");
     setError(null);
     setEditing(true);
     setTimeout(() => inputRef.current?.select(), 0);
@@ -49,6 +53,17 @@ export function BudgetLineEditor({ budgetId, currentBudgeted }: BudgetLineEditor
   }
 
   if (!editing) {
+    if (rawBudgeted === null) {
+      return (
+        <button
+          onClick={startEditing}
+          className="tabular-nums italic text-muted-foreground hover:underline hover:text-primary cursor-pointer"
+          title="Auto-calculated from nested budget lines — click to override"
+        >
+          Auto · {formatUSD(currentBudgeted)}
+        </button>
+      );
+    }
     return (
       <button
         onClick={startEditing}

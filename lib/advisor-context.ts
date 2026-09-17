@@ -1,5 +1,7 @@
 import { db } from "@/lib/db";
+import { Decimal } from "@prisma/client/runtime/library";
 import { monthlyEquivalentCents } from "@/lib/recurring-expenses";
+import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
 
 function fmt(cents: number): string {
   return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -145,16 +147,35 @@ export async function buildAdvisorContext(): Promise<string> {
       }
     }
 
+    // Nesting/auto-sum resolution — same-account only.
+    const tagParentById = new Map(currentBudgets.map((b) => [b.tagId, b.tag.parentId]));
+    const budgetsByAccountId = new Map<string, typeof currentBudgets>();
+    for (const b of currentBudgets) {
+      if (!budgetsByAccountId.has(b.accountId)) budgetsByAccountId.set(b.accountId, []);
+      budgetsByAccountId.get(b.accountId)!.push(b);
+    }
+    const resolvedByBudgetId = new Map<string, Decimal>();
+    const rootBudgetIds = new Set<string>();
+    for (const group of budgetsByAccountId.values()) {
+      const resolverInput = group.map((b) => ({ id: b.id, tagId: b.tagId, budgeted: b.budgeted }));
+      for (const [id, amt] of resolveBudgetedAmounts(resolverInput, (tagId) => tagParentById.get(tagId), new Decimal(0))) {
+        resolvedByBudgetId.set(id, amt);
+      }
+      for (const id of getRootBudgetLineIds(group, (tagId) => tagParentById.get(tagId))) {
+        rootBudgetIds.add(id);
+      }
+    }
+
     let totalBudgeted = 0;
     let totalActual = 0;
     for (const b of currentBudgets) {
-      const budgeted = Number(b.budgeted);
+      const resolvedAmt = Number(resolvedByBudgetId.get(b.id) ?? new Decimal(0));
       const actual = actualByTag.get(b.tag.name) ?? 0;
-      const variance = budgeted - actual;
-      totalBudgeted += budgeted;
-      totalActual += actual;
+      const variance = resolvedAmt - actual;
+      if (rootBudgetIds.has(b.id)) totalBudgeted += resolvedAmt; // root-only: avoid double-counting
+      totalActual += actual; // unchanged — actual spend is already exact-tag-only, never double-counted
       const status = variance >= 0 ? `under by ${fmtDollars(variance)}` : `OVER by ${fmtDollars(Math.abs(variance))}`;
-      li(`${b.tag.shortName} (${b.entity.name}): budgeted ${fmtDollars(budgeted)}, spent ${fmtDollars(actual)} — ${status}`);
+      li(`${b.tag.shortName} (${b.entity.name}): budgeted ${fmtDollars(resolvedAmt)}, spent ${fmtDollars(actual)} — ${status}`);
     }
     tx(`Total budgeted: ${fmtDollars(totalBudgeted)} | Total spent: ${fmtDollars(totalActual)} | Net: ${fmtDollars(totalBudgeted - totalActual)}`);
   }

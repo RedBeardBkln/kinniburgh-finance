@@ -3,6 +3,8 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
+import { Decimal } from "@prisma/client/runtime/library";
+import { resolveBudgetedAmounts } from "@/lib/budget-nesting";
 
 async function requireAuth() {
   const session = await auth();
@@ -78,6 +80,22 @@ export async function exportBudgetCsv(period: string): Promise<string> {
     orderBy: [{ entity: { name: "asc" } }, { tag: { name: "asc" } }],
   });
 
+  // Nesting/auto-sum resolution — same-account only (Account.entityId is a
+  // single non-null FK, so grouping by accountId alone is already entity-safe).
+  const tagParentById = new Map(budgets.map((b) => [b.tagId, b.tag.parentId]));
+  const byAccountId = new Map<string, typeof budgets>();
+  for (const b of budgets) {
+    if (!byAccountId.has(b.accountId)) byAccountId.set(b.accountId, []);
+    byAccountId.get(b.accountId)!.push(b);
+  }
+  const resolvedByBudgetId = new Map<string, Decimal>();
+  for (const group of byAccountId.values()) {
+    const resolverInput = group.map((b) => ({ id: b.id, tagId: b.tagId, budgeted: b.budgeted }));
+    for (const [id, amt] of resolveBudgetedAmounts(resolverInput, (tagId) => tagParentById.get(tagId), new Decimal(0))) {
+      resolvedByBudgetId.set(id, amt);
+    }
+  }
+
   const [year, month] = period.split("-") as [string, string];
   const start = new Date(`${year}-${month}-01T00:00:00Z`);
   const end = new Date(start);
@@ -96,7 +114,7 @@ export async function exportBudgetCsv(period: string): Promise<string> {
   const header = toCsvRow(["Period", "Entity", "Tag", "Budgeted", "Actual", "% Used", "Remaining"]);
   const rows = budgets.map((b) => {
     const actual = Math.abs(spendMap.get(`${b.tagId}:${b.entityId}`) ?? 0);
-    const budgeted = b.budgeted.toNumber();
+    const budgeted = (resolvedByBudgetId.get(b.id) ?? new Decimal(0)).toNumber();
     const pct = budgeted > 0 ? Math.round((actual / budgeted) * 100) : 0;
     return toCsvRow([
       period,

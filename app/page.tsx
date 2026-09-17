@@ -11,6 +11,7 @@ import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { DashboardClient, type SerializedBudget } from "@/components/dashboard/dashboard-client";
+import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -86,15 +87,38 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   );
   const totalSpend = new Prisma.Decimal(spendAgg._sum.amount ?? 0);
 
-  const totalBudgeted = budgets.reduce(
-    (sum, b) => sum.plus(b.budgeted),
-    new Prisma.Decimal(0)
-  );
+  // Nesting/auto-sum resolution — same-account only (matches nestBudgetLines).
+  // This page doesn't apply the recurring-expense override /budgets does
+  // (pre-existing, separate inconsistency — out of scope to fix here).
+  const tagParentById = new Map(allTagsResult.map((t) => [t.id, t.parentId]));
+  const byAccountId = new Map<string, typeof budgets>();
+  for (const b of budgets) {
+    if (!byAccountId.has(b.accountId)) byAccountId.set(b.accountId, []);
+    byAccountId.get(b.accountId)!.push(b);
+  }
+  const resolvedByBudgetId = new Map<string, Prisma.Decimal>();
+  const rootBudgetIds = new Set<string>();
+  for (const group of byAccountId.values()) {
+    const resolverInput = group.map((b) => ({ id: b.id, tagId: b.tagId, budgeted: b.budgeted }));
+    for (const [id, amt] of resolveBudgetedAmounts(resolverInput, (tagId) => tagParentById.get(tagId), new Prisma.Decimal(0))) {
+      resolvedByBudgetId.set(id, amt);
+    }
+    for (const id of getRootBudgetLineIds(group, (tagId) => tagParentById.get(tagId))) {
+      rootBudgetIds.add(id);
+    }
+  }
+
+  const totalBudgeted = budgets
+    .filter((b) => rootBudgetIds.has(b.id))
+    .reduce(
+      (sum, b) => sum.plus(resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0)),
+      new Prisma.Decimal(0)
+    );
 
   const overspentCount = budgets.filter((b) => {
     const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
     return computeBudgetSummary({
-      budgeted: new Prisma.Decimal(b.budgeted),
+      budgeted: resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0),
       rolloverAmount: new Prisma.Decimal(b.rolloverAmount ?? 0),
       actualSpend: actual,
     }).isOverspent;
@@ -108,7 +132,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       return {
         tagId: b.tagId,
         name: b.tag.shortName,
-        budget: decimalToNumber(new Prisma.Decimal(b.budgeted)),
+        budget: decimalToNumber(resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0)),
         actual,
       };
     })
@@ -118,7 +142,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
   const serializedBudgets: SerializedBudget[] = budgets.map((b) => {
     const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
-    const budgetedDec = new Prisma.Decimal(b.budgeted);
+    const budgetedDec = resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0);
     const rolloverDec = new Prisma.Decimal(b.rolloverAmount ?? 0);
     const effectiveBudget = budgetedDec.plus(rolloverDec);
     const remaining = effectiveBudget.plus(actual);
@@ -130,6 +154,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       tagId: b.tagId,
       tagShortName: b.tag.shortName,
       budgeted: decimalToNumber(budgetedDec),
+      budgetedRaw: b.budgeted !== null ? decimalToNumber(new Prisma.Decimal(b.budgeted)) : null,
       spent: decimalToNumber(actual),
       percentUsed: Math.min(percentUsed, 999),
       isOverspent: remaining.isNegative(),
@@ -234,7 +259,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                   {budgets.map((b) => {
                     const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
                     const summary = computeBudgetSummary({
-                      budgeted: new Prisma.Decimal(b.budgeted),
+                      budgeted: resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0),
                       rolloverAmount: new Prisma.Decimal(b.rolloverAmount ?? 0),
                       actualSpend: actual,
                     });

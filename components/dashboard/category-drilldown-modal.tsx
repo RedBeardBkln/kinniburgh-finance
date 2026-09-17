@@ -18,6 +18,9 @@ interface Props {
   tagShortName: string;
   budgetId: string | null;
   budgeted: number;
+  /** The raw stored `Budget.budgeted` value — null when this line is in
+   * auto-sum mode (blank). `budgeted` above is always the resolved amount. */
+  budgetedRaw: number | null;
   spent: number;
   period: string;
   entityId: string | undefined;
@@ -42,6 +45,7 @@ export function CategoryDrilldownModal({
   tagShortName,
   budgetId,
   budgeted,
+  budgetedRaw,
   spent,
   period,
   entityId,
@@ -53,7 +57,10 @@ export function CategoryDrilldownModal({
   const [loading, setLoading] = useState(true);
 
   const [editingBudget, setEditingBudget] = useState(false);
-  const [budgetInput, setBudgetInput] = useState(budgeted > 0 ? budgeted.toFixed(2) : "");
+  // Prefill from the RAW stored value (blank when null/auto-sum), not the
+  // resolved/effective amount — otherwise an unmodified Save would silently
+  // freeze the auto-summed number in as an explicit override.
+  const [budgetInput, setBudgetInput] = useState(budgetedRaw !== null ? budgetedRaw.toFixed(2) : "");
   const [budgetSaving, startBudgetSave] = useTransition();
   const [budgetError, setBudgetError] = useState<string | null>(null);
 
@@ -117,6 +124,15 @@ export function CategoryDrilldownModal({
                         Cancel
                       </button>
                     </span>
+                  ) : budgetedRaw === null ? (
+                    <button
+                      type="button"
+                      onClick={() => setEditingBudget(true)}
+                      className="italic text-muted-foreground hover:text-primary underline-offset-2 hover:underline"
+                      title="Auto-calculated from nested budget lines — click to override"
+                    >
+                      Auto ({fmt(budgeted)})
+                    </button>
                   ) : (
                     <button
                       type="button"

@@ -25,6 +25,10 @@ export interface SerializedBudgetLine {
   accountId: string;
   accountName: string;
   budgeted: number;
+  /** The raw stored `Budget.budgeted` value — null when this line is in
+   * auto-sum mode (blank). `budgeted` above is always the resolved/effective
+   * amount; use `budgetedRaw` to prefill edit UIs so a blank line stays blank. */
+  budgetedRaw: number | null;
   payDay: number | null;
   rolloverAmount: number;
   effectiveBudget: number;
@@ -142,7 +146,10 @@ export function BudgetPageClient({
         tagId: b.tagId,
         tagName: b.tagName,
         accountId: b.accountId,
-        budgeted: b.budgeted.toFixed(2),
+        // Prefill from the RAW stored value (blank when null/auto-sum), not
+        // the resolved/effective amount — otherwise an unmodified Save would
+        // silently freeze the auto-summed number in as an explicit override.
+        budgeted: b.budgetedRaw !== null ? b.budgetedRaw.toFixed(2) : "",
         payDay: b.payDay,
       },
     });
@@ -252,8 +259,13 @@ export function BudgetPageClient({
 
         {/* Per-account budget sections */}
         {[...byAccount.entries()].map(([accountName, lines]) => {
-          const accountTotal = lines.reduce((s, b) => s + b.budgeted, 0);
           const orderedLines = orderedByAccount.get(accountName) ?? lines.map((line) => ({ line, depth: 0 }));
+          // Root-only sum (depth 0), reusing the same nested tree already
+          // built for rendering — a root's resolved `budgeted` already
+          // recursively includes every descendant, so this never double-counts.
+          const accountTotal = orderedLines
+            .filter((r) => r.depth === 0)
+            .reduce((s, r) => s + r.line.budgeted, 0);
           return (
             <Card key={accountName}>
               <CardHeader>
@@ -323,7 +335,7 @@ export function BudgetPageClient({
                                   {formatUSD(b.budgeted)}
                                 </span>
                               ) : (
-                                <BudgetLineEditor budgetId={b.id} currentBudgeted={b.budgeted} />
+                                <BudgetLineEditor budgetId={b.id} currentBudgeted={b.budgeted} rawBudgeted={b.budgetedRaw} />
                               )}
                             </td>
                             <td className={`px-4 py-2 text-right text-xs ${b.rolloverAmount < 0 ? "text-destructive" : b.rolloverAmount === 0 ? "text-muted-foreground" : "text-green-600"}`}>

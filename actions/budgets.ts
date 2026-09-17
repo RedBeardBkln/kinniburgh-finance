@@ -16,7 +16,8 @@ const UpdateSchema = z.object({
   budgeted: z
     .string()
     .trim()
-    .regex(/^\d+(\.\d{1,2})?$/, "Must be a positive dollar amount (e.g. 217.00)"),
+    .regex(/^(\d+(\.\d{1,2})?)?$/, "Must be blank (to auto-sum nested lines) or a positive dollar amount (e.g. 217.00)")
+    .optional(),
 });
 
 export async function updateBudgetLine(
@@ -30,9 +31,11 @@ export async function updateBudgetLine(
     return { error: parsed.error.errors[0]?.message ?? "Invalid amount" };
   }
 
+  const budgetedDecimal = parsed.data.budgeted ? new Prisma.Decimal(parsed.data.budgeted) : null;
+
   await db.budget.update({
     where: { id: budgetId },
-    data: { budgeted: parsed.data.budgeted },
+    data: { budgeted: budgetedDecimal },
   });
 
   revalidatePath("/budgets");
@@ -45,11 +48,13 @@ async function upsertBudgetBill(
   tagId: string,
   entityId: string,
   accountId: string,
-  budgeted: string,
+  budgeted: string | null,
   payDay: number
 ) {
   const tag = await db.tag.findUnique({ where: { id: tagId } });
   if (!tag) return;
+
+  const expectedAmount = budgeted ? new Prisma.Decimal(budgeted) : null;
 
   await db.scheduledBill.upsert({
     where: { budgetTagId_budgetEntityId: { budgetTagId: tagId, budgetEntityId: entityId } },
@@ -58,7 +63,7 @@ async function upsertBudgetBill(
       entityId,
       payee: tag.shortName,
       amountType: "static",
-      expectedAmount: new Prisma.Decimal(budgeted),
+      expectedAmount,
       autopayDay: payDay,
       budgetTagId: tagId,
       budgetEntityId: entityId,
@@ -66,7 +71,7 @@ async function upsertBudgetBill(
     },
     update: {
       accountId,
-      expectedAmount: new Prisma.Decimal(budgeted),
+      expectedAmount,
       autopayDay: payDay,
       active: true,
     },
@@ -86,7 +91,11 @@ const CreateSchema = z.object({
   entityId: z.string().uuid(),
   accountId: z.string().uuid(),
   period: z.string().regex(/^\d{4}-\d{2}$/),
-  budgeted: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  budgeted: z
+    .string()
+    .trim()
+    .regex(/^(\d+(\.\d{1,2})?)?$/, "Must be blank (to auto-sum nested lines) or a positive dollar amount (e.g. 217.00)")
+    .optional(),
   payDay: z.number().int().min(1).max(31).optional(),
 });
 
@@ -101,6 +110,7 @@ export async function createBudget(
   }
 
   const { tagId, entityId, accountId, period, budgeted, payDay } = parsed.data;
+  const budgetedDecimal = budgeted ? new Prisma.Decimal(budgeted) : null;
 
   // A tag can only be budgeted by one entity per period, household-wide —
   // the UI's Add Budget Line dropdown already hides tags used by ANY entity
@@ -125,13 +135,13 @@ export async function createBudget(
       entityId,
       accountId,
       period,
-      budgeted: new Prisma.Decimal(budgeted),
+      budgeted: budgetedDecimal,
       payDay: payDay ?? null,
     },
   });
 
   if (payDay !== undefined) {
-    await upsertBudgetBill(tagId, entityId, accountId, budgeted, payDay);
+    await upsertBudgetBill(tagId, entityId, accountId, budgeted ?? null, payDay);
   }
 
   revalidateAll();
@@ -141,7 +151,11 @@ export async function createBudget(
 // ── Update ────────────────────────────────────────────────────────────────────
 
 const UpdateBudgetSchema = z.object({
-  budgeted: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+  budgeted: z
+    .string()
+    .trim()
+    .regex(/^(\d+(\.\d{1,2})?)?$/, "Must be blank (to auto-sum nested lines) or a positive dollar amount (e.g. 217.00)")
+    .optional(),
   payDay: z.number().int().min(1).max(31).nullable().optional(),
   accountId: z.string().uuid().optional(),
   applyToFuture: z.boolean().optional(),
@@ -163,8 +177,14 @@ export async function updateBudget(
   const current = await db.budget.findUnique({ where: { id } });
   if (!current) return { error: "Budget not found" };
 
+  // Three distinguishable states: omitted (undefined — no change), explicit
+  // blank ("" — clear to auto-sum), explicit value.
+  const newBudgetedRaw = budgeted !== undefined ? (budgeted === "" ? null : budgeted) : undefined;
+
   const updateData: Prisma.BudgetUpdateInput = {};
-  if (budgeted !== undefined) updateData.budgeted = new Prisma.Decimal(budgeted);
+  if (newBudgetedRaw !== undefined) {
+    updateData.budgeted = newBudgetedRaw ? new Prisma.Decimal(newBudgetedRaw) : null;
+  }
   if (payDay !== undefined) updateData.payDay = payDay;
   if (accountId !== undefined) updateData.account = { connect: { id: accountId } };
 
@@ -191,7 +211,8 @@ export async function updateBudget(
 
   const effectivePayDay = payDay !== undefined ? payDay : current.payDay;
   const effectiveAccountId = accountId ?? current.accountId;
-  const effectiveBudgeted = budgeted ?? current.budgeted.toString();
+  const effectiveBudgeted =
+    newBudgetedRaw !== undefined ? newBudgetedRaw : current.budgeted !== null ? current.budgeted.toString() : null;
 
   if (effectivePayDay !== null && effectivePayDay !== undefined) {
     await upsertBudgetBill(

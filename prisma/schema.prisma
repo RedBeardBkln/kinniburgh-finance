@@ -226,7 +226,7 @@ model Budget {
   entityId        String
   accountId       String
   period          String   // YYYY-MM
-  budgeted              Decimal  @db.Decimal(14, 2)
+  budgeted              Decimal? @db.Decimal(14, 2)  // null = auto-sum from nested children (budget-parent-auto-sum)
   additionalAmountCents Decimal  @default(0) @db.Decimal(14, 2)
   payDay                Int?     // day of month (1–31) when this bill is paid
   rolloverEnabled       Boolean  @default(false)

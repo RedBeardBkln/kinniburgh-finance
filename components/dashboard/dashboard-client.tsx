@@ -17,6 +17,9 @@ export interface SerializedBudget {
   tagId: string;
   tagShortName: string;
   budgeted: number;
+  /** The raw stored `Budget.budgeted` value — null when this line is in
+   * auto-sum mode (blank). `budgeted` above is always the resolved amount. */
+  budgetedRaw: number | null;
   spent: number;
   percentUsed: number;
   isOverspent: boolean;
@@ -79,6 +82,7 @@ export function DashboardClient({
           tagShortName={selectedBudget.tagShortName}
           budgetId={selectedBudget.id}
           budgeted={selectedBudget.budgeted}
+          budgetedRaw={selectedBudget.budgetedRaw}
           spent={selectedBudget.spent}
           period={period}
           entityId={entityId}

@@ -143,6 +143,7 @@ export function BudgetEditModal({
                 className="w-full rounded border px-3 py-2 text-sm"
               />
             </div>
+            <p className="text-xs text-muted-foreground">Leave blank to auto-sum nested budget lines</p>
           </div>
 
           {/* Due date */}

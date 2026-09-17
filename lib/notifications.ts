@@ -13,6 +13,31 @@ import { sendPushToUser } from "./web-push";
 import { evaluateBudgetPace, PACE_TRAILING_MONTHS } from "./budget-pace";
 import type { MonthlySpendPoint } from "./budget-pace";
 import { autoAssignGlCodes } from "./gl-code-resolver";
+import { resolveBudgetedAmounts } from "./budget-nesting";
+
+// Groups a period's Budget rows by accountId and resolves each line's
+// effective (possibly auto-summed) amount — shared by checkBudgetOverspend
+// and checkBudgetPace, both of which do independent per-tag checks (no
+// root-filtering needed; every row, parent and child, gets its own resolved
+// amount and its own independent check).
+function resolveBudgetsByAccount<T extends { id: string; tagId: string; accountId: string; budgeted: Decimal | null; tag: { parentId: string | null } }>(
+  budgets: T[]
+): Map<string, Decimal> {
+  const byAccountId = new Map<string, T[]>();
+  for (const b of budgets) {
+    if (!byAccountId.has(b.accountId)) byAccountId.set(b.accountId, []);
+    byAccountId.get(b.accountId)!.push(b);
+  }
+  const resolved = new Map<string, Decimal>();
+  for (const group of byAccountId.values()) {
+    const tagParentById = new Map(group.map((b) => [b.tagId, b.tag.parentId]));
+    const resolverInput = group.map((b) => ({ id: b.id, tagId: b.tagId, budgeted: b.budgeted }));
+    for (const [id, amt] of resolveBudgetedAmounts(resolverInput, (tagId) => tagParentById.get(tagId), new Decimal(0))) {
+      resolved.set(id, amt);
+    }
+  }
+  return resolved;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -100,13 +125,14 @@ export async function checkBudgetOverspend(period: string): Promise<number> {
   `;
 
   const spendByTagId = new Map(tagSpendRows.map((r) => [r.tagId, new Decimal(r.total)]));
+  const resolvedByBudgetId = resolveBudgetsByAccount(budgets);
   const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
   let generated = 0;
 
   for (const budget of budgets) {
     const actualSpend = spendByTagId.get(budget.tagId) ?? new Decimal(0);
     const summary = computeBudgetSummary({
-      budgeted: budget.budgeted,
+      budgeted: resolvedByBudgetId.get(budget.id) ?? new Decimal(0),
       rolloverAmount: budget.rolloverAmount ?? new Decimal(0),
       actualSpend,
     });
@@ -195,13 +221,14 @@ export async function checkBudgetPace(period: string): Promise<number> {
     historyByTagId.set(row.tagId, points);
   }
 
+  const resolvedByBudgetId = resolveBudgetsByAccount(budgets);
   const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
   let generated = 0;
 
   for (const budget of budgets) {
     const actualSpend = spendByTagId.get(budget.tagId) ?? new Decimal(0);
     const summary = computeBudgetSummary({
-      budgeted: budget.budgeted,
+      budgeted: resolvedByBudgetId.get(budget.id) ?? new Decimal(0),
       rolloverAmount: budget.rolloverAmount ?? new Decimal(0),
       actualSpend,
     });

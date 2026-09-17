@@ -29,6 +29,7 @@ import { RecurringExpensesSection } from "@/components/forecast/recurring-expens
 import { RentalBookingsSection } from "@/components/forecast/rental-bookings-section";
 import { SpendPaceSection, type TagPaceRow } from "@/components/forecast/spend-pace-section";
 import { capForecastHorizon, prorateExpensesAcrossHorizon } from "@/lib/business-forecast";
+import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
 import {
   BusinessForecastSection,
   type ForecastAccount as BusinessForecastAccount,
@@ -165,15 +166,39 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       where: { entityId: entity.id, period: { in: touchedPeriods } },
       include: { tag: true },
     });
+
+    // Nesting/auto-sum resolution — same-account AND same-period only (two
+    // different periods' "Groceries" lines are unrelated).
+    const businessTagParentById = new Map(allTags.map((t) => [t.id, t.parentId]));
+    const budgetRowsByGroup = new Map<string, typeof budgetRows>();
+    for (const b of budgetRows) {
+      const key = `${b.period}::${b.accountId}`;
+      if (!budgetRowsByGroup.has(key)) budgetRowsByGroup.set(key, []);
+      budgetRowsByGroup.get(key)!.push(b);
+    }
+    const resolvedBudgetRowById = new Map<string, Prisma.Decimal>();
+    const rootBudgetRowIds = new Set<string>();
+    for (const group of budgetRowsByGroup.values()) {
+      const resolverInput = group.map((b) => ({ id: b.id, tagId: b.tagId, budgeted: b.budgeted }));
+      for (const [id, amt] of resolveBudgetedAmounts(resolverInput, (tagId) => businessTagParentById.get(tagId), new Prisma.Decimal(0))) {
+        resolvedBudgetRowById.set(id, amt);
+      }
+      for (const id of getRootBudgetLineIds(group, (tagId) => businessTagParentById.get(tagId))) {
+        rootBudgetRowIds.add(id);
+      }
+    }
+
     const aggregatePeriodTotals = new Map<string, Prisma.Decimal>();
     const periodTotalsByTag = new Map<string, { tagName: string; periods: Map<string, Prisma.Decimal> }>();
     for (const b of budgetRows) {
+      if (!rootBudgetRowIds.has(b.id)) continue; // skip non-root lines entirely for the total
+      const amt = resolvedBudgetRowById.get(b.id) ?? new Prisma.Decimal(0);
       aggregatePeriodTotals.set(
         b.period,
-        (aggregatePeriodTotals.get(b.period) ?? new Prisma.Decimal(0)).plus(b.budgeted)
+        (aggregatePeriodTotals.get(b.period) ?? new Prisma.Decimal(0)).plus(amt)
       );
       const tagEntry = periodTotalsByTag.get(b.tagId) ?? { tagName: b.tag.shortName, periods: new Map() };
-      tagEntry.periods.set(b.period, b.budgeted);
+      tagEntry.periods.set(b.period, amt);
       periodTotalsByTag.set(b.tagId, tagEntry);
     }
 
@@ -546,10 +571,26 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       historyByTagId.set(row.tagId, pts);
     }
 
+    // Nesting/auto-sum resolution — same-account only. This is a per-tag
+    // pace display, not a total, so no root-filtering is needed.
+    const paceTagParentById = new Map(allTags.map((t) => [t.id, t.parentId]));
+    const paceBudgetsByAccountId = new Map<string, typeof paceBudgets>();
+    for (const b of paceBudgets) {
+      if (!paceBudgetsByAccountId.has(b.accountId)) paceBudgetsByAccountId.set(b.accountId, []);
+      paceBudgetsByAccountId.get(b.accountId)!.push(b);
+    }
+    const resolvedPaceBudgetById = new Map<string, Prisma.Decimal>();
+    for (const group of paceBudgetsByAccountId.values()) {
+      const resolverInput = group.map((b) => ({ id: b.id, tagId: b.tagId, budgeted: b.budgeted }));
+      for (const [id, amt] of resolveBudgetedAmounts(resolverInput, (tagId) => paceTagParentById.get(tagId), new Prisma.Decimal(0))) {
+        resolvedPaceBudgetById.set(id, amt);
+      }
+    }
+
     for (const b of paceBudgets) {
       const actualSpend = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
       const summary = computeBudgetSummary({
-        budgeted: b.budgeted,
+        budgeted: resolvedPaceBudgetById.get(b.id) ?? new Prisma.Decimal(0),
         rolloverAmount: b.rolloverAmount ?? new Prisma.Decimal(0),
         actualSpend,
       });
