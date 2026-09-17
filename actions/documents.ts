@@ -293,6 +293,7 @@ export async function importStatementTransactions(
         postedAt,
         amount: amountDecimal,
         payeeNormalized: row!.description.slice(0, 100),
+        archivedAt: null,
       },
     });
 
@@ -316,7 +317,7 @@ export async function importStatementTransactions(
     imported++;
   }
 
-  revalidatePath("/personal/transactions");
+  revalidatePath("/transactions");
   return { imported, skipped };
 }
 
@@ -324,6 +325,6 @@ export async function getDocumentWithExtraction(documentId: string) {
   await requireAuth();
   return db.document.findUniqueOrThrow({
     where: { id: documentId },
-    include: { entity: true },
+    include: { entity: true, bankStatement: { select: { accountId: true } } },
   });
 }

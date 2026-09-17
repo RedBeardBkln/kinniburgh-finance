@@ -18,6 +18,7 @@ import {
   validateStatementFile,
 } from "@/lib/bank-statement-upload";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
+import { triggerExtraction } from "@/actions/documents";
 
 async function requireAuth() {
   const session = await auth();
@@ -249,6 +250,7 @@ function centsToDecimal(cents: number): Prisma.Decimal {
 
 export interface BankStatementRow {
   id: string;
+  documentId: string | null;
   accountId: string | null;
   accountNickname: string | null;
   periodStart: Date;
@@ -274,6 +276,7 @@ export async function listBankStatements(entityId: string): Promise<BankStatemen
 
   return statements.map((s) => ({
     id: s.id,
+    documentId: s.documentId,
     accountId: s.accountId,
     accountNickname: s.account?.nickname ?? null,
     periodStart: s.periodStart,
@@ -474,6 +477,39 @@ export async function retryAllPendingStatementExtractions(
   const succeeded = results.filter((r) => "success" in r).length;
   revalidatePath("/business");
   return { attempted: pending.length, succeeded, failed: pending.length - succeeded };
+}
+
+/**
+ * Runs transaction-row extraction (lib/doc-extract.ts's generic "bank_statement"
+ * docType path, via actions/documents.ts#triggerExtraction) for every
+ * statement in an entity whose linked Document has never had this kind of
+ * extraction attempted (or whose last attempt failed). Deliberately distinct
+ * from retryAllPendingStatementExtractions above, which re-runs the
+ * *balance* extraction (lib/bank-statement-extract.ts) — this one is
+ * transaction-row extraction only and never creates any Transaction rows
+ * itself; importing still requires the per-statement review/select step.
+ */
+export async function extractAllStatementTransactions(
+  entityId: string
+): Promise<RetryAllPendingResult> {
+  await requireAuth();
+
+  const statements = await db.bankStatement.findMany({
+    where: { entityId, archivedAt: null, documentId: { not: null } },
+    include: { document: { select: { id: true, extractionStatus: true } } },
+  });
+
+  const toExtract = statements.filter(
+    (s) => !s.document || !s.document.extractionStatus || s.document.extractionStatus === "failed"
+  );
+
+  const results = await runWithConcurrencyLimit(toExtract, 4, (s) =>
+    triggerExtraction(s.documentId!)
+  );
+
+  const succeeded = results.filter((r) => r !== null).length;
+  revalidatePath("/business");
+  return { attempted: toExtract.length, succeeded, failed: toExtract.length - succeeded };
 }
 
 // ── Archive (never hard-delete — tax bookkeeping evidence) ─────────────────────

@@ -2,12 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type { Route } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   confirmBankStatement,
   retryStatementExtraction,
   retryAllPendingStatementExtractions,
+  extractAllStatementTransactions,
   archiveBankStatement,
   type ConfirmStatementInput,
 } from "@/actions/bank-statements";
@@ -21,6 +24,7 @@ interface AccountOption {
 
 interface StatementRow {
   id: string;
+  documentId: string | null;
   accountId: string | null;
   accountNickname: string | null;
   periodStart: Date;
@@ -39,6 +43,7 @@ interface Props {
   statements: StatementRow[];
   accounts: AccountOption[];
   entityId: string;
+  entitySlug: string;
 }
 
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
@@ -74,13 +79,16 @@ function isoDate(d: Date): string {
 
 const LIABILITY_ACCOUNT_TYPES = new Set(["credit_card", "mortgage", "loan"]);
 
-export function StatementsTable({ statements, accounts, entityId }: Props) {
+export function StatementsTable({ statements, accounts, entityId, entitySlug }: Props) {
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isParsingAll, startParseAll] = useTransition();
   const [parseAllResult, setParseAllResult] = useState<string | null>(null);
+  const [isExtractingAll, startExtractAll] = useTransition();
+  const [extractAllResult, setExtractAllResult] = useState<string | null>(null);
 
   const pendingCount = statements.filter((s) => s.extractStatus === "pending").length;
+  const hasDocuments = statements.some((s) => s.documentId);
 
   function handleParseAll() {
     setParseAllResult(null);
@@ -88,6 +96,19 @@ export function StatementsTable({ statements, accounts, entityId }: Props) {
       const res = await retryAllPendingStatementExtractions(entityId);
       setParseAllResult(
         `Parsed ${res.succeeded} of ${res.attempted}${res.failed > 0 ? ` — ${res.failed} failed, review manually` : ""}.`
+      );
+      router.refresh();
+    });
+  }
+
+  function handleExtractAllTransactions() {
+    setExtractAllResult(null);
+    startExtractAll(async () => {
+      const res = await extractAllStatementTransactions(entityId);
+      setExtractAllResult(
+        res.attempted === 0
+          ? "All statements already have transactions extracted."
+          : `Extracted transactions for ${res.succeeded} of ${res.attempted}${res.failed > 0 ? ` — ${res.failed} failed, retry from the statement's review page` : ""}. Review and import each statement's rows below.`
       );
       router.refresh();
     });
@@ -108,11 +129,23 @@ export function StatementsTable({ statements, accounts, entityId }: Props) {
     <Card>
       <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">Uploaded Statements</CardTitle>
-        {pendingCount > 0 && (
-          <div className="flex items-center gap-2">
-            {parseAllResult && (
-              <span className="text-xs text-muted-foreground">{parseAllResult}</span>
-            )}
+        <div className="flex items-center gap-2">
+          {extractAllResult && (
+            <span className="max-w-xs text-xs text-muted-foreground">{extractAllResult}</span>
+          )}
+          {parseAllResult && (
+            <span className="text-xs text-muted-foreground">{parseAllResult}</span>
+          )}
+          {hasDocuments && (
+            <button
+              onClick={handleExtractAllTransactions}
+              disabled={isExtractingAll}
+              className="inline-flex items-center rounded-md border border-input bg-background px-3 h-8 text-xs font-medium hover:bg-accent disabled:opacity-60"
+            >
+              {isExtractingAll ? "Extracting…" : "Extract transactions for all statements"}
+            </button>
+          )}
+          {pendingCount > 0 && (
             <button
               onClick={handleParseAll}
               disabled={isParsingAll}
@@ -120,8 +153,8 @@ export function StatementsTable({ statements, accounts, entityId }: Props) {
             >
               {isParsingAll ? "Parsing…" : `Parse All Pending (${pendingCount})`}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         <table className="w-full text-sm">
@@ -144,6 +177,7 @@ export function StatementsTable({ statements, accounts, entityId }: Props) {
                   key={s.id}
                   statement={s}
                   accounts={accounts}
+                  entitySlug={entitySlug}
                   status={status ?? { label: s.extractStatus, cls: "bg-muted text-muted-foreground border-border" }}
                   needsReview={needsReview}
                   editing={editingId === s.id}
@@ -163,6 +197,7 @@ export function StatementsTable({ statements, accounts, entityId }: Props) {
 function StatementRowItem({
   statement,
   accounts,
+  entitySlug,
   status,
   needsReview,
   editing,
@@ -172,6 +207,7 @@ function StatementRowItem({
 }: {
   statement: StatementRow;
   accounts: AccountOption[];
+  entitySlug: string;
   status: { label: string; cls: string };
   needsReview: boolean;
   editing: boolean;
@@ -264,6 +300,14 @@ function StatementRowItem({
         </td>
         <td className="px-4 py-2">
           <div className="flex items-center gap-2 justify-end">
+            {statement.documentId && (
+              <Link
+                href={`/documents/${statement.documentId}/review?bucket=${entitySlug}` as Route}
+                className="text-xs text-primary hover:underline"
+              >
+                Review & import transactions →
+              </Link>
+            )}
             <button
               onClick={onEdit}
               className="text-xs text-primary hover:underline"

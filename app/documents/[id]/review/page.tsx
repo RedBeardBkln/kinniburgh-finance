@@ -6,6 +6,8 @@ import {
   triggerExtraction,
   skipExtraction,
 } from "@/actions/documents";
+import { listEntityAccounts } from "@/actions/bank-statements";
+import { getEntityBySlug } from "@/lib/entity";
 import { DocumentReviewClient } from "@/components/documents/document-review-client";
 import Link from "next/link";
 import type { Route } from "next";
@@ -13,13 +15,15 @@ import type { ExtractedDocument } from "@/lib/doc-extract";
 
 interface PageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ bucket?: string }>;
 }
 
-export default async function DocumentReviewPage({ params }: PageProps) {
+export default async function DocumentReviewPage({ params, searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user) redirect("/login" as Route);
 
   const { id } = await params;
+  const { bucket } = await searchParams;
   const doc = await getDocumentWithExtraction(id);
 
   // Auto-trigger extraction if not yet attempted
@@ -28,13 +32,38 @@ export default async function DocumentReviewPage({ params }: PageProps) {
     extraction = await triggerExtraction(id);
   }
 
+  // When arriving from a business statements page (?bucket=<entity-slug>),
+  // point the breadcrumb/back-link there instead of the generic vault, and
+  // (for bank statements) fetch the entity's accounts for a real picker.
+  const entity = bucket ? await getEntityBySlug(bucket) : null;
+  const backHref = (entity ? `/business/${bucket}/statements` : "/documents") as Route;
+  const backLabel = entity ? "Bank Statements" : "Documents";
+
+  const accounts = doc.docType === "bank_statement"
+    ? await listEntityAccounts(doc.entityId)
+    : null;
+
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Link href={"/documents" as Route} className="hover:underline">Documents</Link>
-          <span>/</span>
-          <span>Review extraction</span>
+          {entity ? (
+            <>
+              <Link href={"/business" as Route} className="hover:underline">Business</Link>
+              <span>/</span>
+              <span>{entity.navLabel ?? entity.name}</span>
+              <span>/</span>
+              <Link href={backHref} className="hover:underline">{backLabel}</Link>
+              <span>/</span>
+              <span>Review extraction</span>
+            </>
+          ) : (
+            <>
+              <Link href={backHref} className="hover:underline">{backLabel}</Link>
+              <span>/</span>
+              <span>Review extraction</span>
+            </>
+          )}
         </div>
 
         <div>
@@ -64,6 +93,8 @@ export default async function DocumentReviewPage({ params }: PageProps) {
             documentId={id}
             extraction={extraction}
             entityId={doc.entityId}
+            accounts={accounts ?? undefined}
+            defaultAccountId={doc.bankStatement?.accountId ?? null}
           />
         )}
 
@@ -75,14 +106,14 @@ export default async function DocumentReviewPage({ params }: PageProps) {
 
         <div className="flex items-center gap-3">
           {doc.extractionStatus !== "skipped" && (
-            <form action={async () => { "use server"; await skipExtraction(id); redirect("/documents" as Route); }}>
+            <form action={async () => { "use server"; await skipExtraction(id); redirect(backHref); }}>
               <button type="submit" className="text-sm text-muted-foreground hover:underline">
                 Skip — store without extraction
               </button>
             </form>
           )}
-          <Link href={"/documents" as Route} className="text-sm text-muted-foreground hover:underline">
-            ← Back to documents
+          <Link href={backHref} className="text-sm text-muted-foreground hover:underline">
+            ← Back to {backLabel}
           </Link>
         </div>
       </div>

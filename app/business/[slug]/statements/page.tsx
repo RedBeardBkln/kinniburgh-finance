@@ -54,7 +54,7 @@ export default async function BankStatementsPage({ params }: PageProps) {
 
         <StatementUploadForm entityId={entity.id} accounts={accounts} />
 
-        <StatementsTable statements={statements} accounts={accounts} entityId={entity.id} />
+        <StatementsTable statements={statements} accounts={accounts} entityId={entity.id} entitySlug={slug} />
 
         <Card>
           <CardContent className="px-4 py-3">

@@ -6,10 +6,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { confirmDocExtraction, importStatementTransactions } from "@/actions/documents";
 import type { ExtractedDocument, TransactionRow } from "@/lib/doc-extract";
 
+interface AccountOption {
+  id: string;
+  nickname: string;
+  mask: string | null;
+}
+
 interface Props {
   documentId: string;
   extraction: ExtractedDocument;
   entityId: string;
+  accounts?: AccountOption[];
+  defaultAccountId?: string | null;
 }
 
 function formatCents(cents: unknown): string {
@@ -24,13 +32,19 @@ function formatField(key: string, value: unknown): string {
   return String(value);
 }
 
-export function DocumentReviewClient({ documentId, extraction, entityId }: Props) {
+export function DocumentReviewClient({
+  documentId,
+  extraction,
+  entityId,
+  accounts,
+  defaultAccountId,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [selectedRows, setSelectedRows] = useState<Set<number>>(
     new Set(extraction.transactionRows?.map((_, i) => i) ?? [])
   );
-  const [accountId, setAccountId] = useState("");
+  const [accountId, setAccountId] = useState(defaultAccountId ?? "");
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -130,13 +144,28 @@ export function DocumentReviewClient({ documentId, extraction, entityId }: Props
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Target account</label>
-              <input
-                type="text"
-                value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-                placeholder="Account ID (paste from account settings)"
-                className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
+              {accounts && accounts.length > 0 ? (
+                <select
+                  value={accountId}
+                  onChange={(e) => setAccountId(e.target.value)}
+                  className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Select an account…</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.nickname}{a.mask ? ` (···${a.mask})` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={accountId}
+                  onChange={(e) => setAccountId(e.target.value)}
+                  placeholder="Account ID (paste from account settings)"
+                  className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                />
+              )}
             </div>
 
             <div className="overflow-x-auto rounded-md border">
