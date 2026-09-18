@@ -163,7 +163,12 @@ export async function applyRulesToTransaction(
     accountIds: r.accountIds ? (JSON.parse(r.accountIds) as string[]) : null,
   }));
 
-  const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
+  // Always re-derive from payeeRaw rather than trusting the stored
+  // payeeNormalized: that field is a cache, and a wrong cached value
+  // (e.g. bank-statement imports before their fix in actions/documents.ts)
+  // would otherwise make matching silently fail forever for that row, with
+  // no way to notice short of re-deriving live like this.
+  const normalizedPayee = normalizePayee(tx.payeeRaw ?? tx.payeeNormalized ?? "");
   const amount = new Prisma.Decimal(tx.amount).abs().toNumber();
   const matched = matchTagRule(candidates, {
     normalizedPayee,
@@ -231,7 +236,12 @@ export async function dryRunTagRules(entityId?: string): Promise<{
   let willTag = 0;
 
   for (const tx of transactions) {
-    const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
+    // Always re-derive from payeeRaw rather than trusting the stored
+  // payeeNormalized: that field is a cache, and a wrong cached value
+  // (e.g. bank-statement imports before their fix in actions/documents.ts)
+  // would otherwise make matching silently fail forever for that row, with
+  // no way to notice short of re-deriving live like this.
+  const normalizedPayee = normalizePayee(tx.payeeRaw ?? tx.payeeNormalized ?? "");
     const amount = tx.amount.abs().toNumber();
     const matched = matchTagRule(candidates, { normalizedPayee, amount, accountId: tx.accountId });
     if (matched) {
@@ -343,7 +353,12 @@ export async function previewRetroactiveRule(
     // there) so a rule for "Lowe's" also matches "Lowe's Home Goods LLC".
     let isExactMatch = true;
     if (pattern) {
-      const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
+      // Always re-derive from payeeRaw rather than trusting the stored
+  // payeeNormalized: that field is a cache, and a wrong cached value
+  // (e.g. bank-statement imports before their fix in actions/documents.ts)
+  // would otherwise make matching silently fail forever for that row, with
+  // no way to notice short of re-deriving live like this.
+  const normalizedPayee = normalizePayee(tx.payeeRaw ?? tx.payeeNormalized ?? "");
       const sp = alnum(normalizedPayee);
       const sPattern = alnum(pattern);
       if (sp === sPattern) {
