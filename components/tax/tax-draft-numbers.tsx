@@ -75,10 +75,11 @@ export function TaxDraftNumbers({
             <p className="mt-0.5 leading-relaxed">
               &quot;{documentTypeLabel(doc.docType)}&quot; document uploaded {fmtDate(doc.createdAt)} didn&apos;t
               extract cleanly under that document type — the file&apos;s real content likely doesn&apos;t match
-              (a known live example: a real 2025 mortgage-interest statement uploaded as a W-2). If this looks
-              like the wrong type, use &quot;Rename / retype&quot; on the document below to relabel it, then{" "}
-              <strong>re-upload the same file</strong> — relabeling alone does not re-run extraction; there&apos;s
-              no automatic re-extract feature yet.
+              (a known live example: a real 2025 mortgage-interest statement uploaded as a W-2). Use{" "}
+              <strong>View</strong> on the document below to confirm what it actually is, then{" "}
+              <strong>Rename / retype</strong> it to the correct type and save — re-extraction now runs
+              automatically whenever the type changes. If the file itself is wrong (not just mislabeled),
+              use <strong>Swap file</strong> instead.
             </p>
             <a href={`#doc-${doc.id}`} className="mt-1 inline-block text-xs font-medium underline">
               Jump to this document ↓
