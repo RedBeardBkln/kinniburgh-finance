@@ -46,13 +46,24 @@ export async function listTagMappingsForEntity(entityId: string): Promise<{
 
   const tagNameById = new Map(allTags.map((t) => [t.id, t.name]));
   const mappingByTagId = new Map(mappings.map((m) => [m.tagId, m.glCodeId]));
+  const usageCountByTagId = new Map(tagUsage.map((u) => [u.tagId, u._count.tagId]));
 
-  const inUse: TagMappingRow[] = tagUsage
-    .map((u) => ({
-      tagId: u.tagId,
-      tagName: tagNameById.get(u.tagId) ?? u.tagId,
-      usageCount: u._count.tagId,
-      glCodeId: mappingByTagId.get(u.tagId) ?? null,
+  // A tag belongs in the visible table if it's either currently used on a
+  // transaction OR already has a saved mapping. Mapping-only-by-usage would
+  // mean a tag mapped ahead of any transaction using it (exactly what "Map
+  // another tag..." exists for) saves correctly but then vanishes from the
+  // table on the next page load — its mapping is real, but with usageCount
+  // 0 it would never re-qualify for `inUse`, making a genuinely-saved
+  // mapping look lost. Confirmed live: ~19 of Eric's existing EK Consulting
+  // mappings were invisible in the table this way before this fix.
+  const relevantTagIds = new Set([...usageCountByTagId.keys(), ...mappingByTagId.keys()]);
+
+  const inUse: TagMappingRow[] = Array.from(relevantTagIds)
+    .map((tagId) => ({
+      tagId,
+      tagName: tagNameById.get(tagId) ?? tagId,
+      usageCount: usageCountByTagId.get(tagId) ?? 0,
+      glCodeId: mappingByTagId.get(tagId) ?? null,
     }))
     .sort((a, b) => b.usageCount - a.usageCount || a.tagName.localeCompare(b.tagName));
 
