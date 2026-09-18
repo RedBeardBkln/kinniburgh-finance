@@ -94,7 +94,10 @@ export async function upsertTagGlMapping(
     create: data,
   });
 
-  revalidatePath("/business");
+  // "layout" revalidates every nested /business/[slug]/* route (gl, pl, etc.)
+  // that reads this mapping — a bare "/business" path match only covers the
+  // entity-list page itself, not the actual pages a mapping change affects.
+  revalidatePath("/business", "layout");
 }
 
 export async function unsetTagGlMapping(entityId: string, tagId: string): Promise<void> {
@@ -103,7 +106,7 @@ export async function unsetTagGlMapping(entityId: string, tagId: string): Promis
   z.string().uuid().parse(tagId);
 
   await db.tagGlCodeMapping.deleteMany({ where: { entityId, tagId } });
-  revalidatePath("/business");
+  revalidatePath("/business", "layout");
 }
 
 // ─── Backfill preview / apply ───────────────────────────────────────────────
@@ -212,6 +215,6 @@ export async function applyGlCodeBackfill(
   }));
 
   const result = await autoAssignGlCodes(entries, user.id!);
-  revalidatePath("/business");
+  revalidatePath("/business", "layout");
   return result;
 }

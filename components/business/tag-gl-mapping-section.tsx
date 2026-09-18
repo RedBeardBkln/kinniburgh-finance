@@ -27,7 +27,14 @@ export function TagGlMappingSection({ entityId, glCodes, inUse: initialInUse, un
   const [inUse, setInUse] = useState(initialInUse);
   const [addingTagId, setAddingTagId] = useState<string>("");
   const [manuallyAdded, setManuallyAdded] = useState<UnusedTagOption[]>([]);
-  const [savingTagId, setSavingTagId] = useState<string | null>(null);
+  // Per-row save status — a single shared scalar previously meant only the
+  // most-recently-edited row ever showed a saving/disabled state, and a
+  // failed save had no error handling at all: the await simply threw,
+  // setInUse never ran, and the row silently reverted with zero indication
+  // anything went wrong. Assigning many tags in a row made this easy to miss
+  // until navigating away and back.
+  const [rowStatus, setRowStatus] = useState<Record<string, "saving" | "saved" | "error">>({});
+  const [rowError, setRowError] = useState<Record<string, string>>({});
   const [showBackfill, setShowBackfill] = useState(false);
   const [, startTransition] = useTransition();
 
@@ -35,7 +42,13 @@ export function TagGlMappingSection({ entityId, glCodes, inUse: initialInUse, un
   const remainingUnused = unused.filter((t) => !mappedTagIds.has(t.id));
 
   function handleSetMapping(tagId: string, tagName: string, glCodeId: string) {
-    setSavingTagId(tagId);
+    setRowStatus((prev) => ({ ...prev, [tagId]: "saving" }));
+    setRowError((prev) => {
+      if (!(tagId in prev)) return prev;
+      const next = { ...prev };
+      delete next[tagId];
+      return next;
+    });
     startTransition(async () => {
       try {
         if (glCodeId) {
@@ -51,8 +64,23 @@ export function TagGlMappingSection({ entityId, glCodes, inUse: initialInUse, un
           await unsetTagGlMapping(entityId, tagId);
           setInUse((prev) => prev.map((r) => (r.tagId === tagId ? { ...r, glCodeId: null } : r)));
         }
-      } finally {
-        setSavingTagId(null);
+        setRowStatus((prev) => ({ ...prev, [tagId]: "saved" }));
+        // Fade the "Saved" confirmation after a couple seconds rather than
+        // leaving a permanent checkmark on every row that's ever been touched.
+        setTimeout(() => {
+          setRowStatus((prev) => {
+            if (prev[tagId] !== "saved") return prev;
+            const next = { ...prev };
+            delete next[tagId];
+            return next;
+          });
+        }, 2000);
+      } catch (err) {
+        setRowStatus((prev) => ({ ...prev, [tagId]: "error" }));
+        setRowError((prev) => ({
+          ...prev,
+          [tagId]: err instanceof Error ? err.message : "Failed to save — try again.",
+        }));
       }
     });
   }
@@ -113,19 +141,32 @@ export function TagGlMappingSection({ entityId, glCodes, inUse: initialInUse, un
                     {row.usageCount > 0 ? row.usageCount : "—"}
                   </td>
                   <td className="px-3 py-2">
-                    <select
-                      value={row.glCodeId ?? ""}
-                      onChange={(e) => handleSetMapping(row.tagId, row.tagName, e.target.value)}
-                      disabled={savingTagId === row.tagId}
-                      className="block w-full rounded border border-input bg-background px-1.5 py-1 text-xs"
-                    >
-                      <option value="">— unmapped —</option>
-                      {glCodes.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.code} {g.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={row.glCodeId ?? ""}
+                        onChange={(e) => handleSetMapping(row.tagId, row.tagName, e.target.value)}
+                        disabled={rowStatus[row.tagId] === "saving"}
+                        className="block w-full rounded border border-input bg-background px-1.5 py-1 text-xs"
+                      >
+                        <option value="">— unmapped —</option>
+                        {glCodes.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.code} {g.name}
+                          </option>
+                        ))}
+                      </select>
+                      {rowStatus[row.tagId] === "saving" && (
+                        <span className="shrink-0 text-xs text-muted-foreground">Saving…</span>
+                      )}
+                      {rowStatus[row.tagId] === "saved" && (
+                        <span className="shrink-0 text-xs text-green-600">Saved ✓</span>
+                      )}
+                    </div>
+                    {rowStatus[row.tagId] === "error" && (
+                      <p className="mt-1 text-xs text-destructive">
+                        {rowError[row.tagId] ?? "Failed to save — try again."}
+                      </p>
+                    )}
                   </td>
                 </tr>
               ))}
