@@ -1,10 +1,17 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createAccount, updateAccount, archiveAccount, dismissPendingPlaidItem } from "@/actions/accounts";
+import {
+  createAccount,
+  updateAccount,
+  archiveAccount,
+  dismissPendingPlaidItem,
+  countAccountTransactions,
+  reassignAccountEntity,
+} from "@/actions/accounts";
 import { ACCOUNT_TYPE_OPTIONS } from "@/lib/account-types";
 
 const NEW_INSTITUTION_SENTINEL = "__new__";
@@ -61,7 +68,8 @@ interface Props {
 type ModalState =
   | null
   | { mode: "add" }
-  | { mode: "edit"; account: SerializedAccount };
+  | { mode: "edit"; account: SerializedAccount }
+  | { mode: "move"; account: SerializedAccount };
 
 function modeBadge(mode: string) {
   const styles: Record<string, string> = {
@@ -267,6 +275,140 @@ function AccountModal({ modal, institutions, entities, onClose }: {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function MoveAccountModal({
+  account,
+  entities,
+  onClose,
+}: {
+  account: SerializedAccount;
+  entities: SerializedEntity[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [newEntityId, setNewEntityId] = useState("");
+  const [txCount, setTxCount] = useState<number | null>(null);
+  const [reassignTx, setReassignTx] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ transactionsReassigned: number } | null>(null);
+
+  useEffect(() => {
+    countAccountTransactions(account.id).then(setTxCount);
+  }, [account.id]);
+
+  const otherEntities = entities.filter((e) => e.id !== account.entityId);
+  const targetEntity = entities.find((e) => e.id === newEntityId);
+
+  function handleConfirm() {
+    if (!newEntityId) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        const res = await reassignAccountEntity({
+          accountId: account.id,
+          newEntityId,
+          reassignExistingTransactions: reassignTx,
+        });
+        setResult(res);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to move account");
+      }
+    });
+  }
+
+  if (result) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-xl space-y-4">
+          <h2 className="text-lg font-semibold">Account moved</h2>
+          <p className="text-sm text-muted-foreground">
+            &ldquo;{account.nickname}&rdquo; now belongs to {targetEntity?.name}.
+            {result.transactionsReassigned > 0 &&
+              ` ${result.transactionsReassigned} existing transaction${result.transactionsReassigned !== 1 ? "s" : ""} reassigned too.`}
+          </p>
+          <div className="flex justify-end">
+            <button
+              onClick={() => {
+                router.refresh();
+                onClose();
+              }}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-xl space-y-4">
+        <h2 className="text-lg font-semibold">Move &ldquo;{account.nickname}&rdquo;</h2>
+        <p className="text-sm text-muted-foreground">
+          Currently under <span className="font-medium">{account.entityName}</span>.
+        </p>
+
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Move to</label>
+          <select
+            value={newEntityId}
+            onChange={(e) => setNewEntityId(e.target.value)}
+            className="w-full rounded border px-3 py-2 text-sm"
+          >
+            <option value="">Select entity…</option>
+            {otherEntities.map((e) => (
+              <option key={e.id} value={e.id}>{e.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+          <p className="text-sm">
+            {txCount === null ? (
+              "Checking existing transactions…"
+            ) : (
+              <>This account has <strong>{txCount}</strong> existing transaction{txCount !== 1 ? "s" : ""} under {account.entityName}.</>
+            )}
+          </p>
+          {txCount !== null && txCount > 0 && (
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={reassignTx}
+                onChange={(e) => setReassignTx(e.target.checked)}
+                className="mt-0.5 h-4 w-4"
+              />
+              <span>
+                Also reassign {txCount === 1 ? "it" : "all of them"} to the new entity.
+                {!reassignTx &&
+                  ` Leave unchecked to move only the account going forward — existing transactions stay under ${account.entityName}.`}
+              </span>
+            </label>
+          )}
+        </div>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} disabled={isPending} className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={isPending || !newEntityId || txCount === null}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {isPending ? "Moving…" : "Move Account"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -523,6 +665,7 @@ export function AccountsPageClient({ accounts, institutions, entities, pendingPl
                         <td className="px-4 py-2">
                           <div className="flex items-center justify-end gap-3 whitespace-nowrap">
                             <button onClick={() => setModal({ mode: "edit", account: acct })} className="text-xs text-primary hover:underline">Edit</button>
+                            <button onClick={() => setModal({ mode: "move", account: acct })} className="text-xs text-primary hover:underline">Move</button>
                             {acct.integrationMode === "plaid" && acct.plaidItemId ? (
                               acct.plaidStatus === "requires_login" || acct.plaidStatus === "pending_expiration" ? (
                                 <Link href={`/accounts/connect?itemId=${acct.plaidItemId}`} className="text-xs font-medium text-red-600 hover:underline">Re-link</Link>
@@ -564,6 +707,9 @@ export function AccountsPageClient({ accounts, institutions, entities, pendingPl
 
       {modal && (modal.mode === "add" || modal.mode === "edit") && (
         <AccountModal modal={modal} institutions={institutions} entities={entities} onClose={() => setModal(null)} />
+      )}
+      {modal && modal.mode === "move" && (
+        <MoveAccountModal account={modal.account} entities={entities} onClose={() => setModal(null)} />
       )}
     </>
   );

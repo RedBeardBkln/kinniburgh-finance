@@ -86,6 +86,77 @@ export async function updateAccount(input: z.infer<typeof updateAccountSchema>) 
   return { success: true as const };
 }
 
+// ─── Reassign an account to a different entity ─────────────────────────────
+// Deliberately a separate, explicit action rather than a field on
+// updateAccount — moving an account across the Personal/business boundary
+// has real downstream effects (existing transactions, tags, GL coding) that
+// a plain rename/retype doesn't, so it needs its own considered UI and audit
+// trail rather than being one more silently-mergeable patch field.
+
+export async function countAccountTransactions(accountId: string): Promise<number> {
+  await requireAuth();
+  return db.transaction.count({ where: { accountId, archivedAt: null } });
+}
+
+const reassignAccountEntitySchema = z.object({
+  accountId: z.string().uuid(),
+  newEntityId: z.string().uuid(),
+  reassignExistingTransactions: z.boolean(),
+});
+
+export async function reassignAccountEntity(
+  input: z.infer<typeof reassignAccountEntitySchema>
+): Promise<{ transactionsReassigned: number }> {
+  const user = await requireAuth();
+  const { accountId, newEntityId, reassignExistingTransactions } =
+    reassignAccountEntitySchema.parse(input);
+
+  const account = await db.account.findUnique({ where: { id: accountId } });
+  if (!account) throw new Error("Account not found");
+  if (account.entityId === newEntityId) {
+    throw new Error("Account already belongs to that entity");
+  }
+  const oldEntityId = account.entityId;
+
+  await db.account.update({
+    where: { id: accountId },
+    data: { entityId: newEntityId },
+  });
+
+  let transactionsReassigned = 0;
+  if (reassignExistingTransactions) {
+    // Only rows still on the account's old entity — never touch a
+    // transaction someone already deliberately moved to a third entity.
+    const txs = await db.transaction.findMany({
+      where: { accountId, archivedAt: null, entityId: oldEntityId },
+      select: { id: true },
+    });
+
+    if (txs.length > 0) {
+      await db.auditLog.createMany({
+        data: txs.map((tx) => ({
+          transactionId: tx.id,
+          changedBy: user.id!,
+          changeType: "entity_change",
+          before: { entityId: oldEntityId },
+          after: { entityId: newEntityId, reason: "account_reassignment" },
+        })),
+      });
+
+      const result = await db.transaction.updateMany({
+        where: { id: { in: txs.map((tx) => tx.id) } },
+        data: { entityId: newEntityId },
+      });
+      transactionsReassigned = result.count;
+    }
+  }
+
+  revalidatePath("/accounts");
+  revalidatePath("/business");
+  revalidatePath("/transactions");
+  return { transactionsReassigned };
+}
+
 export async function archiveAccount(id: string) {
   await requireAuth();
   await db.account.update({
