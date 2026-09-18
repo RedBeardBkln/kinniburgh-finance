@@ -61,6 +61,7 @@ interface Props {
   initialAccountId: string | null;
   initialTaxCategory: string | null;
   initialProjectId: string | null;
+  initialTransactionId?: string;
   ocrStatus: string;
   confirmedAt: string | null;
   matches: MatchCandidate[];
@@ -81,6 +82,7 @@ export function ReceiptConfirmForm({
   initialAccountId,
   initialTaxCategory,
   initialProjectId,
+  initialTransactionId,
   ocrStatus,
   confirmedAt,
   matches: initialMatches,
@@ -106,7 +108,7 @@ export function ReceiptConfirmForm({
   const [taxCategory, setTaxCategory] = useState<string>(initialTaxCategory ?? "");
   const [projectId, setProjectId] = useState<string>(initialProjectId ?? "");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
-  const [transactionId, setTransactionId] = useState<string | undefined>();
+  const [transactionId, setTransactionId] = useState<string | undefined>(initialTransactionId);
   const [matches, setMatches] = useState<MatchCandidate[]>(initialMatches);
 
   const [projects, setProjects] = useState<Project[]>(initialProjects);

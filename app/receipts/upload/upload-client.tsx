@@ -3,12 +3,23 @@
 import { useTransition, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatUSD } from "@/lib/utils";
+
+export interface TransactionContext {
+  id: string;
+  payeeRaw: string | null;
+  postedAt: string; // ISO date (YYYY-MM-DD)
+  amount: string;   // Decimal-as-string, always positive (abs of the outflow)
+  entityLabel: string;
+  accountId: string;
+}
 
 interface UploadFormProps {
   entityLabel: string;
+  transactionContext: TransactionContext | null;
 }
 
-function UploadForm({ entityLabel }: UploadFormProps) {
+function UploadForm({ entityLabel, transactionContext }: UploadFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const bucket = searchParams.get("bucket") ?? "personal";
@@ -16,6 +27,7 @@ function UploadForm({ entityLabel }: UploadFormProps) {
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const today = new Date().toISOString().split("T")[0]!;
+  const defaultCaptureDate = transactionContext?.postedAt ?? today;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -29,9 +41,15 @@ function UploadForm({ entityLabel }: UploadFormProps) {
     }
     startTransition(async () => {
       try {
-        const resp = await fetch(`/api/entity-id?bucket=${bucket}`);
-        const { entityId } = (await resp.json()) as { entityId: string };
-        formData.set("entityId", entityId ?? "");
+        if (transactionContext) {
+          // Attaching to a known transaction — the transaction's own entity is
+          // authoritative in this mode, so we never fetch/trust a ?bucket= entity.
+          formData.set("transactionId", transactionContext.id);
+        } else {
+          const resp = await fetch(`/api/entity-id?bucket=${bucket}`);
+          const { entityId } = (await resp.json()) as { entityId: string };
+          formData.set("entityId", entityId ?? "");
+        }
         const uploadResp = await fetch("/api/receipts/upload", {
           method: "POST",
           body: formData,
@@ -40,8 +58,12 @@ function UploadForm({ entityLabel }: UploadFormProps) {
           const data = await uploadResp.json().catch(() => ({ error: "Upload failed" }));
           throw new Error((data as { error?: string }).error ?? "Upload failed");
         }
-        const { receiptId } = (await uploadResp.json()) as { receiptId: string };
-        router.push(`/receipts/${receiptId}`);
+        const { receiptId } = (await uploadResp.json()) as { receiptId: string; transactionId?: string };
+        router.push(
+          transactionContext
+            ? `/receipts/${receiptId}?transactionId=${transactionContext.id}`
+            : `/receipts/${receiptId}`
+        );
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload failed");
       }
@@ -68,23 +90,40 @@ function UploadForm({ entityLabel }: UploadFormProps) {
         <input
           name="capturedAt"
           type="date"
-          defaultValue={today}
+          defaultValue={defaultCaptureDate}
           required
           className="block rounded-md border border-input bg-background px-3 py-2 text-sm"
         />
       </div>
-      <div className="space-y-1">
-        <label className="text-sm font-medium">Entity</label>
-        <input
-          type="text"
-          value={entityLabel}
-          readOnly
-          className="block rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground"
-        />
-        <p className="text-xs text-muted-foreground">
-          Switch entity using the tabs at the top of the page.
-        </p>
-      </div>
+      {transactionContext ? (
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Attaching to</label>
+          <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+            <span className="font-medium">{transactionContext.payeeRaw ?? "Unknown"}</span>{" "}
+            —{" "}
+            {new Date(`${transactionContext.postedAt}T00:00:00Z`).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+              timeZone: "UTC",
+            })}{" "}
+            — {formatUSD(transactionContext.amount)} ({transactionContext.entityLabel})
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Entity</label>
+          <input
+            type="text"
+            value={entityLabel}
+            readOnly
+            className="block rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground"
+          />
+          <p className="text-xs text-muted-foreground">
+            Switch entity using the tabs at the top of the page.
+          </p>
+        </div>
+      )}
       {error && (
         <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
       )}
@@ -99,7 +138,13 @@ function UploadForm({ entityLabel }: UploadFormProps) {
   );
 }
 
-export function UploadClient({ entityLabel }: { entityLabel: string }) {
+export function UploadClient({
+  entityLabel,
+  transactionContext = null,
+}: {
+  entityLabel: string;
+  transactionContext?: TransactionContext | null;
+}) {
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <h1 className="text-2xl font-semibold">Upload Receipt</h1>
@@ -109,7 +154,7 @@ export function UploadClient({ entityLabel }: { entityLabel: string }) {
         </CardHeader>
         <CardContent>
           <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
-            <UploadForm entityLabel={entityLabel} />
+            <UploadForm entityLabel={entityLabel} transactionContext={transactionContext} />
           </Suspense>
         </CardContent>
       </Card>

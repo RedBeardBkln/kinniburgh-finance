@@ -11,22 +11,54 @@ import { decimalToNumber } from "@/lib/utils";
 
 interface PageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ transactionId?: string }>;
 }
 
-export default async function ReceiptDetailPage({ params }: PageProps) {
+export default async function ReceiptDetailPage({ params, searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
   const { id } = await params;
+  const { transactionId: pinnedTransactionId } = await searchParams;
   const receipt = await db.receipt.findUnique({ where: { id } });
   if (!receipt || receipt.archivedAt) notFound();
 
-  const [signedUrl, matches, allTags, formData] = await Promise.all([
+  const [signedUrl, matches, allTags, formData, pinnedTransaction] = await Promise.all([
     getReceiptSignedUrl(receipt.fileKey).catch(() => null),
     findMatchingTransactions(id, receipt.accountId ?? undefined),
     db.tag.findMany({ orderBy: { name: "asc" } }),
     getReceiptFormData(receipt.entityId),
+    pinnedTransactionId
+      ? db.transaction.findUnique({
+          where: { id: pinnedTransactionId, archivedAt: null },
+          select: {
+            id: true,
+            postedAt: true,
+            amount: true,
+            payeeRaw: true,
+            accountId: true,
+            account: { select: { nickname: true } },
+          },
+        })
+      : Promise.resolve(null),
   ]);
+
+  // Prepend the pinned transaction into the match list, only if
+  // findMatchingTransactions's fuzzy (±7 days/±2%) search didn't already
+  // surface the exact same row.
+  const allMatches =
+    pinnedTransaction && !matches.some((m) => m.id === pinnedTransaction.id)
+      ? [
+          {
+            id: pinnedTransaction.id,
+            postedAt: pinnedTransaction.postedAt,
+            amount: pinnedTransaction.amount.toString(),
+            payeeRaw: pinnedTransaction.payeeRaw,
+            accountNickname: pinnedTransaction.account.nickname,
+          },
+          ...matches,
+        ]
+      : matches;
 
   const isImage = receipt.fileKey.match(/\.(jpg|jpeg|png|webp)$/i);
   const isPdf = receipt.fileKey.endsWith(".pdf");
@@ -82,12 +114,13 @@ export default async function ReceiptDetailPage({ params }: PageProps) {
             initialDescription={receipt.description ?? ""}
             initialGlCode={receipt.glCode ?? ""}
             initialMemo={receipt.memo ?? ""}
-            initialAccountId={receipt.accountId ?? null}
+            initialAccountId={pinnedTransaction?.accountId ?? receipt.accountId ?? null}
             initialTaxCategory={receipt.taxCategory ?? null}
             initialProjectId={receipt.projectId ?? null}
+            initialTransactionId={pinnedTransaction?.id}
             ocrStatus={receipt.ocrStatus}
             confirmedAt={receipt.confirmedAt?.toISOString() ?? null}
-            matches={matches}
+            matches={allMatches}
             allTags={allTags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName, parentId: t.parentId }))}
             accounts={formData.accounts}
             projects={formData.projects}

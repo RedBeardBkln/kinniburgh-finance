@@ -7,6 +7,7 @@ import { normalizePayee } from "@/lib/tags";
 import { updateTransactionTags } from "@/actions/transactions";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { needsReceiptWhere, receiptDismissalKey, serializeReceiptDismissal } from "@/lib/receipt-flagging";
 
 function requireAuth() {
   return auth().then((session) => {
@@ -187,6 +188,83 @@ export async function deleteReceipt(receiptId: string): Promise<void> {
     where: { id: receiptId },
     data: { archivedAt: new Date() },
   });
+  revalidatePath("/receipts");
+}
+
+// ── Flagged transactions (no receipt, over threshold) ──────────────────────────
+
+export interface FlaggedTransactionRow {
+  id: string;
+  payeeRaw: string | null;
+  amount: string;       // Decimal-as-string, negative
+  postedAt: Date;
+  entityId: string;
+  entityName: string;
+  entitySlug: string | null;
+}
+
+export async function listFlaggedTransactions(entityId?: string): Promise<FlaggedTransactionRow[]> {
+  await requireAuth();
+  const rows = await db.transaction.findMany({
+    where: needsReceiptWhere(entityId),
+    select: {
+      id: true, payeeRaw: true, amount: true, postedAt: true,
+      entity: { select: { id: true, name: true, navLabel: true, slug: true } },
+    },
+    orderBy: { postedAt: "desc" },
+  });
+  if (rows.length === 0) return [];
+  const keys = rows.map((r) => receiptDismissalKey(r.id));
+  const dismissed = await db.appSetting.findMany({ where: { key: { in: keys } }, select: { key: true } });
+  const dismissedKeys = new Set(dismissed.map((d) => d.key));
+  return rows
+    .filter((r) => !dismissedKeys.has(receiptDismissalKey(r.id)))
+    .map((r) => ({
+      id: r.id,
+      payeeRaw: r.payeeRaw,
+      amount: r.amount.toString(),
+      postedAt: r.postedAt,
+      entityId: r.entity.id,
+      entityName: r.entity.navLabel ?? r.entity.name,
+      entitySlug: r.entity.slug,
+    }));
+}
+
+export async function dismissReceiptRequirement(transactionId: string, reason?: string): Promise<void> {
+  const user = await requireAuth();
+  const tx = await db.transaction.findUnique({
+    where: { id: transactionId, archivedAt: null },
+    include: { entity: true },
+  });
+  if (!tx) throw new Error("Transaction not found");
+  if (tx.entity.type !== "business") {
+    // Defense in depth — the UI never renders this control outside a flagged
+    // (already business-scoped) row, but the server must not trust the client.
+    throw new Error("Receipt flagging only applies to business transactions");
+  }
+
+  const value = serializeReceiptDismissal({
+    dismissedById: user.id!,
+    dismissedAt: new Date().toISOString(),
+    reason: reason ?? null,
+  });
+
+  await db.appSetting.upsert({
+    where: { key: receiptDismissalKey(transactionId) },
+    update: { value },
+    create: { key: receiptDismissalKey(transactionId), value },
+  });
+
+  await db.auditLog.create({
+    data: {
+      transactionId,
+      changedBy: user.id!,
+      changeType: "receipt_flag_dismissed",
+      before: {},
+      after: JSON.parse(value),
+    },
+  });
+
   revalidatePath("/receipts");
 }
 

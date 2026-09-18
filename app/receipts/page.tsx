@@ -5,10 +5,16 @@ import { AppShell } from "@/components/app-shell";
 import { getEntityBySlug } from "@/lib/entity";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { listReceipts } from "@/actions/receipts";
+import { listReceipts, listFlaggedTransactions } from "@/actions/receipts";
 import { db } from "@/lib/db";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import type { Route } from "next";
+import {
+  mergeReviewItems,
+  type ReviewReceiptItem,
+  type ReviewFlaggedTransactionItem,
+} from "@/lib/receipt-flagging";
+import { DismissReceiptFlagButton } from "@/components/receipts/dismiss-receipt-flag-button";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; tab?: string; page?: string }>;
@@ -32,23 +38,55 @@ export default async function ReceiptsPage({ searchParams }: PageProps) {
 
   const entity = await getEntityBySlug(bucket);
 
-  const { receipts, total, pageSize } = await listReceipts({
-    entityId: entity?.id,
-    tab: tab === "all" ? "all" : tab === "confirmed" ? "confirmed" : "review",
-    page,
-  });
+  const [{ receipts, total, pageSize }, flaggedTransactions, reviewReceiptCount] = await Promise.all([
+    listReceipts({
+      entityId: entity?.id,
+      tab: tab === "all" ? "all" : tab === "confirmed" ? "confirmed" : "review",
+      page,
+    }),
+    listFlaggedTransactions(entity?.id),
+    db.receipt.count({
+      where: {
+        entityId: entity?.id,
+        archivedAt: null,
+        ocrStatus: "complete",
+        confirmedAt: null,
+      },
+    }),
+  ]);
 
   const totalPages = Math.ceil(total / pageSize);
 
-  // Count needs-review for badge
-  const reviewCount = await db.receipt.count({
-    where: {
-      entityId: entity?.id,
-      archivedAt: null,
-      ocrStatus: "complete",
-      confirmedAt: null,
-    },
-  });
+  // Combined badge count: uploaded-but-unconfirmed receipts + flagged transactions.
+  const reviewCount = reviewReceiptCount + flaggedTransactions.length;
+
+  const reviewItems =
+    tab === "review"
+      ? mergeReviewItems(
+          receipts.map(
+            (r): ReviewReceiptItem => ({
+              kind: "receipt",
+              id: r.id,
+              vendor: r.vendor,
+              amountDollars: r.total != null ? decimalToNumber(r.total) : null,
+              itemDate: r.receiptDate ? r.receiptDate.toISOString() : null,
+              sortAt: r.createdAt.toISOString(),
+            })
+          ),
+          flaggedTransactions.map(
+            (t): ReviewFlaggedTransactionItem => ({
+              kind: "flagged_transaction",
+              id: t.id,
+              payeeRaw: t.payeeRaw,
+              amountDollars: Math.abs(Number(t.amount)),
+              itemDate: t.postedAt.toISOString(),
+              entityName: t.entityName,
+              entitySlug: t.entitySlug,
+              sortAt: t.postedAt.toISOString(),
+            })
+          )
+        )
+      : [];
 
   function buildUrl(overrides: Record<string, string>) {
     const q = new URLSearchParams({ bucket, tab, page: String(page), ...overrides });
@@ -90,6 +128,14 @@ export default async function ReceiptsPage({ searchParams }: PageProps) {
           ))}
         </div>
 
+        {tab === "review" && (
+          <p className="text-xs text-muted-foreground">
+            Transactions over $75 are flagged here using a commonly-applied receipt-substantiation
+            guideline — not a certainty that every flagged item legally requires a receipt for your
+            specific expense category. Dismiss any item that doesn&apos;t need one.
+          </p>
+        )}
+
         <Card>
           <CardContent className="p-0">
             <table className="w-full text-sm">
@@ -103,50 +149,132 @@ export default async function ReceiptsPage({ searchParams }: PageProps) {
                 </tr>
               </thead>
               <tbody>
-                {receipts.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
-                      No receipts found
-                    </td>
-                  </tr>
+                {tab === "review" ? (
+                  <>
+                    {reviewItems.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                          No receipts found
+                        </td>
+                      </tr>
+                    )}
+                    {reviewItems.map((item) =>
+                      item.kind === "receipt" ? (
+                        <tr key={`receipt-${item.id}`} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="px-4 py-3 font-medium">
+                            {item.vendor ?? <span className="italic text-muted-foreground">Unknown</span>}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {item.itemDate
+                              ? new Date(item.itemDate).toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                  timeZone: "UTC",
+                                })
+                              : "—"}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono">
+                            {item.amountDollars != null ? formatUSD(item.amountDollars) : "—"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <OcrStatusBadge status="complete" confirmed={false} />
+                          </td>
+                          <td className="px-4 py-3">
+                            <Link
+                              href={`/receipts/${item.id}` as Route}
+                              className="text-xs text-primary hover:underline"
+                            >
+                              Review →
+                            </Link>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr key={`flagged-${item.id}`} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="px-4 py-3 font-medium">
+                            {item.payeeRaw ?? <span className="italic text-muted-foreground">Unknown</span>}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {new Date(item.itemDate).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                              timeZone: "UTC",
+                            })}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono">
+                            {formatUSD(item.amountDollars)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant="secondary" className="bg-orange-100 text-orange-700">
+                              Flagged for review — no receipt on file
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-col items-start gap-1">
+                              <Link
+                                href={
+                                  `/receipts/upload?bucket=${item.entitySlug ?? "personal"}&transactionId=${item.id}` as Route
+                                }
+                                className="text-xs text-primary hover:underline"
+                              >
+                                Attach receipt →
+                              </Link>
+                              <DismissReceiptFlagButton transactionId={item.id} />
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {receipts.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                          No receipts found
+                        </td>
+                      </tr>
+                    )}
+                    {receipts.map((r) => (
+                      <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="px-4 py-3 font-medium">
+                          {r.vendor ?? <span className="italic text-muted-foreground">Unknown</span>}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {r.receiptDate
+                            ? new Date(r.receiptDate).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                                timeZone: "UTC",
+                              })
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono">
+                          {r.total != null ? formatUSD(decimalToNumber(r.total)) : "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <OcrStatusBadge status={r.ocrStatus} confirmed={r.confirmedAt != null} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <Link
+                            href={`/receipts/${r.id}` as Route}
+                            className="text-xs text-primary hover:underline"
+                          >
+                            Review →
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </>
                 )}
-                {receipts.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3 font-medium">
-                      {r.vendor ?? <span className="italic text-muted-foreground">Unknown</span>}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {r.receiptDate
-                        ? new Date(r.receiptDate).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                            timeZone: "UTC",
-                          })
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono">
-                      {r.total != null ? formatUSD(decimalToNumber(r.total)) : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <OcrStatusBadge status={r.ocrStatus} confirmed={r.confirmedAt != null} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/receipts/${r.id}` as Route}
-                        className="text-xs text-primary hover:underline"
-                      >
-                        Review →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
               </tbody>
             </table>
           </CardContent>
         </Card>
 
-        {totalPages > 1 && (
+        {tab !== "review" && totalPages > 1 && (
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">
               Page {page} of {totalPages}
