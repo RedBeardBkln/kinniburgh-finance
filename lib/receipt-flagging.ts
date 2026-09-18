@@ -4,6 +4,14 @@ import { Prisma } from "@prisma/client";
 // Cite that file for any future tax-year/rule change — never hardcode 75 anywhere else.
 export const RECEIPT_THRESHOLD_DOLLARS = 75;
 
+// Paying down a credit card balance isn't itself a substantiatable purchase — the receipts belong to
+// the underlying card charges, which the credit-card-statement-import flow already excludes via its
+// "payment" lineType. That exclusion only applies at import time from a credit card statement though;
+// a card payment that lands as an ordinary bank-statement debit (the normal case — it's an outflow on
+// the checking account) has no lineType and would otherwise get swept in here like a real expense.
+// Matched against payeeNormalized (see lib/tags.ts#normalizePayee), so this is case/punctuation-safe.
+const NON_EXPENSE_PAYEE_PATTERNS = ["crcardpmt"];
+
 // `entity: { type: "business" }` is unconditional — appended regardless of whether entityId is also
 // supplied, so a caller can never accidentally flag a Personal transaction by passing Personal's own
 // real entity id (Personal is a real Entity row, not a null bucket — getEntityBySlug("personal")
@@ -15,6 +23,7 @@ export function needsReceiptWhere(entityId?: string): Prisma.TransactionWhereInp
     transferPairId: null,
     amount: { lte: -RECEIPT_THRESHOLD_DOLLARS },
     entity: { type: "business" },
+    NOT: NON_EXPENSE_PAYEE_PATTERNS.map((pattern) => ({ payeeNormalized: { contains: pattern } })),
     ...(entityId ? { entityId } : {}),
   };
 }

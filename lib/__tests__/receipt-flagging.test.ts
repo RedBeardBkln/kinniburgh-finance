@@ -47,6 +47,12 @@ describe("needsReceiptWhere", () => {
     expect(where.receiptId).toBeNull();
     expect(where.transferPairId).toBeNull();
   });
+
+  it("excludes credit card bill payments (not a substantiatable purchase)", () => {
+    // e.g. payeeRaw "CAPITAL ONE-CRCARDPMT" -> payeeNormalized "capital one crcardpmt"
+    const where = needsReceiptWhere();
+    expect(where.NOT).toEqual([{ payeeNormalized: { contains: "crcardpmt" } }]);
+  });
 });
 
 describe("receiptDismissalKey", () => {
