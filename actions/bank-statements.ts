@@ -215,6 +215,15 @@ export async function finalizeStatementUpload(
           extractModel: "claude-sonnet-4-6",
         },
       });
+
+      // Bank-statement Documents never got a taxYear at creation (the period
+      // isn't known until extraction runs) — set it now, using periodEnd's
+      // calendar year as the pragmatic choice for a statement whose period
+      // spans a year boundary (e.g. Dec 28 -> Jan 27).
+      await db.document.update({
+        where: { id: docId },
+        data: { taxYear: periodEnd.getUTCFullYear() },
+      });
     } else {
       await db.bankStatement.update({
         where: { id: statementId },
@@ -365,6 +374,16 @@ export async function confirmBankStatement(
     },
   });
 
+  // Same taxYear backfill as the single-upload/retry extraction paths below —
+  // this is the one that actually fixes already-uploaded statements, since
+  // confirming is the action every unconfirmed statement still needs anyway.
+  if (statement.documentId) {
+    await db.document.update({
+      where: { id: statement.documentId },
+      data: { taxYear: periodEnd.getUTCFullYear() },
+    });
+  }
+
   revalidatePath("/business");
   return { success: true };
 }
@@ -433,6 +452,12 @@ export async function retryStatementExtraction(
         extractionData: extraction as unknown as Prisma.InputJsonValue,
         extractModel: "claude-sonnet-4-6",
       },
+    });
+
+    // Same taxYear backfill as finalizeStatementUpload/confirmBankStatement.
+    await db.document.update({
+      where: { id: doc.id },
+      data: { taxYear: periodEnd.getUTCFullYear() },
     });
 
     revalidatePath("/business");
