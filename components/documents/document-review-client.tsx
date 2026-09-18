@@ -2,8 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type { Route } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { confirmDocExtraction, importStatementTransactions } from "@/actions/documents";
+import { confirmBankStatementByDocumentId } from "@/actions/bank-statements";
 import type { ExtractedDocument, TransactionRow } from "@/lib/doc-extract";
 
 interface AccountOption {
@@ -16,8 +19,12 @@ interface Props {
   documentId: string;
   extraction: ExtractedDocument;
   entityId: string;
+  isBankStatement: boolean;
   accounts?: AccountOption[];
   defaultAccountId?: string | null;
+  backHref: Route;
+  backLabel: string;
+  nextReviewHref: Route | null;
 }
 
 function formatCents(cents: unknown): string {
@@ -36,8 +43,12 @@ export function DocumentReviewClient({
   documentId,
   extraction,
   entityId,
+  isBankStatement,
   accounts,
   defaultAccountId,
+  backHref,
+  backLabel,
+  nextReviewHref,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -47,6 +58,10 @@ export function DocumentReviewClient({
   const [accountId, setAccountId] = useState(defaultAccountId ?? "");
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
   const [saved, setSaved] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+
+  const hasRows = (extraction.transactionRows?.length ?? 0) > 0;
+  const needsAccount = isBankStatement && hasRows && !accountId;
 
   const dataEntries = Object.entries(extraction.data ?? {}).filter(
     ([k]) => !["raw"].includes(k)
@@ -65,19 +80,28 @@ export function DocumentReviewClient({
     setSelectedRows(selectedRows.size === all ? new Set() : new Set(Array.from({ length: all }, (_, i) => i)));
   }
 
+  // Single action: confirm the extraction is correct, and — for a bank
+  // statement with rows to import — also import the selected transactions
+  // and mark the linked BankStatement confirmed (clears its "unconfirmed"
+  // badge on the Bank Statements page). No separate "Import" button; a
+  // confirmed extraction and its transactions are one decision, not two.
   function handleConfirm() {
+    if (needsAccount) {
+      setConfirmError("Select a target account before confirming — needed to import the transactions below.");
+      return;
+    }
+    setConfirmError(null);
     startTransition(async () => {
       await confirmDocExtraction(documentId, extraction as unknown as Record<string, unknown>);
+      if (isBankStatement) {
+        if (hasRows && selectedRows.size > 0) {
+          const result = await importStatementTransactions(documentId, Array.from(selectedRows), accountId);
+          setImportResult(result);
+        }
+        await confirmBankStatementByDocumentId(documentId);
+      }
       setSaved(true);
       router.refresh();
-    });
-  }
-
-  function handleImport() {
-    if (!accountId) return;
-    startTransition(async () => {
-      const result = await importStatementTransactions(documentId, Array.from(selectedRows), accountId);
-      setImportResult(result);
     });
   }
 
@@ -115,16 +139,49 @@ export function DocumentReviewClient({
                 ))}
               </tbody>
             </table>
-            <div className="mt-4 flex items-center gap-3">
-              <button
-                onClick={handleConfirm}
-                disabled={isPending}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                {isPending ? "Saving…" : "Confirm extraction"}
-              </button>
-              {saved && <span className="text-sm text-green-600">Saved</span>}
-            </div>
+            {!saved && (
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleConfirm}
+                    disabled={isPending}
+                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {isPending
+                      ? isBankStatement && hasRows
+                        ? "Confirming & importing…"
+                        : "Saving…"
+                      : isBankStatement && hasRows
+                        ? `Confirm extraction & import ${selectedRows.size} transactions`
+                        : "Confirm extraction"}
+                  </button>
+                </div>
+                {confirmError && <p className="text-sm text-destructive">{confirmError}</p>}
+              </div>
+            )}
+            {saved && (
+              <div className="mt-4 space-y-3">
+                <p className="text-sm text-green-600">
+                  Confirmed{importResult ? ` — ${importResult.imported} transactions imported${importResult.skipped ? `, ${importResult.skipped} skipped as duplicates` : ""}.` : "."}
+                </p>
+                <div className="flex items-center gap-3">
+                  <Link
+                    href={backHref}
+                    className="rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+                  >
+                    ← Back to {backLabel}
+                  </Link>
+                  {nextReviewHref && (
+                    <Link
+                      href={nextReviewHref}
+                      className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    >
+                      Next statement →
+                    </Link>
+                  )}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -205,20 +262,11 @@ export function DocumentReviewClient({
               </table>
             </div>
 
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleImport}
-                disabled={isPending || !accountId || selectedRows.size === 0}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                {isPending ? "Importing…" : `Import ${selectedRows.size} transactions`}
-              </button>
-              {importResult && (
-                <span className="text-sm text-muted-foreground">
-                  {importResult.imported} imported, {importResult.skipped} skipped as duplicates
-                </span>
-              )}
-            </div>
+            {!saved && (
+              <p className="text-xs text-muted-foreground">
+                Selected transactions import automatically when you confirm the extraction above.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

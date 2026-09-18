@@ -6,7 +6,7 @@ import {
   triggerExtraction,
   skipExtraction,
 } from "@/actions/documents";
-import { listEntityAccounts } from "@/actions/bank-statements";
+import { listEntityAccounts, listBankStatements } from "@/actions/bank-statements";
 import { getEntityBySlug } from "@/lib/entity";
 import { DocumentReviewClient } from "@/components/documents/document-review-client";
 import Link from "next/link";
@@ -39,9 +39,21 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
   const backHref = (entity ? `/business/${bucket}/statements` : "/documents") as Route;
   const backLabel = entity ? "Bank Statements" : "Documents";
 
-  const accounts = doc.docType === "bank_statement"
-    ? await listEntityAccounts(doc.entityId)
-    : null;
+  const isBankStatement = doc.docType === "bank_statement";
+  const accounts = isBankStatement ? await listEntityAccounts(doc.entityId) : null;
+
+  // "Next statement on the list" -- same order the Bank Statements table
+  // uses (periodEnd desc). Only meaningful when we arrived from that page
+  // (?bucket=) and there's a sibling statement after this one.
+  let nextReviewHref: Route | null = null;
+  if (isBankStatement && entity) {
+    const siblingStatements = await listBankStatements(doc.entityId);
+    const currentIndex = siblingStatements.findIndex((s) => s.documentId === id);
+    const next = currentIndex >= 0 ? siblingStatements[currentIndex + 1] : undefined;
+    if (next?.documentId) {
+      nextReviewHref = `/documents/${next.documentId}/review?bucket=${bucket}` as Route;
+    }
+  }
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
@@ -93,8 +105,12 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
             documentId={id}
             extraction={extraction}
             entityId={doc.entityId}
+            isBankStatement={isBankStatement}
             accounts={accounts ?? undefined}
             defaultAccountId={doc.bankStatement?.accountId ?? null}
+            backHref={backHref}
+            backLabel={backLabel}
+            nextReviewHref={nextReviewHref}
           />
         )}
 

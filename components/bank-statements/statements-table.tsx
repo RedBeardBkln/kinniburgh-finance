@@ -312,7 +312,7 @@ function StatementRowItem({
               onClick={onEdit}
               className="text-xs text-primary hover:underline"
             >
-              {editing ? "Close" : needsReview ? "Review" : "Edit"}
+              {editing ? "Close" : "Edit"}
             </button>
             {(statement.extractStatus === "failed" || statement.extractStatus === "pending") && (
               <button

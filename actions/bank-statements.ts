@@ -310,6 +310,31 @@ export async function listEntityAccounts(entityId: string) {
   });
 }
 
+// ── Confirm from the document-review page ──────────────────────────────────────
+//
+// Marks a statement confirmed using whatever period/balance data is already
+// stored on it (from extraction) -- no re-entry needed. This is what actually
+// clears the "unconfirmed" badge on the Bank Statements page when the owner
+// clicks "Confirm extraction" on /documents/{id}/review, trusting the
+// displayed extracted fields as correct (the same meaning "Save & confirm" on
+// the manual edit form has, just without re-typing anything).
+export async function confirmBankStatementByDocumentId(
+  documentId: string
+): Promise<{ success: true } | { error: string }> {
+  const user = await requireAuth();
+
+  const statement = await db.bankStatement.findUnique({ where: { documentId } });
+  if (!statement || statement.archivedAt) return { error: "Statement not found" };
+
+  await db.bankStatement.update({
+    where: { id: statement.id },
+    data: { confirmedAt: new Date(), confirmedById: user.id },
+  });
+
+  revalidatePath("/business");
+  return { success: true };
+}
+
 // ── Confirm / correct extraction ───────────────────────────────────────────────
 
 const confirmSchema = z.object({
