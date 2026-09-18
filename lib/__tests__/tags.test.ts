@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTagTree, flattenTagTree, normalizePayee, normalizePattern, matchTagRule } from "../tags";
+import { buildTagTree, flattenTagTree, normalizePayee, normalizePattern, matchTagRule, suggestPayeePattern } from "../tags";
 
 describe("buildTagTree", () => {
   const flat = [
@@ -82,6 +82,39 @@ describe("normalizePattern", () => {
   });
 });
 
+describe("suggestPayeePattern", () => {
+  it("truncates before a ' - ' separator followed by a phone number", () => {
+    expect(suggestPayeePattern("xfinity mobile - 888-936-4968 pa")).toBe("xfinity mobile");
+  });
+
+  it("truncates before a ' - ' separator followed by a statement-specific date range", () => {
+    expect(suggestPayeePattern("interest earned credit - interest period 2025-07-28 ~ 2025-08-27")).toBe(
+      "interest earned credit"
+    );
+  });
+
+  it("truncates before a bare run of 3+ digits even without a ' - ' separator", () => {
+    expect(suggestPayeePattern("xfinity mobile 888 936 4968 pa")).toBe("xfinity mobile");
+  });
+
+  it("truncates before an ISO-shaped date", () => {
+    expect(suggestPayeePattern("payment ref 2025-07-28 confirmation")).toBe("payment ref");
+  });
+
+  it("leaves an already-short, generic payee untouched", () => {
+    expect(suggestPayeePattern("whole foods")).toBe("whole foods");
+    expect(suggestPayeePattern("capital one-crcardpmt")).toBe("capital one-crcardpmt");
+  });
+
+  it("falls back to the original string when truncation would leave under 3 characters", () => {
+    expect(suggestPayeePattern("bp - 888-936-4968")).toBe("bp - 888-936-4968");
+  });
+
+  it("handles empty string", () => {
+    expect(suggestPayeePattern("")).toBe("");
+  });
+});
+
 describe("matchTagRule", () => {
   const rules = [
     { tagId: "grocery-tag", payeePattern: "whole foods", amountMin: null, amountMax: null, accountId: null },
@@ -122,6 +155,19 @@ describe("matchTagRule", () => {
     expect(
       matchTagRule(rules, { normalizedPayee: "mystery payee", amount: 500, accountId: "acct-x" })
     ).toBeNull();
+  });
+
+  it("matches case-insensitively even when normalizedPayee isn't actually lowercased", () => {
+    // Regression: alnum() used to only keep [a-z0-9], silently dropping every
+    // uppercase letter instead of matching case-insensitively. This bit real
+    // data — bank-statement-imported transactions stored payeeNormalized as a
+    // raw, un-lowercased copy of payeeRaw (fixed separately in
+    // actions/documents.ts), and for those rows this stripped every
+    // capitalized word's leading letter, so "Whole Foods Market" matching a
+    // "whole foods" rule silently failed.
+    expect(
+      matchTagRule(rules, { normalizedPayee: "Whole Foods Market 123", amount: 85, accountId: "acct-2566" })
+    ).toBe("grocery-tag");
   });
 
   it("matches a symbol-containing pattern against a longer payee (Lowe's example)", () => {

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { updateTransactionTags } from "@/actions/transactions";
 import { createTagRule } from "@/actions/tag-rules";
 import { createTag } from "@/actions/tags";
+import { suggestPayeePattern } from "@/lib/tags";
 import { RetroactiveRuleModal } from "@/components/tag-rules/retroactive-rule-modal";
 import { cn } from "@/lib/utils";
 
@@ -61,7 +62,13 @@ function RuleDialog({
   onCreated: (ruleId: string, tagName: string) => void;
   onDismiss: () => void;
 }) {
-  const [payeePattern, setPayeePattern] = useState(payeeNormalized ?? "");
+  // Suggest a shorter, generally-matching pattern rather than defaulting to
+  // this one transaction's full payee text verbatim — a raw default like
+  // "interest earned credit - interest period 2025-07-28 ~ 2025-08-27" saves
+  // fine but can then never match any other month's version of the same
+  // recurring charge, silently breaking "apply to past transactions." Still
+  // fully editable — this only changes what's pre-filled.
+  const [payeePattern, setPayeePattern] = useState(suggestPayeePattern(payeeNormalized ?? ""));
   const [useAmountRange, setUseAmountRange] = useState(false);
   const [amountMin, setAmountMin] = useState(defaultAmount ?? "");
   const [amountMax, setAmountMax] = useState(defaultAmount ?? "");

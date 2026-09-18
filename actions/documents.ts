@@ -18,6 +18,7 @@ import {
   validateDocumentFile,
 } from "@/lib/document-upload";
 import { getEntityBySlug } from "@/lib/entity";
+import { normalizePayee } from "@/lib/tags";
 
 async function requireAuth() {
   const session = await auth();
@@ -325,12 +326,20 @@ export async function importStatementTransactions(
     const amountDecimal = new Prisma.Decimal(row.amountCents).div(100);
     const entityId = businessExpenseSet.has(i) && ekConsultingEntityId ? ekConsultingEntityId : account.entityId;
 
+    // normalizePayee(), not a raw slice — matches the convention documented
+    // in CLAUDE.md and used by Plaid sync. A raw copy here (mixed case,
+    // punctuation intact) silently broke tag-rule matching downstream:
+    // matchTagRule/alnum() expect an already-lowercased, punctuation-free
+    // payee, so an un-normalized value doesn't match text a human sees as
+    // identical.
+    const payeeNormalized = normalizePayee(row.description).slice(0, 100);
+
     const existing = await db.transaction.findFirst({
       where: {
         accountId,
         postedAt,
         amount: amountDecimal,
-        payeeNormalized: row.description.slice(0, 100),
+        payeeNormalized,
         archivedAt: null,
       },
     });
@@ -347,7 +356,7 @@ export async function importStatementTransactions(
         postedAt,
         amount: amountDecimal,
         payeeRaw: row.description,
-        payeeNormalized: row.description.slice(0, 100),
+        payeeNormalized,
         source: "import",
         pending: false,
       },

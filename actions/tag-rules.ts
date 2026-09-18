@@ -3,7 +3,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
-import { normalizePayee, normalizePattern, matchTagRule } from "@/lib/tags";
+import { normalizePayee, normalizePattern, matchTagRule, alnum } from "@/lib/tags";
 import { autoAssignGlCodes } from "@/lib/gl-code-resolver";
 import { updateTransactionTags } from "@/actions/transactions";
 import { revalidatePath } from "next/cache";
@@ -336,12 +336,11 @@ export async function previewRetroactiveRule(
 
   const matches: RetroactiveMatch[] = [];
 
-  const alnum = (s: string) => s.replace(/[^a-z0-9]/g, "");
-
   for (const tx of transactions) {
     // Payee match — contains (not just exact), alnum-stripped so apostrophes/hyphens
-    // don't affect matching. Mirrors matchTagRule()'s scoring in lib/tags.ts so a
-    // rule for "Lowe's" also matches "Lowe's Home Goods LLC".
+    // don't affect matching. Uses the same alnum() as matchTagRule() in lib/tags.ts
+    // (shared, not re-duplicated here — a prior local copy diverged from a fix made
+    // there) so a rule for "Lowe's" also matches "Lowe's Home Goods LLC".
     let isExactMatch = true;
     if (pattern) {
       const normalizedPayee = tx.payeeNormalized || normalizePayee(tx.payeeRaw ?? "");
