@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
 import { TaxDocumentUpload, type DocumentRow } from "@/components/tax/tax-document-upload";
 import { OtherYearDocuments, type OtherYearDocument } from "@/components/tax/other-year-documents";
+import { CHECKLIST_LABEL_TO_DOC_TYPES } from "@/lib/tax-checklist";
 import {
   updateWorkspace,
   toggleChecklistItem,
@@ -34,6 +35,7 @@ interface Props {
   checklistItems: ChecklistItem[];
   relatedDocuments: DocumentRow[];
   otherYearDocs: OtherYearDocument[];
+  documentCounts: Record<string, number>;
   exportUrl: string;
 }
 
@@ -55,6 +57,7 @@ export function TaxWorkspaceClient({
   checklistItems: initialItems,
   relatedDocuments,
   otherYearDocs,
+  documentCounts,
   exportUrl,
 }: Props) {
   const router = useRouter();
@@ -245,27 +248,44 @@ export function TaxWorkspaceClient({
           )}
         </CardHeader>
         <CardContent className="space-y-1">
-          {items.map((item) => (
-            <div key={item.id} className="flex items-start gap-3 rounded-md py-1.5 hover:bg-muted/30 px-2 group">
-              <input
-                type="checkbox"
-                checked={item.completed}
-                onChange={(e) => handleToggle(item.id, e.target.checked)}
-                disabled={isToggling}
-                className="mt-0.5 h-4 w-4 rounded border-gray-300 cursor-pointer"
-              />
-              <span className={`flex-1 text-sm ${item.completed ? "line-through text-muted-foreground" : ""}`}>
-                {item.label}
-              </span>
-              <button
-                onClick={() => handleRemove(item.id)}
-                disabled={isRemoving}
-                className="opacity-0 group-hover:opacity-100 text-xs text-muted-foreground hover:text-destructive transition-opacity"
-              >
-                ×
-              </button>
-            </div>
-          ))}
+          {items.map((item) => {
+            const linkedDocTypes = CHECKLIST_LABEL_TO_DOC_TYPES[item.label];
+            const foundCount = linkedDocTypes?.reduce(
+              (sum, t) => sum + (documentCounts[t] ?? 0),
+              0
+            );
+            return (
+              <div key={item.id} className="flex items-start gap-3 rounded-md py-1.5 hover:bg-muted/30 px-2 group">
+                <input
+                  type="checkbox"
+                  checked={item.completed}
+                  onChange={(e) => handleToggle(item.id, e.target.checked)}
+                  disabled={isToggling}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 cursor-pointer"
+                />
+                <span className={`flex-1 text-sm ${item.completed ? "line-through text-muted-foreground" : ""}`}>
+                  {item.label}
+                </span>
+                {linkedDocTypes && (
+                  <span
+                    className={`shrink-0 text-xs font-medium ${
+                      foundCount ? "text-green-600" : "text-muted-foreground"
+                    }`}
+                    title="Based on documents uploaded for this tax year — not a substitute for confirming the item yourself"
+                  >
+                    {foundCount ? `✓ ${foundCount} found` : "none yet"}
+                  </span>
+                )}
+                <button
+                  onClick={() => handleRemove(item.id)}
+                  disabled={isRemoving}
+                  className="opacity-0 group-hover:opacity-100 text-xs text-muted-foreground hover:text-destructive transition-opacity"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
 
           {/* Add item */}
           <div className="flex gap-2 mt-3 pt-3 border-t">

@@ -31,6 +31,10 @@ export default async function TaxWorkspacePage({ params }: PageProps) {
   ]);
   const relatedDocs = allDocs.filter((d) => d.taxYear === workspace.taxYear);
   const otherYearDocs = allDocs.filter((d) => d.taxYear !== workspace.taxYear);
+  const documentCounts = relatedDocs.reduce<Record<string, number>>((acc, d) => {
+    acc[d.docType] = (acc[d.docType] ?? 0) + 1;
+    return acc;
+  }, {});
 
   const exportUrl = `/api/export/${workspace.entityId}?year=${workspace.taxYear}`;
 
@@ -80,6 +84,7 @@ export default async function TaxWorkspacePage({ params }: PageProps) {
             taxYear: d.taxYear,
             createdAt: d.createdAt.toISOString(),
           }))}
+          documentCounts={documentCounts}
           exportUrl={exportUrl}
         />
       </div>

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { getChecklistTemplateForEntity } from "@/lib/tax-checklist";
 
 async function requireAuth() {
   const session = await auth();
@@ -51,6 +52,13 @@ export async function ensureTaxWorkspace(formData: FormData): Promise<void> {
           entity.type === "business"
             ? `${entity.name} — tax year ${parsed.taxYear}. Draft is prepared by the platform and reviewed by your CPA.`
             : `Personal federal + CT state return. Draft is prepared by the platform and reviewed by your CPA.`,
+        // Personal workspaces get [] here (they have their own computed
+        // readiness system, see lib/tax-checklist.ts's doc comment) — every
+        // other entity gets a real, entity-aware starting checklist instead
+        // of an empty one the owner would have no way to populate themselves.
+        checklistItems: {
+          create: getChecklistTemplateForEntity(entity).map((item) => ({ label: item.label })),
+        },
       },
     });
     workspaceId = workspace.id;
