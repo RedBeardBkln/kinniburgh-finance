@@ -18,6 +18,33 @@ Found while transcribing the owner's source document and CSVs. **Do not silently
 12. **Property values (owner-supplied 2026-09-11, Zillow estimates):** 27 Old Barry Rd = **$529,500**; 56 Arbor Rd = **$337,400**. Recorded as `ManualAsset` rows (`real_estate` category) feeding net worth.
 13. **Loan balances (PennyMac, solar):** PennyMac mortgage balance **is already pulled via Plaid Liabilities** — confirmed 2026-09-11, no manual entry needed. Solar loan balance still pending manual entry (owner to retrieve total due).
 14. **GL chart of accounts:** to be IMPORTED from the CPA/QuickBooks (build a QuickBooks COA import); freeform receipt classification until then.
+15. **27 Old Barry Rd barn — EK Consulting's office/food lab, real facts + open tax question (owner-supplied 2026-09-18).**
+    The property has a detached structure: 3-car garage on the first floor, and a 1,200 sq ft second story
+    that was unfinished at purchase. Renovated over the past few years; renovations completed **June 2025**;
+    Eric's office and food lab moved in from the main house's guest room in **July 2025**. The food lab runs
+    multiple refrigerators/freezers and other equipment — meaningfully higher electricity draw than a normal
+    office. **The renovation costs were almost entirely paid by EK Consulting** (the business bank account),
+    even though the barn is Eric's personal real property, not an EK Consulting asset — no lease exists
+    between Eric and the LLC, and the LLC pays no rent.
+    **Current bookkeeping (owner's own call, in place before this note):** tag "Office Building Renovations"
+    → GL code `3020 Owner draws` (equity, not expense) — i.e. explicitly kept OUT of Schedule C's deductible
+    expense line, not treated as an ordinary business expense. **Only $11,609.25 is tagged this way so far**
+    (3 Millennium Homes-Sale payments: $1,782.50 on 2025-03-21, $4,772.00 on 2025-04-01, $5,054.75 on
+    2025-04-14) — "almost entirely paid for by EK Consulting" implies the real total renovation cost is
+    likely higher; the full figure hasn't been collected/tagged yet.
+    **Not-yet-CPA-confirmed observation** (verified against IRS Pub. 587 primary source, not just asserted):
+    keeping this out of Schedule C as a direct expense is directionally right — EK Consulting doesn't own the
+    barn and has no lease, so it can't deduct capital improvements to it as an ordinary business expense.
+    But "Owner draws" alone may leave a real, separate deduction uncaptured: Pub. 587 gives more favorable
+    treatment to a **detached structure** used exclusively and regularly for business — it does NOT have to
+    be the taxpayer's principal place of business (unlike space inside the home itself). Under that rule, the
+    capitalized renovation cost for the business-use portion would normally be depreciated as nonresidential
+    real property (MACRS, straight-line, 39 years) via **Form 8829**, attached to Schedule C — a mechanism
+    separate from, and not satisfied by, tagging the outflow as an owner's draw in the LLC's books. This
+    needs the CPA to confirm the actual depreciation setup (placed-in-service date, cost basis, business-use
+    percentage, home's adjusted basis/FMV) before anything is claimed — do not treat this as decided or
+    implemented. See specs/10 for the project's existing $75-receipt-threshold research precedent on sourcing
+    tax rules directly from primary IRS text rather than secondary sources.
 
 ## Remaining arithmetic / consistency notes (informational)
 
