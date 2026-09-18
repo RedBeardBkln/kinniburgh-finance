@@ -19,6 +19,7 @@ Read the specs in order before writing any code:
 | `specs/07-source-data-notes.md` | **Read this.** Known discrepancies and open questions in the source data — do NOT silently "fix" these |
 | `specs/08-clawbox-architecture.md` | Local-only architecture for the Vault + tax/insurance documents on the owner's ClawBox (NVIDIA Jetson) — data split, remote-access trade-offs, and open decisions to resolve before building it (deprioritized — see memory) |
 | `specs/09-tax-year-2025-constants.md` | **Read before touching tax computation code.** Primary-sourced federal/CT tax-year-2025 constants (brackets, standard deduction, SE tax, QBI, CT tables A–E). Hardcode tax math against these citations only — never re-derive or approximate a bracket/rate in code. |
+| `specs/10-receipt-substantiation-threshold.md` | **Read before touching receipt-required flagging.** The real IRS receipt threshold is $75 (Pub. 463 / Treas. Reg. §1.274-5), not $250 — an existing checklist item has the wrong number, conflating an unrelated charitable-donation rule. |
 | `data/tags 2026.csv` | Real personal tag hierarchy (seed data) |
 | `data/budgets 2026 v2 (with accounts).csv` | **Authoritative budget seed** — 2026 monthly budgets with account mapping (owner-cleaned, June 2026). Amounts are starting points and may be updated. |
 | `data/budgets 2026.csv` | v1 export — historical reference only (contains rollover/actuals figures from the prior tool); do NOT seed budgets from this |
