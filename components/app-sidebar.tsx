@@ -227,7 +227,7 @@ function SidebarNavContent({
               </li>
               {[
                 { label: "Workspaces", href: "/tax" as Route, exact: true },
-                { label: "Documents", href: "/documents" as Route, exact: false },
+                { label: "Documents", href: "/documents?bucket=taxes" as Route, exact: false },
                 ...(taxMileageHref
                   ? [{ label: "Mileage", href: taxMileageHref as Route, exact: false }]
                   : []),
@@ -240,7 +240,10 @@ function SidebarNavContent({
                     onClick={onNavigate}
                     className={cn(
                       "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
-                      (exact ? pathname === "/tax" : isActive(href))
+                      // isActive expects a bare pathname — strip any `?query`
+                      // (e.g. "/documents?bucket=taxes") before comparing, or
+                      // it can never match usePathname()'s query-free value.
+                      (exact ? pathname === "/tax" : isActive(href.replace(/\?.*$/, "")))
                         ? "bg-accent font-medium text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     )}
