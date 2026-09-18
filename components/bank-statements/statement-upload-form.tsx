@@ -182,7 +182,7 @@ export function StatementUploadForm({ entityId, accounts }: Props) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Upload Bank Statements</CardTitle>
+        <CardTitle className="text-base">Upload Statements</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {/* Mode toggle */}
@@ -228,6 +228,10 @@ export function StatementUploadForm({ entityId, accounts }: Props) {
                 </option>
               ))}
             </select>
+            <p className="text-xs text-muted-foreground">
+              Select the account before uploading a credit card statement — needed to correctly
+              separate payments from charges.
+            </p>
           </div>
 
           <div className="space-y-1">

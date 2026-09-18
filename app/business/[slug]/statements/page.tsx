@@ -34,22 +34,32 @@ export default async function BankStatementsPage({ params }: PageProps) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-              <Link href={"/business" as Route} className="hover:underline">Business</Link>
-              <span>/</span>
-              <span>{entityLabel}</span>
+              {entity.type === "business" ? (
+                <>
+                  <Link href={"/business" as Route} className="hover:underline">Business</Link>
+                  <span>/</span>
+                  <span>{entityLabel}</span>
+                </>
+              ) : (
+                <span>Personal</span>
+              )}
             </div>
-            <h1 className="text-2xl font-semibold">Bank Statements</h1>
+            <h1 className="text-2xl font-semibold">Statements</h1>
             <p className="text-sm text-muted-foreground">
-              Upload account statements. Confirmed closing balances feed the monthly,
-              quarterly, and annual balance sheets.
+              Upload account statements — bank or credit card.
+              {entity.type === "business"
+                ? " Confirmed closing balances feed the monthly, quarterly, and annual balance sheets."
+                : " Confirmed closing balances and imported transactions feed the rest of the platform."}
             </p>
           </div>
-          <Link
-            href={`/business/${slug}/balance-sheet` as Route}
-            className="inline-flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-accent"
-          >
-            View Balance Sheets →
-          </Link>
+          {entity.type === "business" && (
+            <Link
+              href={`/business/${slug}/balance-sheet` as Route}
+              className="inline-flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-accent"
+            >
+              View Balance Sheets →
+            </Link>
+          )}
         </div>
 
         <StatementUploadForm entityId={entity.id} accounts={accounts} />
@@ -61,8 +71,8 @@ export default async function BankStatementsPage({ params }: PageProps) {
             <p className="text-xs text-muted-foreground">
               Statements are stored permanently in the tax document vault (archive only —
               never deleted). Extraction reads the statement period and per-account
-              opening/closing balances; always review unconfirmed rows. Balance sheets are
-              drafts for CPA review — not financial advice.
+              opening/closing balances; always review unconfirmed rows.
+              {entity.type === "business" && " Balance sheets are drafts for CPA review — not financial advice."}
             </p>
           </CardContent>
         </Card>

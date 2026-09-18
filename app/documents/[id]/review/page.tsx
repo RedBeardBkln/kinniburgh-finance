@@ -12,6 +12,7 @@ import { DocumentReviewClient } from "@/components/documents/document-review-cli
 import Link from "next/link";
 import type { Route } from "next";
 import type { ExtractedDocument } from "@/lib/doc-extract";
+import { needsCreditCardReclassification } from "@/lib/statement-review";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -26,21 +27,34 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
   const { bucket } = await searchParams;
   const doc = await getDocumentWithExtraction(id);
 
-  // Auto-trigger extraction if not yet attempted
+  // Auto-trigger extraction if not yet attempted, OR if a prior extraction
+  // ran before the linked account was known to be a credit card (no row
+  // carries a lineType at all yet) — a self-healing re-check for the
+  // extraction-timing gap described in the plan's Risks section.
   let extraction = doc.extractionData as ExtractedDocument | null;
-  if (!doc.extractionStatus || doc.extractionStatus === "pending") {
+  const staleCreditCardExtraction = needsCreditCardReclassification(
+    doc.bankStatement?.account?.accountType,
+    extraction
+  );
+  if (!doc.extractionStatus || doc.extractionStatus === "pending" || staleCreditCardExtraction) {
     extraction = await triggerExtraction(id);
   }
 
-  // When arriving from a business statements page (?bucket=<entity-slug>),
+  // When arriving from a business/personal statements page (?bucket=<entity-slug>),
   // point the breadcrumb/back-link there instead of the generic vault, and
-  // (for bank statements) fetch the entity's accounts for a real picker.
+  // (for bank/credit-card statements) fetch the entity's accounts for a real
+  // picker.
   const entity = bucket ? await getEntityBySlug(bucket) : null;
   const backHref = (entity ? `/business/${bucket}/statements` : "/documents") as Route;
-  const backLabel = entity ? "Bank Statements" : "Documents";
+  const backLabel = entity ? "Statements" : "Documents";
 
   const isBankStatement = doc.docType === "bank_statement";
   const accounts = isBankStatement ? await listEntityAccounts(doc.entityId) : null;
+  // The business-expense override is only meaningful — and only rendered —
+  // for a document belonging to the Personal entity (see plan's Required
+  // Finding 2). Server-side enforcement lives in importStatementTransactions;
+  // this just controls whether the checkbox appears at all.
+  const canFlagBusinessExpense = doc.entity.type === "personal";
 
   // "Next statement on the list" -- same order the Bank Statements table
   // uses (periodEnd desc). Only meaningful when we arrived from that page
@@ -59,11 +73,19 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          {entity ? (
+          {entity && entity.type === "business" ? (
             <>
               <Link href={"/business" as Route} className="hover:underline">Business</Link>
               <span>/</span>
               <span>{entity.navLabel ?? entity.name}</span>
+              <span>/</span>
+              <Link href={backHref} className="hover:underline">{backLabel}</Link>
+              <span>/</span>
+              <span>Review extraction</span>
+            </>
+          ) : entity ? (
+            <>
+              <span>Personal</span>
               <span>/</span>
               <Link href={backHref} className="hover:underline">{backLabel}</Link>
               <span>/</span>
@@ -108,6 +130,7 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
             isBankStatement={isBankStatement}
             accounts={accounts ?? undefined}
             defaultAccountId={doc.bankStatement?.accountId ?? null}
+            canFlagBusinessExpense={canFlagBusinessExpense}
             backHref={backHref}
             backLabel={backLabel}
             nextReviewHref={nextReviewHref}

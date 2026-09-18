@@ -17,6 +17,7 @@ import {
   buildDocumentFileKey,
   validateDocumentFile,
 } from "@/lib/document-upload";
+import { getEntityBySlug } from "@/lib/entity";
 
 async function requireAuth() {
   const session = await auth();
@@ -200,7 +201,10 @@ export async function archiveDocument(documentId: string): Promise<void> {
 export async function triggerExtraction(documentId: string): Promise<ExtractedDocument | null> {
   await requireAuth();
 
-  const doc = await db.document.findUniqueOrThrow({ where: { id: documentId } });
+  const doc = await db.document.findUniqueOrThrow({
+    where: { id: documentId },
+    include: { bankStatement: { include: { account: { select: { accountType: true } } } } },
+  });
 
   await db.document.update({
     where: { id: documentId },
@@ -210,7 +214,16 @@ export async function triggerExtraction(documentId: string): Promise<ExtractedDo
   try {
     const buffer = await downloadDocumentFile(doc.fileKey);
     const mimeType = doc.fileKey.endsWith(".pdf") ? "application/pdf" : "image/jpeg";
-    const docType = classifyDocType(doc.docType, doc.fileKey);
+    // Document.docType stays the literal "bank_statement" for every
+    // BankStatement-linked document regardless of the account's real type
+    // (deliberate — avoids adding a new docType value). Derive the actual
+    // extraction shape from the *current* linked account instead, so a
+    // credit-card account gets the credit_card_statement prompt (charge vs.
+    // payment classification) even though Document.docType never changes.
+    const docType =
+      doc.bankStatement?.account?.accountType === "credit_card"
+        ? "credit_card_statement"
+        : classifyDocType(doc.docType, doc.fileKey);
     const result = await extractDocument(buffer, mimeType, docType);
 
     await db.document.update({
@@ -265,7 +278,8 @@ export async function skipExtraction(documentId: string): Promise<void> {
 export async function importStatementTransactions(
   documentId: string,
   selectedIndices: number[],
-  accountId: string
+  accountId: string,
+  businessExpenseIndices: number[] = []
 ): Promise<{ imported: number; skipped: number }> {
   await requireAuth();
 
@@ -275,24 +289,48 @@ export async function importStatementTransactions(
 
   const account = await db.account.findUniqueOrThrow({
     where: { id: accountId },
-    select: { id: true, entityId: true },
+    include: { entity: { select: { id: true, type: true } } },
   });
 
-  const selectedRows = selectedIndices.map((i) => extraction.transactionRows![i]).filter(Boolean);
+  // Fail closed: the business-expense override is only meaningful (and only
+  // rendered in the review UI) for a Personal-entity account's statement.
+  // The server never trusts the client on this — reject any non-empty
+  // businessExpenseIndices against a non-Personal account outright.
+  if (businessExpenseIndices.length > 0 && account.entity.type !== "personal") {
+    throw new Error(
+      "businessExpenseIndices can only be used when importing into a Personal-entity account"
+    );
+  }
+
+  // Resolved once, only when actually needed — never trust a client-supplied
+  // entityId for the override target.
+  let ekConsultingEntityId: string | null = null;
+  if (businessExpenseIndices.length > 0) {
+    const ekEntity = await getEntityBySlug("ek-consulting");
+    if (!ekEntity) {
+      throw new Error("EK Consulting entity not found — cannot apply business-expense override");
+    }
+    ekConsultingEntityId = ekEntity.id;
+  }
+  const businessExpenseSet = new Set(businessExpenseIndices);
 
   let imported = 0;
   let skipped = 0;
 
-  for (const row of selectedRows) {
-    const postedAt = new Date(row!.date + "T12:00:00Z");
-    const amountDecimal = new Prisma.Decimal(row!.amountCents).div(100);
+  for (const i of selectedIndices) {
+    const row = extraction.transactionRows[i];
+    if (!row) continue;
+
+    const postedAt = new Date(row.date + "T12:00:00Z");
+    const amountDecimal = new Prisma.Decimal(row.amountCents).div(100);
+    const entityId = businessExpenseSet.has(i) && ekConsultingEntityId ? ekConsultingEntityId : account.entityId;
 
     const existing = await db.transaction.findFirst({
       where: {
         accountId,
         postedAt,
         amount: amountDecimal,
-        payeeNormalized: row!.description.slice(0, 100),
+        payeeNormalized: row.description.slice(0, 100),
         archivedAt: null,
       },
     });
@@ -305,11 +343,11 @@ export async function importStatementTransactions(
     await db.transaction.create({
       data: {
         accountId,
-        entityId: account.entityId,
+        entityId,
         postedAt,
         amount: amountDecimal,
-        payeeRaw: row!.description,
-        payeeNormalized: row!.description.slice(0, 100),
+        payeeRaw: row.description,
+        payeeNormalized: row.description.slice(0, 100),
         source: "import",
         pending: false,
       },
@@ -325,6 +363,9 @@ export async function getDocumentWithExtraction(documentId: string) {
   await requireAuth();
   return db.document.findUniqueOrThrow({
     where: { id: documentId },
-    include: { entity: true, bankStatement: { select: { accountId: true } } },
+    include: {
+      entity: true,
+      bankStatement: { select: { accountId: true, account: { select: { accountType: true } } } },
+    },
   });
 }

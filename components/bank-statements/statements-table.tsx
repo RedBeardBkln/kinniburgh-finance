@@ -118,8 +118,7 @@ export function StatementsTable({ statements, accounts, entityId, entitySlug }: 
     return (
       <Card>
         <CardContent className="px-4 py-8 text-center text-sm text-muted-foreground">
-          No statements uploaded yet. Upload one above — balances feed the monthly,
-          quarterly, and annual balance sheets.
+          No statements uploaded yet. Upload one above.
         </CardContent>
       </Card>
     );

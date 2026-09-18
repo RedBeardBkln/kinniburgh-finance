@@ -96,6 +96,7 @@ function SidebarNavContent({
     { label: "Savings autopilot", base: "/personal/savings-autopilot", href: "/personal/savings-autopilot" as Route },
     { label: "Retirement", base: "/personal/retirement", href: "/personal/retirement" as Route },
     { label: "Insurance", base: "/personal/insurance", href: "/personal/insurance" as Route },
+    { label: "Statements", base: "/business/personal/statements", href: "/business/personal/statements" as Route },
     { label: "Projects", base: "/projects", href: "/projects" as Route },
     { label: "Receipts", base: "/receipts", href: "/receipts" as Route },
   ];

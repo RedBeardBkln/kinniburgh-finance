@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 export type DocType =
   | "bank_statement"
+  | "credit_card_statement"
   | "mortgage_statement"
   | "insurance_policy"
   | "utility_bill"
@@ -15,6 +16,7 @@ export interface TransactionRow {
   date: string;        // YYYY-MM-DD
   description: string;
   amountCents: number; // negative = outflow, positive = inflow
+  lineType?: "charge" | "payment"; // credit_card_statement rows only; undefined elsewhere (treated as "charge")
 }
 
 export interface ExtractedDocument {
@@ -46,6 +48,32 @@ const PROMPTS: Record<DocType, string> = {
   ]
 }
 Rules: amounts in integer cents (negative=debit/outflow, positive=credit/inflow). Return null for unknown fields. Return at most 200 transaction rows.`,
+
+  credit_card_statement: `Extract from this credit card statement and return ONLY valid JSON:
+{
+  "docType": "credit_card_statement",
+  "summary": "1-2 sentence description of the statement",
+  "period": "YYYY-MM",
+  "data": {
+    "accountMask": "last 4 digits only",
+    "institutionName": "card issuer name",
+    "openingBalanceCents": 0,
+    "closingBalanceCents": 0,
+    "statementBalanceCents": 0,
+    "minimumPaymentCents": 0,
+    "paymentDueDate": "YYYY-MM-DD",
+    "periodStart": "YYYY-MM-DD",
+    "periodEnd": "YYYY-MM-DD"
+  },
+  "transactionRows": [
+    { "date": "YYYY-MM-DD", "description": "merchant/description", "amountCents": -1234, "lineType": "charge" }
+  ]
+}
+Rules: amounts in integer cents (negative=charge/purchase, positive=payment or merchant refund/credit). Classify each row's "lineType" as either "charge" or "payment":
+- "payment": ONLY a payment made TO the card issuer that pays down the balance (description patterns like "PAYMENT", "AUTOPAY", "THANK YOU", "ONLINE PYMT").
+- "charge": every purchase, fee, interest charge, AND merchant refund/credit (a refund is not a payment to the issuer — don't conflate the two just because both can be positive amounts).
+- If not confident whether a row is a payment-to-issuer vs. a charge, default to "charge" (a human reviews every row before import either way; a false-negative "payment" that gets imported is worse than a false-negative "charge" that gets excluded).
+Return null for unknown fields. Return at most 200 transaction rows.`,
 
   mortgage_statement: `Extract from this mortgage statement and return ONLY valid JSON:
 {

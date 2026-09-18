@@ -67,6 +67,51 @@ describe("extractDocument — bank_statement", () => {
   });
 });
 
+// ── 1b. Credit card statement extraction ──────────────────────────────────────
+
+describe("extractDocument — credit_card_statement", () => {
+  it("returns transactionRows with lineType surviving the round-trip, mixed charge+payment", async () => {
+    const payload = {
+      docType: "credit_card_statement",
+      summary: "Capital One card statement for January 2025. Statement balance $842.10.",
+      period: "2025-01",
+      data: {
+        accountMask: "7391",
+        institutionName: "Capital One",
+        openingBalanceCents: 0,
+        closingBalanceCents: 84210,
+        statementBalanceCents: 84210,
+        minimumPaymentCents: 3500,
+        paymentDueDate: "2025-02-10",
+        periodStart: "2025-01-01",
+        periodEnd: "2025-01-31",
+      },
+      transactionRows: [
+        { date: "2025-01-05", description: "Ueni", amountCents: -12000, lineType: "charge" },
+        { date: "2025-01-14", description: "CAPITAL ONE-CRCARDPMT", amountCents: 130846, lineType: "payment" },
+        { date: "2025-01-20", description: "Merchant refund — Staples", amountCents: 4500, lineType: "charge" },
+      ],
+    };
+
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify(payload) }],
+    });
+
+    const result = await extractDocument(Buffer.from("fake pdf"), "application/pdf", "credit_card_statement");
+    expect(result.docType).toBe("credit_card_statement");
+    expect(result.transactionRows).toHaveLength(3);
+    expect(result.transactionRows![0]!.lineType).toBe("charge");
+    expect(result.transactionRows![0]!.amountCents).toBe(-12000);
+    expect(result.transactionRows![1]!.lineType).toBe("payment");
+    expect(result.transactionRows![1]!.amountCents).toBe(130846);
+    // A positive-amount merchant refund must stay "charge", not get swept
+    // into the payment classification just because it's a positive amount.
+    expect(result.transactionRows![2]!.lineType).toBe("charge");
+    expect(result.data.statementBalanceCents).toBe(84210);
+    expect(result.data.minimumPaymentCents).toBe(3500);
+  });
+});
+
 // ── 2. Insurance policy extraction ────────────────────────────────────────────
 
 describe("extractDocument — insurance_policy", () => {

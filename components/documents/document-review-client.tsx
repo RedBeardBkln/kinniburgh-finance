@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
@@ -8,11 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { confirmDocExtraction, importStatementTransactions } from "@/actions/documents";
 import { confirmBankStatementByDocumentId } from "@/actions/bank-statements";
 import type { ExtractedDocument, TransactionRow } from "@/lib/doc-extract";
+import { defaultImportSelection, isWithinPlaidCoverage } from "@/lib/statement-review";
 
 interface AccountOption {
   id: string;
   nickname: string;
   mask: string | null;
+  plaidCoverageStart?: string | null;
 }
 
 interface Props {
@@ -22,6 +24,7 @@ interface Props {
   isBankStatement: boolean;
   accounts?: AccountOption[];
   defaultAccountId?: string | null;
+  canFlagBusinessExpense?: boolean;
   backHref: Route;
   backLabel: string;
   nextReviewHref: Route | null;
@@ -46,16 +49,32 @@ export function DocumentReviewClient({
   isBankStatement,
   accounts,
   defaultAccountId,
+  canFlagBusinessExpense,
   backHref,
   backLabel,
   nextReviewHref,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [selectedRows, setSelectedRows] = useState<Set<number>>(
-    new Set(extraction.transactionRows?.map((_, i) => i) ?? [])
-  );
   const [accountId, setAccountId] = useState(defaultAccountId ?? "");
+  const selectedAccountOption = accounts?.find((a) => a.id === accountId) ?? null;
+  const plaidCoverageStart = selectedAccountOption?.plaidCoverageStart ?? null;
+
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(
+    new Set(defaultImportSelection(extraction.transactionRows ?? [], plaidCoverageStart))
+  );
+  // The target account (and therefore its Plaid coverage window) can change
+  // after the row list first renders — recompute the default selection
+  // whenever accountId changes. Rows the reviewer has already manually
+  // toggled off/on before switching accounts are intentionally reset here,
+  // since the account switch itself changes which rows are excluded by
+  // default.
+  useEffect(() => {
+    setSelectedRows(new Set(defaultImportSelection(extraction.transactionRows ?? [], plaidCoverageStart)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId]);
+
+  const [businessExpenseRows, setBusinessExpenseRows] = useState<Set<number>>(new Set());
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
   const [saved, setSaved] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
@@ -69,6 +88,14 @@ export function DocumentReviewClient({
 
   function toggleRow(i: number) {
     setSelectedRows((prev) => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
+  }
+
+  function toggleBusinessExpense(i: number) {
+    setBusinessExpenseRows((prev) => {
       const next = new Set(prev);
       next.has(i) ? next.delete(i) : next.add(i);
       return next;
@@ -95,7 +122,16 @@ export function DocumentReviewClient({
       await confirmDocExtraction(documentId, extraction as unknown as Record<string, unknown>);
       if (isBankStatement) {
         if (hasRows && selectedRows.size > 0) {
-          const result = await importStatementTransactions(documentId, Array.from(selectedRows), accountId);
+          // Only rows that are both selected for import AND flagged get the
+          // business-expense override — a flagged-but-unselected row must
+          // not silently import anyway.
+          const businessExpenseIndices = Array.from(businessExpenseRows).filter((i) => selectedRows.has(i));
+          const result = await importStatementTransactions(
+            documentId,
+            Array.from(selectedRows),
+            accountId,
+            businessExpenseIndices
+          );
           setImportResult(result);
         }
         await confirmBankStatementByDocumentId(documentId);
@@ -239,25 +275,53 @@ export function DocumentReviewClient({
                     <th className="px-3 py-2">Date</th>
                     <th className="px-3 py-2">Description</th>
                     <th className="px-3 py-2 text-right">Amount</th>
+                    {canFlagBusinessExpense && (
+                      <th className="px-3 py-2">EK Consulting business expense</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {extraction.transactionRows.map((row: TransactionRow, i: number) => (
-                    <tr key={i} className={selectedRows.has(i) ? "" : "opacity-40"}>
-                      <td className="px-3 py-1.5">
-                        <input type="checkbox"
-                          checked={selectedRows.has(i)}
-                          onChange={() => toggleRow(i)}
-                          className="h-3.5 w-3.5 cursor-pointer"
-                        />
-                      </td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">{row.date}</td>
-                      <td className="px-3 py-1.5 max-w-xs truncate">{row.description}</td>
-                      <td className={`px-3 py-1.5 text-right whitespace-nowrap font-mono ${row.amountCents < 0 ? "text-destructive" : "text-green-600"}`}>
-                        {formatCents(row.amountCents)}
-                      </td>
-                    </tr>
-                  ))}
+                  {extraction.transactionRows.map((row: TransactionRow, i: number) => {
+                    const isPaymentRow = row.lineType === "payment";
+                    const isPlaidOverlap = isWithinPlaidCoverage(row.date, plaidCoverageStart);
+                    return (
+                      <tr key={i} className={selectedRows.has(i) ? "" : "opacity-40"}>
+                        <td className="px-3 py-1.5">
+                          <input type="checkbox"
+                            checked={selectedRows.has(i)}
+                            onChange={() => toggleRow(i)}
+                            className="h-3.5 w-3.5 cursor-pointer"
+                          />
+                        </td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{row.date}</td>
+                        <td className="px-3 py-1.5 max-w-xs">
+                          <span className="truncate block">{row.description}</span>
+                          {isPaymentRow && (
+                            <span className="mt-0.5 inline-block rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                              Payment — already captured elsewhere, excluded by default
+                            </span>
+                          )}
+                          {isPlaidOverlap && (
+                            <span className="mt-0.5 ml-1 inline-block rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                              ⚠ possibly already synced automatically — verify before importing
+                            </span>
+                          )}
+                        </td>
+                        <td className={`px-3 py-1.5 text-right whitespace-nowrap font-mono ${row.amountCents < 0 ? "text-destructive" : "text-green-600"}`}>
+                          {formatCents(row.amountCents)}
+                        </td>
+                        {canFlagBusinessExpense && (
+                          <td className="px-3 py-1.5 text-center">
+                            <input type="checkbox"
+                              checked={businessExpenseRows.has(i)}
+                              onChange={() => toggleBusinessExpense(i)}
+                              className="h-3.5 w-3.5 cursor-pointer"
+                            />
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -265,6 +329,7 @@ export function DocumentReviewClient({
             {!saved && (
               <p className="text-xs text-muted-foreground">
                 Selected transactions import automatically when you confirm the extraction above.
+                {canFlagBusinessExpense && " Rows flagged “EK Consulting business expense” import to that entity instead of Personal."}
               </p>
             )}
           </CardContent>

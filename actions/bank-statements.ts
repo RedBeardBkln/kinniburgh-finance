@@ -19,6 +19,8 @@ import {
 } from "@/lib/bank-statement-upload";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import { triggerExtraction } from "@/actions/documents";
+import { needsCreditCardReclassification } from "@/lib/statement-review";
+import type { ExtractedDocument } from "@/lib/doc-extract";
 
 async function requireAuth() {
   const session = await auth();
@@ -301,13 +303,41 @@ export async function listBankStatements(entityId: string): Promise<BankStatemen
   }));
 }
 
-export async function listEntityAccounts(entityId: string) {
+export interface EntityAccountOption {
+  id: string;
+  nickname: string;
+  mask: string | null;
+  accountType: string;
+  plaidCoverageStart: string | null; // ISO date, or null if never Plaid-synced
+}
+
+export async function listEntityAccounts(entityId: string): Promise<EntityAccountOption[]> {
   await requireAuth();
-  return db.account.findMany({
+  const accounts = await db.account.findMany({
     where: { entityId, archivedAt: null },
     orderBy: { nickname: "asc" },
     select: { id: true, nickname: true, mask: true, accountType: true },
   });
+  if (accounts.length === 0) return [];
+
+  // One extra query for the earliest Plaid-synced transaction per account —
+  // used to warn the statement-review UI that a row's date might already be
+  // covered by the live Plaid sync (see lib/statement-review.ts). Generic,
+  // account-type-agnostic: fires for any Plaid-connected account, not just
+  // credit cards.
+  const coverage = await db.transaction.groupBy({
+    by: ["accountId"],
+    where: { accountId: { in: accounts.map((a) => a.id) }, source: "plaid" },
+    _min: { postedAt: true },
+  });
+  const coverageByAccount = new Map(
+    coverage.map((c) => [c.accountId, c._min.postedAt?.toISOString().slice(0, 10) ?? null])
+  );
+
+  return accounts.map((a) => ({
+    ...a,
+    plaidCoverageStart: coverageByAccount.get(a.id) ?? null,
+  }));
 }
 
 // ── Confirm from the document-review page ──────────────────────────────────────
@@ -546,11 +576,21 @@ export async function extractAllStatementTransactions(
 
   const statements = await db.bankStatement.findMany({
     where: { entityId, archivedAt: null, documentId: { not: null } },
-    include: { document: { select: { id: true, extractionStatus: true } } },
+    include: {
+      document: { select: { id: true, extractionStatus: true, extractionData: true } },
+      account: { select: { accountType: true } },
+    },
   });
 
   const toExtract = statements.filter(
-    (s) => !s.document || !s.document.extractionStatus || s.document.extractionStatus === "failed"
+    (s) =>
+      !s.document ||
+      !s.document.extractionStatus ||
+      s.document.extractionStatus === "failed" ||
+      needsCreditCardReclassification(
+        s.account?.accountType,
+        s.document.extractionData as unknown as ExtractedDocument | null
+      )
   );
 
   const results = await runWithConcurrencyLimit(toExtract, 4, (s) =>
