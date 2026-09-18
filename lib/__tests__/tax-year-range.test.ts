@@ -16,8 +16,12 @@ describe("isValidPriorYear", () => {
     expect(isValidPriorYear(currentYear, currentYear)).toBe(true);
   });
 
-  it("rejects a year one above currentYear", () => {
-    expect(isValidPriorYear(currentYear + 1, currentYear)).toBe(false);
+  it("accepts a year one above currentYear (opening a workspace in advance)", () => {
+    expect(isValidPriorYear(currentYear + 1, currentYear)).toBe(true);
+  });
+
+  it("rejects a year two above currentYear", () => {
+    expect(isValidPriorYear(currentYear + 2, currentYear)).toBe(false);
   });
 
   it("accepts an ordinary prior year within bounds", () => {

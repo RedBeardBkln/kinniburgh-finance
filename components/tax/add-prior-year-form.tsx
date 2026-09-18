@@ -29,7 +29,7 @@ export function AddPriorYearForm({ entities }: AddPriorYearFormProps) {
 
     const yearNum = Number(year);
     if (!isValidPriorYear(yearNum, currentYear)) {
-      setError(`Enter a year between ${MIN_TAX_YEAR} and ${currentYear}.`);
+      setError(`Enter a year between ${MIN_TAX_YEAR} and ${currentYear + 1}.`);
       return;
     }
     if (!entityId) {
@@ -52,16 +52,17 @@ export function AddPriorYearForm({ entities }: AddPriorYearFormProps) {
         onClick={() => setOpen(true)}
         className="text-sm text-primary hover:underline"
       >
-        + Add a prior year
+        + Add a tax year
       </button>
     );
   }
 
   return (
     <form onSubmit={submit} className="space-y-3 rounded-lg border p-4 bg-muted/30">
-      <p className="text-sm font-medium">Open a prior tax year</p>
+      <p className="text-sm font-medium">Open a tax year</p>
       <p className="text-xs text-muted-foreground">
-        For a year that doesn&apos;t appear above yet — creates the workspace and opens it.
+        For a year that doesn&apos;t appear above yet (including next year, to get a head start) —
+        creates the workspace and opens it.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -88,7 +89,7 @@ export function AddPriorYearForm({ entities }: AddPriorYearFormProps) {
             value={year}
             onChange={(e) => setYear(e.target.value)}
             min={MIN_TAX_YEAR}
-            max={currentYear}
+            max={currentYear + 1}
             required
             disabled={isPending}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
