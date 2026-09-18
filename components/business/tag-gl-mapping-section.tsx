@@ -161,6 +161,14 @@ export function TagGlMappingSection({ entityId, glCodes, inUse: initialInUse, un
                       {rowStatus[row.tagId] === "saved" && (
                         <span className="shrink-0 text-xs text-green-600">Saved ✓</span>
                       )}
+                      {row.glCodeId && rowStatus[row.tagId] !== "saving" && (
+                        <button
+                          onClick={() => handleSetMapping(row.tagId, row.tagName, "")}
+                          className="shrink-0 text-xs text-destructive hover:underline"
+                        >
+                          Remove
+                        </button>
+                      )}
                     </div>
                     {rowStatus[row.tagId] === "error" && (
                       <p className="mt-1 text-xs text-destructive">
