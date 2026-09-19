@@ -14,6 +14,12 @@ import {
   archiveBankStatement,
   type ConfirmStatementInput,
 } from "@/actions/bank-statements";
+import {
+  describeStage,
+  stageNeedsAttention,
+  type StageDisplay,
+  type StatementStage,
+} from "@/lib/statement-import";
 
 interface AccountOption {
   id: string;
@@ -37,6 +43,9 @@ interface StatementRow {
   confirmedAt: Date | null;
   notes: string | null;
   createdAt: Date;
+  stage: StatementStage;
+  importableRows: number;
+  rowsInLedger: number;
 }
 
 interface Props {
@@ -52,6 +61,18 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   complete:   { label: "Extracted", cls: "bg-green-50 text-green-700 border-green-200" },
   failed:     { label: "Failed", cls: "bg-red-50 text-red-700 border-red-200" },
   skipped:    { label: "Skipped", cls: "bg-muted text-muted-foreground border-border" },
+};
+
+// Transaction-stage badge colours (see lib/statement-import.ts). Shown once the
+// period/balance read is done; it answers the question the old green
+// "Extracted" badge implied but never answered: are the transactions actually
+// in the ledger?
+const STAGE_TONE_CLASS: Record<StageDisplay["tone"], string> = {
+  green: "bg-green-50 text-green-700 border-green-200",
+  amber: "bg-amber-50 text-amber-700 border-amber-200",
+  red: "bg-red-50 text-red-700 border-red-200",
+  blue: "bg-blue-50 text-blue-700 border-blue-200",
+  muted: "bg-muted text-muted-foreground border-border",
 };
 
 function toCentsInput(dollars: string): number | null {
@@ -169,8 +190,15 @@ export function StatementsTable({ statements, accounts, entityId, entitySlug }: 
           </thead>
           <tbody>
             {statements.map((s) => {
-              const status = STATUS_BADGE[s.extractStatus] ?? STATUS_BADGE.pending;
-              const needsReview = !s.confirmedAt;
+              // Balances not read yet (pending/processing/failed/skipped): that
+              // badge still drives the Parse/Retry buttons. Once read, the badge
+              // reports where the TRANSACTIONS stand instead.
+              const stageDisplay = describeStage(s.stage, s.importableRows, s.rowsInLedger);
+              const status =
+                s.extractStatus === "complete"
+                  ? { label: stageDisplay.label, cls: STAGE_TONE_CLASS[stageDisplay.tone] }
+                  : (STATUS_BADGE[s.extractStatus] ?? STATUS_BADGE.pending);
+              const needsReview = !s.confirmedAt || stageNeedsAttention(s.stage);
               return (
                 <StatementRowItem
                   key={s.id}
@@ -293,7 +321,7 @@ function StatementRowItem({
           <span className={`inline-block rounded border px-2 py-0.5 text-xs font-medium ${status.cls}`}>
             {status.label}
           </span>
-          {needsReview && statement.extractStatus === "complete" && (
+          {!statement.confirmedAt && statement.extractStatus === "complete" && (
             <span className="ml-1 text-xs text-amber-700">unconfirmed</span>
           )}
         </td>
@@ -311,9 +339,13 @@ function StatementRowItem({
               <Link
                 href={`/documents/${statement.documentId}/review?bucket=${entitySlug}` as Route}
                 prefetch={false}
-                className="text-xs text-primary hover:underline"
+                className={
+                  stageNeedsAttention(statement.stage)
+                    ? "text-xs font-semibold text-primary hover:underline"
+                    : "text-xs text-primary hover:underline"
+                }
               >
-                Review & import transactions →
+                {stageNeedsAttention(statement.stage) ? "Review & import transactions →" : "View transactions →"}
               </Link>
             )}
             <button

@@ -25,7 +25,16 @@ export interface ExtractedDocument {
   period?: string; // YYYY-MM for statements, YYYY for annual
   data: Record<string, unknown>;
   transactionRows?: TransactionRow[];
+  // Non-fatal caveats the reviewer should see before trusting the rows (e.g.
+  // the extraction hit its row cap and may be missing transactions).
+  warnings?: string[];
 }
+
+// The prompts ask for at most this many rows. Hitting it exactly almost
+// certainly means rows were cut off, so it is surfaced as a warning.
+export const MAX_TRANSACTION_ROWS = 200;
+
+const STATEMENT_DOC_TYPES: ReadonlySet<DocType> = new Set(["bank_statement", "credit_card_statement"]);
 
 // ── Per-type extraction prompts ───────────────────────────────────────────────
 
@@ -259,24 +268,118 @@ export function parseExtractionResponse(text: string): ExtractedDocument {
   }
 }
 
+/**
+ * Strict JSON parse for extraction output: tolerates markdown fences and
+ * surrounding prose, but THROWS when no JSON object can be recovered, instead
+ * of returning a fake "successful" stub the way parseExtractionResponse does.
+ */
+export function parseExtractionStrict(text: string): ExtractedDocument {
+  const stripped = text.trim().replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+  const candidates = [stripped];
+  const first = stripped.indexOf("{");
+  const last = stripped.lastIndexOf("}");
+  if (first !== -1 && last > first) candidates.push(stripped.slice(first, last + 1));
+  for (const candidate of candidates) {
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        return parsed as ExtractedDocument;
+      }
+    } catch {
+      // try the next candidate
+    }
+  }
+  throw new Error("Extraction response was not valid JSON");
+}
+
+/**
+ * Runs extraction and THROWS on any failure: unsupported file, API error,
+ * output cut off at max_tokens, unparseable JSON, or (for statements) a
+ * response with no transactionRows array. Use this wherever a failure must be
+ * recorded as a failure. A truncated response used to be saved as a
+ * successful extraction with the raw text as its only data.
+ */
+export async function extractDocumentOrThrow(
+  buffer: Buffer,
+  mimeType: string,
+  docType: DocType
+): Promise<ExtractedDocument> {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const base64 = buffer.toString("base64");
+  const systemPrompt = PROMPTS[docType];
+
+  type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+  const isImage = mimeType.startsWith("image/");
+  const isPdf = mimeType === "application/pdf";
+
+  if (!isImage && !isPdf) throw new Error("Unsupported file type");
+
+  const contentBlock = isImage
+    ? {
+        type: "image" as const,
+        source: { type: "base64" as const, media_type: mimeType as ImageMediaType, data: base64 },
+      }
+    : {
+        type: "document" as const,
+        source: { type: "base64" as const, media_type: "application/pdf" as const, data: base64 },
+      };
+
+  const isStatement = STATEMENT_DOC_TYPES.has(docType);
+  const message = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    // A 200-row statement is ~7k+ output tokens; the old 4096 cap cut long
+    // statements off mid-array.
+    max_tokens: isStatement ? 16000 : 4096,
+    system: systemPrompt,
+    messages: [{ role: "user", content: [contentBlock, { type: "text", text: "Extract the data." }] }],
+  });
+
+  if (message.stop_reason === "max_tokens") {
+    throw new Error("Extraction output was cut off before it finished");
+  }
+
+  const text = message.content
+    .filter((b) => b.type === "text")
+    .map((b) => (b as { type: "text"; text: string }).text)
+    .join("");
+
+  const result = parseExtractionStrict(text);
+  if (typeof result.data !== "object" || result.data === null) result.data = {};
+
+  if (isStatement) {
+    if (!Array.isArray(result.transactionRows)) {
+      throw new Error("Statement extraction returned no transactionRows array");
+    }
+    if (result.transactionRows.length >= MAX_TRANSACTION_ROWS) {
+      result.warnings = [
+        ...(result.warnings ?? []),
+        `Extraction returned ${result.transactionRows.length} rows, the maximum it will read — the statement may contain more transactions than are listed here. Verify against the PDF.`,
+      ];
+    }
+  }
+  return result;
+}
+
+/**
+ * Lenient wrapper kept for callers that want a value back no matter what
+ * (insurance and tax-planning uploads). On failure it returns a stub instead
+ * of throwing — callers that must record failure use extractDocumentOrThrow.
+ */
 export async function extractDocument(
   buffer: Buffer,
   mimeType: string,
   docType: DocType
 ): Promise<ExtractedDocument> {
   try {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    const base64 = buffer.toString("base64");
-    const systemPrompt = PROMPTS[docType];
-
-    type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
     const isImage = mimeType.startsWith("image/");
     const isPdf = mimeType === "application/pdf";
-
     if (!isImage && !isPdf) {
       return { docType: "other", summary: "Unsupported file type.", data: {} };
     }
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const base64 = buffer.toString("base64");
 
+    type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
     const contentBlock = isImage
       ? {
           type: "image" as const,
@@ -290,7 +393,7 @@ export async function extractDocument(
     const message = await client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
-      system: systemPrompt,
+      system: PROMPTS[docType],
       messages: [{ role: "user", content: [contentBlock, { type: "text", text: "Extract the data." }] }],
     });
 

@@ -10,7 +10,20 @@ import {
   getSignedUploadUrl,
 } from "@/lib/supabase-storage";
 import { randomUUID } from "crypto";
-import { extractDocument, classifyDocType, type ExtractedDocument } from "@/lib/doc-extract";
+import {
+  extractDocumentOrThrow,
+  classifyDocType,
+  type ExtractedDocument,
+  type TransactionRow,
+} from "@/lib/doc-extract";
+import {
+  STALE_PROCESSING_MS,
+  computeLedgerPresence,
+  hasUsableExtraction,
+  planImport,
+  rowDateBounds,
+} from "@/lib/statement-import";
+import { loadLedgerIndexes } from "@/lib/statement-ledger";
 import { Prisma } from "@prisma/client";
 import {
   MAX_SIZE_BYTES,
@@ -199,12 +212,16 @@ export async function archiveDocument(documentId: string): Promise<void> {
 
 // ── Document intelligence ─────────────────────────────────────────────────────
 
-export async function triggerExtraction(
+interface ExtractionRun {
+  result: ExtractedDocument | null;
+  /** Human-readable reason when result is null. Never contains document text. */
+  error?: string;
+}
+
+async function runExtraction(
   documentId: string,
   options?: { force?: boolean }
-): Promise<ExtractedDocument | null> {
-  await requireAuth();
-
+): Promise<ExtractionRun> {
   const doc = await db.document.findUniqueOrThrow({
     where: { id: documentId },
     include: { bankStatement: { include: { account: { select: { accountType: true } } } } },
@@ -214,65 +231,52 @@ export async function triggerExtraction(
   // claim below when we can already see good data. Not sufficient on its
   // own — see the claim's WHERE clause for why.
   const existingData = doc.extractionData as unknown as ExtractedDocument | null;
-  const hasUsableData = !!(
-    existingData &&
-    ((existingData.transactionRows?.length ?? 0) > 0 || Object.keys(existingData.data ?? {}).length > 0)
-  );
-  if (!options?.force && hasUsableData) {
-    return existingData;
+  if (!options?.force && hasUsableExtraction(existingData)) {
+    return { result: existingData };
   }
 
   // Atomic claim: only proceed if THIS call is the one that transitions
   // status into "processing". A genuine duplicate call for the same
-  // document — confirmed live: the review page synchronously awaits this
-  // for a slow extraction, and an impatient re-click (or a retried
-  // navigation) before that resolves fires a second concurrent call — would
-  // otherwise race two independent extraction attempts against each other.
-  // Whichever one's final update landed last would win the extractionStatus
-  // field while the OTHER's write to extractionData/extractedAt could still
-  // be the one left standing (the failure path only ever touches
-  // extractionStatus), producing exactly the corrupted state found live: a
-  // real 12-row successful result sitting under extractionStatus="failed".
-  // The loser here waits for the winner's real result instead of starting
-  // a second, independently-racing attempt.
+  // document would otherwise race two independent extraction attempts
+  // against each other; whichever one's final update landed last would win
+  // the extractionStatus field while the other's write to extractionData
+  // could still be the one left standing. The loser waits for the winner's
+  // real result instead of starting a second, independently-racing attempt.
   //
   // For a non-forced (automatic) call, "complete" is excluded from the
   // claimable set too, not just "processing" — otherwise a call whose own
-  // `doc` read above raced ahead of another call's success (read happened
-  // while status was still null, but by the time THIS claim runs the winner
-  // has already finished and written "complete") would still match a bare
-  // `not: "processing"` guard and re-claim an already-good row, re-running
-  // extraction from scratch. Confirmed live twice: a document ended up with
-  // real, good extractionData (extractedAt set, real transaction rows)
-  // sitting under extractionStatus="failed" because a second, redundant
-  // auto-triggered attempt landed *after* the first had already succeeded —
-  // the failure path only ever touches extractionStatus, never
-  // extractionData, so the good rows survived but the status lied about it.
-  // A forced retry (the "Try again" button) is allowed to reclaim
-  // "complete" or "failed" — that is the point of an explicit retry — but
-  // never "processing", so it can't interrupt a real extraction in flight.
+  // `doc` read above raced ahead of another call's success would still
+  // re-claim an already-good row and re-run extraction from scratch. A
+  // forced retry (the "Try again" button) may reclaim "complete" or
+  // "failed" — that is the point of an explicit retry.
+  //
+  // A "processing" row whose lock is older than STALE_PROCESSING_MS is a dead
+  // extraction (the serverless function was killed mid-call) and is
+  // reclaimable by anyone; without this a killed extraction left the row on
+  // "Extraction in progress…" forever with no way out.
   //
   // OR + null (rather than a bare `not`/`notIn`) because Prisma's negation
   // operators on a nullable column don't match NULL rows in the generated
-  // SQL (`NULL <> 'x'` / `NULL NOT IN (...)` are both UNKNOWN, not TRUE) —
-  // omitting the explicit null branch makes the claim silently fail to
-  // match, and therefore never actually claim, every never-yet-attempted
-  // document (status genuinely null). Caught this live too: it made
-  // triggerExtraction a permanent no-op for any first-time extraction,
-  // worse than the bug it was meant to fix.
+  // SQL (`NULL NOT IN (...)` is UNKNOWN, not TRUE) — omitting the explicit
+  // null branch makes the claim silently fail to match every
+  // never-yet-attempted document.
   const excludedStatuses = options?.force ? ["processing"] : ["processing", "complete"];
+  const staleBefore = new Date(Date.now() - STALE_PROCESSING_MS);
   const claim = await db.document.updateMany({
     where: {
       id: documentId,
-      OR: [{ extractionStatus: { notIn: excludedStatuses } }, { extractionStatus: null }],
+      OR: [
+        { extractionStatus: { notIn: excludedStatuses } },
+        { extractionStatus: null },
+        { extractionStatus: "processing", updatedAt: { lt: staleBefore } },
+      ],
     },
     data: { extractionStatus: "processing" },
   });
   if (claim.count === 0) {
     // count === 0 can mean "another call is actively processing" (wait for
-    // it) or "another call already finished — complete or failed — between
-    // our initial read and this claim attempt" (that's already the final
-    // result, return it immediately, no need to sleep first).
+    // it) or "another call already finished between our initial read and
+    // this claim attempt" (that's already the final result, return it).
     const deadline = Date.now() + 90_000;
     while (Date.now() < deadline) {
       const current = await db.document.findUnique({
@@ -280,13 +284,14 @@ export async function triggerExtraction(
         select: { extractionStatus: true, extractionData: true },
       });
       if (current?.extractionStatus !== "processing") {
-        return current?.extractionData as unknown as ExtractedDocument | null;
+        const data = current?.extractionData as unknown as ExtractedDocument | null;
+        return hasUsableExtraction(data)
+          ? { result: data }
+          : { result: null, error: "Extraction did not complete" };
       }
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    // Gave up waiting — fall through to the existing data rather than
-    // leaving the caller hanging forever on a stuck "processing" row.
-    return doc.extractionData as unknown as ExtractedDocument | null;
+    return { result: null, error: "Another extraction is still running for this document" };
   }
 
   try {
@@ -302,7 +307,10 @@ export async function triggerExtraction(
       doc.bankStatement?.account?.accountType === "credit_card"
         ? "credit_card_statement"
         : classifyDocType(doc.docType, doc.fileKey);
-    const result = await extractDocument(buffer, mimeType, docType);
+    // OrThrow: an API error, truncated output, or unparseable response must be
+    // recorded as a failure. The lenient extractDocument() returned a stub for
+    // those, which this function then saved as a *successful* extraction.
+    const result = await extractDocumentOrThrow(buffer, mimeType, docType);
 
     await db.document.update({
       where: { id: documentId },
@@ -314,37 +322,49 @@ export async function triggerExtraction(
       },
     });
 
-    // Best-effort only, deliberately outside the try/catch above: the
-    // extraction itself already succeeded and was persisted by the update
-    // above, so a revalidation failure must never flip that into a reported
-    // failure. Confirmed live as the actual root cause of every "good data
-    // sitting under extractionStatus=failed" corruption seen while chasing
-    // what looked like a pure concurrency race — this auto-trigger path is
-    // called synchronously from the review page's own render (not a form
-    // action / route handler), and Next.js throws when revalidatePath is
-    // called during a render: "used revalidatePath ... during render which
-    // is unsupported." That throw was landing in the catch below and
-    // overwriting the just-written "complete" status with "failed" (the
-    // failure path only ever touches extractionStatus, never
-    // extractionData/extractedAt, so the good result stayed intact
-    // underneath the wrong status). The "Try again" button and the cron
-    // route both call this from a real server action / route handler, where
-    // revalidatePath is legal — this still runs for them, just no longer
-    // able to corrupt anything either way.
+    // Best-effort only, deliberately outside the try/catch that decides
+    // success vs failure: the extraction already succeeded and was persisted
+    // above, so a revalidation failure must never flip it to "failed".
+    // (Historically this was called during a page render, where Next.js
+    // throws on revalidatePath — that throw used to land in the catch below
+    // and overwrite a just-written "complete" with "failed".)
     try {
       revalidatePath("/documents");
       revalidatePath(`/documents/${documentId}/review`);
     } catch {
       // ignore — see comment above.
     }
-    return result;
-  } catch {
+    return { result };
+  } catch (err) {
     await db.document.update({
       where: { id: documentId },
       data: { extractionStatus: "failed" },
     });
-    return null;
+    return { result: null, error: err instanceof Error ? err.message : "Extraction failed" };
   }
+}
+
+export async function triggerExtraction(
+  documentId: string,
+  options?: { force?: boolean }
+): Promise<ExtractedDocument | null> {
+  await requireAuth();
+  return (await runExtraction(documentId, options)).result;
+}
+
+/**
+ * Client-facing wrapper for the review page's extraction runner. Unlike
+ * triggerExtraction it reports WHY a run failed so the page can show it.
+ * Runs as a real server action (not during a page render), so a slow
+ * extraction no longer blocks — or gets killed with — the page navigation.
+ */
+export async function runDocumentExtraction(
+  documentId: string,
+  options?: { force?: boolean }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireAuth();
+  const run = await runExtraction(documentId, options);
+  return run.result ? { ok: true } : { ok: false, error: run.error ?? "Extraction failed" };
 }
 
 export async function confirmDocExtraction(
@@ -374,31 +394,48 @@ export async function skipExtraction(documentId: string): Promise<void> {
   revalidatePath(`/documents/${documentId}/review`);
 }
 
+export type ImportStatementResult =
+  | { ok: true; imported: number; skipped: number; invalid: number }
+  | { ok: false; error: string };
+
 export async function importStatementTransactions(
   documentId: string,
   selectedIndices: number[],
   accountId: string,
   businessExpenseIndices: number[] = []
-): Promise<{ imported: number; skipped: number }> {
+): Promise<ImportStatementResult> {
   await requireAuth();
 
-  const doc = await db.document.findUniqueOrThrow({ where: { id: documentId } });
-  const extraction = doc.extractionData as unknown as ExtractedDocument | null;
-  if (!extraction?.transactionRows) return { imported: 0, skipped: 0 };
+  const doc = await db.document.findFirst({ where: { id: documentId, archivedAt: null } });
+  if (!doc) return { ok: false, error: "Document not found" };
 
-  const account = await db.account.findUniqueOrThrow({
-    where: { id: accountId },
+  const extraction = doc.extractionData as unknown as ExtractedDocument | null;
+  const rows: unknown[] = extraction?.transactionRows ?? [];
+  if (rows.length === 0) return { ok: true, imported: 0, skipped: 0, invalid: 0 };
+
+  const account = await db.account.findFirst({
+    where: { id: accountId, archivedAt: null },
     include: { entity: { select: { id: true, type: true } } },
   });
+  if (!account) return { ok: false, error: "Target account not found" };
+
+  // Personal-vs-business separation is a core invariant: never let a
+  // statement's rows land in another entity's account, whatever the client
+  // sent. (The review page's picker is already entity-scoped; this is the
+  // server-side enforcement.)
+  if (account.entityId !== doc.entityId) {
+    return { ok: false, error: "That account belongs to a different entity than this statement" };
+  }
 
   // Fail closed: the business-expense override is only meaningful (and only
   // rendered in the review UI) for a Personal-entity account's statement.
   // The server never trusts the client on this — reject any non-empty
   // businessExpenseIndices against a non-Personal account outright.
   if (businessExpenseIndices.length > 0 && account.entity.type !== "personal") {
-    throw new Error(
-      "businessExpenseIndices can only be used when importing into a Personal-entity account"
-    );
+    return {
+      ok: false,
+      error: "The business-expense override can only be used when importing into a Personal-entity account",
+    };
   }
 
   // Resolved once, only when actually needed — never trust a client-supplied
@@ -407,63 +444,77 @@ export async function importStatementTransactions(
   if (businessExpenseIndices.length > 0) {
     const ekEntity = await getEntityBySlug("ek-consulting");
     if (!ekEntity) {
-      throw new Error("EK Consulting entity not found — cannot apply business-expense override");
+      return { ok: false, error: "EK Consulting entity not found — cannot apply business-expense override" };
     }
     ekConsultingEntityId = ekEntity.id;
   }
   const businessExpenseSet = new Set(businessExpenseIndices);
 
-  let imported = 0;
-  let skipped = 0;
+  // Duplicate check against the ledger as it stands now. Multiplicity-aware
+  // (see planImport): only as many identical rows are skipped as already
+  // exist, so two genuine identical same-day charges both import.
+  const bounds = rowDateBounds(rows);
+  const ledgerIndexes = bounds
+    ? await loadLedgerIndexes([accountId], bounds.from, bounds.to)
+    : new Map<string, Map<string, number>>();
+  const plan = planImport(rows, selectedIndices, ledgerIndexes.get(accountId) ?? new Map());
 
-  for (const i of selectedIndices) {
-    const row = extraction.transactionRows[i];
-    if (!row) continue;
-
-    const postedAt = new Date(row.date + "T12:00:00Z");
-    const amountDecimal = new Prisma.Decimal(row.amountCents).div(100);
-    const entityId = businessExpenseSet.has(i) && ekConsultingEntityId ? ekConsultingEntityId : account.entityId;
-
-    // normalizePayee(), not a raw slice — matches the convention documented
-    // in CLAUDE.md and used by Plaid sync. A raw copy here (mixed case,
-    // punctuation intact) silently broke tag-rule matching downstream:
-    // matchTagRule/alnum() expect an already-lowercased, punctuation-free
-    // payee, so an un-normalized value doesn't match text a human sees as
-    // identical.
-    const payeeNormalized = normalizePayee(row.description).slice(0, 100);
-
-    const existing = await db.transaction.findFirst({
-      where: {
-        accountId,
-        postedAt,
-        amount: amountDecimal,
-        payeeNormalized,
-        archivedAt: null,
-      },
+  if (plan.toCreate.length > 0) {
+    // One INSERT, so the import is all-or-nothing — the old per-row loop could
+    // fail halfway and leave a partial import behind.
+    await db.transaction.createMany({
+      data: plan.toCreate.map((i) => {
+        const row = rows[i] as TransactionRow; // validated by planImport
+        return {
+          accountId,
+          entityId:
+            businessExpenseSet.has(i) && ekConsultingEntityId ? ekConsultingEntityId : account.entityId,
+          postedAt: new Date(`${row.date}T12:00:00Z`),
+          amount: new Prisma.Decimal(row.amountCents).div(100),
+          payeeRaw: row.description,
+          // normalizePayee(), not a raw slice — matches the convention
+          // documented in CLAUDE.md and used by Plaid sync.
+          payeeNormalized: normalizePayee(row.description).slice(0, 100),
+          source: "import",
+          pending: false,
+        };
+      }),
     });
-
-    if (existing) {
-      skipped++;
-      continue;
-    }
-
-    await db.transaction.create({
-      data: {
-        accountId,
-        entityId,
-        postedAt,
-        amount: amountDecimal,
-        payeeRaw: row.description,
-        payeeNormalized,
-        source: "import",
-        pending: false,
-      },
-    });
-    imported++;
   }
 
   revalidatePath("/transactions");
-  return { imported, skipped };
+  return { ok: true, imported: plan.toCreate.length, skipped: plan.duplicates, invalid: plan.invalid };
+}
+
+/**
+ * For each entity account, which of this document's extracted rows are
+ * already in that account's ledger (index-aligned with transactionRows).
+ * Lets the review page pre-uncheck rows that would only be skipped as
+ * duplicates and show an "already in ledger" badge.
+ */
+export async function getLedgerPresenceByAccount(
+  documentId: string,
+  accountIds: string[]
+): Promise<Record<string, boolean[]>> {
+  await requireAuth();
+  const doc = await db.document.findFirst({
+    where: { id: documentId, archivedAt: null },
+    select: { entityId: true, extractionData: true },
+  });
+  const rows: unknown[] = (doc?.extractionData as unknown as ExtractedDocument | null)?.transactionRows ?? [];
+  const bounds = rowDateBounds(rows);
+  if (!doc || !bounds || accountIds.length === 0) return {};
+
+  // Scoped to the document's own entity so this can't be used to probe
+  // another entity's ledger.
+  const owned = await db.account.findMany({
+    where: { id: { in: accountIds }, entityId: doc.entityId, archivedAt: null },
+    select: { id: true },
+  });
+  const indexes = await loadLedgerIndexes(owned.map((a) => a.id), bounds.from, bounds.to);
+  const out: Record<string, boolean[]> = {};
+  for (const [id, index] of indexes) out[id] = computeLedgerPresence(rows, index);
+  return out;
 }
 
 export async function getDocumentWithExtraction(documentId: string) {

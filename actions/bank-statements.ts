@@ -18,9 +18,20 @@ import {
   validateStatementFile,
 } from "@/lib/bank-statement-upload";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
-import { triggerExtraction } from "@/actions/documents";
+import { triggerExtraction, importStatementTransactions } from "@/actions/documents";
+import type { ImportStatementResult } from "@/actions/documents";
 import { needsCreditCardReclassification } from "@/lib/statement-review";
 import type { ExtractedDocument } from "@/lib/doc-extract";
+import {
+  computeLedgerPresence,
+  deriveStatementStage,
+  effectiveDocumentStatus,
+  hasUsableExtraction,
+  importableRowIndices,
+  rowDateBounds,
+  type StatementStage,
+} from "@/lib/statement-import";
+import { loadLedgerIndexes } from "@/lib/statement-ledger";
 
 async function requireAuth() {
   const session = await auth();
@@ -270,10 +281,20 @@ export interface BankStatementRow {
   accountMask: string | null;
   openingBalance: string | null;
   closingBalance: string | null;
+  /** Period/balance extraction status only (BankStatement.extractStatus). */
   extractStatus: string;
   confirmedAt: Date | null;
   notes: string | null;
   createdAt: Date;
+  /**
+   * Where the statement's TRANSACTIONS stand, derived from the document's
+   * extracted rows and the actual ledger (see lib/statement-import.ts).
+   * Independent of extractStatus, which only says whether the period and
+   * balances were read.
+   */
+  stage: StatementStage;
+  importableRows: number;
+  rowsInLedger: number;
 }
 
 export async function listBankStatements(entityId: string): Promise<BankStatementRow[]> {
@@ -281,26 +302,65 @@ export async function listBankStatements(entityId: string): Promise<BankStatemen
 
   const statements = await db.bankStatement.findMany({
     where: { entityId, archivedAt: null },
-    include: { account: { select: { nickname: true } } },
+    include: {
+      account: { select: { nickname: true } },
+      document: { select: { extractionStatus: true, extractionData: true, updatedAt: true } },
+    },
     orderBy: { periodEnd: "desc" },
   });
 
-  return statements.map((s) => ({
-    id: s.id,
-    documentId: s.documentId,
-    accountId: s.accountId,
-    accountNickname: s.account?.nickname ?? null,
-    periodStart: s.periodStart,
-    periodEnd: s.periodEnd,
-    institutionName: s.institutionName,
-    accountMask: s.accountMask,
-    openingBalance: s.openingBalance?.toFixed(2) ?? null,
-    closingBalance: s.closingBalance?.toFixed(2) ?? null,
-    extractStatus: s.extractStatus,
-    confirmedAt: s.confirmedAt,
-    notes: s.notes,
-    createdAt: s.createdAt,
-  }));
+  const rowsOf = (s: (typeof statements)[number]): unknown[] =>
+    (s.document?.extractionData as unknown as ExtractedDocument | null)?.transactionRows ?? [];
+
+  // One ledger read for the whole list, bounded to the span the extracted
+  // rows actually cover.
+  const accountIds = Array.from(
+    new Set(statements.map((s) => s.accountId).filter((id): id is string => id !== null))
+  );
+  const bounds = rowDateBounds(statements.flatMap(rowsOf));
+  const ledgerIndexes = bounds
+    ? await loadLedgerIndexes(accountIds, bounds.from, bounds.to)
+    : new Map<string, Map<string, number>>();
+
+  return statements.map((s) => {
+    const extraction = s.document?.extractionData as unknown as ExtractedDocument | null;
+    const rows = rowsOf(s);
+    const importable = importableRowIndices(rows);
+    const presence = computeLedgerPresence(
+      rows,
+      (s.accountId ? ledgerIndexes.get(s.accountId) : undefined) ?? new Map()
+    );
+    const rowsInLedger = importable.filter((i) => presence[i]).length;
+    const usable = hasUsableExtraction(extraction);
+
+    return {
+      id: s.id,
+      documentId: s.documentId,
+      accountId: s.accountId,
+      accountNickname: s.account?.nickname ?? null,
+      periodStart: s.periodStart,
+      periodEnd: s.periodEnd,
+      institutionName: s.institutionName,
+      accountMask: s.accountMask,
+      openingBalance: s.openingBalance?.toFixed(2) ?? null,
+      closingBalance: s.closingBalance?.toFixed(2) ?? null,
+      extractStatus: s.extractStatus,
+      confirmedAt: s.confirmedAt,
+      notes: s.notes,
+      createdAt: s.createdAt,
+      stage: deriveStatementStage({
+        documentStatus: s.document
+          ? effectiveDocumentStatus(s.document.extractionStatus, s.document.updatedAt)
+          : null,
+        hasUsableData: usable,
+        importableRows: importable.length,
+        rowsInLedger,
+        confirmed: s.confirmedAt !== null,
+      }),
+      importableRows: importable.length,
+      rowsInLedger,
+    };
+  });
 }
 
 export interface EntityAccountOption {
@@ -342,27 +402,63 @@ export async function listEntityAccounts(entityId: string): Promise<EntityAccoun
 
 // ── Confirm from the document-review page ──────────────────────────────────────
 //
-// Marks a statement confirmed using whatever period/balance data is already
-// stored on it (from extraction) -- no re-entry needed. This is what actually
-// clears the "unconfirmed" badge on the Bank Statements page when the owner
-// clicks "Confirm extraction" on /documents/{id}/review, trusting the
-// displayed extracted fields as correct (the same meaning "Save & confirm" on
-// the manual edit form has, just without re-typing anything).
-export async function confirmBankStatementByDocumentId(
-  documentId: string
-): Promise<{ success: true } | { error: string }> {
+// The one action behind "Confirm extraction & import" on /documents/{id}/review.
+// Ordering matters and is the point of doing it server-side in one call: the
+// rows are imported FIRST, and the statement is only marked confirmed once
+// that succeeded. The old client-side sequence (confirm document, import,
+// then confirm statement — three separate calls with no error handling) let a
+// failed or skipped import leave the UI looking finished with nothing in the
+// ledger.
+//
+// Confirming trusts the displayed period/balances as correct (the same meaning
+// "Save & confirm" on the manual edit form has, minus the re-typing). A
+// statement can still be confirmed with rows deliberately left out — the list
+// shows how many rows are not in the ledger, so that stays visible.
+export async function confirmStatementImport(input: {
+  documentId: string;
+  selectedIndices: number[];
+  accountId: string;
+  businessExpenseIndices?: number[];
+}): Promise<ImportStatementResult> {
   const user = await requireAuth();
+  const { documentId, selectedIndices, accountId, businessExpenseIndices } = input;
 
-  const statement = await db.bankStatement.findUnique({ where: { documentId } });
-  if (!statement || statement.archivedAt) return { error: "Statement not found" };
+  const result = await importStatementTransactions(
+    documentId,
+    selectedIndices,
+    accountId,
+    businessExpenseIndices ?? []
+  );
+  if (!result.ok) return result;
 
-  await db.bankStatement.update({
-    where: { id: statement.id },
-    data: { confirmedAt: new Date(), confirmedById: user.id },
+  // The import succeeded, so the transaction extraction is settled. Only the
+  // status label is touched — extractionData is left exactly as extracted.
+  await db.document.update({
+    where: { id: documentId },
+    data: { extractionStatus: "complete" },
   });
 
+  const statement = await db.bankStatement.findFirst({ where: { documentId, archivedAt: null } });
+  if (statement) {
+    await db.bankStatement.update({
+      where: { id: statement.id },
+      data: {
+        // Keep the original confirmation stamp on a re-import.
+        confirmedAt: statement.confirmedAt ?? new Date(),
+        confirmedById: statement.confirmedById ?? user.id,
+        // The account the rows were imported into is, by definition, this
+        // statement's account. importStatementTransactions already verified it
+        // belongs to the statement's entity. A statement with no rows to import
+        // carries no account (accountId is "") and keeps whatever it had.
+        ...(accountId ? { accountId } : {}),
+      },
+    });
+  }
+
   revalidatePath("/business");
-  return { success: true };
+  revalidatePath("/documents");
+  revalidatePath(`/documents/${documentId}/review`);
+  return result;
 }
 
 // ── Confirm / correct extraction ───────────────────────────────────────────────
@@ -582,19 +678,26 @@ export async function extractAllStatementTransactions(
     },
   });
 
-  const toExtract = statements.filter(
-    (s) =>
-      !s.document ||
-      !s.document.extractionStatus ||
-      s.document.extractionStatus === "failed" ||
-      needsCreditCardReclassification(
-        s.account?.accountType,
-        s.document.extractionData as unknown as ExtractedDocument | null
-      )
-  );
+  // Judged by whether real data exists, not by the status label: the label can
+  // read "failed" on a document that holds a complete, good extraction, and
+  // "complete" on one that holds nothing usable. A document the owner chose
+  // to skip is left alone.
+  const staleCardExtraction = (s: (typeof statements)[number]) =>
+    needsCreditCardReclassification(
+      s.account?.accountType,
+      s.document?.extractionData as unknown as ExtractedDocument | null
+    );
+  const toExtract = statements.filter((s) => {
+    if (!s.document) return false;
+    const data = s.document.extractionData as unknown as ExtractedDocument | null;
+    if (!hasUsableExtraction(data)) return s.document.extractionStatus !== "skipped";
+    return staleCardExtraction(s);
+  });
 
+  // force only for the reclassification case: triggerExtraction's own
+  // usable-data short-circuit would otherwise skip the re-run entirely.
   const results = await runWithConcurrencyLimit(toExtract, 4, (s) =>
-    triggerExtraction(s.documentId!)
+    triggerExtraction(s.documentId!, { force: staleCardExtraction(s) })
   );
 
   const succeeded = results.filter((r) => r !== null).length;

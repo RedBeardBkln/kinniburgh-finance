@@ -18,6 +18,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { db } from "@/lib/db";
 import {
   extractDocument,
+  extractDocumentOrThrow,
+  parseExtractionStrict,
   parseExtractionResponse,
   classifyDocType,
   computePayoffScenarios,
@@ -217,5 +219,83 @@ describe("computePayoffScenarios", () => {
     expect(withExtra.extraMonthlyPaymentCents).toBe(100000);
     expect(withExtra.monthsRemaining).toBeLessThan(baseline.monthsRemaining - 60);
     expect(withExtra.totalInterestCents).toBeLessThan(baseline.totalInterestCents);
+  });
+});
+
+
+// ── Strict extraction: failures must be failures ──────────────────────────────
+
+describe("parseExtractionStrict", () => {
+  it("parses fenced JSON", () => {
+    const out = parseExtractionStrict('```json\n{"docType":"bank_statement","summary":"s","data":{}}\n```');
+    expect(out.docType).toBe("bank_statement");
+  });
+
+  it("recovers JSON surrounded by prose", () => {
+    const out = parseExtractionStrict('Here you go:\n{"docType":"other","summary":"s","data":{}}\nHope that helps!');
+    expect(out.summary).toBe("s");
+  });
+
+  it("throws on truncated JSON instead of returning a fake success", () => {
+    expect(() => parseExtractionStrict('{"docType":"credit_card_statement","transactionRows":[{"date":"2025-')).toThrow();
+  });
+});
+
+describe("extractDocumentOrThrow", () => {
+  const goodCard = {
+    docType: "credit_card_statement",
+    summary: "Card statement",
+    data: { periodEnd: "2025-07-18" },
+    transactionRows: [{ date: "2025-06-20", description: "USPS", amountCents: -1250, lineType: "charge" }],
+  };
+
+  it("returns a valid statement extraction", async () => {
+    mockCreate.mockResolvedValue({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(goodCard) }] });
+    const out = await extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "credit_card_statement");
+    expect(out.transactionRows).toHaveLength(1);
+    expect(out.warnings).toBeUndefined();
+  });
+
+  it("gives statement extractions a larger output budget than the default", async () => {
+    mockCreate.mockResolvedValue({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(goodCard) }] });
+    await extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "credit_card_statement");
+    expect(mockCreate.mock.calls[0]![0].max_tokens).toBeGreaterThan(4096);
+  });
+
+  it("throws when output was cut off at max_tokens (used to be saved as a success)", async () => {
+    mockCreate.mockResolvedValue({ stop_reason: "max_tokens", content: [{ type: "text", text: '{"docType":"credit_card' }] });
+    await expect(extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "credit_card_statement")).rejects.toThrow(/cut off/);
+  });
+
+  it("throws on unparseable output", async () => {
+    mockCreate.mockResolvedValue({ stop_reason: "end_turn", content: [{ type: "text", text: "I could not read this." }] });
+    await expect(extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "bank_statement")).rejects.toThrow(/not valid JSON/);
+  });
+
+  it("throws when a statement has no transactionRows array", async () => {
+    mockCreate.mockResolvedValue({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ docType: "bank_statement", summary: "s", data: {} }) }] });
+    await expect(extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "bank_statement")).rejects.toThrow(/transactionRows/);
+  });
+
+  it("propagates API errors", async () => {
+    mockCreate.mockRejectedValue(new Error("overloaded"));
+    await expect(extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "bank_statement")).rejects.toThrow("overloaded");
+  });
+
+  it("throws on an unsupported file type", async () => {
+    await expect(extractDocumentOrThrow(Buffer.from("x"), "text/plain", "bank_statement")).rejects.toThrow(/Unsupported/);
+  });
+
+  it("warns when the row cap is hit", async () => {
+    const rows = Array.from({ length: 200 }, (_, i) => ({ date: "2025-06-20", description: `M${i}`, amountCents: -100, lineType: "charge" }));
+    mockCreate.mockResolvedValue({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ ...goodCard, transactionRows: rows }) }] });
+    const out = await extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "credit_card_statement");
+    expect(out.warnings?.[0]).toMatch(/200 rows/);
+  });
+
+  it("legacy extractDocument still returns a stub instead of throwing (insurance/tax callers)", async () => {
+    mockCreate.mockRejectedValue(new Error("boom"));
+    const out = await extractDocument(Buffer.from("x"), "application/pdf", "insurance_policy");
+    expect(out.summary).toBe("Extraction failed.");
   });
 });

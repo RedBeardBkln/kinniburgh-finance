@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { confirmDocExtraction, importStatementTransactions } from "@/actions/documents";
-import { confirmBankStatementByDocumentId } from "@/actions/bank-statements";
+import { confirmDocExtraction } from "@/actions/documents";
+import { confirmStatementImport } from "@/actions/bank-statements";
 import type { ExtractedDocument, TransactionRow } from "@/lib/doc-extract";
 import { defaultImportSelection, isWithinPlaidCoverage } from "@/lib/statement-review";
+import { validateStatementRow } from "@/lib/statement-import";
 
 interface AccountOption {
   id: string;
@@ -25,6 +26,11 @@ interface Props {
   accounts?: AccountOption[];
   defaultAccountId?: string | null;
   canFlagBusinessExpense?: boolean;
+  /**
+   * accountId -> per-row flag (index-aligned with extraction.transactionRows):
+   * true when that row is already in that account's ledger.
+   */
+  ledgerPresence: Record<string, boolean[]>;
   backHref: Route;
   backLabel: string;
   nextReviewHref: Route | null;
@@ -45,11 +51,11 @@ function formatField(key: string, value: unknown): string {
 export function DocumentReviewClient({
   documentId,
   extraction,
-  entityId,
   isBankStatement,
   accounts,
   defaultAccountId,
   canFlagBusinessExpense,
+  ledgerPresence,
   backHref,
   backLabel,
   nextReviewHref,
@@ -60,36 +66,54 @@ export function DocumentReviewClient({
   const selectedAccountOption = accounts?.find((a) => a.id === accountId) ?? null;
   const plaidCoverageStart = selectedAccountOption?.plaidCoverageStart ?? null;
 
-  const [selectedRows, setSelectedRows] = useState<Set<number>>(
-    new Set(defaultImportSelection(extraction.transactionRows ?? [], plaidCoverageStart))
-  );
-  // The target account (and therefore its Plaid coverage window) can change
-  // after the row list first renders — recompute the default selection
-  // whenever accountId changes. Rows the reviewer has already manually
-  // toggled off/on before switching accounts are intentionally reset here,
-  // since the account switch itself changes which rows are excluded by
-  // default.
-  useEffect(() => {
-    setSelectedRows(new Set(defaultImportSelection(extraction.transactionRows ?? [], plaidCoverageStart)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId]);
+  const rows: TransactionRow[] = extraction.transactionRows ?? [];
+  const presence = ledgerPresence[accountId] ?? [];
+  const isInLedger = (i: number) => presence[i] === true;
+  const isImportable = (row: unknown) => validateStatementRow(row);
+
+  // Default selection for a given target account: everything the existing
+  // rules select (not a card payment, not inside Plaid's live coverage), minus
+  // rows already in that account's ledger (they would only be skipped as
+  // duplicates) and rows too malformed to import at all.
+  function selectionFor(forAccountId: string): Set<number> {
+    const coverageStart = accounts?.find((a) => a.id === forAccountId)?.plaidCoverageStart ?? null;
+    const inLedger = ledgerPresence[forAccountId] ?? [];
+    return new Set(
+      defaultImportSelection(rows, coverageStart).filter(
+        (i) => validateStatementRow(rows[i]) && inLedger[i] !== true
+      )
+    );
+  }
+
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(() => selectionFor(defaultAccountId ?? ""));
+
+  // The target account (and therefore its Plaid coverage window and ledger
+  // contents) can change after the row list first renders, so the default
+  // selection is recomputed on every account change. Rows toggled by hand
+  // before switching are intentionally reset, since the switch itself changes
+  // which rows are excluded by default. Done in the handler, not an effect.
+  function handleAccountChange(nextAccountId: string) {
+    setAccountId(nextAccountId);
+    setSelectedRows(selectionFor(nextAccountId));
+  }
 
   const [businessExpenseRows, setBusinessExpenseRows] = useState<Set<number>>(new Set());
-  const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
+  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; invalid: number } | null>(null);
   const [saved, setSaved] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
-  const hasRows = (extraction.transactionRows?.length ?? 0) > 0;
+  const hasRows = rows.length > 0;
   const needsAccount = isBankStatement && hasRows && !accountId;
+  const importableCount = rows.filter(isImportable).length;
+  const alreadyInLedgerCount = rows.filter((_, i) => isInLedger(i)).length;
 
-  const dataEntries = Object.entries(extraction.data ?? {}).filter(
-    ([k]) => !["raw"].includes(k)
-  );
+  const dataEntries = Object.entries(extraction.data ?? {}).filter(([k]) => !["raw"].includes(k));
 
   function toggleRow(i: number) {
     setSelectedRows((prev) => {
       const next = new Set(prev);
-      next.has(i) ? next.delete(i) : next.add(i);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
       return next;
     });
   }
@@ -97,21 +121,22 @@ export function DocumentReviewClient({
   function toggleBusinessExpense(i: number) {
     setBusinessExpenseRows((prev) => {
       const next = new Set(prev);
-      next.has(i) ? next.delete(i) : next.add(i);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
       return next;
     });
   }
 
   function toggleAll() {
-    const all = extraction.transactionRows?.length ?? 0;
-    setSelectedRows(selectedRows.size === all ? new Set() : new Set(Array.from({ length: all }, (_, i) => i)));
+    const selectable = rows.map((r, i) => (isImportable(r) ? i : -1)).filter((i) => i >= 0);
+    const allSelected = selectable.length > 0 && selectable.every((i) => selectedRows.has(i));
+    setSelectedRows(allSelected ? new Set() : new Set(selectable));
   }
 
-  // Single action: confirm the extraction is correct, and — for a bank
-  // statement with rows to import — also import the selected transactions
-  // and mark the linked BankStatement confirmed (clears its "unconfirmed"
-  // badge on the Bank Statements page). No separate "Import" button; a
-  // confirmed extraction and its transactions are one decision, not two.
+  // One decision, one server call. For a bank statement the server imports the
+  // selected rows first and only then marks the statement confirmed, so a
+  // failure here leaves it unconfirmed and shows the reason, instead of the
+  // page looking finished with nothing in the ledger.
   function handleConfirm() {
     if (needsAccount) {
       setConfirmError("Select a target account before confirming — needed to import the transactions below.");
@@ -119,27 +144,46 @@ export function DocumentReviewClient({
     }
     setConfirmError(null);
     startTransition(async () => {
-      await confirmDocExtraction(documentId, extraction as unknown as Record<string, unknown>);
-      if (isBankStatement) {
-        if (hasRows && selectedRows.size > 0) {
+      try {
+        if (isBankStatement) {
           // Only rows that are both selected for import AND flagged get the
           // business-expense override — a flagged-but-unselected row must
           // not silently import anyway.
           const businessExpenseIndices = Array.from(businessExpenseRows).filter((i) => selectedRows.has(i));
-          const result = await importStatementTransactions(
+          const res = await confirmStatementImport({
             documentId,
-            Array.from(selectedRows),
+            selectedIndices: Array.from(selectedRows),
             accountId,
-            businessExpenseIndices
-          );
-          setImportResult(result);
+            businessExpenseIndices,
+          });
+          if (!res.ok) {
+            setConfirmError(res.error);
+            return;
+          }
+          setImportResult({ imported: res.imported, skipped: res.skipped, invalid: res.invalid });
+        } else {
+          await confirmDocExtraction(documentId, extraction as unknown as Record<string, unknown>);
         }
-        await confirmBankStatementByDocumentId(documentId);
+        setSaved(true);
+        router.refresh();
+      } catch {
+        setConfirmError(
+          "Something went wrong while confirming. It is safe to try again — rows already imported are skipped as duplicates."
+        );
       }
-      setSaved(true);
-      router.refresh();
     });
   }
+
+  const selectedCount = selectedRows.size;
+  const confirmLabel = isPending
+    ? isBankStatement && hasRows
+      ? "Confirming & importing…"
+      : "Saving…"
+    : isBankStatement && hasRows
+      ? selectedCount > 0
+        ? `Confirm extraction & import ${selectedCount} transaction${selectedCount === 1 ? "" : "s"}`
+        : "Confirm extraction (no transactions selected)"
+      : "Confirm extraction";
 
   return (
     <div className="space-y-6">
@@ -152,6 +196,74 @@ export function DocumentReviewClient({
           <p className="text-sm text-muted-foreground">{extraction.summary}</p>
           {extraction.period && (
             <p className="mt-1 text-xs text-muted-foreground">Period: {extraction.period}</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {extraction.warnings && extraction.warnings.length > 0 && (
+        <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {extraction.warnings.map((w) => (
+            <p key={w}>⚠ {w}</p>
+          ))}
+        </div>
+      )}
+
+      {/* The one action. Always rendered — it used to live inside the
+          "Extracted fields" card and vanished whenever that card was empty. */}
+      <Card>
+        <CardContent className="space-y-3 pt-6">
+          {!saved ? (
+            <>
+              {isBankStatement && hasRows && (
+                <p className="text-sm text-muted-foreground">
+                  {selectedCount} of {importableCount} transactions selected
+                  {alreadyInLedgerCount > 0 && ` · ${alreadyInLedgerCount} already in your ledger`}. Nothing reaches your
+                  transactions until you confirm.
+                </p>
+              )}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleConfirm}
+                  disabled={isPending}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {confirmLabel}
+                </button>
+              </div>
+              {confirmError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {confirmError}
+                </p>
+              )}
+            </>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-green-700">
+                ✓ Confirmed
+                {importResult
+                  ? ` — ${importResult.imported} transaction${importResult.imported === 1 ? "" : "s"} imported${
+                      importResult.skipped ? `, ${importResult.skipped} skipped as already in your ledger` : ""
+                    }${importResult.invalid ? `, ${importResult.invalid} unreadable row${importResult.invalid === 1 ? "" : "s"} skipped` : ""}.`
+                  : "."}
+              </p>
+              <div className="flex items-center gap-3">
+                <Link
+                  href={backHref}
+                  className="rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+                >
+                  ← Back to {backLabel}
+                </Link>
+                {nextReviewHref && (
+                  <Link
+                    href={nextReviewHref}
+                    prefetch={false}
+                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                  >
+                    Next statement →
+                  </Link>
+                )}
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -175,71 +287,20 @@ export function DocumentReviewClient({
                 ))}
               </tbody>
             </table>
-            {!saved && (
-              <div className="mt-4 space-y-2">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleConfirm}
-                    disabled={isPending}
-                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                  >
-                    {isPending
-                      ? isBankStatement && hasRows
-                        ? "Confirming & importing…"
-                        : "Saving…"
-                      : isBankStatement && hasRows
-                        ? `Confirm extraction & import ${selectedRows.size} transactions`
-                        : "Confirm extraction"}
-                  </button>
-                </div>
-                {confirmError && <p className="text-sm text-destructive">{confirmError}</p>}
-              </div>
-            )}
-            {saved && (
-              <div className="mt-4 space-y-3">
-                <p className="text-sm text-green-600">
-                  Confirmed{importResult ? ` — ${importResult.imported} transactions imported${importResult.skipped ? `, ${importResult.skipped} skipped as duplicates` : ""}.` : "."}
-                </p>
-                <div className="flex items-center gap-3">
-                  <Link
-                    href={backHref}
-                    className="rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
-                  >
-                    ← Back to {backLabel}
-                  </Link>
-                  {nextReviewHref && (
-                    // prefetch={false}: visiting a review page can trigger a real,
-                    // non-idempotent AI extraction call as a side effect of
-                    // rendering it (see app/documents/[id]/review/page.tsx) —
-                    // Next.js's default hover/viewport prefetch would silently
-                    // fire that in the background before the user even clicks,
-                    // racing against a real navigation's own attempt.
-                    <Link
-                      href={nextReviewHref}
-                      prefetch={false}
-                      className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                    >
-                      Next statement →
-                    </Link>
-                  )}
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
       )}
 
       {/* Transaction rows (bank statements) */}
-      {extraction.transactionRows && extraction.transactionRows.length > 0 && (
+      {hasRows && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">
-              Transactions ({extraction.transactionRows.length})
-            </CardTitle>
+            <CardTitle className="text-base">Transactions ({rows.length})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Select transactions to import. Duplicates (matching account, date, amount, and payee) will be skipped automatically.
+              Select transactions to import. Rows already in your ledger are unchecked and marked; if you import one
+              anyway it is skipped as a duplicate.
             </p>
 
             <div className="space-y-2">
@@ -247,13 +308,14 @@ export function DocumentReviewClient({
               {accounts && accounts.length > 0 ? (
                 <select
                   value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
+                  onChange={(e) => handleAccountChange(e.target.value)}
                   className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
                   <option value="">Select an account…</option>
                   {accounts.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.nickname}{a.mask ? ` (···${a.mask})` : ""}
+                      {a.nickname}
+                      {a.mask ? ` (···${a.mask})` : ""}
                     </option>
                   ))}
                 </select>
@@ -261,7 +323,7 @@ export function DocumentReviewClient({
                 <input
                   type="text"
                   value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
+                  onChange={(e) => handleAccountChange(e.target.value)}
                   placeholder="Account ID (paste from account settings)"
                   className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 />
@@ -273,8 +335,10 @@ export function DocumentReviewClient({
                 <thead>
                   <tr className="border-b bg-muted/30 text-left text-muted-foreground">
                     <th className="px-3 py-2 w-8">
-                      <input type="checkbox"
-                        checked={selectedRows.size === extraction.transactionRows.length}
+                      <input
+                        type="checkbox"
+                        aria-label="Select all importable transactions"
+                        checked={importableCount > 0 && selectedRows.size === importableCount}
                         onChange={toggleAll}
                         className="h-3.5 w-3.5 cursor-pointer"
                       />
@@ -282,20 +346,22 @@ export function DocumentReviewClient({
                     <th className="px-3 py-2">Date</th>
                     <th className="px-3 py-2">Description</th>
                     <th className="px-3 py-2 text-right">Amount</th>
-                    {canFlagBusinessExpense && (
-                      <th className="px-3 py-2">EK Consulting business expense</th>
-                    )}
+                    {canFlagBusinessExpense && <th className="px-3 py-2">EK Consulting business expense</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {extraction.transactionRows.map((row: TransactionRow, i: number) => {
+                  {rows.map((row: TransactionRow, i: number) => {
+                    const importable = isImportable(row);
                     const isPaymentRow = row.lineType === "payment";
                     const isPlaidOverlap = isWithinPlaidCoverage(row.date, plaidCoverageStart);
                     return (
                       <tr key={i} className={selectedRows.has(i) ? "" : "opacity-40"}>
                         <td className="px-3 py-1.5">
-                          <input type="checkbox"
+                          <input
+                            type="checkbox"
+                            aria-label={`Import row ${i + 1}`}
                             checked={selectedRows.has(i)}
+                            disabled={!importable}
                             onChange={() => toggleRow(i)}
                             className="h-3.5 w-3.5 cursor-pointer"
                           />
@@ -303,8 +369,18 @@ export function DocumentReviewClient({
                         <td className="px-3 py-1.5 whitespace-nowrap">{row.date}</td>
                         <td className="px-3 py-1.5 max-w-xs">
                           <span className="truncate block">{row.description}</span>
+                          {!importable && (
+                            <span className="mt-0.5 inline-block rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700">
+                              Unreadable row — can’t be imported; check the PDF
+                            </span>
+                          )}
+                          {isInLedger(i) && (
+                            <span className="mt-0.5 inline-block rounded border border-green-200 bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-700">
+                              ✓ Already in your ledger
+                            </span>
+                          )}
                           {isPaymentRow && (
-                            <span className="mt-0.5 inline-block rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                            <span className="mt-0.5 ml-1 inline-block rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
                               Payment — already captured elsewhere, excluded by default
                             </span>
                           )}
@@ -314,12 +390,18 @@ export function DocumentReviewClient({
                             </span>
                           )}
                         </td>
-                        <td className={`px-3 py-1.5 text-right whitespace-nowrap font-mono ${row.amountCents < 0 ? "text-destructive" : "text-green-600"}`}>
+                        <td
+                          className={`px-3 py-1.5 text-right whitespace-nowrap font-mono ${
+                            row.amountCents < 0 ? "text-destructive" : "text-green-600"
+                          }`}
+                        >
                           {formatCents(row.amountCents)}
                         </td>
                         {canFlagBusinessExpense && (
                           <td className="px-3 py-1.5 text-center">
-                            <input type="checkbox"
+                            <input
+                              type="checkbox"
+                              aria-label={`Flag row ${i + 1} as EK Consulting business expense`}
                               checked={businessExpenseRows.has(i)}
                               onChange={() => toggleBusinessExpense(i)}
                               className="h-3.5 w-3.5 cursor-pointer"
@@ -333,10 +415,9 @@ export function DocumentReviewClient({
               </table>
             </div>
 
-            {!saved && (
+            {canFlagBusinessExpense && !saved && (
               <p className="text-xs text-muted-foreground">
-                Selected transactions import automatically when you confirm the extraction above.
-                {canFlagBusinessExpense && " Rows flagged “EK Consulting business expense” import to that entity instead of Personal."}
+                Rows flagged “EK Consulting business expense” import to that entity instead of Personal.
               </p>
             )}
           </CardContent>
