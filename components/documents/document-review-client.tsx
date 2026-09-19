@@ -208,8 +208,15 @@ export function DocumentReviewClient({
                     ← Back to {backLabel}
                   </Link>
                   {nextReviewHref && (
+                    // prefetch={false}: visiting a review page can trigger a real,
+                    // non-idempotent AI extraction call as a side effect of
+                    // rendering it (see app/documents/[id]/review/page.tsx) —
+                    // Next.js's default hover/viewport prefetch would silently
+                    // fire that in the background before the user even clicks,
+                    // racing against a real navigation's own attempt.
                     <Link
                       href={nextReviewHref}
+                      prefetch={false}
                       className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
                     >
                       Next statement →

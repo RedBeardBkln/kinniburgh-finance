@@ -43,18 +43,39 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
   // means it persisted "failed" — no second DB round-trip needed to know
   // which.
   let extractionStatus = doc.extractionStatus;
-  // True only when extraction was already done before this page load (not
-  // just completed by the auto-trigger below) — drives the "already
-  // extracted, skip ahead?" banner. Showing that banner for an extraction
-  // that just finished this render would be misleading ("already" implies
-  // a prior visit) and would duplicate DocumentReviewClient's own
-  // just-confirmed UI once the user actually confirms it.
-  let alreadyExtracted = extractionStatus === "complete";
+  // Real, already-usable data (transaction rows, or any extracted fields)
+  // from a prior attempt — checked independently of extractionStatus,
+  // because the two can drift. BankStatement has its own separate
+  // extractStatus (period/balance only, set by actions/bank-statements.ts's
+  // retry/confirm flows) that drives the "Extracted" badge on the
+  // statements list — it has no relationship to *this* Document's own
+  // extractionStatus (transaction rows, set only by triggerExtraction
+  // below). A statement can show "Extracted" on the list while this page
+  // has never run its own extraction at all, or ran it once successfully
+  // and then had extractionStatus clobbered by an unrelated failed
+  // re-attempt (Next.js prefetching this same link on hover can race a
+  // second triggerExtraction call against the first — confirmed live
+  // against a real EK Consulting Capital One statement: extractionStatus
+  // ended up "failed" while extractionData still held a real, complete
+  // 13-row result from an earlier successful attempt whose write simply
+  // landed first). Once real data exists, never silently blow it away with
+  // another slow, non-idempotent AI call just because extractionStatus
+  // doesn't currently say "complete" — only re-trigger for a genuinely
+  // empty document or the credit-card reclassification case below, which
+  // already only fires for real stale data.
+  const hasUsableData = !!(
+    extraction && ((extraction.transactionRows?.length ?? 0) > 0 || Object.keys(extraction.data ?? {}).length > 0)
+  );
+  // Drives the "already extracted, skip ahead?" banner — true whenever
+  // there's real data to show and we're not about to overwrite it this
+  // render (see hasUsableData above for why this can be true even when
+  // extractionStatus itself says something other than "complete").
+  let alreadyExtracted = hasUsableData;
   const staleCreditCardExtraction = needsCreditCardReclassification(
     doc.bankStatement?.account?.accountType,
     extraction
   );
-  if (!doc.extractionStatus || doc.extractionStatus === "pending" || staleCreditCardExtraction) {
+  if ((!hasUsableData && !doc.extractionStatus) || doc.extractionStatus === "pending" || staleCreditCardExtraction) {
     extraction = await triggerExtraction(id);
     extractionStatus = extraction ? "complete" : "failed";
     alreadyExtracted = false;
@@ -151,14 +172,17 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
             <span className="text-green-800">
               ✓ Already extracted{doc.bankStatement?.confirmedAt ? " and confirmed" : " — not yet confirmed"}.
             </span>
+            {/* prefetch={false} on both: visiting either target page can trigger
+                a real, non-idempotent AI extraction call as a side effect of
+                its own render — never prefetch that in the background. */}
             <div className="flex items-center gap-3">
               {nextUnextractedHref && (
-                <Link href={nextUnextractedHref} className="text-green-800 hover:underline">
+                <Link href={nextUnextractedHref} prefetch={false} className="text-green-800 hover:underline">
                   Skip to next unextracted →
                 </Link>
               )}
               {nextReviewHref && (
-                <Link href={nextReviewHref} className="text-green-800 hover:underline">
+                <Link href={nextReviewHref} prefetch={false} className="text-green-800 hover:underline">
                   Next statement →
                 </Link>
               )}
@@ -214,9 +238,10 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
             </form>
           )}
           {/* Already shown in the green banner above when alreadyExtracted — avoid
-              showing it twice on the same page. */}
+              showing it twice on the same page. prefetch={false}: same reason
+              as the banner's copy of this link above. */}
           {!alreadyExtracted && nextUnextractedHref && (
-            <Link href={nextUnextractedHref} className="text-sm text-muted-foreground hover:underline">
+            <Link href={nextUnextractedHref} prefetch={false} className="text-sm text-muted-foreground hover:underline">
               Skip to next unextracted →
             </Link>
           )}

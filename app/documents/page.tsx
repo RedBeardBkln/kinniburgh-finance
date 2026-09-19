@@ -170,8 +170,13 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                       <td className="px-4 py-2">
                         <div className="flex items-center gap-2 justify-end">
                           {extractable && (
+                            // prefetch={false} — see the matching comment in
+                            // components/bank-statements/statements-table.tsx;
+                            // this route's render can trigger a real
+                            // non-idempotent AI extraction call as a side effect.
                             <Link
                               href={`/documents/${doc.id}/review` as Route}
+                              prefetch={false}
                               className="text-xs text-primary hover:underline"
                             >
                               Review

@@ -300,8 +300,17 @@ function StatementRowItem({
         <td className="px-4 py-2">
           <div className="flex items-center gap-2 justify-end">
             {statement.documentId && (
+              // prefetch={false}: this route's page render can trigger a real,
+              // non-idempotent AI extraction call as a side effect (see
+              // app/documents/[id]/review/page.tsx). Next.js prefetches a Link
+              // by default once it's in the viewport, not just on click — with
+              // many rows on this page, that silently fired a burst of
+              // concurrent extraction attempts for every visible statement,
+              // racing each other and corrupting extractionStatus for several
+              // real EK Consulting statements (confirmed live).
               <Link
                 href={`/documents/${statement.documentId}/review?bucket=${entitySlug}` as Route}
+                prefetch={false}
                 className="text-xs text-primary hover:underline"
               >
                 Review & import transactions →
