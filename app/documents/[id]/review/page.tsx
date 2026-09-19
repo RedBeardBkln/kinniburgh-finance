@@ -76,6 +76,7 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
     extraction
   );
   if ((!hasUsableData && !doc.extractionStatus) || doc.extractionStatus === "pending" || staleCreditCardExtraction) {
+    console.log(`[review page] ${id} auto-triggering: hasUsableData=${hasUsableData} status=${doc.extractionStatus} staleCC=${staleCreditCardExtraction}`);
     extraction = await triggerExtraction(id);
     extractionStatus = extraction ? "complete" : "failed";
     alreadyExtracted = false;

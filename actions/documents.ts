@@ -268,6 +268,7 @@ export async function triggerExtraction(
     },
     data: { extractionStatus: "processing" },
   });
+  console.log(`[triggerExtraction] ${documentId} claim.count=${claim.count} priorStatus=${doc.extractionStatus} force=${!!options?.force}`);
   if (claim.count === 0) {
     // count === 0 can mean "another call is actively processing" (wait for
     // it) or "another call already finished — complete or failed — between
@@ -316,8 +317,10 @@ export async function triggerExtraction(
 
     revalidatePath("/documents");
     revalidatePath(`/documents/${documentId}/review`);
+    console.log(`[triggerExtraction] ${documentId} SUCCESS rows=${result.transactionRows?.length ?? 0}`);
     return result;
-  } catch {
+  } catch (err) {
+    console.log(`[triggerExtraction] ${documentId} FAILED ${err instanceof Error ? err.message : String(err)}`);
     await db.document.update({
       where: { id: documentId },
       data: { extractionStatus: "failed" },
