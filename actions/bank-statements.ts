@@ -20,7 +20,7 @@ import {
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import { triggerExtraction, importStatementTransactions } from "@/actions/documents";
 import type { ImportStatementResult } from "@/actions/documents";
-import { needsCreditCardReclassification } from "@/lib/statement-review";
+import { needsCreditCardReclassification, normalizeBalanceCents } from "@/lib/statement-review";
 import type { ExtractedDocument } from "@/lib/doc-extract";
 import {
   computeLedgerPresence,
@@ -133,11 +133,13 @@ export async function finalizeStatementUpload(
   const entity = await db.entity.findUnique({ where: { id: entityId } });
   if (!entity) return { ok: false, error: "Entity not found" };
 
+  let linkedAccountType: string | null = null;
   if (accountId) {
     const account = await db.account.findFirst({
       where: { id: accountId, entityId: entity.id, archivedAt: null },
     });
     if (!account) return { ok: false, error: "Account not found for this entity" };
+    linkedAccountType = account.accountType;
   }
 
   // downloadTaxFile does double duty here: it's both the source bytes for
@@ -217,12 +219,8 @@ export async function finalizeStatementUpload(
           periodEnd,
           institutionName: singleAccount?.institutionName ?? null,
           accountMask: singleAccount?.accountMask ?? null,
-          openingBalance: singleAccount?.openingBalanceCents != null
-            ? centsToDecimal(singleAccount.openingBalanceCents)
-            : null,
-          closingBalance: singleAccount?.closingBalanceCents != null
-            ? centsToDecimal(singleAccount.closingBalanceCents)
-            : null,
+          openingBalance: balanceToDecimal(singleAccount?.openingBalanceCents, linkedAccountType),
+          closingBalance: balanceToDecimal(singleAccount?.closingBalanceCents, linkedAccountType),
           extractStatus: "complete",
           extractionData: extraction as unknown as Prisma.InputJsonValue,
           extractModel: "claude-sonnet-4-6",
@@ -266,6 +264,17 @@ export interface BatchUploadItemResult {
 
 function centsToDecimal(cents: number): Prisma.Decimal {
   return new Prisma.Decimal(cents).div(100);
+}
+
+// A statement balance as a stored Decimal, sign-normalized for the linked
+// account type (liabilities are stored as the positive amount owed — see
+// normalizeBalanceCents). Null/undefined stay null.
+function balanceToDecimal(
+  cents: number | null | undefined,
+  accountType: string | null | undefined
+): Prisma.Decimal | null {
+  const normalized = normalizeBalanceCents(cents ?? null, accountType);
+  return normalized === null ? null : centsToDecimal(normalized);
 }
 
 // ── List / fetch ───────────────────────────────────────────────────────────────
@@ -501,11 +510,13 @@ export async function confirmBankStatement(
   const periodEnd = new Date(`${data.periodEnd}T00:00:00Z`);
   if (periodEnd < periodStart) return { error: "Period end is before period start" };
 
+  let accountType: string | null = null;
   if (data.accountId) {
     const account = await db.account.findFirst({
       where: { id: data.accountId, entityId: statement.entityId, archivedAt: null },
     });
     if (!account) return { error: "Account not found for this entity" };
+    accountType = account.accountType;
   }
 
   await db.bankStatement.update({
@@ -516,8 +527,8 @@ export async function confirmBankStatement(
       accountId: data.accountId || null,
       institutionName: data.institutionName || null,
       accountMask: data.accountMask || null,
-      openingBalance: data.openingBalanceCents !== null ? centsToDecimal(data.openingBalanceCents) : null,
-      closingBalance: data.closingBalanceCents !== null ? centsToDecimal(data.closingBalanceCents) : null,
+      openingBalance: balanceToDecimal(data.openingBalanceCents, accountType),
+      closingBalance: balanceToDecimal(data.closingBalanceCents, accountType),
       notes: data.notes ?? statement.notes,
       extractStatus: "complete",
       confirmedAt: new Date(),
@@ -585,6 +596,12 @@ export async function retryStatementExtraction(
     }
 
     const singleAccount = extraction.accounts.length >= 1 ? extraction.accounts[0] : null;
+    const linkedAccount = statement.accountId
+      ? await db.account.findFirst({
+          where: { id: statement.accountId, archivedAt: null },
+          select: { accountType: true },
+        })
+      : null;
 
     await db.bankStatement.update({
       where: { id: statementId },
@@ -593,12 +610,8 @@ export async function retryStatementExtraction(
         periodEnd,
         institutionName: singleAccount?.institutionName ?? null,
         accountMask: singleAccount?.accountMask ?? null,
-        openingBalance: singleAccount?.openingBalanceCents != null
-          ? centsToDecimal(singleAccount.openingBalanceCents)
-          : null,
-        closingBalance: singleAccount?.closingBalanceCents != null
-          ? centsToDecimal(singleAccount.closingBalanceCents)
-          : null,
+        openingBalance: balanceToDecimal(singleAccount?.openingBalanceCents, linkedAccount?.accountType),
+        closingBalance: balanceToDecimal(singleAccount?.closingBalanceCents, linkedAccount?.accountType),
         extractStatus: "complete",
         extractionData: extraction as unknown as Prisma.InputJsonValue,
         extractModel: "claude-sonnet-4-6",

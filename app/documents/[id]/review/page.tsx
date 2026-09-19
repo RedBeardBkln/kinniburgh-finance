@@ -236,7 +236,12 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
             {/* prefetch={false}: no longer required for correctness now that this
                 page is side-effect free, but a prefetch still renders the whole
                 page server-side for nothing. */}
+            {/* Back on the left, Next on the right — the same order as the
+                confirm-success row in the review client. */}
             <div className="flex items-center gap-3">
+              <Link href={backHref} prefetch={false} className="hover:underline">
+                ← Back to {backLabel}
+              </Link>
               {nextAttentionHref && (
                 <Link href={nextAttentionHref} prefetch={false} className="hover:underline">
                   Skip to next needing attention →
@@ -247,9 +252,6 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
                   Next statement →
                 </Link>
               )}
-              <Link href={backHref} prefetch={false} className="hover:underline">
-                ← Back to {backLabel}
-              </Link>
             </div>
           </div>
         )}

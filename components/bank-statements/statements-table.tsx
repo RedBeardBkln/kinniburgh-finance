@@ -20,6 +20,7 @@ import {
   type StageDisplay,
   type StatementStage,
 } from "@/lib/statement-import";
+import { LIABILITY_ACCOUNT_TYPES } from "@/lib/statement-review";
 
 interface AccountOption {
   id: string;
@@ -98,7 +99,6 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-const LIABILITY_ACCOUNT_TYPES = new Set(["credit_card", "mortgage", "loan"]);
 
 export function StatementsTable({ statements, accounts, entityId, entitySlug }: Props) {
   const router = useRouter();
@@ -448,8 +448,8 @@ function StatementRowItem({
                 />
                 {isLiabilityAccount && (
                   <p className="text-[10px] text-muted-foreground">
-                    Credit card, mortgage, or loan balances: enter the amount owed. Positive
-                    or negative both work — the balance sheet always treats it as debt owed.
+                    Credit card, mortgage, or loan balances: enter the amount owed. It is saved
+                    as a positive number, matching how the balance sheet treats it.
                   </p>
                 )}
               </div>

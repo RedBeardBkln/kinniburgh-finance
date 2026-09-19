@@ -127,7 +127,7 @@ export default async function BusinessPage() {
                         href={`/business/${b.slug}/statements` as Route}
                         className="text-sm text-primary hover:underline"
                       >
-                        Bank Statements →
+                        Statements →
                       </Link>
                     )}
                     <Link

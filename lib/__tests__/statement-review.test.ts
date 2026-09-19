@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   defaultImportSelection,
+  formatFieldLabel,
   isWithinPlaidCoverage,
   needsCreditCardReclassification,
+  normalizeBalanceCents,
 } from "@/lib/statement-review";
 
 describe("defaultImportSelection", () => {
@@ -81,5 +83,48 @@ describe("needsCreditCardReclassification", () => {
         transactionRows: [{ lineType: "charge" }, { lineType: "payment" }],
       })
     ).toBe(false);
+  });
+});
+
+describe("formatFieldLabel", () => {
+  it("drops the Cents suffix from amount fields", () => {
+    expect(formatFieldLabel("openingBalanceCents")).toBe("Opening Balance");
+    expect(formatFieldLabel("closingBalanceCents")).toBe("Closing Balance");
+    expect(formatFieldLabel("minimumPaymentCents")).toBe("Minimum Payment");
+    expect(formatFieldLabel("statementBalanceCents")).toBe("Statement Balance");
+  });
+
+  it("title-cases ordinary camelCase keys unchanged", () => {
+    expect(formatFieldLabel("paymentDueDate")).toBe("Payment Due Date");
+    expect(formatFieldLabel("accountMask")).toBe("Account Mask");
+    expect(formatFieldLabel("institutionName")).toBe("Institution Name");
+  });
+
+  it("only strips a trailing Cents, not one mid-word", () => {
+    expect(formatFieldLabel("centsPerKwh")).toBe("Cents Per Kwh");
+  });
+});
+
+describe("normalizeBalanceCents", () => {
+  it("stores a liability balance as the positive amount owed (regression: one card statement came back negative)", () => {
+    expect(normalizeBalanceCents(-148154, "credit_card")).toBe(148154);
+    expect(normalizeBalanceCents(-85679, "credit_card")).toBe(85679);
+    expect(normalizeBalanceCents(-500000, "mortgage")).toBe(500000);
+    expect(normalizeBalanceCents(-2500, "loan")).toBe(2500);
+  });
+
+  it("leaves an already-positive liability balance alone", () => {
+    expect(normalizeBalanceCents(148154, "credit_card")).toBe(148154);
+  });
+
+  it("does not touch asset accounts, where negative means overdrawn", () => {
+    expect(normalizeBalanceCents(-5000, "checking")).toBe(-5000);
+    expect(normalizeBalanceCents(-5000, "savings")).toBe(-5000);
+  });
+
+  it("does not touch unlinked statements or null balances", () => {
+    expect(normalizeBalanceCents(-5000, null)).toBe(-5000);
+    expect(normalizeBalanceCents(-5000, undefined)).toBe(-5000);
+    expect(normalizeBalanceCents(null, "credit_card")).toBeNull();
   });
 });

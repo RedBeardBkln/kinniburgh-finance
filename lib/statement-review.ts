@@ -65,3 +65,35 @@ export function needsCreditCardReclassification(
   if (!rows || rows.length === 0) return false;
   return rows.every((r) => r.lineType === undefined);
 }
+
+/**
+ * Human label for an extracted-field key on the review page:
+ * "openingBalanceCents" -> "Opening Balance", "paymentDueDate" -> "Payment Due
+ * Date". Amount fields are stored in cents but are displayed as dollars (see
+ * formatField in the review client), so "Cents" never belongs in the label.
+ */
+export function formatFieldLabel(key: string): string {
+  const base = key.replace(/Cents$/, "") || key;
+  return base.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()).trim();
+}
+
+/** Account types whose statement balance is an amount owed, not money held. */
+export const LIABILITY_ACCOUNT_TYPES: ReadonlySet<string> = new Set(["credit_card", "mortgage", "loan"]);
+
+/**
+ * Statement balances on a credit card, loan or mortgage are stored as the
+ * (positive) amount owed. The extraction model was inconsistent about the
+ * sign — its prompt said "negative = negative balance, e.g. credit cards", so
+ * one card statement came back with negative opening/closing figures while
+ * every other was positive. The balance sheet already takes Math.abs() of a
+ * liability balance (lib/period-balance-sheet.ts), so this only makes the
+ * stored value agree with how it is already used and displayed. Asset
+ * accounts, unlinked statements, and null balances pass through untouched.
+ */
+export function normalizeBalanceCents(
+  cents: number | null,
+  accountType: string | null | undefined
+): number | null {
+  if (cents === null) return null;
+  return accountType && LIABILITY_ACCOUNT_TYPES.has(accountType) ? Math.abs(cents) : cents;
+}

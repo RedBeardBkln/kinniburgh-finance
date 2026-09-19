@@ -1,6 +1,6 @@
 // Pure helpers for statement transaction import: row validation, ledger
 // coverage, duplicate planning, and the single derived "stage" that both the
-// Bank Statements list and the review page display. No DB access, no
+// Statements list and the review page display. No DB access, no
 // "use server" — safe to import from server components, server actions, and
 // client components alike.
 //

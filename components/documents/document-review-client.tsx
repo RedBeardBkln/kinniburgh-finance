@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { confirmDocExtraction } from "@/actions/documents";
 import { confirmStatementImport } from "@/actions/bank-statements";
 import type { ExtractedDocument, TransactionRow } from "@/lib/doc-extract";
-import { defaultImportSelection, isWithinPlaidCoverage } from "@/lib/statement-review";
+import { defaultImportSelection, formatFieldLabel, isWithinPlaidCoverage } from "@/lib/statement-review";
 import { validateStatementRow } from "@/lib/statement-import";
 
 interface AccountOption {
@@ -280,7 +280,7 @@ export function DocumentReviewClient({
                 {dataEntries.map(([key, value]) => (
                   <tr key={key}>
                     <td className="py-2 pr-4 text-xs font-medium text-muted-foreground w-48">
-                      {key.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase())}
+                      {formatFieldLabel(key)}
                     </td>
                     <td className="py-2 text-sm">{formatField(key, value)}</td>
                   </tr>

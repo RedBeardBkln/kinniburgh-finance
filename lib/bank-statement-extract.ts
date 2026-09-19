@@ -33,7 +33,7 @@ const STATEMENT_PROMPT = `Extract from this bank statement and return ONLY valid
   ]
 }
 Rules:
-- All dollar amounts in integer cents (negative = negative balance, e.g. credit cards).
+- All dollar amounts in integer cents. Report each balance as a POSITIVE number, exactly as printed on the statement — for a credit card, loan or mortgage that is the amount owed. Use a negative number only if the statement itself shows a credit balance (the lender owes the customer).
 - One entry per account covered by the statement; most statements cover exactly one.
 - Return null for unknown fields.
 - periodStart/periodEnd are the statement's own period dates (e.g. 2026-08-01 to 2026-08-31).

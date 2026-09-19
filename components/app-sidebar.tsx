@@ -80,7 +80,7 @@ function SidebarNavContent({
       href: buildHref(`/business/${activeBucket}/balance-sheet`),
     },
     {
-      label: "Bank Statements",
+      label: "Statements",
       base: `/business/${activeBucket}/statements`,
       href: buildHref(`/business/${activeBucket}/statements`),
     },
