@@ -196,7 +196,7 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
         {extractionStatus === "failed" && !extraction && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             Extraction failed. The document may be unsupported, corrupted, or too large.
-            <form action={async () => { "use server"; await triggerExtraction(id); }}>
+            <form action={async () => { "use server"; await triggerExtraction(id, { force: true }); }}>
               <button type="submit" className="ml-3 underline">Try again</button>
             </form>
           </div>

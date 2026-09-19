@@ -199,13 +199,42 @@ export async function archiveDocument(documentId: string): Promise<void> {
 
 // ── Document intelligence ─────────────────────────────────────────────────────
 
-export async function triggerExtraction(documentId: string): Promise<ExtractedDocument | null> {
+export async function triggerExtraction(
+  documentId: string,
+  options?: { force?: boolean }
+): Promise<ExtractedDocument | null> {
   await requireAuth();
 
   const doc = await db.document.findUniqueOrThrow({
     where: { id: documentId },
     include: { bankStatement: { include: { account: { select: { accountType: true } } } } },
   });
+
+  // Second, distinct race beyond the "processing" claim below: the caller's
+  // own `doc` here can be a stale read taken *before* a concurrent call
+  // elsewhere already finished a full, successful extraction. The processing
+  // claim's guard (`not: "processing"`) happily matches "complete" too — it
+  // only blocks a second call while a first one is actively running, not
+  // after one has already succeeded — so a late-arriving automatic
+  // (non-force) call can re-claim a row that already holds good data and
+  // re-run extraction from scratch. Confirmed live: a document ended up with
+  // real 16-row extractionData intact but extractionStatus flipped to
+  // "failed" by a second, redundant auto-triggered attempt that landed after
+  // the first had already succeeded (the failure path only ever touches
+  // extractionStatus, never extractionData, so the good rows survived but
+  // the status lied about it). Skip re-extracting entirely whenever usable
+  // data already exists, unless this is an explicit user-initiated retry
+  // (the "Try again" button passes force: true) — an automatic page-load
+  // trigger should never overwrite a real result just because its own read
+  // of `doc` happened to race ahead of another call's completion.
+  const existingData = doc.extractionData as unknown as ExtractedDocument | null;
+  const hasUsableData = !!(
+    existingData &&
+    ((existingData.transactionRows?.length ?? 0) > 0 || Object.keys(existingData.data ?? {}).length > 0)
+  );
+  if (!options?.force && hasUsableData) {
+    return existingData;
+  }
 
   // Atomic claim: only proceed if THIS call is the one that transitions
   // status into "processing". A genuine duplicate call for the same
