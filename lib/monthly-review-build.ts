@@ -51,6 +51,8 @@ export interface ReviewData {
     payee: string;
     amountCents: number | null;
     autopayDay: number | null;
+    frequency: string;
+    payDayOfWeek: number | null;
     entityName: string;
   }>;
   accrualStatus: Array<{
@@ -252,6 +254,8 @@ export async function buildMonthlyReviewData(period: string): Promise<ReviewData
     amountCents:
       b.expectedAmount != null ? Math.round((b.expectedAmount as Prisma.Decimal).toNumber() * 100) : null,
     autopayDay: b.autopayDay ?? null,
+    frequency: b.frequency,
+    payDayOfWeek: b.payDayOfWeek,
     entityName: b.entity.name,
   }));
 

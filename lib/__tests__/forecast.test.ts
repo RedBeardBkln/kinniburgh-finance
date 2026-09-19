@@ -6,6 +6,7 @@ import {
   generateBillOccurrences,
   buildAccountForecast,
   findBreachDays,
+  perOccurrenceAmount,
 } from "@/lib/forecast";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -58,6 +59,9 @@ function makeAccrualBill(overrides: Partial<{
   expectedAmount: string | null;
   autopayDay: number | null;
   annualBudget: string | null;
+  frequency: string;
+  payDayOfWeek: number | null;
+  biweeklyAnchorDate: string | null;
 }> = {}) {
   return {
     id: "b1",
@@ -67,12 +71,19 @@ function makeAccrualBill(overrides: Partial<{
     expectedAmount: overrides.expectedAmount !== undefined ? overrides.expectedAmount : null,
     autopayDay: overrides.autopayDay !== undefined ? overrides.autopayDay : null,
     annualBudget: overrides.annualBudget !== undefined ? overrides.annualBudget : "1200.00",
+    frequency: overrides.frequency ?? "monthly",
+    payDayOfWeek: overrides.payDayOfWeek !== undefined ? overrides.payDayOfWeek : null,
+    biweeklyAnchorDate:
+      overrides.biweeklyAnchorDate !== undefined ? overrides.biweeklyAnchorDate : null,
   };
 }
 
 function makeStaticBill(overrides: Partial<{
   expectedAmount: string | null;
   autopayDay: number | null;
+  frequency: string;
+  payDayOfWeek: number | null;
+  biweeklyAnchorDate: string | null;
 }> = {}) {
   return {
     id: "b2",
@@ -82,6 +93,10 @@ function makeStaticBill(overrides: Partial<{
     expectedAmount: overrides.expectedAmount !== undefined ? overrides.expectedAmount : "184.00",
     autopayDay: overrides.autopayDay !== undefined ? overrides.autopayDay : 20,
     annualBudget: null,
+    frequency: overrides.frequency ?? "monthly",
+    payDayOfWeek: overrides.payDayOfWeek !== undefined ? overrides.payDayOfWeek : null,
+    biweeklyAnchorDate:
+      overrides.biweeklyAnchorDate !== undefined ? overrides.biweeklyAnchorDate : null,
   };
 }
 
@@ -312,6 +327,125 @@ describe("generateBillOccurrences", () => {
     const draws = [makeDraw("2026-06-10", "-50.00")];
     const events = generateBillOccurrences(makeAccrualBill(), from, to, draws);
     expect(events).toHaveLength(0);
+  });
+});
+
+// ── generateBillOccurrences — weekly/biweekly ────────────────────────────────
+
+describe("generateBillOccurrences — weekly/biweekly", () => {
+  it("weekly bill (Monday, 1083.33 monthly): 4 occurrences in 28 days, each ≈ 250.00", () => {
+    // 2026-06-01 is a Monday; real Lexus monthly-average figure (spec 07 item 1)
+    // used purely as a realistic fixture, not implying the real Budget row changes.
+    const from = d("2026-06-01");
+    const to = d("2026-06-29"); // 28 days
+    const bill = makeStaticBill({
+      expectedAmount: "1083.33",
+      autopayDay: null,
+      frequency: "weekly",
+      payDayOfWeek: 1,
+    });
+    const events = generateBillOccurrences(bill, from, to);
+    expect(events).toHaveLength(4);
+    for (const e of events) {
+      expect(e.date.getUTCDay()).toBe(1);
+      expect(e.amount.negated().toNumber()).toBeCloseTo(250.0, 1);
+      expect(e.amount.negated().equals(dec("1083.33").times(12).div(52))).toBe(true);
+    }
+  });
+
+  it("biweekly bill: correct occurrence count/dates over a 60-day window, each at monthly × 12/26", () => {
+    const from = d("2026-06-01");
+    const to = d("2026-07-31"); // 60 days
+    const bill = makeStaticBill({
+      expectedAmount: "1083.33",
+      autopayDay: null,
+      frequency: "biweekly",
+      payDayOfWeek: 1,
+      biweeklyAnchorDate: "2026-06-01",
+    });
+    const events = generateBillOccurrences(bill, from, to);
+    // 60 days / 14 ≈ 4.3 → 4 or 5 occurrences
+    expect(events.length).toBeGreaterThanOrEqual(4);
+    expect(events.length).toBeLessThanOrEqual(5);
+    const expectedPerOccurrence = dec("1083.33").times(12).div(26);
+    for (const e of events) {
+      expect(e.amount.negated().equals(expectedPerOccurrence)).toBe(true);
+    }
+    for (let i = 1; i < events.length; i++) {
+      const gap = events[i]!.date.getTime() - events[i - 1]!.date.getTime();
+      expect(gap).toBe(14 * 86400000);
+    }
+  });
+
+  it("monthly bill with autopayDay/frequency unset: behaves identically to the default-day-1 pre-existing case", () => {
+    const from = d("2026-06-01");
+    const to = d("2026-08-01"); // June, July
+    // frequency/payDayOfWeek/biweeklyAnchorDate intentionally omitted, mirroring
+    // an older call site/mock that predates this feature.
+    const bill = {
+      id: "b3",
+      accountId: ACCT_A,
+      payee: "Unset Defaults Bill",
+      amountType: "static",
+      expectedAmount: "100.00",
+      autopayDay: null,
+      annualBudget: null,
+    };
+    const events = generateBillOccurrences(bill, from, to);
+    expect(events).toHaveLength(2);
+    const dates = events.map((e) => e.date.toISOString().slice(0, 10));
+    expect(dates).toContain("2026-06-01");
+    expect(dates).toContain("2026-07-01");
+    for (const e of events) {
+      expect(e.amount.equals(dec("-100.00"))).toBe(true);
+    }
+  });
+
+  it("accrued bill ignores frequency entirely — frequency:'weekly' still produces the monthly annualBudget/12 fallback", () => {
+    const from = d("2026-06-01");
+    const to = d("2026-08-01");
+    const bill = makeAccrualBill({ annualBudget: "1200.00", frequency: "weekly", payDayOfWeek: 1 });
+    const events = generateBillOccurrences(bill, from, to);
+    expect(events).toHaveLength(2); // monthly, not weekly
+    for (const e of events) {
+      expect(e.amount.equals(dec("-100.00"))).toBe(true); // 1200/12, unaffected by frequency
+    }
+    const dates = events.map((e) => e.date.toISOString().slice(0, 10));
+    expect(dates).toContain("2026-06-01");
+    expect(dates).toContain("2026-07-01");
+  });
+
+  it("accrued bill with real draws ignores frequency entirely — still uses real draw dates", () => {
+    const from = d("2026-10-01");
+    const to = d("2026-12-01");
+    const draws = [makeDraw("2026-10-15", "500.00")];
+    const bill = makeAccrualBill({ annualBudget: "4000.00", frequency: "weekly", payDayOfWeek: 1 });
+    const events = generateBillOccurrences(bill, from, to, draws);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.date.toISOString().slice(0, 10)).toBe("2026-10-15");
+    expect(events[0]!.amount.equals(dec("-500.00"))).toBe(true);
+  });
+});
+
+// ── perOccurrenceAmount ───────────────────────────────────────────────────────
+
+describe("perOccurrenceAmount", () => {
+  it("monthly: passthrough", () => {
+    expect(perOccurrenceAmount(dec("1000.00"), "monthly").equals(dec("1000.00"))).toBe(true);
+  });
+
+  it("weekly: amount × 12/52", () => {
+    const result = perOccurrenceAmount(dec("1083.33"), "weekly");
+    expect(result.equals(dec("1083.33").times(12).div(52))).toBe(true);
+  });
+
+  it("biweekly: amount × 12/26", () => {
+    const result = perOccurrenceAmount(dec("1083.33"), "biweekly");
+    expect(result.equals(dec("1083.33").times(12).div(26))).toBe(true);
+  });
+
+  it("unrecognized frequency string: falls back to monthly passthrough (defensive default)", () => {
+    expect(perOccurrenceAmount(dec("500.00"), "quarterly").equals(dec("500.00"))).toBe(true);
   });
 });
 

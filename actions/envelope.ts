@@ -473,7 +473,13 @@ export interface EnvelopeForecastResult {
   incomingTransferId: string | null;
   incomingTransferCadence: string | null;
   feeAppliedThisPeriod: boolean;
-  billsThisMonth: { payee: string; dueDay: number | null; expectedAmount: number | null }[];
+  billsThisMonth: {
+    payee: string;
+    dueDay: number | null;
+    expectedAmount: number | null;
+    frequency: string;
+    payDayOfWeek: number | null;
+  }[];
 }
 
 export async function getEnvelopeForecastData(bucket: string = "personal"): Promise<EnvelopeForecastResult[]> {
@@ -561,6 +567,8 @@ export async function getEnvelopeForecastData(bucket: string = "personal"): Prom
           payee: b.payee,
           dueDay: b.autopayDay,
           expectedAmount: b.expectedAmount ? new Prisma.Decimal(b.expectedAmount).toNumber() : null,
+          frequency: b.frequency,
+          payDayOfWeek: b.payDayOfWeek,
         })),
       });
       continue;
@@ -616,6 +624,8 @@ export async function getEnvelopeForecastData(bucket: string = "personal"): Prom
         payee: b.payee,
         dueDay: b.autopayDay,
         expectedAmount: b.expectedAmount ? new Prisma.Decimal(b.expectedAmount).toNumber() : null,
+        frequency: b.frequency,
+        payDayOfWeek: b.payDayOfWeek,
       })),
     });
   }

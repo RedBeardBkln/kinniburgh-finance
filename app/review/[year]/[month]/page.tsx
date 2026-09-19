@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { Route } from "next";
 import { GenerateButton } from "@/components/monthly-review/generate-button";
 import type { ReviewData } from "@/lib/monthly-review-build";
+import { formatSchedule } from "@/lib/schedule-display";
 
 interface PageProps {
   params: Promise<{ year: string; month: string }>;
@@ -253,7 +254,14 @@ export default async function MonthlyReviewPage({ params }: PageProps) {
                     <tr key={i} className="border-b last:border-0">
                       <td className="px-4 py-2">{b.payee}</td>
                       <td className="px-4 py-2 text-xs text-muted-foreground">{b.entityName}</td>
-                      <td className="px-4 py-2 text-muted-foreground">{b.autopayDay ?? "—"}</td>
+                      <td className="px-4 py-2 text-muted-foreground">
+                        {formatSchedule({
+                          frequency: b.frequency ?? "monthly",
+                          payDay: b.autopayDay,
+                          payDayOfWeek: b.payDayOfWeek ?? null,
+                          biweeklyAnchorDate: null,
+                        })}
+                      </td>
                       <td className="px-4 py-2 text-right tabular-nums">
                         {b.amountCents ? fmtMoney(b.amountCents) : "—"}
                       </td>

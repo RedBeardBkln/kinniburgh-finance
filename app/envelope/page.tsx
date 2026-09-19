@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { ScheduledTransfersClient, type SerializedTransfer } from "@/components/envelope/scheduled-transfers-client";
 import { AccrualDrawsList } from "@/components/envelope/accrual-draws-list";
 import { db } from "@/lib/db";
+import { formatSchedule } from "@/lib/schedule-display";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -265,7 +266,14 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
                                     : "—"}
                                 </td>
                                 <td className="px-4 py-2 text-muted-foreground">
-                                  {bill.autopayDay ? `${bill.autopayDay}th` : "—"}
+                                  {bill.frequency !== "monthly" || bill.autopayDay
+                                    ? formatSchedule({
+                                        frequency: bill.frequency,
+                                        payDay: bill.autopayDay,
+                                        payDayOfWeek: bill.payDayOfWeek,
+                                        biweeklyAnchorDate: bill.biweeklyAnchorDate,
+                                      })
+                                    : "—"}
                                 </td>
                                 <td className="px-4 py-2 text-muted-foreground">
                                   {bill.annualBudget
@@ -374,7 +382,16 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
                               {env.billsThisMonth.map((b, i) => (
                                 <tr key={i} className="border-b last:border-0">
                                   <td className="py-1">{b.payee}</td>
-                                  <td className="py-1">{b.dueDay ? `${b.dueDay}th` : "accrued"}</td>
+                                  <td className="py-1">
+                                    {b.dueDay || b.frequency !== "monthly"
+                                      ? formatSchedule({
+                                          frequency: b.frequency,
+                                          payDay: b.dueDay,
+                                          payDayOfWeek: b.payDayOfWeek,
+                                          biweeklyAnchorDate: null,
+                                        })
+                                      : "accrued"}
+                                  </td>
                                   <td className="py-1 text-right">
                                     {b.expectedAmount ? formatUSD(b.expectedAmount) : "—"}
                                   </td>

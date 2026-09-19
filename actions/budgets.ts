@@ -49,7 +49,10 @@ async function upsertBudgetBill(
   entityId: string,
   accountId: string,
   budgeted: string | null,
-  payDay: number
+  payDay: number | null,
+  frequency: string,
+  payDayOfWeek: number | null,
+  biweeklyAnchorDate: Date | null
 ) {
   const tag = await db.tag.findUnique({ where: { id: tagId } });
   if (!tag) return;
@@ -65,6 +68,9 @@ async function upsertBudgetBill(
       amountType: "static",
       expectedAmount,
       autopayDay: payDay,
+      frequency,
+      payDayOfWeek,
+      biweeklyAnchorDate,
       budgetTagId: tagId,
       budgetEntityId: entityId,
       active: true,
@@ -73,6 +79,9 @@ async function upsertBudgetBill(
       accountId,
       expectedAmount,
       autopayDay: payDay,
+      frequency,
+      payDayOfWeek,
+      biweeklyAnchorDate,
       active: true,
     },
   });
@@ -97,7 +106,23 @@ const CreateSchema = z.object({
     .regex(/^(\d+(\.\d{1,2})?)?$/, "Must be blank (to auto-sum nested lines) or a positive dollar amount (e.g. 217.00)")
     .optional(),
   payDay: z.number().int().min(1).max(31).optional(),
-});
+  frequency: z.enum(["monthly", "weekly", "biweekly"]).optional(),
+  payDayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
+  biweeklyAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+})
+  .refine((data) => data.frequency !== "weekly" || data.payDayOfWeek != null, {
+    message: "Day of week is required for a weekly budget line",
+    path: ["payDayOfWeek"],
+  })
+  .refine(
+    (data) =>
+      data.frequency !== "biweekly" ||
+      (data.payDayOfWeek != null && data.biweeklyAnchorDate != null),
+    {
+      message: "Day of week and anchor date are required for a biweekly budget line",
+      path: ["biweeklyAnchorDate"],
+    }
+  );
 
 export async function createBudget(
   input: z.infer<typeof CreateSchema>
@@ -109,8 +134,12 @@ export async function createBudget(
     return { error: parsed.error.errors[0]?.message ?? "Invalid input" };
   }
 
-  const { tagId, entityId, accountId, period, budgeted, payDay } = parsed.data;
+  const { tagId, entityId, accountId, period, budgeted, payDay, frequency, payDayOfWeek, biweeklyAnchorDate } =
+    parsed.data;
   const budgetedDecimal = budgeted ? new Prisma.Decimal(budgeted) : null;
+  const effectiveFrequency = frequency ?? "monthly";
+  const effectivePayDayOfWeek = payDayOfWeek ?? null;
+  const effectiveBiweeklyAnchorDate = biweeklyAnchorDate ? new Date(biweeklyAnchorDate) : null;
 
   // A tag can only be budgeted by one entity per period, household-wide —
   // the UI's Add Budget Line dropdown already hides tags used by ANY entity
@@ -137,11 +166,23 @@ export async function createBudget(
       period,
       budgeted: budgetedDecimal,
       payDay: payDay ?? null,
+      frequency: effectiveFrequency,
+      payDayOfWeek: effectivePayDayOfWeek,
+      biweeklyAnchorDate: effectiveBiweeklyAnchorDate,
     },
   });
 
-  if (payDay !== undefined) {
-    await upsertBudgetBill(tagId, entityId, accountId, budgeted ?? null, payDay);
+  if (payDay !== undefined || effectiveFrequency === "weekly" || effectiveFrequency === "biweekly") {
+    await upsertBudgetBill(
+      tagId,
+      entityId,
+      accountId,
+      budgeted ?? null,
+      payDay ?? null,
+      effectiveFrequency,
+      effectivePayDayOfWeek,
+      effectiveBiweeklyAnchorDate
+    );
   }
 
   revalidateAll();
@@ -159,7 +200,23 @@ const UpdateBudgetSchema = z.object({
   payDay: z.number().int().min(1).max(31).nullable().optional(),
   accountId: z.string().uuid().optional(),
   applyToFuture: z.boolean().optional(),
-});
+  frequency: z.enum(["monthly", "weekly", "biweekly"]).optional(),
+  payDayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
+  biweeklyAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+})
+  .refine((data) => data.frequency !== "weekly" || data.payDayOfWeek != null, {
+    message: "Day of week is required for a weekly budget line",
+    path: ["payDayOfWeek"],
+  })
+  .refine(
+    (data) =>
+      data.frequency !== "biweekly" ||
+      (data.payDayOfWeek != null && data.biweeklyAnchorDate != null),
+    {
+      message: "Day of week and anchor date are required for a biweekly budget line",
+      path: ["biweeklyAnchorDate"],
+    }
+  );
 
 export async function updateBudget(
   id: string,
@@ -172,7 +229,7 @@ export async function updateBudget(
     return { error: parsed.error.errors[0]?.message ?? "Invalid input" };
   }
 
-  const { budgeted, payDay, accountId, applyToFuture } = parsed.data;
+  const { budgeted, payDay, accountId, applyToFuture, frequency, payDayOfWeek, biweeklyAnchorDate } = parsed.data;
 
   const current = await db.budget.findUnique({ where: { id } });
   if (!current) return { error: "Budget not found" };
@@ -180,6 +237,8 @@ export async function updateBudget(
   // Three distinguishable states: omitted (undefined — no change), explicit
   // blank ("" — clear to auto-sum), explicit value.
   const newBudgetedRaw = budgeted !== undefined ? (budgeted === "" ? null : budgeted) : undefined;
+  const newBiweeklyAnchorDate =
+    biweeklyAnchorDate !== undefined ? (biweeklyAnchorDate ? new Date(biweeklyAnchorDate) : null) : undefined;
 
   const updateData: Prisma.BudgetUpdateInput = {};
   if (newBudgetedRaw !== undefined) {
@@ -187,12 +246,25 @@ export async function updateBudget(
   }
   if (payDay !== undefined) updateData.payDay = payDay;
   if (accountId !== undefined) updateData.account = { connect: { id: accountId } };
+  if (frequency !== undefined) updateData.frequency = frequency;
+  if (payDayOfWeek !== undefined) updateData.payDayOfWeek = payDayOfWeek;
+  if (newBiweeklyAnchorDate !== undefined) updateData.biweeklyAnchorDate = newBiweeklyAnchorDate;
 
   await db.budget.update({ where: { id }, data: updateData });
 
-  if (applyToFuture && (payDay !== undefined || accountId !== undefined)) {
+  if (
+    applyToFuture &&
+    (payDay !== undefined ||
+      accountId !== undefined ||
+      frequency !== undefined ||
+      payDayOfWeek !== undefined ||
+      newBiweeklyAnchorDate !== undefined)
+  ) {
     const futureData: Prisma.BudgetUpdateManyMutationInput = {};
     if (payDay !== undefined) futureData.payDay = payDay;
+    if (frequency !== undefined) futureData.frequency = frequency;
+    if (payDayOfWeek !== undefined) futureData.payDayOfWeek = payDayOfWeek;
+    if (newBiweeklyAnchorDate !== undefined) futureData.biweeklyAnchorDate = newBiweeklyAnchorDate;
     // accountId requires relation update — use raw update per record for future periods
     const futureBudgets = await db.budget.findMany({
       where: {
@@ -205,6 +277,9 @@ export async function updateBudget(
       const fbData: Prisma.BudgetUpdateInput = {};
       if (payDay !== undefined) fbData.payDay = payDay;
       if (accountId !== undefined) fbData.account = { connect: { id: accountId } };
+      if (frequency !== undefined) fbData.frequency = frequency;
+      if (payDayOfWeek !== undefined) fbData.payDayOfWeek = payDayOfWeek;
+      if (newBiweeklyAnchorDate !== undefined) fbData.biweeklyAnchorDate = newBiweeklyAnchorDate;
       await db.budget.update({ where: { id: fb.id }, data: fbData });
     }
   }
@@ -213,14 +288,25 @@ export async function updateBudget(
   const effectiveAccountId = accountId ?? current.accountId;
   const effectiveBudgeted =
     newBudgetedRaw !== undefined ? newBudgetedRaw : current.budgeted !== null ? current.budgeted.toString() : null;
+  const effectiveFrequency = frequency !== undefined ? frequency : current.frequency;
+  const effectivePayDayOfWeek = payDayOfWeek !== undefined ? payDayOfWeek : current.payDayOfWeek;
+  const effectiveBiweeklyAnchorDate =
+    newBiweeklyAnchorDate !== undefined ? newBiweeklyAnchorDate : current.biweeklyAnchorDate;
 
-  if (effectivePayDay !== null && effectivePayDay !== undefined) {
+  if (
+    (effectivePayDay !== null && effectivePayDay !== undefined) ||
+    effectiveFrequency === "weekly" ||
+    effectiveFrequency === "biweekly"
+  ) {
     await upsertBudgetBill(
       current.tagId,
       current.entityId,
       effectiveAccountId,
       effectiveBudgeted,
-      effectivePayDay
+      effectivePayDay ?? null,
+      effectiveFrequency,
+      effectivePayDayOfWeek,
+      effectiveBiweeklyAnchorDate
     );
   } else if (payDay === null) {
     await db.scheduledBill.updateMany({

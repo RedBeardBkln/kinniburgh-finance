@@ -7,6 +7,7 @@ import {
   findBreachDays,
   generateTransferOccurrences,
   generateIncomeOccurrences,
+  generateBillOccurrences,
   type ScheduleEvent,
 } from "./forecast";
 import { sendPushToUser } from "./web-push";
@@ -483,20 +484,36 @@ export async function checkAccrualShortfall(): Promise<number> {
 
 export async function checkBillReminders(): Promise<number> {
   const bills = await db.scheduledBill.findMany({
-    where: { active: true, autopayDay: { not: null } },
+    where: { active: true, OR: [{ autopayDay: { not: null } }, { frequency: { not: "monthly" } }] },
     include: { entity: true },
   });
 
   const now = new Date();
+  const today = startOfDayUTC(now);
+  // Wide enough to guarantee finding the next monthly occurrence even in the
+  // allMonthDays edge case where a day-31 bill falls in a month that skips it
+  // entirely (e.g. Feb) and rolls to the following month's 31st (~58 days out
+  // in the worst case: Feb 1 -> Mar 31).
+  const horizon = new Date(today.getTime() + 65 * 86400000);
   const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
   let generated = 0;
 
   for (const bill of bills) {
-    const day = bill.autopayDay!;
-    const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), day));
-    const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, day));
-    const upcoming = thisMonth.getTime() >= startOfDayUTC(now).getTime() ? thisMonth : nextMonth;
-    const daysUntil = Math.floor((upcoming.getTime() - startOfDayUTC(now).getTime()) / 86400000);
+    // generateBillOccurrences already sorts ascending (accrued branch is
+    // explicitly sorted; the date-generator branch is naturally ascending
+    // since allMonthDays/allWeekdays/allBiweekly all produce ascending output).
+    const events = generateBillOccurrences(bill, today, horizon);
+    // Includes a bill with a due day set but a null/zero expectedAmount (e.g. a
+    // budget line with an auto-summed or still-blank amount) — generateBillOccurrences
+    // gates on a real amount, so this bill silently gets no reminder instead of one
+    // with a blank dollar figure, as it did before this function routed through the
+    // shared generator. Deliberate: no live budget/bill row is in this state as of
+    // 2026-09-18, and reminding about an unknown amount isn't obviously better than
+    // not reminding at all. Revisit if that stops being true.
+    if (events.length === 0) continue;
+    const nextEvent = events[0]!;
+    const upcoming = nextEvent.date;
+    const daysUntil = Math.floor((upcoming.getTime() - today.getTime()) / 86400000);
 
     if (daysUntil < 0) continue;
 
@@ -520,14 +537,25 @@ export async function checkBillReminders(): Promise<number> {
       day: "numeric",
       timeZone: "UTC",
     });
-    const amountStr = bill.expectedAmount ? ` (${formatUSD(bill.expectedAmount)})` : "";
+    // Per-occurrence amount (already derived via perOccurrenceAmount inside
+    // generateBillOccurrences) — NOT bill.expectedAmount, which is always the
+    // MONTHLY total and would overstate a weekly/biweekly bill's reminder.
+    const occurrenceAmount = nextEvent.amount.abs();
+    const amountStr = ` (${formatUSD(occurrenceAmount)})`;
     const title = `Bill reminder: ${bill.payee}`;
     const body = `${bill.payee} autopay is due ${dueDate}${amountStr}.`;
 
     await createNotification({
       type: "bill_due",
       entityId: bill.entityId,
-      payload: { scopeKey, title, body, payee: bill.payee, dueDate: upcoming.toISOString(), amount: bill.expectedAmount?.toFixed(2) ?? null },
+      payload: {
+        scopeKey,
+        title,
+        body,
+        payee: bill.payee,
+        dueDate: upcoming.toISOString(),
+        amount: occurrenceAmount.toFixed(2),
+      },
       userIds: eligibleUserIds,
     });
     generated++;

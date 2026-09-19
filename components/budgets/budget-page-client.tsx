@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BudgetLineEditor } from "./budget-line-editor";
 import { formatUSD } from "@/lib/utils";
 import { nestBudgetLines, type NestedBudgetRow } from "@/lib/budget-nesting";
+import { formatSchedule, scheduleSortKey } from "@/lib/schedule-display";
 
 type RecurringExpenseSummary = {
   id: string;
@@ -30,6 +31,9 @@ export interface SerializedBudgetLine {
    * amount; use `budgetedRaw` to prefill edit UIs so a blank line stays blank. */
   budgetedRaw: number | null;
   payDay: number | null;
+  frequency: string;
+  payDayOfWeek: number | null;
+  biweeklyAnchorDate: string | null;
   rolloverAmount: number;
   effectiveBudget: number;
   actualSpend: number;
@@ -79,6 +83,9 @@ interface BudgetRowForEdit {
   accountId: string;
   budgeted: string;
   payDay: number | null;
+  frequency: string;
+  payDayOfWeek: number | null;
+  biweeklyAnchorDate: string | null;
 }
 
 export function BudgetPageClient({
@@ -151,6 +158,9 @@ export function BudgetPageClient({
         // silently freeze the auto-summed number in as an explicit override.
         budgeted: b.budgetedRaw !== null ? b.budgetedRaw.toFixed(2) : "",
         payDay: b.payDay,
+        frequency: b.frequency,
+        payDayOfWeek: b.payDayOfWeek,
+        biweeklyAnchorDate: b.biweeklyAnchorDate,
       },
     });
   }
@@ -173,7 +183,11 @@ export function BudgetPageClient({
   }
   const sortFn = sortBy === "alpha"
     ? (a: SerializedBudgetLine, b: SerializedBudgetLine) => a.tagName.localeCompare(b.tagName)
-    : (a: SerializedBudgetLine, b: SerializedBudgetLine) => (a.payDay ?? 99) - (b.payDay ?? 99);
+    : (a: SerializedBudgetLine, b: SerializedBudgetLine) => {
+        const [aGroup, aKey] = scheduleSortKey(a);
+        const [bGroup, bKey] = scheduleSortKey(b);
+        return aGroup - bGroup || aKey - bKey;
+      };
 
   // A budget line whose tag's parent also has a budget line in the same
   // account nests under that parent's row instead of listing as a sibling
@@ -323,8 +337,8 @@ export function BudgetPageClient({
                               )}
                             </td>
                             <td className="px-4 py-2 text-muted-foreground">
-                              {b.payDay ? (
-                                <span className="text-foreground">{ordinal(b.payDay)}</span>
+                              {b.frequency !== "monthly" || b.payDay ? (
+                                <span className="text-foreground">{formatSchedule(b)}</span>
                               ) : (
                                 <span className="text-xs">—</span>
                               )}
@@ -495,10 +509,4 @@ export function BudgetPageClient({
       )}
     </>
   );
-}
-
-function ordinal(n: number): string {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]!);
 }

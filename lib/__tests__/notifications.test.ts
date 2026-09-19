@@ -419,6 +419,9 @@ describe("checkBillReminders", () => {
     const call = mockDb.notification.create.mock.calls[0]![0] as { data: { type: string; payload: Record<string, unknown> } };
     expect(call.data.type).toBe("bill_due");
     expect(call.data.payload.payee).toBe("Eversource");
+    // Regression check: an ordinary monthly bill's reminder amount is
+    // unaffected by the generateBillOccurrences-based rewrite.
+    expect(call.data.payload.amount).toBe("167.90");
   });
 
   it("does not notify for a bill due in 10 days", async () => {
@@ -514,6 +517,41 @@ describe("checkBillReminders", () => {
     const count = await checkBillReminders();
     expect(count).toBe(0);
     expect(mockDb.notification.create).not.toHaveBeenCalled();
+  });
+
+  it("weekly bill reminder uses the per-occurrence amount, not the monthly total", async () => {
+    // Derive a payDayOfWeek exactly 2 calendar days from "now" — this works
+    // for any run date via modular weekday arithmetic (see generateBillOccurrences).
+    const dueDate = new Date();
+    dueDate.setUTCDate(dueDate.getUTCDate() + 2);
+    const dayOfWeek = dueDate.getUTCDay();
+
+    mockDb.scheduledBill.findMany.mockResolvedValue([
+      {
+        id: "bill-lexus",
+        payee: "Lexus Payment",
+        entityId: "entity-personal",
+        amountType: "static",
+        autopayDay: null,
+        expectedAmount: new Decimal("1083.33"), // monthly total (spec 07 item 1)
+        annualBudget: null,
+        frequency: "weekly",
+        payDayOfWeek: dayOfWeek,
+        biweeklyAnchorDate: null,
+        active: true,
+        entity: { id: "entity-personal", name: "Personal" },
+      },
+    ]);
+
+    const count = await checkBillReminders();
+    expect(count).toBe(1);
+    const call = mockDb.notification.create.mock.calls[0]![0] as {
+      data: { payload: Record<string, unknown> };
+    };
+    const amount = parseFloat(call.data.payload.amount as string);
+    // 1083.33 × 12/52 ≈ 250.00 — NOT the $1,083.33 monthly total.
+    expect(amount).toBeCloseTo(250.0, 1);
+    expect(amount).toBeLessThan(300);
   });
 });
 

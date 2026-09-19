@@ -16,6 +16,24 @@ interface Tag {
   shortName: string;
 }
 
+const FREQUENCY_OPTIONS: { value: "monthly" | "weekly" | "biweekly"; label: string }[] = [
+  { value: "monthly", label: "Monthly" },
+  { value: "weekly", label: "Weekly" },
+  { value: "biweekly", label: "Biweekly" },
+];
+
+// Matches the default used elsewhere in this app (actions/envelope.ts's
+// approveSlushSchema for the Slush Funds weekly transfer approval UI).
+const DAY_OF_WEEK_OPTIONS = [
+  { value: "0", label: "Sunday" },
+  { value: "1", label: "Monday" },
+  { value: "2", label: "Tuesday" },
+  { value: "3", label: "Wednesday" },
+  { value: "4", label: "Thursday" },
+  { value: "5", label: "Friday" },
+  { value: "6", label: "Saturday" },
+];
+
 interface BudgetEditModalProps {
   mode: "edit" | "add";
   budget?: {
@@ -25,6 +43,9 @@ interface BudgetEditModalProps {
     accountId: string;
     budgeted: string;
     payDay: number | null;
+    frequency: string;
+    payDayOfWeek: number | null;
+    biweeklyAnchorDate: string | null;
   };
   accounts: Account[];
   tags?: Tag[];
@@ -50,19 +71,39 @@ export function BudgetEditModal({
   const [budgeted, setBudgeted] = useState(budget?.budgeted ?? "");
   const [payDayStr, setPayDayStr] = useState(budget?.payDay?.toString() ?? "");
   const [accountId, setAccountId] = useState(budget?.accountId ?? accounts[0]?.id ?? "");
+  const [frequency, setFrequency] = useState<"monthly" | "weekly" | "biweekly">(
+    (budget?.frequency as "monthly" | "weekly" | "biweekly" | undefined) ?? "monthly"
+  );
+  const [payDayOfWeekStr, setPayDayOfWeekStr] = useState(
+    budget?.payDayOfWeek !== null && budget?.payDayOfWeek !== undefined ? budget.payDayOfWeek.toString() : "1"
+  );
+  const [biweeklyAnchorDate, setBiweeklyAnchorDate] = useState(
+    budget?.biweeklyAnchorDate ? budget.biweeklyAnchorDate.slice(0, 10) : ""
+  );
   const [applyToFuture, setApplyToFuture] = useState(false);
 
   const originalPayDay = budget?.payDay ?? null;
   const originalAccountId = budget?.accountId ?? null;
+  const originalFrequency = budget?.frequency ?? "monthly";
+  const originalPayDayOfWeek = budget?.payDayOfWeek ?? null;
+  const originalBiweeklyAnchorDate = budget?.biweeklyAnchorDate ? budget.biweeklyAnchorDate.slice(0, 10) : "";
 
   const payDayChanged = payDayStr !== (originalPayDay?.toString() ?? "");
   const accountChanged = accountId !== originalAccountId;
-  const showApplyTo = mode === "edit" && (payDayChanged || accountChanged);
+  const frequencyChanged = frequency !== originalFrequency;
+  const payDayOfWeekChanged =
+    frequency !== "monthly" && payDayOfWeekStr !== (originalPayDayOfWeek?.toString() ?? "");
+  const biweeklyAnchorChanged = frequency === "biweekly" && biweeklyAnchorDate !== originalBiweeklyAnchorDate;
+  const showApplyTo =
+    mode === "edit" &&
+    (payDayChanged || accountChanged || frequencyChanged || payDayOfWeekChanged || biweeklyAnchorChanged);
 
   function handleSave() {
     setError(null);
     startTransition(async () => {
-      const payDay = payDayStr ? parseInt(payDayStr, 10) : undefined;
+      const payDay = frequency === "monthly" && payDayStr ? parseInt(payDayStr, 10) : undefined;
+      const payDayOfWeek = frequency !== "monthly" ? parseInt(payDayOfWeekStr, 10) : null;
+      const anchorDate = frequency === "biweekly" ? biweeklyAnchorDate || null : null;
 
       let result: { success: true } | { error: string };
 
@@ -78,13 +119,19 @@ export function BudgetEditModal({
           period,
           budgeted,
           payDay,
+          frequency,
+          payDayOfWeek,
+          biweeklyAnchorDate: anchorDate,
         });
       } else {
         result = await updateBudget(budget!.id, {
           budgeted,
-          payDay: payDayStr ? parseInt(payDayStr, 10) : null,
+          payDay: frequency === "monthly" ? (payDayStr ? parseInt(payDayStr, 10) : null) : null,
           accountId,
           applyToFuture,
+          frequency,
+          payDayOfWeek,
+          biweeklyAnchorDate: anchorDate,
         });
       }
 
@@ -146,24 +193,73 @@ export function BudgetEditModal({
             <p className="text-xs text-muted-foreground">Leave blank to auto-sum nested budget lines</p>
           </div>
 
-          {/* Due date */}
+          {/* Frequency */}
           <div className="space-y-1">
-            <label className="text-sm font-medium">
-              Due Date <span className="text-muted-foreground font-normal">(day of month, optional)</span>
-            </label>
-            <input
-              type="number"
-              min="1"
-              max="31"
-              value={payDayStr}
-              onChange={(e) => setPayDayStr(e.target.value)}
-              placeholder="e.g. 15"
+            <label className="text-sm font-medium">Frequency</label>
+            <select
+              value={frequency}
+              onChange={(e) => setFrequency(e.target.value as "monthly" | "weekly" | "biweekly")}
               className="w-full rounded border px-3 py-2 text-sm"
-            />
-            <p className="text-xs text-muted-foreground">
-              Leave blank if this is not a recurring monthly bill
-            </p>
+            >
+              {FREQUENCY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
+
+          {/* Due date */}
+          {frequency === "monthly" ? (
+            <div className="space-y-1">
+              <label className="text-sm font-medium">
+                Due Date <span className="text-muted-foreground font-normal">(day of month, optional)</span>
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="31"
+                value={payDayStr}
+                onChange={(e) => setPayDayStr(e.target.value)}
+                placeholder="e.g. 15"
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave blank if this is not a recurring monthly bill
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Day of Week</label>
+                <select
+                  value={payDayOfWeekStr}
+                  onChange={(e) => setPayDayOfWeekStr(e.target.value)}
+                  className="w-full rounded border px-3 py-2 text-sm"
+                >
+                  {DAY_OF_WEEK_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {frequency === "biweekly" && (
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Anchor Date</label>
+                  <input
+                    type="date"
+                    value={biweeklyAnchorDate}
+                    onChange={(e) => setBiweeklyAnchorDate(e.target.value)}
+                    className="w-full rounded border px-3 py-2 text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The most recent or an upcoming payment date — anchors the 14-day cycle.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Account */}
           <div className="space-y-1">

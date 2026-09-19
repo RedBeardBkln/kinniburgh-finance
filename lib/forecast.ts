@@ -291,6 +291,22 @@ interface ScheduledBillLike {
   expectedAmount: Decimal | string | number | null;
   autopayDay: number | null;
   annualBudget: Decimal | string | number | null;
+  frequency?: string;
+  payDayOfWeek?: number | null;
+  biweeklyAnchorDate?: Date | string | null;
+}
+
+/**
+ * Derives the per-occurrence dollar amount from a MONTHLY total, based on
+ * frequency. `Budget.budgeted`/`ScheduledBill.expectedAmount` always store a
+ * monthly total regardless of frequency (central design decision) — this is
+ * the single place that converts it to what actually gets scheduled/paid per
+ * occurrence.
+ */
+export function perOccurrenceAmount(monthlyAmount: Decimal, frequency: string): Decimal {
+  if (frequency === "weekly") return monthlyAmount.times(12).div(52);
+  if (frequency === "biweekly") return monthlyAmount.times(12).div(26);
+  return monthlyAmount;
 }
 
 export interface AccrualDrawLike {
@@ -329,21 +345,38 @@ export function generateBillOccurrences(
     return events.sort((a, b) => a.date.getTime() - b.date.getTime());
   }
 
-  const day = bill.autopayDay ?? 1;
-
   let amount: Decimal | null = null;
+  let dates: Date[];
+
   if (bill.amountType === "accrued") {
+    // Accrued bills ignore frequency entirely — unchanged monthly annualBudget/12 fallback.
+    const day = bill.autopayDay ?? 1;
     if (bill.annualBudget != null) {
       amount = new Decimal(String(bill.annualBudget)).div(12);
     }
+    dates = allMonthDays(from, to, [day]);
   } else {
+    const frequency = bill.frequency ?? "monthly";
     if (bill.expectedAmount != null) {
-      amount = new Decimal(String(bill.expectedAmount));
+      amount = perOccurrenceAmount(new Decimal(String(bill.expectedAmount)), frequency);
+    }
+    if (frequency === "weekly") {
+      dates = allWeekdays(from, to, bill.payDayOfWeek ?? 1);
+    } else if (frequency === "biweekly") {
+      dates = allBiweekly(
+        from,
+        to,
+        bill.biweeklyAnchorDate ? new Date(bill.biweeklyAnchorDate) : from,
+        14
+      );
+    } else {
+      const day = bill.autopayDay ?? 1;
+      dates = allMonthDays(from, to, [day]);
     }
   }
+
   if (!amount || amount.isZero()) return [];
 
-  const dates = allMonthDays(from, to, [day]);
   return dates.map((date) => ({
     date,
     amount: amount!.negated(),

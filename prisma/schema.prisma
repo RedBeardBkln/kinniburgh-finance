@@ -228,7 +228,10 @@ model Budget {
   period          String   // YYYY-MM
   budgeted              Decimal? @db.Decimal(14, 2)  // null = auto-sum from nested children (budget-parent-auto-sum)
   additionalAmountCents Decimal  @default(0) @db.Decimal(14, 2)
-  payDay                Int?     // day of month (1–31) when this bill is paid
+  payDay                Int?     // day of month (1–31) when this bill is paid (frequency == "monthly" only)
+  frequency             String   @default("monthly") // monthly | weekly | biweekly — budgeted always stays a MONTHLY total regardless
+  payDayOfWeek          Int?     // 0=Sun..6=Sat — used only when frequency != "monthly"
+  biweeklyAnchorDate    DateTime? // used only when frequency == "biweekly"; establishes the 14-day cycle
   rolloverEnabled       Boolean  @default(false)
   rolloverAmount        Decimal? @db.Decimal(14, 2)
   createdAt       DateTime @default(now())
@@ -267,7 +270,10 @@ model ScheduledBill {
   payee           String
   amountType      String   // static | fluctuating | accrued
   expectedAmount  Decimal? @db.Decimal(14, 2)
-  autopayDay      Int?     // day of month
+  autopayDay      Int?     // day of month (frequency == "monthly" only)
+  frequency       String   @default("monthly") // monthly | weekly | biweekly — expectedAmount always stays a MONTHLY total regardless
+  payDayOfWeek    Int?     // 0=Sun..6=Sat — used only when frequency != "monthly"
+  biweeklyAnchorDate DateTime? // used only when frequency == "biweekly"; establishes the 14-day cycle
   annualBudget    Decimal? @db.Decimal(14, 2)
   active          Boolean  @default(true)
   budgetTagId     String?  // Tag.id — set when auto-created from a budget line
