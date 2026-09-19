@@ -207,10 +207,39 @@ export async function triggerExtraction(documentId: string): Promise<ExtractedDo
     include: { bankStatement: { include: { account: { select: { accountType: true } } } } },
   });
 
-  await db.document.update({
-    where: { id: documentId },
+  // Atomic claim: only proceed if THIS call is the one that transitions
+  // status into "processing". A genuine duplicate call for the same
+  // document — confirmed live: the review page synchronously awaits this
+  // for a slow extraction, and an impatient re-click (or a retried
+  // navigation) before that resolves fires a second concurrent call — would
+  // otherwise race two independent extraction attempts against each other.
+  // Whichever one's final update landed last would win the extractionStatus
+  // field while the OTHER's write to extractionData/extractedAt could still
+  // be the one left standing (the failure path only ever touches
+  // extractionStatus), producing exactly the corrupted state found live: a
+  // real 12-row successful result sitting under extractionStatus="failed".
+  // The loser here waits for the winner's real result instead of starting
+  // a second, independently-racing attempt.
+  const claim = await db.document.updateMany({
+    where: { id: documentId, extractionStatus: { not: "processing" } },
     data: { extractionStatus: "processing" },
   });
+  if (claim.count === 0) {
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const current = await db.document.findUnique({
+        where: { id: documentId },
+        select: { extractionStatus: true, extractionData: true },
+      });
+      if (current?.extractionStatus !== "processing") {
+        return current?.extractionData as unknown as ExtractedDocument | null;
+      }
+    }
+    // Gave up waiting — fall through to the existing data rather than
+    // leaving the caller hanging forever on a stuck "processing" row.
+    return doc.extractionData as unknown as ExtractedDocument | null;
+  }
 
   try {
     const buffer = await downloadDocumentFile(doc.fileKey);
