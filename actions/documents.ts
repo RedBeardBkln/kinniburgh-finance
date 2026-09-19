@@ -210,23 +210,9 @@ export async function triggerExtraction(
     include: { bankStatement: { include: { account: { select: { accountType: true } } } } },
   });
 
-  // Second, distinct race beyond the "processing" claim below: the caller's
-  // own `doc` here can be a stale read taken *before* a concurrent call
-  // elsewhere already finished a full, successful extraction. The processing
-  // claim's guard (`not: "processing"`) happily matches "complete" too — it
-  // only blocks a second call while a first one is actively running, not
-  // after one has already succeeded — so a late-arriving automatic
-  // (non-force) call can re-claim a row that already holds good data and
-  // re-run extraction from scratch. Confirmed live: a document ended up with
-  // real 16-row extractionData intact but extractionStatus flipped to
-  // "failed" by a second, redundant auto-triggered attempt that landed after
-  // the first had already succeeded (the failure path only ever touches
-  // extractionStatus, never extractionData, so the good rows survived but
-  // the status lied about it). Skip re-extracting entirely whenever usable
-  // data already exists, unless this is an explicit user-initiated retry
-  // (the "Try again" button passes force: true) — an automatic page-load
-  // trigger should never overwrite a real result just because its own read
-  // of `doc` happened to race ahead of another call's completion.
+  // Cheap early exit using this call's own read: avoids even attempting the
+  // claim below when we can already see good data. Not sufficient on its
+  // own — see the claim's WHERE clause for why.
   const existingData = doc.extractionData as unknown as ExtractedDocument | null;
   const hasUsableData = !!(
     existingData &&
@@ -249,24 +235,46 @@ export async function triggerExtraction(
   // real 12-row successful result sitting under extractionStatus="failed".
   // The loser here waits for the winner's real result instead of starting
   // a second, independently-racing attempt.
-  // NOT (OR + null) rather than a bare `{ not: "processing" }` — Prisma's
-  // `not` on a nullable column doesn't match NULL rows in the generated SQL
-  // (NULL <> 'processing' is UNKNOWN, not true), so a bare `not` here would
-  // make this claim silently fail to match — and therefore never actually
-  // claim — every never-yet-attempted document (status genuinely null).
-  // Caught this live: it made triggerExtraction a permanent no-op for any
-  // first-time extraction, worse than the bug it was meant to fix.
+  //
+  // For a non-forced (automatic) call, "complete" is excluded from the
+  // claimable set too, not just "processing" — otherwise a call whose own
+  // `doc` read above raced ahead of another call's success (read happened
+  // while status was still null, but by the time THIS claim runs the winner
+  // has already finished and written "complete") would still match a bare
+  // `not: "processing"` guard and re-claim an already-good row, re-running
+  // extraction from scratch. Confirmed live twice: a document ended up with
+  // real, good extractionData (extractedAt set, real transaction rows)
+  // sitting under extractionStatus="failed" because a second, redundant
+  // auto-triggered attempt landed *after* the first had already succeeded —
+  // the failure path only ever touches extractionStatus, never
+  // extractionData, so the good rows survived but the status lied about it.
+  // A forced retry (the "Try again" button) is allowed to reclaim
+  // "complete" or "failed" — that is the point of an explicit retry — but
+  // never "processing", so it can't interrupt a real extraction in flight.
+  //
+  // OR + null (rather than a bare `not`/`notIn`) because Prisma's negation
+  // operators on a nullable column don't match NULL rows in the generated
+  // SQL (`NULL <> 'x'` / `NULL NOT IN (...)` are both UNKNOWN, not TRUE) —
+  // omitting the explicit null branch makes the claim silently fail to
+  // match, and therefore never actually claim, every never-yet-attempted
+  // document (status genuinely null). Caught this live too: it made
+  // triggerExtraction a permanent no-op for any first-time extraction,
+  // worse than the bug it was meant to fix.
+  const excludedStatuses = options?.force ? ["processing"] : ["processing", "complete"];
   const claim = await db.document.updateMany({
     where: {
       id: documentId,
-      OR: [{ extractionStatus: { not: "processing" } }, { extractionStatus: null }],
+      OR: [{ extractionStatus: { notIn: excludedStatuses } }, { extractionStatus: null }],
     },
     data: { extractionStatus: "processing" },
   });
   if (claim.count === 0) {
+    // count === 0 can mean "another call is actively processing" (wait for
+    // it) or "another call already finished — complete or failed — between
+    // our initial read and this claim attempt" (that's already the final
+    // result, return it immediately, no need to sleep first).
     const deadline = Date.now() + 90_000;
     while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
       const current = await db.document.findUnique({
         where: { id: documentId },
         select: { extractionStatus: true, extractionData: true },
@@ -274,6 +282,7 @@ export async function triggerExtraction(
       if (current?.extractionStatus !== "processing") {
         return current?.extractionData as unknown as ExtractedDocument | null;
       }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     // Gave up waiting — fall through to the existing data rather than
     // leaving the caller hanging forever on a stuck "processing" row.
