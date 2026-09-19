@@ -43,6 +43,13 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
   // means it persisted "failed" — no second DB round-trip needed to know
   // which.
   let extractionStatus = doc.extractionStatus;
+  // True only when extraction was already done before this page load (not
+  // just completed by the auto-trigger below) — drives the "already
+  // extracted, skip ahead?" banner. Showing that banner for an extraction
+  // that just finished this render would be misleading ("already" implies
+  // a prior visit) and would duplicate DocumentReviewClient's own
+  // just-confirmed UI once the user actually confirms it.
+  let alreadyExtracted = extractionStatus === "complete";
   const staleCreditCardExtraction = needsCreditCardReclassification(
     doc.bankStatement?.account?.accountType,
     extraction
@@ -50,6 +57,7 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
   if (!doc.extractionStatus || doc.extractionStatus === "pending" || staleCreditCardExtraction) {
     extraction = await triggerExtraction(id);
     extractionStatus = extraction ? "complete" : "failed";
+    alreadyExtracted = false;
   }
 
   // When arriving from a business/personal statements page (?bucket=<entity-slug>),
@@ -72,12 +80,31 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
   // uses (periodEnd desc). Only meaningful when we arrived from that page
   // (?bucket=) and there's a sibling statement after this one.
   let nextReviewHref: Route | null = null;
+  // "Next statement that still needs extraction" -- for skipping past a run
+  // of already-extracted statements straight to one that needs attention.
+  // Searches forward from the current position first, then wraps around the
+  // rest of the list, so it finds one wherever it sits, not just directly
+  // after this statement.
+  let nextUnextractedHref: Route | null = null;
   if (isBankStatement && entity) {
     const siblingStatements = await listBankStatements(doc.entityId);
     const currentIndex = siblingStatements.findIndex((s) => s.documentId === id);
     const next = currentIndex >= 0 ? siblingStatements[currentIndex + 1] : undefined;
     if (next?.documentId) {
       nextReviewHref = `/documents/${next.documentId}/review?bucket=${bucket}` as Route;
+    }
+
+    if (currentIndex >= 0) {
+      const ordered = [
+        ...siblingStatements.slice(currentIndex + 1),
+        ...siblingStatements.slice(0, currentIndex),
+      ];
+      const nextUnextracted = ordered.find(
+        (s) => s.documentId && s.documentId !== id && s.extractStatus !== "complete"
+      );
+      if (nextUnextracted?.documentId) {
+        nextUnextractedHref = `/documents/${nextUnextracted.documentId}/review?bucket=${bucket}` as Route;
+      }
     }
   }
 
@@ -118,6 +145,29 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
             {doc.entity.name} · {doc.docType} · uploaded {doc.createdAt.toLocaleDateString("en-US", { timeZone: "America/New_York" })}
           </p>
         </div>
+
+        {alreadyExtracted && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm">
+            <span className="text-green-800">
+              ✓ Already extracted{doc.bankStatement?.confirmedAt ? " and confirmed" : " — not yet confirmed"}.
+            </span>
+            <div className="flex items-center gap-3">
+              {nextUnextractedHref && (
+                <Link href={nextUnextractedHref} className="text-green-800 hover:underline">
+                  Skip to next unextracted →
+                </Link>
+              )}
+              {nextReviewHref && (
+                <Link href={nextReviewHref} className="text-green-800 hover:underline">
+                  Next statement →
+                </Link>
+              )}
+              <Link href={backHref} className="text-green-800 hover:underline">
+                ← Back to {backLabel}
+              </Link>
+            </div>
+          </div>
+        )}
 
         {extractionStatus === "failed" && !extraction && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -162,6 +212,13 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
                 Skip — store without extraction
               </button>
             </form>
+          )}
+          {/* Already shown in the green banner above when alreadyExtracted — avoid
+              showing it twice on the same page. */}
+          {!alreadyExtracted && nextUnextractedHref && (
+            <Link href={nextUnextractedHref} className="text-sm text-muted-foreground hover:underline">
+              Skip to next unextracted →
+            </Link>
           )}
           <Link href={backHref} className="text-sm text-muted-foreground hover:underline">
             ← Back to {backLabel}

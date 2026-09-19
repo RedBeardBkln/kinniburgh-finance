@@ -374,7 +374,9 @@ export async function getDocumentWithExtraction(documentId: string) {
     where: { id: documentId },
     include: {
       entity: true,
-      bankStatement: { select: { accountId: true, account: { select: { accountType: true } } } },
+      bankStatement: {
+        select: { accountId: true, confirmedAt: true, account: { select: { accountType: true } } },
+      },
     },
   });
 }
