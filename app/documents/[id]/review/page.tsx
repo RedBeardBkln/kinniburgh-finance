@@ -32,12 +32,24 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
   // carries a lineType at all yet) — a self-healing re-check for the
   // extraction-timing gap described in the plan's Risks section.
   let extraction = doc.extractionData as ExtractedDocument | null;
+  // Mirrors doc.extractionStatus, but reassigned below when we actually run
+  // triggerExtraction this render — doc itself is never re-fetched, so
+  // every status check further down must read this, not doc.extractionStatus
+  // directly, or a failed extraction silently falls through every branch
+  // (no error shown, no retry button) since doc.extractionStatus still holds
+  // whatever it was *before* the attempt (e.g. null for a first-time
+  // extraction). triggerExtraction's own try/catch guarantees this
+  // correspondence: non-null return means it persisted "complete", null
+  // means it persisted "failed" — no second DB round-trip needed to know
+  // which.
+  let extractionStatus = doc.extractionStatus;
   const staleCreditCardExtraction = needsCreditCardReclassification(
     doc.bankStatement?.account?.accountType,
     extraction
   );
   if (!doc.extractionStatus || doc.extractionStatus === "pending" || staleCreditCardExtraction) {
     extraction = await triggerExtraction(id);
+    extractionStatus = extraction ? "complete" : "failed";
   }
 
   // When arriving from a business/personal statements page (?bucket=<entity-slug>),
@@ -107,7 +119,7 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
           </p>
         </div>
 
-        {doc.extractionStatus === "failed" && !extraction && (
+        {extractionStatus === "failed" && !extraction && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             Extraction failed. The document may be unsupported, corrupted, or too large.
             <form action={async () => { "use server"; await triggerExtraction(id); }}>
@@ -116,7 +128,7 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
           </div>
         )}
 
-        {doc.extractionStatus === "processing" && (
+        {extractionStatus === "processing" && (
           <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
             Extraction in progress…
           </div>
@@ -137,14 +149,14 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
           />
         )}
 
-        {doc.extractionStatus === "skipped" && (
+        {extractionStatus === "skipped" && (
           <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
             Extraction was skipped for this document.
           </div>
         )}
 
         <div className="flex items-center gap-3">
-          {doc.extractionStatus !== "skipped" && (
+          {extractionStatus !== "skipped" && (
             <form action={async () => { "use server"; await skipExtraction(id); redirect(backHref); }}>
               <button type="submit" className="text-sm text-muted-foreground hover:underline">
                 Skip — store without extraction
