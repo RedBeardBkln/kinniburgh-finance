@@ -268,7 +268,6 @@ export async function triggerExtraction(
     },
     data: { extractionStatus: "processing" },
   });
-  console.log(`[triggerExtraction] ${documentId} claim.count=${claim.count} priorStatus=${doc.extractionStatus} force=${!!options?.force}`);
   if (claim.count === 0) {
     // count === 0 can mean "another call is actively processing" (wait for
     // it) or "another call already finished — complete or failed — between
@@ -315,12 +314,31 @@ export async function triggerExtraction(
       },
     });
 
-    revalidatePath("/documents");
-    revalidatePath(`/documents/${documentId}/review`);
-    console.log(`[triggerExtraction] ${documentId} SUCCESS rows=${result.transactionRows?.length ?? 0}`);
+    // Best-effort only, deliberately outside the try/catch above: the
+    // extraction itself already succeeded and was persisted by the update
+    // above, so a revalidation failure must never flip that into a reported
+    // failure. Confirmed live as the actual root cause of every "good data
+    // sitting under extractionStatus=failed" corruption seen while chasing
+    // what looked like a pure concurrency race — this auto-trigger path is
+    // called synchronously from the review page's own render (not a form
+    // action / route handler), and Next.js throws when revalidatePath is
+    // called during a render: "used revalidatePath ... during render which
+    // is unsupported." That throw was landing in the catch below and
+    // overwriting the just-written "complete" status with "failed" (the
+    // failure path only ever touches extractionStatus, never
+    // extractionData/extractedAt, so the good result stayed intact
+    // underneath the wrong status). The "Try again" button and the cron
+    // route both call this from a real server action / route handler, where
+    // revalidatePath is legal — this still runs for them, just no longer
+    // able to corrupt anything either way.
+    try {
+      revalidatePath("/documents");
+      revalidatePath(`/documents/${documentId}/review`);
+    } catch {
+      // ignore — see comment above.
+    }
     return result;
-  } catch (err) {
-    console.log(`[triggerExtraction] ${documentId} FAILED ${err instanceof Error ? err.message : String(err)}`);
+  } catch {
     await db.document.update({
       where: { id: documentId },
       data: { extractionStatus: "failed" },
