@@ -76,7 +76,12 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
     extraction
   );
   if ((!hasUsableData && !doc.extractionStatus) || doc.extractionStatus === "pending" || staleCreditCardExtraction) {
-    extraction = await triggerExtraction(id);
+    // force: true only for the reclassification case — triggerExtraction's
+    // own hasUsableData short-circuit would otherwise skip the re-run
+    // entirely once real (if lineType-less) data already exists, silently
+    // defeating this self-heal. The other two conditions only ever fire for
+    // a genuinely empty/pending document, where force is irrelevant.
+    extraction = await triggerExtraction(id, { force: staleCreditCardExtraction });
     extractionStatus = extraction ? "complete" : "failed";
     alreadyExtracted = false;
   }
