@@ -220,8 +220,18 @@ export async function triggerExtraction(documentId: string): Promise<ExtractedDo
   // real 12-row successful result sitting under extractionStatus="failed".
   // The loser here waits for the winner's real result instead of starting
   // a second, independently-racing attempt.
+  // NOT (OR + null) rather than a bare `{ not: "processing" }` — Prisma's
+  // `not` on a nullable column doesn't match NULL rows in the generated SQL
+  // (NULL <> 'processing' is UNKNOWN, not true), so a bare `not` here would
+  // make this claim silently fail to match — and therefore never actually
+  // claim — every never-yet-attempted document (status genuinely null).
+  // Caught this live: it made triggerExtraction a permanent no-op for any
+  // first-time extraction, worse than the bug it was meant to fix.
   const claim = await db.document.updateMany({
-    where: { id: documentId, extractionStatus: { not: "processing" } },
+    where: {
+      id: documentId,
+      OR: [{ extractionStatus: { not: "processing" } }, { extractionStatus: null }],
+    },
     data: { extractionStatus: "processing" },
   });
   if (claim.count === 0) {
