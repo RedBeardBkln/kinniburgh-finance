@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { isPLGlType } from "@/lib/gl-code-warnings";
 
 export interface PLLine {
   glCodeId: string;
@@ -8,12 +9,32 @@ export interface PLLine {
   total: Prisma.Decimal;
 }
 
+/** A GL code whose type is not revenue/expense, so computePL left it off the P&L. */
+export interface PLExcludedLine {
+  glCodeId: string;
+  code: string;
+  name: string;
+  type: string;
+  transactionCount: number;
+  /** Signed net (negative = outflow). Not abs()'d. */
+  total: Prisma.Decimal;
+}
+
+export interface PLExcluded {
+  lines: PLExcludedLine[];
+  transactionCount: number;
+  /** Signed net across all excluded lines. */
+  netAmount: Prisma.Decimal;
+}
+
 export interface PLReport {
   incomeLines: PLLine[];
   expenseLines: PLLine[];
   totalIncome: Prisma.Decimal;
   totalExpenses: Prisma.Decimal;
   netIncome: Prisma.Decimal;
+  /** GL-coded transactions in the period that are NOT counted above (balance-sheet / unknown types). */
+  excludedFromPL: PLExcluded;
   periodFrom: Date;
   periodTo: Date;
 }
@@ -34,6 +55,7 @@ export async function computePL(
       postedAt: { gte: fromDate, lte: toDate },
     },
     _sum: { amount: true },
+    _count: { _all: true },
   });
 
   if (grouped.length === 0) {
@@ -43,6 +65,11 @@ export async function computePL(
       totalIncome: new Prisma.Decimal(0),
       totalExpenses: new Prisma.Decimal(0),
       netIncome: new Prisma.Decimal(0),
+      excludedFromPL: {
+        lines: [],
+        transactionCount: 0,
+        netAmount: new Prisma.Decimal(0),
+      },
       periodFrom: fromDate,
       periodTo: toDate,
     };
@@ -54,6 +81,7 @@ export async function computePL(
 
   const incomeLines: PLLine[] = [];
   const expenseLines: PLLine[] = [];
+  const excludedLines: PLExcludedLine[] = [];
 
   for (const row of grouped) {
     const id = row.glCodeId as string;
@@ -68,10 +96,24 @@ export async function computePL(
       // Expense transactions are negative outflows — store as positive for display
       expenseLines.push({ glCodeId: id, code: gl.code, name: gl.name, total: total.abs() });
     }
+
+    // Anything that is not a P&L type (asset/liability/equity or an unexpected
+    // legacy string) is not counted above — record it so the caller can say so.
+    if (!isPLGlType(gl.type)) {
+      excludedLines.push({
+        glCodeId: id,
+        code: gl.code,
+        name: gl.name,
+        type: gl.type,
+        transactionCount: row._count._all,
+        total,
+      });
+    }
   }
 
   incomeLines.sort((a, b) => a.code.localeCompare(b.code));
   expenseLines.sort((a, b) => a.code.localeCompare(b.code));
+  excludedLines.sort((a, b) => a.code.localeCompare(b.code));
 
   const totalIncome = incomeLines.reduce((s, l) => s.add(l.total), new Prisma.Decimal(0));
   const totalExpenses = expenseLines.reduce((s, l) => s.add(l.total), new Prisma.Decimal(0));
@@ -82,6 +124,11 @@ export async function computePL(
     totalIncome,
     totalExpenses,
     netIncome: totalIncome.sub(totalExpenses),
+    excludedFromPL: {
+      lines: excludedLines,
+      transactionCount: excludedLines.reduce((n, l) => n + l.transactionCount, 0),
+      netAmount: excludedLines.reduce((s, l) => s.add(l.total), new Prisma.Decimal(0)),
+    },
     periodFrom: fromDate,
     periodTo: toDate,
   };

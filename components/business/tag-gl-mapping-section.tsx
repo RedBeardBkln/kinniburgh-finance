@@ -9,11 +9,13 @@ import {
   type UnusedTagOption,
 } from "@/actions/gl-code-mappings";
 import { GlBackfillModal } from "@/components/business/gl-backfill-modal";
+import { buildNonPLMappingWarning, isPLGlType } from "@/lib/gl-code-warnings";
 
 interface GlCodeOption {
   id: string;
   code: string;
   name: string;
+  type: string;
 }
 
 interface Props {
@@ -42,6 +44,22 @@ export function TagGlMappingSection({ entityId, glCodes, inUse: initialInUse, un
   const remainingUnused = unused.filter((t) => !mappedTagIds.has(t.id));
 
   function handleSetMapping(tagId: string, tagName: string, glCodeId: string) {
+    // Warn (never block) before mapping a tag to a balance-sheet code: those
+    // transactions are silently left off the P&L. Cancel leaves the controlled
+    // <select> on its previous value and makes no server call. Unmapping never
+    // prompts.
+    if (glCodeId) {
+      const selected = glCodes.find((g) => g.id === glCodeId);
+      if (selected) {
+        const existing = inUse.find((r) => r.tagId === tagId);
+        const msg = buildNonPLMappingWarning({
+          tagName,
+          glCode: selected,
+          usageCount: existing?.usageCount ?? 0,
+        });
+        if (msg && !window.confirm(msg)) return;
+      }
+    }
     setRowStatus((prev) => ({ ...prev, [tagId]: "saving" }));
     setRowError((prev) => {
       if (!(tagId in prev)) return prev;
@@ -114,6 +132,8 @@ export function TagGlMappingSection({ entityId, glCodes, inUse: initialInUse, un
         Map a tag to a GL code so matching transactions are auto-coded going
         forward. If a transaction has multiple tags that map to different GL
         codes, it&apos;s left uncoded for manual review in the Coding Queue.
+        Asset, liability and equity codes are balance-sheet accounts and do
+        not appear on the Profit &amp; Loss.
       </p>
 
       <Card>
@@ -170,6 +190,17 @@ export function TagGlMappingSection({ entityId, glCodes, inUse: initialInUse, un
                         </button>
                       )}
                     </div>
+                    {(() => {
+                      const mapped = row.glCodeId
+                        ? glCodes.find((g) => g.id === row.glCodeId)
+                        : undefined;
+                      if (!mapped || isPLGlType(mapped.type)) return null;
+                      return (
+                        <p className="mt-1 text-xs text-amber-600" role="note">
+                          Balance-sheet account ({mapped.type}) — excluded from P&amp;L.
+                        </p>
+                      );
+                    })()}
                     {rowStatus[row.tagId] === "error" && (
                       <p className="mt-1 text-xs text-destructive">
                         {rowError[row.tagId] ?? "Failed to save — try again."}

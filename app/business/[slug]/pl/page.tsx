@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { computePL } from "@/lib/reports";
+import { buildPLExclusionNotice } from "@/lib/gl-code-warnings";
 import { exportCpaBundle } from "@/actions/reports";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { TaxReservePctForm } from "@/components/business/tax-reserve-pct-form";
@@ -251,6 +252,50 @@ export default async function PLPage({ params, searchParams }: PageProps) {
           </CardContent>
         </Card>
 
+        {/* Balance-sheet-coded transactions left out of this P&L */}
+        {pl.excludedFromPL.transactionCount > 0 && (
+          <Card className="border-amber-300 bg-amber-50/50" role="note">
+            <CardContent className="space-y-3 py-4 px-4">
+              <p className="text-sm font-medium text-amber-800">
+                {buildPLExclusionNotice({
+                  transactionCount: pl.excludedFromPL.transactionCount,
+                  formattedAmount: fmtSignedCurrency(pl.excludedFromPL.netAmount),
+                })}
+              </p>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="py-1 font-medium">Code</th>
+                    <th className="py-1 font-medium">Name</th>
+                    <th className="py-1 font-medium">Type</th>
+                    <th className="py-1 font-medium text-right">Transactions</th>
+                    <th className="py-1 font-medium text-right">Net amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pl.excludedFromPL.lines.map((line) => (
+                    <tr key={line.glCodeId} className="border-b last:border-0">
+                      <td className="py-1 font-mono text-muted-foreground">{line.code}</td>
+                      <td className="py-1">{line.name}</td>
+                      <td className="py-1">{line.type}</td>
+                      <td className="py-1 text-right tabular-nums">{line.transactionCount}</td>
+                      <td className="py-1 text-right tabular-nums">{fmtSignedCurrency(line.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <Link
+                href={
+                  `/business/${slug}/gl?from=${encodeURIComponent(pl.periodFrom.toISOString())}&to=${encodeURIComponent(pl.periodTo.toISOString())}#excluded-from-pl` as Route
+                }
+                className="text-sm text-primary hover:underline"
+              >
+                Review in GL Codes
+              </Link>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Quarter-End Forecast */}
         {hasIncomeGl && forecast && reserve && (
           <Card>
@@ -340,7 +385,7 @@ export default async function PLPage({ params, searchParams }: PageProps) {
         )}
 
         <p className="text-xs text-muted-foreground">
-          Only GL-coded transactions are included. Confirm all figures with your CPA — this is not tax advice.
+          Only transactions coded to revenue or expense GL codes are included. Confirm all figures with your CPA — this is not tax advice.
         </p>
       </div>
     </AppShell>
@@ -373,6 +418,10 @@ function ConfidenceBadge({ confidence }: { confidence: QuarterForecastConfidence
       Full history
     </span>
   );
+}
+
+function fmtSignedCurrency(d: Prisma.Decimal): string {
+  return `${d.isNegative() ? "−" : ""}${fmtCurrency(d.abs())}`;
 }
 
 function fmtCurrency(d: Prisma.Decimal): string {
