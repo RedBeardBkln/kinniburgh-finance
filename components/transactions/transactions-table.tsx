@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { deleteTransaction } from "@/actions/transactions";
+import { assignTransactions, unassignTransaction } from "@/actions/review-assignments";
+import { assignmentChipLabel, assigneeFirstName, type AssignmentChipKind } from "@/lib/review-queue";
 import { InlineTagCell } from "./inline-tag-cell";
 import { InlineProjectCell } from "./inline-project-cell";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +26,16 @@ export interface TxRow {
   tagIds: string[];
   projectId: string | null;
   transferPairId: string | null;
+  /** Assignment chip to show under the payee (assign-to-review feature); null = none. */
+  assignKind?: AssignmentChipKind | null;
+  /** Why this row can't be selected for assignment; null/undefined = selectable. Only meaningful when `assign` is set. */
+  assignDisabledReason?: string | null;
+}
+
+/** Present only on buckets where assignment is allowed (Personal, Sudden Valley). */
+export interface AssignConfig {
+  assigneeName: string;
+  draftCount: number;
 }
 
 export interface TagOption {
@@ -42,6 +54,7 @@ interface Props {
   transactions: TxRow[];
   allTags: TagOption[];
   allProjects: ProjectOption[];
+  assign?: AssignConfig | null;
 }
 
 // ── Column definitions ────────────────────────────────────────────────────────
@@ -58,6 +71,9 @@ const COLS = [
 type ColKey = typeof COLS[number]["key"];
 
 const ACTIONS_WIDTH = 60;
+// Fixed leading checkbox column (assignment). Deliberately outside COLS and the
+// persisted width map so resize logic and the saved widths key are untouched.
+const CHECK_WIDTH = 36;
 const MIN_WIDTH = 40;
 const STORAGE_KEY = "txn-col-widths-v1";
 
@@ -96,11 +112,67 @@ function formatAmount(amountStr: string) {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-export function TransactionsTable({ transactions, allTags, allProjects }: Props) {
+export function TransactionsTable({ transactions, allTags, allProjects, assign = null }: Props) {
   const hasProjects = allProjects.length > 0;
   const visibleCols = COLS.filter((c) => c.key !== "project" || hasProjects);
+  const canAssign = assign !== null;
 
   const [widths, setWidths] = useState<Record<ColKey, number>>(loadWidths);
+
+  // ── Assignment (Eric-side) ──
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const [isAssigning, startAssign] = useTransition();
+  const [isUnassigning, startUnassign] = useTransition();
+
+  const selectableIds = transactions
+    .filter((t) => !t.assignDisabledReason)
+    .map((t) => t.id);
+  const selectedOnPage = selectableIds.filter((id) => selected.has(id));
+  const allSelected = selectableIds.length > 0 && selectedOnPage.length === selectableIds.length;
+  const someSelected = selectedOnPage.length > 0 && !allSelected;
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(selectableIds));
+  }
+
+  function handleAssign() {
+    const ids = selectedOnPage;
+    if (ids.length === 0) return;
+    setAssignError(null);
+    startAssign(async () => {
+      const result = await assignTransactions(ids);
+      if (!result.ok) {
+        setAssignError(result.error);
+        return;
+      }
+      if (result.rejected.length > 0) {
+        const first = result.rejected[0]!;
+        setAssignError(
+          `${result.rejected.length} not assigned: ${first.message}` +
+            (result.rejected.length > 1 ? " (and others)" : "")
+        );
+      }
+      setSelected(new Set());
+    });
+  }
+
+  function handleUnassign(id: string) {
+    setAssignError(null);
+    startUnassign(async () => {
+      const result = await unassignTransaction(id);
+      if (!result.ok) setAssignError(result.error);
+    });
+  }
 
   const tableRef = useRef<HTMLTableElement>(null);
   const dragRef = useRef<{
@@ -157,8 +229,15 @@ export function TransactionsTable({ transactions, allTags, allProjects }: Props)
   return (
     <Card>
       <CardContent className="p-0">
+        {canAssign && assign.draftCount > 0 && (
+          <div className="border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            {assign.draftCount} transaction{assign.draftCount === 1 ? "" : "s"} in draft for{" "}
+            {assigneeFirstName(assign.assigneeName)} (not sent yet)
+          </div>
+        )}
         <table ref={tableRef} className="w-full text-sm table-fixed">
           <colgroup>
+            {canAssign && <col style={{ width: `${CHECK_WIDTH}px` }} />}
             {visibleCols.map((c) => (
               <col key={c.key} style={{ width: `${widths[c.key]}px` }} />
             ))}
@@ -166,6 +245,20 @@ export function TransactionsTable({ transactions, allTags, allProjects }: Props)
           </colgroup>
           <thead>
             <tr className="border-b text-left text-muted-foreground">
+              {canAssign && (
+                <th className="px-2 py-3">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all assignable transactions on this page"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someSelected;
+                    }}
+                    disabled={selectableIds.length === 0}
+                    onChange={toggleAll}
+                  />
+                </th>
+              )}
               {visibleCols.map((c, i) => (
                 <th
                   key={c.key}
@@ -187,7 +280,7 @@ export function TransactionsTable({ transactions, allTags, allProjects }: Props)
             {transactions.length === 0 && (
               <tr>
                 <td
-                  colSpan={visibleCols.length + 1}
+                  colSpan={visibleCols.length + 1 + (canAssign ? 1 : 0)}
                   className="px-2 py-8 text-center text-muted-foreground"
                 >
                   No transactions found
@@ -202,6 +295,18 @@ export function TransactionsTable({ transactions, allTags, allProjects }: Props)
                   key={tx.id}
                   className={`border-b last:border-0 hover:bg-muted/30 ${isTransfer ? "opacity-70" : ""}`}
                 >
+                  {canAssign && (
+                    <td className="px-2 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${tx.payeeRaw ?? tx.payeeNormalized ?? "transaction"} for assignment`}
+                        checked={selected.has(tx.id)}
+                        disabled={!!tx.assignDisabledReason}
+                        title={tx.assignDisabledReason ?? undefined}
+                        onChange={() => toggleOne(tx.id)}
+                      />
+                    </td>
+                  )}
                   <td className="px-2 py-2 text-muted-foreground whitespace-nowrap text-xs">
                     {formatDate(tx.postedAt)}
                   </td>
@@ -214,6 +319,29 @@ export function TransactionsTable({ transactions, allTags, allProjects }: Props)
                     </Link>
                     {tx.description && (
                       <p className="text-xs text-muted-foreground truncate">{tx.description}</p>
+                    )}
+                    {canAssign && tx.assignKind && (
+                      <span
+                        className={`mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                          tx.assignKind === "returned"
+                            ? "bg-amber-100 text-amber-800"
+                            : "bg-primary/10 text-primary"
+                        }`}
+                      >
+                        {assignmentChipLabel(tx.assignKind, assign.assigneeName)}
+                        {tx.assignKind === "draft" && (
+                          <button
+                            type="button"
+                            aria-label="Remove from draft"
+                            title="Remove from draft"
+                            disabled={isUnassigning}
+                            onClick={() => handleUnassign(tx.id)}
+                            className="hover:text-destructive disabled:opacity-50"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </span>
                     )}
                   </td>
                   <td className="px-2 py-2 text-muted-foreground text-xs min-w-0">
@@ -265,6 +393,37 @@ export function TransactionsTable({ transactions, allTags, allProjects }: Props)
           </tbody>
         </table>
       </CardContent>
+      {canAssign && (selectedOnPage.length > 0 || assignError) && (
+        <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-background px-4 py-2 shadow-lg">
+          {selectedOnPage.length > 0 && (
+            <>
+              <span className="text-sm">{selectedOnPage.length} selected</span>
+              <button
+                type="button"
+                onClick={handleAssign}
+                disabled={isAssigning}
+                className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {isAssigning
+                  ? "Assigning…"
+                  : `Assign ${selectedOnPage.length} to ${assigneeFirstName(assign.assigneeName)}`}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </button>
+            </>
+          )}
+          {assignError && (
+            <span role="alert" className="max-w-xs text-xs text-destructive">
+              {assignError}
+            </span>
+          )}
+        </div>
+      )}
     </Card>
   );
 }

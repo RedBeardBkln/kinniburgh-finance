@@ -11,7 +11,10 @@ import { ApplyRulesButton } from "@/components/transactions/apply-rules-button";
 import { DryRunButton } from "@/components/transactions/dry-run-button";
 import { TransactionsFilterBar } from "@/components/transactions/transactions-filter-bar";
 import { SyncNowButton } from "@/components/transactions/sync-now-button";
-import { TransactionsTable } from "@/components/transactions/transactions-table";
+import { TransactionsTable, type AssignConfig } from "@/components/transactions/transactions-table";
+import { getDraftBatchSummary } from "@/actions/review-assignments";
+import { loadAssignmentStates, type RowAssignmentState } from "@/lib/review-queue-server";
+import { checkAssignable, isAssignableEntitySlug, notAssignableMessage } from "@/lib/review-queue";
 import type { Route } from "next";
 
 interface PageProps {
@@ -93,6 +96,8 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         accountId: true,
         entityId: true,
         transferPairId: true,
+        pending: true,
+        archivedAt: true,
         projectId: true,
         account: { select: { nickname: true, mask: true } },
         tags: { select: { tagId: true } },
@@ -123,6 +128,41 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   ]);
 
   const totalPages = Math.ceil(total / pageSize);
+
+  // "Assign to <other household user>" controls: only on the Personal and Sudden
+  // Valley buckets. canAssign is false for EK Consulting, Mezzo, and the
+  // aggregate (entity === null) views. The server action re-enforces this.
+  const canAssign = entity !== null && isAssignableEntitySlug(entity.slug);
+  const draftSummary = canAssign ? await getDraftBatchSummary() : null;
+  const assignStates = canAssign
+    ? await loadAssignmentStates(transactions.map((t) => t.id))
+    : new Map<string, RowAssignmentState>();
+  const allowedEntityIds = new Set<string>(canAssign && entity ? [entity.id] : []);
+  const assignConfig: AssignConfig | null =
+    canAssign && draftSummary
+      ? {
+          assigneeName: draftSummary.assignee?.name ?? "assignee",
+          draftCount: draftSummary.draftCount,
+        }
+      : null;
+
+  function assignDisabledReason(tx: (typeof transactions)[number]): string | null {
+    if (!draftSummary?.assignee) {
+      return draftSummary?.assigneeProblem ?? "Assignment unavailable";
+    }
+    const state = assignStates.get(tx.id);
+    const verdict = checkAssignable(
+      {
+        entityId: tx.entityId,
+        archivedAt: tx.archivedAt,
+        transferPairId: tx.transferPairId,
+        pending: tx.pending,
+        hasActiveAssignment: state?.kind === "draft" || state?.kind === "with_assignee",
+      },
+      allowedEntityIds
+    );
+    return verdict.ok ? null : notAssignableMessage(verdict.reason);
+  }
 
   function buildPageUrl(p: number) {
     const q = new URLSearchParams(params as Record<string, string>);
@@ -222,6 +262,12 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
           currentSortDir={sortDir}
         />
 
+        {draftSummary?.assigneeProblem && (
+          <p className="text-xs text-muted-foreground">
+            Assigning transactions is unavailable: {draftSummary.assigneeProblem}
+          </p>
+        )}
+
         <TransactionsTable
           transactions={transactions.map((tx) => ({
             id: tx.id,
@@ -236,9 +282,14 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
             tagIds: tx.tags.map((t) => t.tagId),
             projectId: tx.projectId ?? null,
             transferPairId: tx.transferPairId,
+            ...(canAssign && {
+              assignKind: assignStates.get(tx.id)?.kind ?? null,
+              assignDisabledReason: assignDisabledReason(tx),
+            }),
           }))}
           allTags={allTags}
           allProjects={allProjects}
+          assign={assignConfig}
         />
 
         {/* Pagination */}
