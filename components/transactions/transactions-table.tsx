@@ -47,7 +47,7 @@ interface Props {
 // ── Column definitions ────────────────────────────────────────────────────────
 
 const COLS = [
-  { key: "date",    label: "Date",    defaultWidth: 80,  alignRight: false },
+  { key: "date",    label: "Date",    defaultWidth: 100, alignRight: false },
   { key: "payee",   label: "Payee",   defaultWidth: 280, alignRight: false },
   { key: "account", label: "Account", defaultWidth: 130, alignRight: false },
   { key: "tags",    label: "Tags",    defaultWidth: 110, alignRight: false },
@@ -78,6 +78,7 @@ function formatDate(iso: string): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
+    year: "numeric",
     timeZone: "America/New_York",
   }).format(new Date(iso));
 }
