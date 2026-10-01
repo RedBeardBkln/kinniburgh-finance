@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { normalizePayee } from "@/lib/tags";
 import { updateTransactionTags } from "@/actions/transactions";
+import { screenTagRule } from "@/actions/tag-rules";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { needsReceiptWhere, receiptDismissalKey, serializeReceiptDismissal } from "@/lib/receipt-flagging";
@@ -74,10 +75,18 @@ export async function confirmReceipt(
   if (data.tagIds.length > 0 && data.vendor) {
     const pattern = normalizePayee(data.vendor);
     for (const tagId of data.tagIds) {
-      const existing = await db.tagRule.findFirst({
-        where: { payeePattern: pattern, tagId },
+      // Auto-generated rules can't ask for approval, so skip when anything
+      // already duplicates/competes with this vendor — the owner can still
+      // create it manually from Tag Rules, where conflicts are flagged.
+      const conflicts = await screenTagRule({
+        payeePattern: pattern,
+        tagId,
+        amountMin: null,
+        amountMax: null,
+        accountId: null,
+        accountIds: null,
       });
-      if (!existing) {
+      if (conflicts.length === 0) {
         await db.tagRule.create({
           data: { payeePattern: pattern, tagId, confidence: 0.8 },
         });

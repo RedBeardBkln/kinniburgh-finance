@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { normalizePayee, normalizePattern, matchTagRule, alnum } from "@/lib/tags";
 import { autoAssignGlCodes } from "@/lib/gl-code-resolver";
+import { findRuleConflicts, type RuleConflict, type RuleConflictView, type RuleShape } from "@/lib/tag-rule-conflicts";
 import { updateTransactionTags } from "@/actions/transactions";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -30,6 +31,55 @@ export async function listTagRules(): Promise<TagRuleWithTag[]> {
   });
 }
 
+// ── Conflict screening ────────────────────────────────────────────────────────
+
+export type SaveRuleResult =
+  | { status: "saved"; id: string }
+  | { status: "needs_approval"; conflicts: RuleConflictView[] };
+
+async function loadExistingRuleShapes(): Promise<RuleShape[]> {
+  const rules = await db.tagRule.findMany({
+    select: {
+      id: true,
+      payeePattern: true,
+      tagId: true,
+      amountMin: true,
+      amountMax: true,
+      accountId: true,
+      accountIds: true,
+    },
+  });
+  return rules.map((r) => ({
+    id: r.id,
+    payeePattern: r.payeePattern,
+    tagId: r.tagId,
+    amountMin: r.amountMin ? r.amountMin.toNumber() : null,
+    amountMax: r.amountMax ? r.amountMax.toNumber() : null,
+    accountId: r.accountId,
+    accountIds: r.accountIds ? (JSON.parse(r.accountIds) as string[]) : null,
+  }));
+}
+
+/**
+ * Screen a candidate rule against all saved rules. Used by every save path
+ * (new-rule form, transaction dialogs, edit) and by receipt-generated rules.
+ */
+export async function screenTagRule(
+  candidate: RuleShape,
+  excludeId?: string
+): Promise<RuleConflictView[]> {
+  await requireAuth();
+  const existing = await loadExistingRuleShapes();
+  const conflicts: RuleConflict[] = findRuleConflicts(candidate, existing, { excludeId });
+  if (conflicts.length === 0) return [];
+  const tags = await db.tag.findMany({
+    where: { id: { in: [...new Set(conflicts.map((c) => c.tagId))] } },
+    select: { id: true, name: true },
+  });
+  const nameById = new Map(tags.map((t) => [t.id, t.name]));
+  return conflicts.map((c) => ({ ...c, tagName: nameById.get(c.tagId) ?? "(unknown tag)" }));
+}
+
 // ── Create ────────────────────────────────────────────────────────────────────
 
 // Accepts values like "1", "40.00", ".01", "0.01"
@@ -42,11 +92,13 @@ const createSchema = z.object({
   amountMax: z.string().regex(amountRegex).optional(),
   accountId: z.string().uuid().optional(),
   accountIds: z.array(z.string().uuid()).optional(),
+  /** Set true once the user has explicitly approved saving despite conflicts. */
+  approveConflicts: z.boolean().optional(),
 });
 
 export async function createTagRule(
   input: z.input<typeof createSchema>
-): Promise<{ id: string }> {
+): Promise<SaveRuleResult> {
   await requireAuth();
   let data: z.infer<typeof createSchema>;
   try {
@@ -55,9 +107,23 @@ export async function createTagRule(
     if (e instanceof z.ZodError) throw new Error(e.errors[0]?.message ?? "Invalid input");
     throw e;
   }
+  const payeePattern = normalizePattern(data.payeePattern);
+
+  if (!data.approveConflicts) {
+    const conflicts = await screenTagRule({
+      payeePattern,
+      tagId: data.tagId,
+      amountMin: data.amountMin != null ? Number(data.amountMin) : null,
+      amountMax: data.amountMax != null ? Number(data.amountMax) : null,
+      accountId: data.accountId ?? null,
+      accountIds: data.accountIds ?? null,
+    });
+    if (conflicts.length > 0) return { status: "needs_approval", conflicts };
+  }
+
   const rule = await db.tagRule.create({
     data: {
-      payeePattern: normalizePattern(data.payeePattern),
+      payeePattern,
       tagId: data.tagId,
       amountMin: data.amountMin != null ? new Prisma.Decimal(data.amountMin) : null,
       amountMax: data.amountMax != null ? new Prisma.Decimal(data.amountMax) : null,
@@ -69,7 +135,7 @@ export async function createTagRule(
     },
   });
   revalidatePath("/tag-rules");
-  return { id: rule.id };
+  return { status: "saved", id: rule.id };
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
@@ -82,12 +148,13 @@ const updateSchema = z.object({
   accountId: z.string().uuid().nullable().optional(),
   accountIds: z.array(z.string().uuid()).nullable().optional(),
   confidence: z.number().min(0).max(1).optional(),
+  approveConflicts: z.boolean().optional(),
 });
 
 export async function updateTagRule(
   id: string,
   patch: z.input<typeof updateSchema>
-): Promise<void> {
+): Promise<SaveRuleResult> {
   await requireAuth();
   let data: z.infer<typeof updateSchema>;
   try {
@@ -96,6 +163,34 @@ export async function updateTagRule(
     if (e instanceof z.ZodError) throw new Error(e.errors[0]?.message ?? "Invalid input");
     throw e;
   }
+  if (!data.approveConflicts) {
+    // Screen the rule as it will look after the patch, not just the patch.
+    const current = await db.tagRule.findUnique({ where: { id } });
+    if (!current) throw new Error("Rule not found");
+    const merged: RuleShape = {
+      payeePattern:
+        data.payeePattern != null ? normalizePattern(data.payeePattern) : current.payeePattern,
+      tagId: data.tagId ?? current.tagId,
+      amountMin:
+        data.amountMin !== undefined
+          ? data.amountMin != null ? Number(data.amountMin) : null
+          : current.amountMin?.toNumber() ?? null,
+      amountMax:
+        data.amountMax !== undefined
+          ? data.amountMax != null ? Number(data.amountMax) : null
+          : current.amountMax?.toNumber() ?? null,
+      accountId: data.accountId !== undefined ? data.accountId : current.accountId,
+      accountIds:
+        data.accountIds !== undefined
+          ? data.accountIds
+          : current.accountIds
+          ? (JSON.parse(current.accountIds) as string[])
+          : null,
+    };
+    const conflicts = await screenTagRule(merged, id);
+    if (conflicts.length > 0) return { status: "needs_approval", conflicts };
+  }
+
   await db.tagRule.update({
     where: { id },
     data: {
@@ -120,6 +215,7 @@ export async function updateTagRule(
     },
   });
   revalidatePath("/tag-rules");
+  return { status: "saved", id };
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────────

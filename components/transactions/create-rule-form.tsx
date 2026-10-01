@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createTagRule } from "@/actions/tag-rules";
+import { RuleConflictWarning } from "@/components/tag-rules/rule-conflict-warning";
+import type { RuleConflictView } from "@/lib/tag-rule-conflicts";
 import { TagPicker } from "@/components/tags/tag-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,28 +34,39 @@ export function CreateRuleForm({ allTags, defaultPayee, defaultAmount, accountId
   const [useAccount, setUseAccount] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [conflicts, setConflicts] = useState<RuleConflictView[]>([]);
   const [isPending, startTransition] = useTransition();
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function submit(approveConflicts: boolean) {
     if (!payeePattern.trim()) { setError("Payee pattern required"); return; }
     if (tagIds.length === 0) { setError("Select a tag"); return; }
     setError(null);
     startTransition(async () => {
       try {
-        await createTagRule({
+        const result = await createTagRule({
+          approveConflicts,
           payeePattern,
           tagId: tagIds[0]!,
           ...(useAmountRange && amountMin ? { amountMin } : {}),
           ...(useAmountRange && amountMax ? { amountMax } : {}),
           ...(useAccount ? { accountId } : {}),
         });
+        if (result.status === "needs_approval") {
+          setConflicts(result.conflicts);
+          return;
+        }
+        setConflicts([]);
         setSuccess(true);
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to create rule");
       }
     });
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    submit(false);
   }
 
   if (success) {
@@ -77,7 +90,7 @@ export function CreateRuleForm({ allTags, defaultPayee, defaultAmount, accountId
         <Input
           id="payeePattern"
           value={payeePattern}
-          onChange={(e) => setPayeePattern(e.target.value)}
+          onChange={(e) => { setPayeePattern(e.target.value); setConflicts([]); }}
           placeholder="e.g. amazon"
         />
         <p className="text-xs text-muted-foreground">
@@ -100,7 +113,7 @@ export function CreateRuleForm({ allTags, defaultPayee, defaultAmount, accountId
         <input
           type="checkbox"
           checked={useAmountRange}
-          onChange={(e) => setUseAmountRange(e.target.checked)}
+          onChange={(e) => { setUseAmountRange(e.target.checked); setConflicts([]); }}
           className="h-4 w-4"
         />
         Restrict to amount range
@@ -116,7 +129,7 @@ export function CreateRuleForm({ allTags, defaultPayee, defaultAmount, accountId
               step="0.01"
               min="0"
               value={amountMin}
-              onChange={(e) => setAmountMin(e.target.value)}
+              onChange={(e) => { setAmountMin(e.target.value); setConflicts([]); }}
             />
           </div>
           <div className="space-y-1">
@@ -127,7 +140,7 @@ export function CreateRuleForm({ allTags, defaultPayee, defaultAmount, accountId
               step="0.01"
               min="0"
               value={amountMax}
-              onChange={(e) => setAmountMax(e.target.value)}
+              onChange={(e) => { setAmountMax(e.target.value); setConflicts([]); }}
             />
           </div>
         </div>
@@ -137,7 +150,7 @@ export function CreateRuleForm({ allTags, defaultPayee, defaultAmount, accountId
         <input
           type="checkbox"
           checked={useAccount}
-          onChange={(e) => setUseAccount(e.target.checked)}
+          onChange={(e) => { setUseAccount(e.target.checked); setConflicts([]); }}
           className="h-4 w-4"
         />
         Match this account only
@@ -145,7 +158,14 @@ export function CreateRuleForm({ allTags, defaultPayee, defaultAmount, accountId
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <Button type="submit" disabled={isPending} className="w-full">
+      <RuleConflictWarning
+        conflicts={conflicts}
+        busy={isPending}
+        onApprove={() => submit(true)}
+        onCancel={() => setConflicts([])}
+      />
+
+      <Button type="submit" disabled={isPending || conflicts.length > 0} className="w-full">
         {isPending ? "Creating…" : "Create rule"}
       </Button>
     </form>

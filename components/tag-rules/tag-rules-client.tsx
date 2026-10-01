@@ -1,11 +1,18 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { createTagRule, deleteTagRule, updateTagRule } from "@/actions/tag-rules";
 import { RetroactiveRuleModal } from "./retroactive-rule-modal";
+import { RuleConflictWarning } from "./rule-conflict-warning";
+import {
+  findRuleConflicts,
+  ruleMatchesSearch,
+  type RuleConflictView,
+  type RuleShape,
+} from "@/lib/tag-rule-conflicts";
 
 interface RuleRow {
   id: string;
@@ -53,11 +60,82 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
   const [newAmountMax, setNewAmountMax] = useState("");
   const [newAccountIds, setNewAccountIds] = useState<Set<string>>(new Set());
 
+  // Edit mode
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Search + conflict screening
+  const [search, setSearch] = useState("");
+  const [approval, setApproval] = useState<{ key: string; conflicts: RuleConflictView[] } | null>(null);
+
+  const accountName = (id: string) => accounts.find((a) => a.id === id)?.nickname ?? "account";
+  const tagNameOf = (id: string) => allTags.find((t) => t.id === id)?.shortName ?? "(unknown tag)";
+
+  function rowToShape(r: RuleRow): RuleShape {
+    return {
+      id: r.id,
+      payeePattern: r.payeePattern || null,
+      tagId: r.tagId,
+      amountMin: r.amountMin !== null ? Number(r.amountMin) : null,
+      amountMax: r.amountMax !== null ? Number(r.amountMax) : null,
+      accountId: r.accountId,
+      accountIds: r.accountIds,
+    };
+  }
+
+  function withNames(cs: ReturnType<typeof findRuleConflicts>): RuleConflictView[] {
+    return cs.map((c) => ({ ...c, tagName: tagNameOf(c.tagId) }));
+  }
+
+  // Fingerprint of the form so an approval only applies to the exact values screened
+  const formKey = JSON.stringify([
+    editingId, newPattern.trim().toLowerCase(), newTagId, newAmountMin, newAmountMax, [...newAccountIds].sort(),
+  ]);
+
+  // Live preview of overlapping rules while the form is open
+  const liveConflicts = useMemo(() => {
+    if (!showForm || !newPattern.trim()) return [];
+    const candidate: RuleShape = {
+      payeePattern: newPattern.trim().toLowerCase(),
+      tagId: newTagId,
+      amountMin: newAmountMin ? Number(newAmountMin) : null,
+      amountMax: newAmountMax ? Number(newAmountMax) : null,
+      accountId: null,
+      accountIds: newAccountIds.size > 0 ? [...newAccountIds] : null,
+    };
+    return withNames(findRuleConflicts(candidate, rules.map(rowToShape), { excludeId: editingId ?? undefined }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showForm, newPattern, newTagId, newAmountMin, newAmountMax, newAccountIds, rules, editingId]);
+
+  // Which saved rules overlap with another saved rule (badge in the table)
+  const conflictCountById = useMemo(() => {
+    const shapes = rules.map(rowToShape);
+    const counts = new Map<string, number>();
+    for (const r of shapes) {
+      const n = findRuleConflicts(r, shapes, { excludeId: r.id }).length;
+      if (n > 0) counts.set(r.id!, n);
+    }
+    return counts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rules]);
+
+  const visibleRules = useMemo(
+    () =>
+      rules.filter((r) =>
+        ruleMatchesSearch(search, {
+          payeePattern: r.payeePattern,
+          tagName: r.tagName,
+          accountLabels: [
+            ...(r.accountNickname ? [r.accountNickname] : []),
+            ...(r.accountIds ?? []).map((id) => accounts.find((a) => a.id === id)?.nickname ?? ""),
+          ],
+        })
+      ),
+    [rules, search, accounts]
+  );
+
   // Retroactive application state
   const [retroModal, setRetroModal] = useState<{ ruleId: string; tagName: string } | null>(null);
 
-  // Edit mode
-  const [editingId, setEditingId] = useState<string | null>(null);
 
   function resetForm() {
     setNewPattern("");
@@ -67,6 +145,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
     setNewAccountIds(new Set());
     setShowForm(false);
     setEditingId(null);
+    setApproval(null);
   }
 
   function handleStartEdit(rule: RuleRow) {
@@ -86,7 +165,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
     setError(null);
   }
 
-  function handleCreate() {
+  function handleCreate(approveConflicts = false) {
     if (!newPattern.trim()) { setError("Payee pattern is required"); return; }
     if (!newTagId) { setError("Select a tag"); return; }
     setError(null);
@@ -94,13 +173,19 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
     startTransition(async () => {
       try {
         const selectedIds = newAccountIds.size > 0 ? [...newAccountIds] : undefined;
-        const { id: ruleId } = await createTagRule({
+        const result = await createTagRule({
+          approveConflicts,
           payeePattern: newPattern.trim(),
           tagId: newTagId,
           amountMin: newAmountMin || undefined,
           amountMax: newAmountMax || undefined,
           accountIds: selectedIds,
         });
+        if (result.status === "needs_approval") {
+          setApproval({ key: formKey, conflicts: result.conflicts });
+          return;
+        }
+        const ruleId = result.id;
         // Optimistic add
         const tag = allTags.find((t) => t.id === newTagId);
         setRules((prev) => [
@@ -126,7 +211,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
     });
   }
 
-  function handleUpdate() {
+  function handleUpdate(approveConflicts = false) {
     if (!editingId) return;
     if (!newPattern.trim()) { setError("Payee pattern is required"); return; }
     if (!newTagId) { setError("Select a tag"); return; }
@@ -135,7 +220,8 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
     startTransition(async () => {
       try {
         const selectedIds = newAccountIds.size > 0 ? [...newAccountIds] : null;
-        await updateTagRule(editingId, {
+        const result = await updateTagRule(editingId, {
+          approveConflicts,
           payeePattern: newPattern.trim(),
           tagId: newTagId,
           amountMin: newAmountMin || null,
@@ -143,6 +229,10 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
           accountId: null,
           accountIds: selectedIds,
         });
+        if (result.status === "needs_approval") {
+          setApproval({ key: formKey, conflicts: result.conflicts });
+          return;
+        }
         const tag = allTags.find((t) => t.id === newTagId);
         setRules((prev) =>
           prev.map((r) =>
@@ -178,7 +268,14 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
   return (
     <>
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-3">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search rules by payee, tag, or account…"
+          aria-label="Search tag rules"
+          className="max-w-sm"
+        />
         <button
           onClick={() => showForm ? resetForm() : setShowForm(true)}
           className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground px-4 h-9 text-sm font-medium hover:bg-primary/90"
@@ -273,9 +370,21 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
               <p className="text-sm text-destructive">{error}</p>
             )}
 
+            {approval && approval.key === formKey ? (
+              <RuleConflictWarning
+                conflicts={approval.conflicts}
+                accountName={accountName}
+                busy={isPending}
+                onApprove={() => (editingId ? handleUpdate(true) : handleCreate(true))}
+                onCancel={() => setApproval(null)}
+              />
+            ) : (
+              <RuleConflictWarning conflicts={liveConflicts} accountName={accountName} />
+            )}
+
             <button
-              onClick={editingId ? handleUpdate : handleCreate}
-              disabled={isPending}
+              onClick={() => (editingId ? handleUpdate() : handleCreate())}
+              disabled={isPending || (approval !== null && approval.key === formKey)}
               className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground px-4 h-9 text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
             >
               {isPending ? "Saving…" : editingId ? "Save Changes" : "Create Rule"}
@@ -298,6 +407,13 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
               </tr>
             </thead>
             <tbody>
+              {rules.length > 0 && visibleRules.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                    No rules match &ldquo;{search}&rdquo;.
+                  </td>
+                </tr>
+              )}
               {rules.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
@@ -305,9 +421,21 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
                   </td>
                 </tr>
               )}
-              {rules.map((r) => (
+              {visibleRules.map((r) => (
                 <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3 font-mono text-xs">{r.payeePattern}</td>
+                  <td className="px-4 py-3 font-mono text-xs">
+                    {r.payeePattern}
+                    {conflictCountById.has(r.id) && (
+                      <button
+                        type="button"
+                        onClick={() => setSearch(r.payeePattern)}
+                        title="This rule overlaps with other rules — click to search for its payee"
+                        className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 font-sans text-[10px] font-medium text-amber-800 hover:bg-amber-200"
+                      >
+                        ⚠ {conflictCountById.get(r.id)} overlap
+                      </button>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <Badge variant="secondary">{r.tagName}</Badge>
                   </td>

@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { updateTransactionTags } from "@/actions/transactions";
 import { createTagRule } from "@/actions/tag-rules";
+import { RuleConflictWarning } from "@/components/tag-rules/rule-conflict-warning";
+import type { RuleConflictView } from "@/lib/tag-rule-conflicts";
 import { createTag } from "@/actions/tags";
 import { suggestPayeePattern } from "@/lib/tags";
 import { RetroactiveRuleModal } from "@/components/tag-rules/retroactive-rule-modal";
@@ -74,13 +76,14 @@ function RuleDialog({
   const [amountMax, setAmountMax] = useState(defaultAmount ?? "");
   const [useAccount, setUseAccount] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conflicts, setConflicts] = useState<RuleConflictView[]>([]);
   const [isPending, startTransition] = useTransition();
 
   const accountLabel = accountNickname
     ? `${accountNickname}${accountMask ? ` ···${accountMask}` : ""}`
     : "this account";
 
-  function handleSave() {
+  function handleSave(approveConflicts = false) {
     if (!payeePattern.trim()) {
       setError("Payee pattern is required");
       return;
@@ -88,14 +91,19 @@ function RuleDialog({
     setError(null);
     startTransition(async () => {
       try {
-        const { id: ruleId } = await createTagRule({
+        const result = await createTagRule({
+          approveConflicts,
           payeePattern: payeePattern.trim(),
           tagId: prompt.tagId,
           ...(useAmountRange && amountMin ? { amountMin } : {}),
           ...(useAmountRange && amountMax ? { amountMax } : {}),
           ...(useAccount && accountId ? { accountId } : {}),
         });
-        onCreated(ruleId, prompt.tagName);
+        if (result.status === "needs_approval") {
+          setConflicts(result.conflicts);
+          return;
+        }
+        onCreated(result.id, prompt.tagName);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to create rule");
       }
@@ -127,7 +135,7 @@ function RuleDialog({
             id="rulePayeePatternDialog"
             autoFocus
             value={payeePattern}
-            onChange={(e) => setPayeePattern(e.target.value)}
+            onChange={(e) => { setPayeePattern(e.target.value); setConflicts([]); }}
             onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
             placeholder="e.g. amazon"
             className="h-8 text-sm"
@@ -141,7 +149,7 @@ function RuleDialog({
           <input
             type="checkbox"
             checked={useAmountRange}
-            onChange={(e) => setUseAmountRange(e.target.checked)}
+            onChange={(e) => { setUseAmountRange(e.target.checked); setConflicts([]); }}
             className="h-4 w-4"
           />
           Restrict to amount range
@@ -159,7 +167,7 @@ function RuleDialog({
                 step="0.01"
                 min="0"
                 value={amountMin}
-                onChange={(e) => setAmountMin(e.target.value)}
+                onChange={(e) => { setAmountMin(e.target.value); setConflicts([]); }}
                 className="h-8 text-sm"
               />
             </div>
@@ -173,7 +181,7 @@ function RuleDialog({
                 step="0.01"
                 min="0"
                 value={amountMax}
-                onChange={(e) => setAmountMax(e.target.value)}
+                onChange={(e) => { setAmountMax(e.target.value); setConflicts([]); }}
                 className="h-8 text-sm"
               />
             </div>
@@ -185,7 +193,7 @@ function RuleDialog({
             <input
               type="checkbox"
               checked={useAccount}
-              onChange={(e) => setUseAccount(e.target.checked)}
+              onChange={(e) => { setUseAccount(e.target.checked); setConflicts([]); }}
               className="h-4 w-4"
             />
             Match {accountLabel} only
@@ -194,8 +202,15 @@ function RuleDialog({
 
         {error && <p className="text-xs text-destructive">{error}</p>}
 
+        <RuleConflictWarning
+          conflicts={conflicts}
+          busy={isPending}
+          onApprove={() => handleSave(true)}
+          onCancel={() => setConflicts([])}
+        />
+
         <div className="flex gap-2 pt-1">
-          <Button size="sm" onClick={handleSave} disabled={isPending}>
+          <Button size="sm" onClick={() => handleSave()} disabled={isPending || conflicts.length > 0}>
             {isPending ? "Saving…" : "Save rule"}
           </Button>
           <Button
