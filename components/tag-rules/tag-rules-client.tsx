@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ import { RetroactiveRuleModal } from "./retroactive-rule-modal";
 import { RuleConflictWarning } from "./rule-conflict-warning";
 import {
   findRuleConflicts,
+  introducedConflicts,
   ruleMatchesSearch,
   type RuleConflictView,
   type RuleShape,
@@ -102,7 +103,14 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
       accountId: null,
       accountIds: newAccountIds.size > 0 ? [...newAccountIds] : null,
     };
-    return withNames(findRuleConflicts(candidate, rules.map(rowToShape), { excludeId: editingId ?? undefined }));
+    const shapes = rules.map(rowToShape);
+    let found = findRuleConflicts(candidate, shapes, { excludeId: editingId ?? undefined });
+    // While editing, only flag overlaps the edit introduces (matches the server check)
+    const original = editingId ? shapes.find((s) => s.id === editingId) : undefined;
+    if (original) {
+      found = introducedConflicts(findRuleConflicts(original, shapes, { excludeId: editingId ?? undefined }), found);
+    }
+    return withNames(found);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showForm, newPattern, newTagId, newAmountMin, newAmountMax, newAccountIds, rules, editingId]);
 
@@ -137,6 +145,15 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
   const [retroModal, setRetroModal] = useState<{ ruleId: string; tagName: string } | null>(null);
 
 
+  // The form renders above a long list inside a scrollable <main> (not the window),
+  // so scroll the form itself into view when an edit starts — otherwise clicking
+  // Edit on a row far down the list appears to do nothing.
+  const formRef = useRef<HTMLDivElement>(null);
+  const [editClicks, setEditClicks] = useState(0);
+  useEffect(() => {
+    if (editClicks > 0) formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [editClicks]);
+
   function resetForm() {
     setNewPattern("");
     setNewTagId(allTags[0]?.id ?? "");
@@ -163,6 +180,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
     setNewAccountIds(new Set(ids));
     setShowForm(true);
     setError(null);
+    setEditClicks((n) => n + 1);
   }
 
   function handleCreate(approveConflicts = false) {
@@ -285,6 +303,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
       </div>
 
       {showForm && (
+        <div ref={formRef} className="scroll-mt-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{editingId ? "Edit Tag Rule" : "New Tag Rule"}</CardTitle>
@@ -391,6 +410,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
             </button>
           </CardContent>
         </Card>
+        </div>
       )}
 
       <Card>

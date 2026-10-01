@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findRuleConflicts, ruleMatchesSearch, type RuleShape } from "../tag-rule-conflicts";
+import { findRuleConflicts, introducedConflicts, ruleMatchesSearch, type RuleShape } from "../tag-rule-conflicts";
 
 function rule(overrides: Partial<RuleShape> = {}): RuleShape {
   return {
@@ -122,5 +122,31 @@ describe("ruleMatchesSearch", () => {
   });
   it("rejects non-matches", () => {
     expect(ruleMatchesSearch("target", fields)).toBe(false);
+  });
+});
+
+describe("introducedConflicts", () => {
+  const existing = [rule({ id: "twin", tagId: "tag-b" })];
+
+  it("ignores conflicts the rule already had before the edit", () => {
+    const before = findRuleConflicts(rule({ id: "r1" }), existing, { excludeId: "r1" });
+    const after = findRuleConflicts(rule({ id: "r1", amountMin: 5 }), existing, { excludeId: "r1" });
+    expect(before).toHaveLength(1);
+    expect(introducedConflicts(before, after)).toEqual([]);
+  });
+
+  it("reports a conflict the edit newly creates", () => {
+    const before = findRuleConflicts(rule({ id: "r1", payeePattern: "target" }), existing, { excludeId: "r1" });
+    const after = findRuleConflicts(rule({ id: "r1" }), existing, { excludeId: "r1" });
+    expect(before).toEqual([]);
+    expect(introducedConflicts(before, after)).toHaveLength(1);
+  });
+
+  it("reports a conflict whose kind got worse against the same rule", () => {
+    const same = [rule({ id: "twin", tagId: "tag-a", amountMin: 10 })]; // overlapping
+    const before = findRuleConflicts(rule({ id: "r1" }), same, { excludeId: "r1" });
+    const after = findRuleConflicts(rule({ id: "r1", amountMin: 10 }), same, { excludeId: "r1" }); // now duplicate
+    expect(before[0]!.kind).toBe("overlapping");
+    expect(introducedConflicts(before, after)[0]!.kind).toBe("duplicate");
   });
 });

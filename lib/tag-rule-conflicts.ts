@@ -152,6 +152,19 @@ export function findRuleConflicts(
 }
 
 /**
+ * Conflicts an edit would introduce: those in `after` that the rule did not
+ * already have before the edit. Pre-existing overlaps must not block unrelated
+ * edits (otherwise a rule that already overlaps something can never be edited
+ * without a forced approval, and fixing one of several overlaps is gated on
+ * the rest).
+ */
+export function introducedConflicts(before: RuleConflict[], after: RuleConflict[]): RuleConflict[] {
+  const key = (c: RuleConflict) => `${c.ruleId}:${c.kind}`;
+  const had = new Set(before.map(key));
+  return after.filter((c) => !had.has(key(c)));
+}
+
+/**
  * Case-insensitive, punctuation-insensitive search over rules. Matches the
  * query against the payee pattern (alnum-stripped, so "lowes" finds "lowe's"),
  * the tag name, and the account nicknames.

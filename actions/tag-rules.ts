@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { normalizePayee, normalizePattern, matchTagRule, alnum } from "@/lib/tags";
 import { autoAssignGlCodes } from "@/lib/gl-code-resolver";
-import { findRuleConflicts, type RuleConflict, type RuleConflictView, type RuleShape } from "@/lib/tag-rule-conflicts";
+import { findRuleConflicts, introducedConflicts, type RuleConflict, type RuleConflictView, type RuleShape } from "@/lib/tag-rule-conflicts";
 import { updateTransactionTags } from "@/actions/transactions";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -66,11 +66,16 @@ async function loadExistingRuleShapes(): Promise<RuleShape[]> {
  */
 export async function screenTagRule(
   candidate: RuleShape,
-  excludeId?: string
+  excludeId?: string,
+  baseline?: RuleShape
 ): Promise<RuleConflictView[]> {
   await requireAuth();
   const existing = await loadExistingRuleShapes();
-  const conflicts: RuleConflict[] = findRuleConflicts(candidate, existing, { excludeId });
+  let conflicts: RuleConflict[] = findRuleConflicts(candidate, existing, { excludeId });
+  // When editing, only conflicts the edit introduces count — see introducedConflicts().
+  if (baseline) {
+    conflicts = introducedConflicts(findRuleConflicts(baseline, existing, { excludeId }), conflicts);
+  }
   if (conflicts.length === 0) return [];
   const tags = await db.tag.findMany({
     where: { id: { in: [...new Set(conflicts.map((c) => c.tagId))] } },
@@ -167,6 +172,14 @@ export async function updateTagRule(
     // Screen the rule as it will look after the patch, not just the patch.
     const current = await db.tagRule.findUnique({ where: { id } });
     if (!current) throw new Error("Rule not found");
+    const baseline: RuleShape = {
+      payeePattern: current.payeePattern,
+      tagId: current.tagId,
+      amountMin: current.amountMin?.toNumber() ?? null,
+      amountMax: current.amountMax?.toNumber() ?? null,
+      accountId: current.accountId,
+      accountIds: current.accountIds ? (JSON.parse(current.accountIds) as string[]) : null,
+    };
     const merged: RuleShape = {
       payeePattern:
         data.payeePattern != null ? normalizePattern(data.payeePattern) : current.payeePattern,
@@ -187,7 +200,7 @@ export async function updateTagRule(
           ? (JSON.parse(current.accountIds) as string[])
           : null,
     };
-    const conflicts = await screenTagRule(merged, id);
+    const conflicts = await screenTagRule(merged, id, baseline);
     if (conflicts.length > 0) return { status: "needs_approval", conflicts };
   }
 
