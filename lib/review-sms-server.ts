@@ -11,8 +11,8 @@
 import { db } from "@/lib/db";
 import {
   GENERIC_SEND_ERROR,
-  getAssigneeSmsAddress,
   getSmsSender,
+  resolveDeliveryAddress,
   resolveAppBaseUrl,
   sendReviewSms,
   type SmsResult,
@@ -40,12 +40,15 @@ export async function sendBatchText(
     const [batch, count] = await Promise.all([
       db.reviewBatch.findUnique({
         where: { id: batchId },
-        select: { createdBy: { select: { name: true } } },
+        select: {
+          createdBy: { select: { name: true } },
+          assignee: { select: { email: true } },
+        },
       }),
       db.transactionAssignment.count({ where: { batchId, status: "pending" } }),
     ]);
     result = await sendReviewSms({
-      address: getAssigneeSmsAddress(),
+      address: resolveDeliveryAddress(batch?.assignee.email),
       baseUrl: resolveAppBaseUrl(),
       token,
       kind,

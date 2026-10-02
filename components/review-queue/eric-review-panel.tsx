@@ -9,7 +9,7 @@ import type { BatchStatusRow } from "@/lib/review-queue-server";
 // assignee (which texts her the link), see the status of recent batches
 // including text / reminder failures, Resend the text, or copy a fresh magic
 // link to share by hand. The raw token is shown once; only its hash is stored,
-// so "Get link" and "Resend text" each mint a new one.
+// so "Get link" and "Resend message" each mint a new one.
 
 interface Props {
   assigneeName: string;
@@ -84,30 +84,30 @@ function TextStatus({ batch, who }: { batch: BatchStatusRow; who: string }) {
     <div className="mt-1 space-y-0.5 text-xs">
       {batch.smsStatus === "failed" ? (
         <p role="alert" className="font-medium text-destructive">
-          Text failed: {batch.smsError ?? "unknown error"}. Use Resend text, or Get link and send it to {who}{" "}
+          Message failed: {batch.smsError ?? "unknown error"}. Use Resend message, or Get link and send it to {who}{" "}
           yourself.
         </p>
       ) : batch.smsStatus === "sent" ? (
         <p className="text-amber-700 dark:text-amber-400">
-          Text sent to the carrier gateway{batch.smsSentAt ? ` ${formatDateTime(batch.smsSentAt)}` : ""} -
-          carriers don&apos;t confirm delivery.
+          Message sent{batch.smsSentAt ? ` ${formatDateTime(batch.smsSentAt)}` : ""} - delivery isn&apos;t
+          confirmed. If {who} doesn&apos;t get it, use Get link.
         </p>
       ) : (
-        <p className="text-muted-foreground">No text was sent for this batch.</p>
+        <p className="text-muted-foreground">No message was sent for this batch.</p>
       )}
       {batch.reminderStatus === "sent" && (
         <p className="text-muted-foreground">
-          Reminder text sent{batch.reminderSentAt ? ` ${formatDateTime(batch.reminderSentAt)}` : ""}.
+          Reminder sent{batch.reminderSentAt ? ` ${formatDateTime(batch.reminderSentAt)}` : ""}.
         </p>
       )}
       {batch.reminderStatus === "failed" && (
         <p role="alert" className="font-medium text-destructive">
-          Reminder text failed: {batch.reminderError ?? "unknown error"}. It won&apos;t be retried
+          Reminder failed: {batch.reminderError ?? "unknown error"}. It won&apos;t be retried
           automatically.
         </p>
       )}
       {batch.reminderStatus === "sending" && (
-        <p className="text-muted-foreground">Reminder text in progress (or interrupted - Resend text if needed).</p>
+        <p className="text-muted-foreground">Reminder in progress (or interrupted - Resend message if needed).</p>
       )}
     </div>
   );
@@ -128,7 +128,7 @@ export function EricReviewPanel({ assigneeName, draftCount, batches }: Props) {
     if (draftCount === 0) return;
     const ok = window.confirm(
       `Submit ${draftCount} transaction${draftCount === 1 ? "" : "s"} to ${who}? ` +
-        `She'll be texted a link to tag them.`
+        `She'll be sent a link to tag them.`
     );
     if (!ok) return;
     setError(null);
@@ -144,7 +144,7 @@ export function EricReviewPanel({ assigneeName, draftCount, batches }: Props) {
         ? `Added ${res.itemCount} to ${who}'s open list.`
         : `Submitted ${res.itemCount}.`;
       if (res.text.sent) {
-        setNotice(`${what} Text sent to ${who}.`);
+        setNotice(`${what} Sent to ${who}.`);
         return;
       }
       // The submit stands; only the text failed. Give Eric the link to share by hand.
@@ -152,7 +152,7 @@ export function EricReviewPanel({ assigneeName, draftCount, batches }: Props) {
         forKey: "draft",
         url: `${window.location.origin}${res.path}`,
         expiresAt: res.expiresAt,
-        note: `${what} The text to ${who} failed (${res.text.error}). Send her this link yourself, or use Resend text:`,
+        note: `${what} The message to ${who} failed (${res.text.error}). Send her this link yourself, or use Resend message:`,
       });
     });
   }
@@ -168,14 +168,14 @@ export function EricReviewPanel({ assigneeName, draftCount, batches }: Props) {
         return;
       }
       if (res.text.sent) {
-        setNotice(`Text sent to ${who} with a new link.`);
+        setNotice(`Sent to ${who} with a new link.`);
         return;
       }
       setShown({
         forKey: batchId,
         url: `${window.location.origin}${res.path}`,
         expiresAt: res.expiresAt,
-        note: `The text failed again (${res.text.error}). Send her this link yourself:`,
+        note: `The message failed again (${res.text.error}). Send her this link yourself:`,
       });
     });
   }
@@ -262,7 +262,7 @@ export function EricReviewPanel({ assigneeName, draftCount, batches }: Props) {
                         disabled={isResending || isMinting}
                         className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
                       >
-                        {isResending ? "Sending…" : "Resend text"}
+                        {isResending ? "Sending…" : "Resend message"}
                       </button>
                       <button
                         type="button"

@@ -7,6 +7,9 @@ import {
   SMS_SUBJECT,
   buildReviewSmsBody,
   createEmailGatewaySmsSender,
+  createEmailLinkSender,
+  getDeliveryChannel,
+  resolveDeliveryAddress,
   getAssigneeSmsAddress,
   resolveAppBaseUrl,
   sanitizeSmsError,
@@ -213,5 +216,56 @@ describe("buildReviewSmsBody with a realistic production host", () => {
       expect(body.length).toBeLessThanOrEqual(SMS_BODY_MAX);
     }
     expect(buildReviewSmsBody({ kind: "reminder", url, senderName: "Eric" })).toMatch(/^Reminder: Eric has/);
+  });
+});
+
+describe("email delivery (default channel)", () => {
+  it("defaults to email; REVIEW_DELIVERY=sms selects the carrier gateway", () => {
+    expect(getDeliveryChannel({})).toBe("email");
+    expect(getDeliveryChannel({ REVIEW_DELIVERY: "" })).toBe("email");
+    expect(getDeliveryChannel({ REVIEW_DELIVERY: "banana" })).toBe("email");
+    expect(getDeliveryChannel({ REVIEW_DELIVERY: " SMS " })).toBe("sms");
+  });
+
+  it("email channel delivers to the assignee's account email, ignoring the gateway env", () => {
+    const env = { EVA_SMS_GATEWAY_ADDRESS: ADDRESS };
+    expect(resolveDeliveryAddress("eva@example.test", env)).toBe("eva@example.test");
+    expect(resolveDeliveryAddress("  eva@example.test ", env)).toBe("eva@example.test");
+    expect(resolveDeliveryAddress(null, env)).toBeNull();
+    expect(resolveDeliveryAddress("", env)).toBeNull();
+    expect(resolveDeliveryAddress("not-an-email", env)).toBeNull();
+    expect(resolveDeliveryAddress("a@b.test, c@d.test", env)).toBeNull();
+  });
+
+  it("sms channel uses EVA_SMS_GATEWAY_ADDRESS and ignores the account email", () => {
+    const env = { REVIEW_DELIVERY: "sms", EVA_SMS_GATEWAY_ADDRESS: ADDRESS };
+    expect(resolveDeliveryAddress("eva@example.test", env)).toBe(ADDRESS);
+    expect(resolveDeliveryAddress("eva@example.test", { REVIEW_DELIVERY: "sms" })).toBeNull();
+  });
+
+  it("createEmailLinkSender sends plain text with the given subject and sanitizes failures", async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const ok = await createEmailLinkSender(send).send("eva@example.test", "hello " + URL_, { subject: "Subj" });
+    expect(ok).toEqual({ ok: true });
+    expect(send).toHaveBeenCalledWith({ to: "eva@example.test", subject: "Subj", text: "hello " + URL_ });
+
+    await createEmailLinkSender(send).send("eva@example.test", "x");
+    expect(send).toHaveBeenLastCalledWith({ to: "eva@example.test", subject: "Transactions to tag", text: "x" });
+
+    const failing = vi.fn().mockRejectedValue(new Error(`bad ${URL_} to eva@example.test`));
+    const res = await createEmailLinkSender(failing).send("eva@example.test", "x");
+    expect(res.ok).toBe(false);
+    const error = res.ok ? "" : res.error;
+    expect(error).not.toContain("eva@example.test");
+    expect(error).not.toContain(TOKEN);
+  });
+
+  it("sendReviewSms passes a subject by kind", async () => {
+    const send = vi.fn().mockResolvedValue({ ok: true });
+    const sender: SmsSender = { send };
+    await sendReviewSms({ address: "eva@example.test", baseUrl: BASE, token: TOKEN, kind: "initial", sender });
+    await sendReviewSms({ address: "eva@example.test", baseUrl: BASE, token: TOKEN, kind: "reminder", sender });
+    expect(send.mock.calls[0]![2]).toEqual({ subject: "Transactions to tag" });
+    expect(send.mock.calls[1]![2]).toEqual({ subject: "Reminder: transactions to tag" });
   });
 });

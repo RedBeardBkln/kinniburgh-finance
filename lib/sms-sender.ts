@@ -12,9 +12,16 @@
 export type SmsResult = { ok: true } | { ok: false; error: string };
 
 export interface SmsSender {
-  /** Never throws for provider errors; returns a sanitized error string instead. */
-  send(to: string, body: string): Promise<SmsResult>;
+  /**
+   * Never throws for provider errors; returns a sanitized error string instead.
+   * `opts.subject` is used by email delivery; the SMS gateway keeps its own tiny
+   * subject (carriers prepend it to the text).
+   */
+  send(to: string, body: string, opts?: { subject?: string }): Promise<SmsResult>;
 }
+
+/** How a review link reaches the assignee. Email is the default. */
+export type ReviewDeliveryChannel = "email" | "sms";
 
 export type ReviewSmsKind = "initial" | "reminder" | "resend";
 
@@ -24,7 +31,7 @@ export const SMS_SUBJECT = "Review";
 export const SMS_BODY_MAX = 140;
 
 export const SMS_NOT_CONFIGURED_ERROR =
-  "SMS gateway address is not configured (set EVA_SMS_GATEWAY_ADDRESS).";
+  "No delivery address is available for the assignee (no email on their account, or EVA_SMS_GATEWAY_ADDRESS is unset while REVIEW_DELIVERY=sms).";
 export const BASE_URL_NOT_CONFIGURED_ERROR =
   "The app's public URL is not configured (NEXTAUTH_URL), so no link could be built.";
 export const GENERIC_SEND_ERROR = "The text could not be sent.";
@@ -43,6 +50,28 @@ export function getAssigneeSmsAddress(env: Env = process.env): string | null {
   const raw = env.EVA_SMS_GATEWAY_ADDRESS?.trim();
   if (!raw || !EMAIL_SHAPE.test(raw)) return null;
   return raw;
+}
+
+/**
+ * Delivery channel. Email is the default (carrier email-to-SMS gateways drop
+ * messages containing links); set REVIEW_DELIVERY=sms to use the gateway.
+ */
+export function getDeliveryChannel(env: Env = process.env): ReviewDeliveryChannel {
+  return env.REVIEW_DELIVERY?.trim().toLowerCase() === "sms" ? "sms" : "email";
+}
+
+/**
+ * Where the link is delivered: the assignee's account email (email channel), or
+ * the configured gateway address (sms channel). null -> a recorded, visible
+ * failed send. Never hardcoded or logged.
+ */
+export function resolveDeliveryAddress(
+  assigneeEmail: string | null | undefined,
+  env: Env = process.env
+): string | null {
+  if (getDeliveryChannel(env) === "sms") return getAssigneeSmsAddress(env);
+  const email = assigneeEmail?.trim();
+  return email && EMAIL_SHAPE.test(email) ? email : null;
 }
 
 /**
@@ -142,9 +171,23 @@ export function createEmailGatewaySmsSender(send: SendEmailFn = defaultSendEmail
   };
 }
 
-/** The sender in use. Swap this one function to move to Twilio. */
-export function getSmsSender(): SmsSender {
-  return createEmailGatewaySmsSender();
+/** Plain-text email to the assignee (Gmail et al. auto-link the URL). */
+export function createEmailLinkSender(send: SendEmailFn = defaultSendEmail): SmsSender {
+  return {
+    async send(to, body, opts) {
+      try {
+        await send({ to, subject: opts?.subject ?? "Transactions to tag", text: body });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: sanitizeSmsError(err) };
+      }
+    },
+  };
+}
+
+/** The sender in use. Swap this one function to change how links are delivered. */
+export function getSmsSender(env: Env = process.env): SmsSender {
+  return getDeliveryChannel(env) === "sms" ? createEmailGatewaySmsSender() : createEmailLinkSender();
 }
 
 /**
@@ -172,7 +215,8 @@ export async function sendReviewSms(input: {
     senderName: input.senderName,
   });
   try {
-    return await input.sender.send(input.address, body);
+    const subject = input.kind === "reminder" ? "Reminder: transactions to tag" : "Transactions to tag";
+    return await input.sender.send(input.address, body, { subject });
   } catch {
     return { ok: false, error: GENERIC_SEND_ERROR };
   }

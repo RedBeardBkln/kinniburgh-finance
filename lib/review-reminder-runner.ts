@@ -19,8 +19,8 @@ import { REMINDER_DELAY_MS, isReminderDue, isWithinSendWindow } from "@/lib/revi
 import { loadQueueItems, mintReminderToken } from "@/lib/review-queue-server";
 import {
   GENERIC_SEND_ERROR,
-  getAssigneeSmsAddress,
   getSmsSender,
+  resolveDeliveryAddress,
   resolveAppBaseUrl,
   sendReviewSms,
   type SmsSender,
@@ -73,6 +73,7 @@ export async function runReviewReminders(
       reminderStatus: true,
       expiresAt: true,
       createdBy: { select: { name: true } },
+      assignee: { select: { email: true } },
     },
   });
   summary.considered = candidates.length;
@@ -112,7 +113,7 @@ export async function runReviewReminders(
     try {
       const { token } = await mintReminderToken(batch.id, batch.expiresAt);
       const result = await sendReviewSms({
-        address: getAssigneeSmsAddress(),
+        address: resolveDeliveryAddress(batch.assignee.email),
         baseUrl: resolveAppBaseUrl(),
         token,
         kind: "reminder",

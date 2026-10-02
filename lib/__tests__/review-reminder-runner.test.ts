@@ -20,7 +20,7 @@ import type { SmsSender } from "@/lib/sms-sender";
 const HOUR = 60 * 60 * 1000;
 const NOW = new Date("2026-07-15T15:00:00Z"); // 11:00 EDT, inside the window
 const TOKEN = "T".repeat(43);
-const ADDRESS = "5551234567@txt.example-carrier.test";
+const ADDRESS = "eva@example.test"; // the assignee's account email (default email delivery)
 
 function candidate(id: string, over: Record<string, unknown> = {}) {
   return {
@@ -32,6 +32,7 @@ function candidate(id: string, over: Record<string, unknown> = {}) {
     reminderStatus: null,
     expiresAt: new Date(NOW.getTime() + 5 * 24 * HOUR),
     createdBy: { name: "Eric" },
+    assignee: { email: ADDRESS },
     ...over,
   };
 }
@@ -41,7 +42,6 @@ let sender: SmsSender;
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.stubEnv("EVA_SMS_GATEWAY_ADDRESS", ADDRESS);
   vi.stubEnv("NEXTAUTH_URL", "https://finance.example.test");
   vi.stubEnv("NODE_ENV", "production");
   send = vi.fn<SmsSender["send"]>().mockResolvedValue({ ok: true });
@@ -160,15 +160,14 @@ describe("runReviewReminders", () => {
     });
   });
 
-  it("an unset gateway address is a recorded failure (not a throw) and nothing is sent", async () => {
-    vi.stubEnv("EVA_SMS_GATEWAY_ADDRESS", "");
-    mockDb.reviewBatch.findMany.mockResolvedValue([candidate("b1")]);
+  it("an assignee with no email is a recorded failure (not a throw) and nothing is sent", async () => {
+    mockDb.reviewBatch.findMany.mockResolvedValue([candidate("b1", { assignee: { email: "" } })]);
     const res = await runReviewReminders(NOW, sender);
     expect(res).toMatchObject({ failed: 1 });
     expect(send).not.toHaveBeenCalled();
     expect(mockDb.reviewBatch.update.mock.calls[0]![0].data).toMatchObject({
       reminderStatus: "failed",
-      reminderError: expect.stringContaining("not configured"),
+      reminderError: expect.stringContaining("No delivery address"),
     });
   });
 
