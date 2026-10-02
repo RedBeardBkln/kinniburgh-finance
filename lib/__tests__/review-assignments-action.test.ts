@@ -9,8 +9,10 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 const mockDb = vi.hoisted(() => {
   const tx = {
+    $executeRaw: vi.fn(),
     reviewBatch: { findFirst: vi.fn(), create: vi.fn() },
-    transactionAssignment: { upsert: vi.fn() },
+    // findMany is the in-lock "already assigned" check (Phase 2: moved inside the transaction).
+    transactionAssignment: { upsert: vi.fn(), findMany: vi.fn() },
   };
   return {
     entity: { findMany: vi.fn() },
@@ -68,7 +70,8 @@ beforeEach(() => {
     { id: ERIC, name: "Eric" },
     { id: EVA, name: "Eva-Laura Ramirez-Wisiackas" },
   ]);
-  mockDb.transactionAssignment.findMany.mockResolvedValue([]);
+  mockDb._tx.$executeRaw.mockResolvedValue(1);
+  mockDb._tx.transactionAssignment.findMany.mockResolvedValue([]);
   mockDb._tx.reviewBatch.findFirst.mockResolvedValue(null);
   mockDb._tx.reviewBatch.create.mockResolvedValue({ id: "batch-1" });
   mockDb._tx.transactionAssignment.upsert.mockResolvedValue({});
@@ -115,7 +118,7 @@ describe("assignTransactions server-side eligibility", () => {
       row(T3, { pending: true }),
       row(T4),
     ]);
-    mockDb.transactionAssignment.findMany.mockResolvedValue([{ transactionId: T4 }]);
+    mockDb._tx.transactionAssignment.findMany.mockResolvedValue([{ transactionId: T4 }]);
     const res = await assignTransactions([T1, T2, T3, T4, T5]);
     if (!res.ok) throw new Error("unexpected");
     expect(res.assigned).toEqual([T1]);
@@ -136,10 +139,50 @@ describe("assignTransactions server-side eligibility", () => {
     mockDb.transaction.findMany.mockResolvedValue([row(T1)]);
     await assignTransactions([T1]);
     expect(mockDb.transaction.findMany.mock.calls[0]![0].where).toMatchObject({ archivedAt: null });
-    expect(mockDb.transactionAssignment.findMany.mock.calls[0]![0].where).toMatchObject({
+    expect(mockDb._tx.transactionAssignment.findMany.mock.calls[0]![0].where).toMatchObject({
       status: "pending",
       batch: { status: { in: ["draft", "submitted"] } },
     });
+  });
+
+  it("takes the (creator, assignee) advisory lock BEFORE the in-transaction already-assigned check and any write", async () => {
+    mockDb.transaction.findMany.mockResolvedValue([row(T1)]);
+    const order: string[] = [];
+    mockDb._tx.$executeRaw.mockImplementation(async () => {
+      order.push("lock");
+      return 1;
+    });
+    mockDb._tx.transactionAssignment.findMany.mockImplementation(async () => {
+      order.push("active-check");
+      return [];
+    });
+    mockDb._tx.reviewBatch.findFirst.mockImplementation(async () => {
+      order.push("find-draft");
+      return null;
+    });
+    mockDb._tx.transactionAssignment.upsert.mockImplementation(async () => {
+      order.push("upsert");
+      return {};
+    });
+    await assignTransactions([T1]);
+    expect(order).toEqual(["lock", "active-check", "find-draft", "upsert"]);
+    // The lock key is derived from the (creator, assignee) pair.
+    const [strings, key] = mockDb._tx.$executeRaw.mock.calls[0]!;
+    expect((strings as readonly string[]).join("?")).toContain("pg_advisory_xact_lock");
+    expect(key).toBe(`review-assign:${ERIC}:${EVA}`);
+  });
+
+  it("when every candidate is already assigned (found in-lock) it creates no draft batch and reports already_assigned", async () => {
+    mockDb.transaction.findMany.mockResolvedValue([row(T1)]);
+    mockDb._tx.transactionAssignment.findMany.mockResolvedValue([{ transactionId: T1 }]);
+    const res = await assignTransactions([T1]);
+    if (!res.ok) throw new Error("unexpected");
+    expect(res.assigned).toEqual([]);
+    expect(res.rejected).toEqual([
+      expect.objectContaining({ transactionId: T1, reason: "already_assigned" }),
+    ]);
+    expect(mockDb._tx.reviewBatch.create).not.toHaveBeenCalled();
+    expect(mockDb._tx.transactionAssignment.upsert).not.toHaveBeenCalled();
   });
 
   it("fails closed when no assignable entities resolve", async () => {

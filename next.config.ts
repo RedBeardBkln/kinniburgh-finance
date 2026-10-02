@@ -19,6 +19,14 @@ const nextConfig: NextConfig = {
         { key: "X-XSS-Protection", value: "1; mode=block" },
       ],
     },
+    {
+      // The magic-link page carries its token in the URL path: never leak it
+      // through the Referer header. Listed AFTER the catch-all above so this
+      // value overrides that one for /queue/* (Next applies matching header
+      // rules in order, last wins per key).
+      source: "/queue/:path*",
+      headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+    },
   ],
 };
 

@@ -13,7 +13,8 @@ import { TransactionsFilterBar } from "@/components/transactions/transactions-fi
 import { SyncNowButton } from "@/components/transactions/sync-now-button";
 import { TransactionsTable, type AssignConfig } from "@/components/transactions/transactions-table";
 import { getDraftBatchSummary } from "@/actions/review-assignments";
-import { loadAssignmentStates, type RowAssignmentState } from "@/lib/review-queue-server";
+import { loadAssignmentStates, loadBatchStatuses, type RowAssignmentState } from "@/lib/review-queue-server";
+import { EricReviewPanel } from "@/components/review-queue/eric-review-panel";
 import { checkAssignable, isAssignableEntitySlug, notAssignableMessage } from "@/lib/review-queue";
 import type { Route } from "next";
 
@@ -140,11 +141,13 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   const allowedEntityIds = new Set<string>(canAssign && entity ? [entity.id] : []);
   const assignConfig: AssignConfig | null =
     canAssign && draftSummary
-      ? {
-          assigneeName: draftSummary.assignee?.name ?? "assignee",
-          draftCount: draftSummary.draftCount,
-        }
+      ? { assigneeName: draftSummary.assignee?.name ?? "assignee" }
       : null;
+  const sessionUserId = session.user.id;
+  const batchStatuses =
+    canAssign && draftSummary?.assignee && sessionUserId
+      ? await loadBatchStatuses(sessionUserId)
+      : [];
 
   function assignDisabledReason(tx: (typeof transactions)[number]): string | null {
     if (!draftSummary?.assignee) {
@@ -266,6 +269,14 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
           <p className="text-xs text-muted-foreground">
             Assigning transactions is unavailable: {draftSummary.assigneeProblem}
           </p>
+        )}
+
+        {draftSummary?.assignee && (
+          <EricReviewPanel
+            assigneeName={draftSummary.assignee.name}
+            draftCount={draftSummary.draftCount}
+            batches={batchStatuses}
+          />
         )}
 
         <TransactionsTable

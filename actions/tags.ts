@@ -2,6 +2,7 @@
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { createTagCore, createTagInputSchema } from "@/lib/transaction-tagging";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -41,35 +42,16 @@ export async function listTagsWithCounts(): Promise<TagWithCounts[]> {
   }));
 }
 
-const createSchema = z.object({
-  shortName: z.string().min(1).max(100).trim(),
-  parentId: z.string().uuid().optional(),
-});
-
 export async function createTag(
-  input: z.input<typeof createSchema>
+  input: z.input<typeof createTagInputSchema>
 ): Promise<{ id: string }> {
   await requireAuth();
-  const { shortName, parentId } = createSchema.parse(input);
-
-  let name = shortName;
-  if (parentId) {
-    const parent = await db.tag.findUnique({ where: { id: parentId } });
-    if (!parent) throw new Error("Parent tag not found");
-    name = `${parent.name} / ${shortName}`;
-  }
-
-  const existing = await db.tag.findUnique({ where: { name } });
-  if (existing) {
-    throw new Error(`A tag named "${name}" already exists.`);
-  }
-
-  const tag = await db.tag.create({
-    data: { name, shortName, parentId: parentId ?? null },
-  });
+  // Validation + creation live in the shared core (lib/transaction-tagging.ts),
+  // also used by the token-gated review queue.
+  const { id } = await createTagCore(input);
   revalidatePath("/tags");
   revalidatePath("/tag-rules");
-  return { id: tag.id };
+  return { id };
 }
 
 const updateSchema = z.object({

@@ -1,7 +1,7 @@
 "use server";
 
-// Eric-side "Assign to Eva" actions (Phase 1: draft assignment only; no
-// sending, no token minting, no Eva-facing surface yet).
+// Eric-side "Assign to Eva" actions: draft assignment, Submit (mints the magic
+// link), and Get link. No SMS sending yet (Phase 3).
 //
 // Every export starts with requireAuth(). Eligibility is enforced HERE, not in
 // the UI: only Personal and Sudden Valley transactions can be assigned, even
@@ -17,7 +17,14 @@ import {
   notAssignableMessage,
   type NotAssignableReason,
 } from "@/lib/review-queue";
-import { getAssignableEntityIds, resolveAssigneeFor } from "@/lib/review-queue-server";
+import {
+  TX_OPTIONS,
+  getAssignableEntityIds,
+  lockAssignPair,
+  mintShareToken,
+  resolveAssigneeFor,
+  submitDraftBatch,
+} from "@/lib/review-queue-server";
 
 function requireAuth(): Promise<{ id: string }> {
   return auth().then((session) => {
@@ -85,22 +92,13 @@ export async function assignTransactions(
   });
   const txById = new Map(txs.map((t) => [t.id, t]));
 
-  const activeAssignments = await db.transactionAssignment.findMany({
-    where: {
-      transactionId: { in: ids },
-      status: "pending",
-      batch: { status: { in: [...ACTIVE_BATCH_STATUSES] } },
-    },
-    select: { transactionId: true },
-  });
-  const activeIds = new Set(activeAssignments.map((a) => a.transactionId));
-
-  const eligible: string[] = [];
-  const rejected: AssignRejection[] = [];
+  // Pass 1 (outside the lock): everything except "already assigned".
+  const rejectedById = new Map<string, AssignRejection>();
+  const candidates: string[] = [];
   for (const id of ids) {
     const tx = txById.get(id);
     if (!tx) {
-      rejected.push({ transactionId: id, reason: "not_found", message: "Transaction not found" });
+      rejectedById.set(id, { transactionId: id, reason: "not_found", message: "Transaction not found" });
       continue;
     }
     const verdict = checkAssignable(
@@ -109,14 +107,14 @@ export async function assignTransactions(
         archivedAt: tx.archivedAt,
         transferPairId: tx.transferPairId,
         pending: tx.pending,
-        hasActiveAssignment: activeIds.has(id),
+        hasActiveAssignment: false,
       },
       allowedEntityIds
     );
     if (verdict.ok) {
-      eligible.push(id);
+      candidates.push(id);
     } else {
-      rejected.push({
+      rejectedById.set(id, {
         transactionId: id,
         reason: verdict.reason,
         message: notAssignableMessage(verdict.reason),
@@ -124,11 +122,41 @@ export async function assignTransactions(
     }
   }
 
-  if (eligible.length === 0) {
-    return { ok: true, assigned: [], rejected };
+  const orderedRejections = (): AssignRejection[] =>
+    ids.filter((id) => rejectedById.has(id)).map((id) => rejectedById.get(id)!);
+
+  if (candidates.length === 0) {
+    return { ok: true, assigned: [], rejected: orderedRejections() };
   }
 
-  await db.$transaction(async (tx) => {
+  // Pass 2 (inside the pair lock): the "already assigned" check and the writes
+  // happen under pg_advisory_xact_lock for (creator, assignee), so two
+  // concurrent calls can neither create two drafts nor put one transaction
+  // into two pending assignments.
+  const assigned = await db.$transaction(async (tx) => {
+    await lockAssignPair(tx, user.id, assignee.id);
+
+    const activeAssignments = await tx.transactionAssignment.findMany({
+      where: {
+        transactionId: { in: candidates },
+        status: "pending",
+        batch: { status: { in: [...ACTIVE_BATCH_STATUSES] } },
+      },
+      select: { transactionId: true },
+    });
+    const activeIds = new Set(activeAssignments.map((a) => a.transactionId));
+
+    const eligible: string[] = [];
+    for (const id of candidates) {
+      if (activeIds.has(id)) {
+        const reason: NotAssignableReason = "already_assigned";
+        rejectedById.set(id, { transactionId: id, reason, message: notAssignableMessage(reason) });
+      } else {
+        eligible.push(id);
+      }
+    }
+    if (eligible.length === 0) return eligible;
+
     // One open draft per (creator, assignee); create it on first assignment.
     const existingDraft = await tx.reviewBatch.findFirst({
       where: { createdByUserId: user.id, assigneeUserId: assignee.id, status: "draft" },
@@ -152,10 +180,11 @@ export async function assignTransactions(
         update: { status: "pending", resolvedAt: null },
       });
     }
-  });
+    return eligible;
+  }, TX_OPTIONS);
 
   revalidatePath("/transactions");
-  return { ok: true, assigned: eligible, rejected };
+  return { ok: true, assigned, rejected: orderedRejections() };
 }
 
 // ── Unassign (remove from the caller's draft) ─────────────────────────────────
@@ -188,6 +217,71 @@ export async function unassignTransaction(transactionId: string): Promise<Unassi
 
   revalidatePath("/transactions");
   return { ok: true };
+}
+
+// ── Submit (hand the draft to the assignee) ───────────────────────────────────
+//
+// Phase 2: no SMS yet. Submit mints a magic-link token and returns its path to
+// Eric ONCE so he can copy/share it manually. Only a SHA-256 hash is stored, so
+// the raw token cannot be shown again; "Get link" mints a fresh one.
+
+export type ShareLinkResult =
+  | { ok: true; path: string; expiresAt: string }
+  | { ok: false; error: string };
+
+export type SubmitToAssigneeResult =
+  | {
+      ok: true;
+      batchId: string;
+      /** App-relative path containing the raw token; the client prefixes its own origin. */
+      path: string;
+      /** True when the items were appended to an already-open batch. */
+      appended: boolean;
+      itemCount: number;
+      expiresAt: string;
+    }
+  | { ok: false; error: string };
+
+export async function submitToEva(): Promise<SubmitToAssigneeResult> {
+  const user = await requireAuth();
+
+  const assigneeResult = await resolveAssigneeFor(user.id);
+  if (!assigneeResult.ok) {
+    return {
+      ok: false,
+      error:
+        assigneeResult.reason === "none"
+          ? "No other household user found to assign to."
+          : "More than one other household user found; can't determine who to assign to.",
+    };
+  }
+
+  const result = await submitDraftBatch(user.id, assigneeResult.assignee.id);
+  if (!result.ok) return result;
+
+  revalidatePath("/transactions");
+  return {
+    ok: true,
+    batchId: result.batchId,
+    path: `/queue/${result.token}`,
+    appended: result.appended,
+    itemCount: result.itemCount,
+    expiresAt: result.expiresAt.toISOString(),
+  };
+}
+
+/** Mints a fresh link for an open (submitted) batch. The raw token is returned once and never stored. */
+export async function getShareLink(batchId: string): Promise<ShareLinkResult> {
+  await requireAuth();
+
+  const parsed = z.string().uuid().safeParse(batchId);
+  if (!parsed.success) return { ok: false, error: "Invalid batch." };
+
+  const minted = await mintShareToken(parsed.data);
+  if (!minted) return { ok: false, error: "This batch is no longer open." };
+
+  revalidatePath("/transactions");
+  return { ok: true, path: `/queue/${minted.token}`, expiresAt: minted.expiresAt.toISOString() };
 }
 
 // ── Draft summary (for the Eric-side UI) ──────────────────────────────────────

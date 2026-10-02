@@ -35,7 +35,6 @@ export interface TxRow {
 /** Present only on buckets where assignment is allowed (Personal, Sudden Valley). */
 export interface AssignConfig {
   assigneeName: string;
-  draftCount: number;
 }
 
 export interface TagOption {
@@ -62,10 +61,10 @@ interface Props {
 const COLS = [
   { key: "date",    label: "Date",    defaultWidth: 100, alignRight: false },
   { key: "payee",   label: "Payee",   defaultWidth: 280, alignRight: false },
+  { key: "amount",  label: "Amount",  defaultWidth: 96,  alignRight: true  },
   { key: "account", label: "Account", defaultWidth: 130, alignRight: false },
   { key: "tags",    label: "Tags",    defaultWidth: 110, alignRight: false },
   { key: "project", label: "Project", defaultWidth: 110, alignRight: false },
-  { key: "amount",  label: "Amount",  defaultWidth: 96,  alignRight: true  },
 ] as const;
 
 type ColKey = typeof COLS[number]["key"];
@@ -229,12 +228,6 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
   return (
     <Card>
       <CardContent className="p-0">
-        {canAssign && assign.draftCount > 0 && (
-          <div className="border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            {assign.draftCount} transaction{assign.draftCount === 1 ? "" : "s"} in draft for{" "}
-            {assigneeFirstName(assign.assigneeName)} (not sent yet)
-          </div>
-        )}
         <table ref={tableRef} className="w-full text-sm table-fixed">
           <colgroup>
             {canAssign && <col style={{ width: `${CHECK_WIDTH}px` }} />}
@@ -344,6 +337,14 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                       </span>
                     )}
                   </td>
+                  <td
+                    className={`px-2 py-2 text-right font-mono font-medium whitespace-nowrap text-xs ${
+                      isOutflow ? "text-destructive" : "text-green-600"
+                    }`}
+                  >
+                    {isOutflow ? "-" : "+"}
+                    {display}
+                  </td>
                   <td className="px-2 py-2 text-muted-foreground text-xs min-w-0">
                     <span className="block truncate">{tx.accountNickname}</span>
                     <span className="text-muted-foreground/70">···{tx.accountMask}</span>
@@ -369,14 +370,6 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                       />
                     </td>
                   )}
-                  <td
-                    className={`px-2 py-2 text-right font-mono font-medium whitespace-nowrap text-xs ${
-                      isOutflow ? "text-destructive" : "text-green-600"
-                    }`}
-                  >
-                    {isOutflow ? "-" : "+"}
-                    {display}
-                  </td>
                   <td className="px-2 py-2">
                     <form action={async () => { await deleteTransaction(tx.id); }}>
                       <button

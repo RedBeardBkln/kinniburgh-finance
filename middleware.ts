@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/privacy", "/offline", "/api/logo", "/api/favicon", "/api/cron"];
+// "/queue" is the Assign-to-Eva magic-link page (/queue/[token]). It is NOT
+// session-gated here: the middleware only checks cookie presence anyway, and the
+// real gate is per-request token validation in app/queue/[token]/page.tsx and in
+// every export of actions/review-queue.ts. Keep this entry exactly "/queue" -
+// the prefix match below then covers only /queue and /queue/... and nothing else.
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/privacy", "/offline", "/queue", "/api/logo", "/api/favicon", "/api/cron"];
 
 export function middleware(req: NextRequest) {
   const session =

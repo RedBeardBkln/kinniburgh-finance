@@ -5,6 +5,8 @@
 // Eligibility is enforced SERVER-SIDE in actions/review-assignments.ts via
 // checkAssignable(); the UI uses the same function only to disable controls.
 
+import { alnum, matchTagRule, normalizePayee, type TagRuleCandidate } from "@/lib/tags";
+
 /** Entity slugs whose transactions may be assigned for review. EK Consulting and Mezzo are intentionally excluded. */
 export const ASSIGNABLE_ENTITY_SLUGS = ["personal", "sudden-valley"] as const;
 
@@ -146,6 +148,146 @@ export function assignmentChipLabel(kind: AssignmentChipKind, assigneeName: stri
     case "returned":
       return `Returned by ${who}`;
   }
+}
+
+// ── Queue item classification (Eva's page) ─────────────────────────────────────
+
+export type QueueItemClass =
+  | "show"
+  | "not_pending"
+  | "archived"
+  | "transfer_leg"
+  | "already_tagged"
+  | "wrong_entity";
+
+export interface QueueItemCandidate {
+  assignmentStatus: string;
+  archivedAt: Date | null;
+  transferPairId: string | null;
+  /** Number of tags currently on the transaction. */
+  tagCount: number;
+  entityId: string | null | undefined;
+}
+
+/**
+ * Whether an assignment still belongs on Eva's list. A pending assignment drops
+ * off silently if the transaction has since been tagged (by Eric, the auto-tag
+ * cron, or a newly saved rule), archived, turned out to be a transfer leg, or is
+ * (somehow) outside the assignable entities. Anything but "show" counts as
+ * resolved for batch-completion purposes. Same entity allow-list as eligibility
+ * (defense in depth: a hand-inserted assignment for another entity is never
+ * visible or writable through a token).
+ */
+export function classifyQueueItem(
+  item: QueueItemCandidate,
+  allowedEntityIds: ReadonlySet<string>
+): QueueItemClass {
+  if (item.assignmentStatus !== "pending") return "not_pending";
+  if (!item.entityId || !allowedEntityIds.has(item.entityId)) return "wrong_entity";
+  if (item.archivedAt !== null) return "archived";
+  if (item.transferPairId !== null) return "transfer_leg";
+  if (item.tagCount > 0) return "already_tagged";
+  return "show";
+}
+
+/** A batch is complete when no item is still "show" (empty counts as complete). */
+export function isBatchComplete(classes: readonly QueueItemClass[]): boolean {
+  return classes.every((c) => c !== "show");
+}
+
+export function batchProgress(statuses: readonly string[]): {
+  total: number;
+  resolved: number;
+  returned: number;
+  pending: number;
+} {
+  let resolved = 0;
+  let returned = 0;
+  let pending = 0;
+  for (const s of statuses) {
+    if (s === "resolved") resolved++;
+    else if (s === "returned") returned++;
+    else if (s === "pending") pending++;
+  }
+  return { total: resolved + returned + pending, resolved, returned, pending };
+}
+
+// ── "Always tag this payee" similar-item matching (in-queue only) ──────────────
+
+export interface SimilarityItem {
+  id: string;
+  /** payeeRaw ?? payeeNormalized, un-normalized. */
+  payee: string;
+  /** Absolute amount. */
+  amount: number;
+  accountId: string;
+}
+
+/**
+ * Ids of OTHER items a payee-only rule with `pattern` would match, using the
+ * exact semantics of matchTagRule (alnum-stripped contains-matching, so case and
+ * punctuation don't matter). An empty/blank pattern matches nothing here: the
+ * queue never saves a rule with no payee pattern.
+ */
+export function findSimilarItems(
+  pattern: string,
+  items: readonly SimilarityItem[],
+  excludeId: string
+): string[] {
+  if (!isUsableRulePattern(pattern)) return [];
+  const rule: TagRuleCandidate = {
+    tagId: "candidate",
+    payeePattern: pattern,
+    amountMin: null,
+    amountMax: null,
+    accountId: null,
+  };
+  return items
+    .filter((i) => i.id !== excludeId)
+    .filter(
+      (i) =>
+        matchTagRule([rule], {
+          normalizedPayee: normalizePayee(i.payee),
+          amount: i.amount,
+          accountId: i.accountId,
+        }) !== null
+    )
+    .map((i) => i.id);
+}
+
+// ── Eva-side save contract ──────────────────────────────────────────────────────
+
+export const MAX_QUEUE_SAVE_ITEMS = 200;
+
+export type QueueItemSaveStatus = "saved" | "already_tagged" | "not_in_queue" | "failed";
+export type QueueRuleStatus = "none" | "saved" | "skipped_conflict" | "failed";
+
+export interface QueueItemSaveResult {
+  transactionId: string;
+  status: QueueItemSaveStatus;
+  rule: QueueRuleStatus;
+  /** Plain-language note shown when the rule was not saved. */
+  ruleNote?: string;
+}
+
+/**
+ * Minimum alphanumeric characters in an "always tag this payee" pattern. matchTagRule
+ * uses alnum-stripped contains-matching, so an empty/punctuation-only pattern would
+ * match EVERY payee and a 1-2 character one nearly so; such a rule is never saved
+ * from the queue (enforced server-side, mirrored in the UI).
+ */
+export const MIN_RULE_PATTERN_ALNUM = 3;
+
+export function isUsableRulePattern(pattern: string): boolean {
+  return alnum(pattern).length >= MIN_RULE_PATTERN_ALNUM;
+}
+
+/** Plain-language explanation of why a requested rule was not saved. */
+export function ruleSkippedNote(kinds: readonly string[]): string {
+  if (kinds.length > 0 && kinds.every((k) => k === "duplicate")) {
+    return "A rule like this already exists, so none was added.";
+  }
+  return "Rule not saved: it overlaps an existing rule. Eric can add it later.";
 }
 
 /** True when this assignment blocks the transaction from being assigned again. */

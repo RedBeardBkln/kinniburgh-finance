@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { normalizePayee, matchTagRule } from "@/lib/tags";
 import { autoAssignGlCodes } from "@/lib/gl-code-resolver";
+import { setTransactionTags } from "@/lib/transaction-tagging";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -181,39 +182,9 @@ export async function updateTransactionTags(
 ) {
   const user = await requireAuth();
 
-  const tx = await db.transaction.findUnique({
-    where: { id: transactionId, archivedAt: null },
-    include: { tags: true },
-  });
-  if (!tx) throw new Error("Transaction not found");
-
-  // Audit log
-  const before = tx.tags.map((t) => t.tagId);
-  await db.auditLog.create({
-    data: {
-      transactionId,
-      changedBy: user.id!,
-      changeType: "tag_change",
-      before: { tagIds: before },
-      after: { tagIds },
-    },
-  });
-
-  await db.$transaction([
-    db.transactionTag.deleteMany({ where: { transactionId } }),
-    ...(tagIds.length > 0
-      ? [
-          db.transactionTag.createMany({
-            data: tagIds.map((tagId) => ({ transactionId, tagId })),
-          }),
-        ]
-      : []),
-  ]);
-
-  await autoAssignGlCodes(
-    [{ transactionId, entityId: tx.entityId, tagIds }],
-    user.id!
-  );
+  // Audit row + delete/recreate tags + GL auto-assign live in the shared core
+  // (lib/transaction-tagging.ts), also used by the token-gated review queue.
+  await setTransactionTags(transactionId, tagIds, { userId: user.id! });
 
   revalidatePath("/transactions");
   return { success: true };

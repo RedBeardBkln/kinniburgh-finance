@@ -36,7 +36,7 @@ export function InlineProjectCell({ transactionId, projects, initialProjectId }:
       value={projectId}
       onChange={handleChange}
       disabled={isPending}
-      className={`rounded border border-input bg-background px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring ${isPending ? "opacity-50" : ""}`}
+      className={`w-full min-w-0 max-w-full truncate rounded border border-input bg-background px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring ${isPending ? "opacity-50" : ""}`}
       title="Assign to project"
     >
       <option value="">No project</option>

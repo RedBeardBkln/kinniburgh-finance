@@ -5,7 +5,14 @@ import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { normalizePayee, normalizePattern, matchTagRule, alnum } from "@/lib/tags";
 import { autoAssignGlCodes } from "@/lib/gl-code-resolver";
-import { findRuleConflicts, introducedConflicts, type RuleConflict, type RuleConflictView, type RuleShape } from "@/lib/tag-rule-conflicts";
+import type { RuleConflictView, RuleShape } from "@/lib/tag-rule-conflicts";
+import {
+  AMOUNT_REGEX,
+  createTagRuleSchema,
+  createTagRuleWithScreening,
+  screenTagRuleCore,
+  type SaveRuleResult as CoreSaveRuleResult,
+} from "@/lib/transaction-tagging";
 import { updateTransactionTags } from "@/actions/transactions";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -33,36 +40,13 @@ export async function listTagRules(): Promise<TagRuleWithTag[]> {
 
 // ── Conflict screening ────────────────────────────────────────────────────────
 
-export type SaveRuleResult =
-  | { status: "saved"; id: string }
-  | { status: "needs_approval"; conflicts: RuleConflictView[] };
-
-async function loadExistingRuleShapes(): Promise<RuleShape[]> {
-  const rules = await db.tagRule.findMany({
-    select: {
-      id: true,
-      payeePattern: true,
-      tagId: true,
-      amountMin: true,
-      amountMax: true,
-      accountId: true,
-      accountIds: true,
-    },
-  });
-  return rules.map((r) => ({
-    id: r.id,
-    payeePattern: r.payeePattern,
-    tagId: r.tagId,
-    amountMin: r.amountMin ? r.amountMin.toNumber() : null,
-    amountMax: r.amountMax ? r.amountMax.toNumber() : null,
-    accountId: r.accountId,
-    accountIds: r.accountIds ? (JSON.parse(r.accountIds) as string[]) : null,
-  }));
-}
+export type SaveRuleResult = CoreSaveRuleResult;
 
 /**
  * Screen a candidate rule against all saved rules. Used by every save path
  * (new-rule form, transaction dialogs, edit) and by receipt-generated rules.
+ * The screening itself lives in lib/transaction-tagging.ts (shared with the
+ * token-gated review queue).
  */
 export async function screenTagRule(
   candidate: RuleShape,
@@ -70,77 +54,18 @@ export async function screenTagRule(
   baseline?: RuleShape
 ): Promise<RuleConflictView[]> {
   await requireAuth();
-  const existing = await loadExistingRuleShapes();
-  let conflicts: RuleConflict[] = findRuleConflicts(candidate, existing, { excludeId });
-  // When editing, only conflicts the edit introduces count — see introducedConflicts().
-  if (baseline) {
-    conflicts = introducedConflicts(findRuleConflicts(baseline, existing, { excludeId }), conflicts);
-  }
-  if (conflicts.length === 0) return [];
-  const tags = await db.tag.findMany({
-    where: { id: { in: [...new Set(conflicts.map((c) => c.tagId))] } },
-    select: { id: true, name: true },
-  });
-  const nameById = new Map(tags.map((t) => [t.id, t.name]));
-  return conflicts.map((c) => ({ ...c, tagName: nameById.get(c.tagId) ?? "(unknown tag)" }));
+  return screenTagRuleCore(candidate, excludeId, baseline);
 }
 
 // ── Create ────────────────────────────────────────────────────────────────────
 
-// Accepts values like "1", "40.00", ".01", "0.01"
-const amountRegex = /^(\d+\.?\d{0,2}|\.\d{1,2})$/;
-
-const createSchema = z.object({
-  payeePattern: z.string().min(1).max(255),
-  tagId: z.string().uuid(),
-  amountMin: z.string().regex(amountRegex).optional(),
-  amountMax: z.string().regex(amountRegex).optional(),
-  accountId: z.string().uuid().optional(),
-  accountIds: z.array(z.string().uuid()).optional(),
-  /** Set true once the user has explicitly approved saving despite conflicts. */
-  approveConflicts: z.boolean().optional(),
-});
-
 export async function createTagRule(
-  input: z.input<typeof createSchema>
+  input: z.input<typeof createTagRuleSchema>
 ): Promise<SaveRuleResult> {
   await requireAuth();
-  let data: z.infer<typeof createSchema>;
-  try {
-    data = createSchema.parse(input);
-  } catch (e) {
-    if (e instanceof z.ZodError) throw new Error(e.errors[0]?.message ?? "Invalid input");
-    throw e;
-  }
-  const payeePattern = normalizePattern(data.payeePattern);
-
-  if (!data.approveConflicts) {
-    const conflicts = await screenTagRule({
-      payeePattern,
-      tagId: data.tagId,
-      amountMin: data.amountMin != null ? Number(data.amountMin) : null,
-      amountMax: data.amountMax != null ? Number(data.amountMax) : null,
-      accountId: data.accountId ?? null,
-      accountIds: data.accountIds ?? null,
-    });
-    if (conflicts.length > 0) return { status: "needs_approval", conflicts };
-  }
-
-  const rule = await db.tagRule.create({
-    data: {
-      payeePattern,
-      tagId: data.tagId,
-      amountMin: data.amountMin != null ? new Prisma.Decimal(data.amountMin) : null,
-      amountMax: data.amountMax != null ? new Prisma.Decimal(data.amountMax) : null,
-      accountId: data.accountId ?? null,
-      accountIds:
-        data.accountIds && data.accountIds.length > 0
-          ? JSON.stringify(data.accountIds)
-          : null,
-    },
-  });
-  revalidatePath("/tag-rules");
-  return { status: "saved", id: rule.id };
+  const result = await createTagRuleWithScreening(input);
+  if (result.status === "saved") revalidatePath("/tag-rules");
+  return result;
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
@@ -148,8 +73,8 @@ export async function createTagRule(
 const updateSchema = z.object({
   payeePattern: z.string().min(1).max(255).optional(),
   tagId: z.string().uuid().optional(),
-  amountMin: z.string().regex(amountRegex).nullable().optional(),
-  amountMax: z.string().regex(amountRegex).nullable().optional(),
+  amountMin: z.string().regex(AMOUNT_REGEX).nullable().optional(),
+  amountMax: z.string().regex(AMOUNT_REGEX).nullable().optional(),
   accountId: z.string().uuid().nullable().optional(),
   accountIds: z.array(z.string().uuid()).nullable().optional(),
   confidence: z.number().min(0).max(1).optional(),
