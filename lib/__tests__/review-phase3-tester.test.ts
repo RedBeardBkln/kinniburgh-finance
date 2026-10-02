@@ -89,13 +89,13 @@ describe("GET /api/cron/review-reminders auth", () => {
     spy.mockRestore();
   });
 
-  // Documents a PRE-EXISTING property shared by all four older cron routes (same
-  // string compare): with CRON_SECRET unset, "Bearer undefined" authorizes.
-  it("[pre-existing, shared with other crons] unset CRON_SECRET => 'Bearer undefined' passes", async () => {
+  // Fixed: all cron routes share lib/cron-auth, which fails closed when
+  // CRON_SECRET is unset (previously "Bearer undefined" authorized).
+  it("unset CRON_SECRET => 'Bearer undefined' is rejected", async () => {
     vi.unstubAllEnvs();
     delete process.env.CRON_SECRET;
     const res = await GET(req({ authorization: "Bearer undefined" }));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
   });
 });
 

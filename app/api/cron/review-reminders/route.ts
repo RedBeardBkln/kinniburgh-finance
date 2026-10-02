@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runReviewReminders } from "@/lib/review-reminder-runner";
+import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 
 // Once-daily on Vercel Hobby (see vercel.json). The reminder for a batch fires on
 // the first daily run that is >= 24h after its text, so 24-48h after it.
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isAuthorizedCronRequest(request.headers.get("Authorization"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

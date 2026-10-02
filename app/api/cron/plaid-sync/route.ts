@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { syncPlaidTransactions, autoTagUncategorizedTransactions } from "@/lib/plaid-sync";
 import { runDuplicateDetectionEngine } from "@/lib/dedupe-runner";
 import { runTransferMatchingEngine, type TransferMatchSummary } from "@/lib/transfer-match-runner";
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isAuthorizedCronRequest(request.headers.get("Authorization"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
