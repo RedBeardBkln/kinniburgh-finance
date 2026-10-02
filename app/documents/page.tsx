@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { DocumentUploadForm } from "@/components/documents/document-upload-form";
 import { listDocuments, getDocumentSignedUrl, archiveDocument } from "@/actions/documents";
 import { DocumentAttributionCells } from "@/components/documents/document-attribution-editor";
+import { ResizableTable, type ResizableColumn } from "@/components/documents/resizable-table";
 import { isTaxDocType, suggestIssuerFromExtraction } from "@/lib/document-attribution";
 import Link from "next/link";
 import type { Route } from "next";
@@ -22,6 +23,20 @@ interface PageProps {
     bucket?: string;
   }>;
 }
+
+// Starting widths (px) for the drag-to-resize table; the last column (row
+// actions) has no width of its own and fills whatever space is left.
+const DOCUMENT_TABLE_COLUMNS: ResizableColumn[] = [
+  { key: "type", label: "Document Type", defaultWidth: 125 },
+  { key: "name", label: "Document Name", defaultWidth: 210 },
+  { key: "bucket", label: "Bucket", defaultWidth: 95 },
+  { key: "pertains", label: "Pertains to", defaultWidth: 120 },
+  { key: "issuer", label: "Issuer / payer", defaultWidth: 190 },
+  { key: "year", label: "Year", defaultWidth: 60 },
+  { key: "extraction", label: "Extraction", defaultWidth: 90 },
+  { key: "uploaded", label: "Uploaded", defaultWidth: 105 },
+  { key: "actions", label: "", defaultWidth: 0 },
+];
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   bank_statement: "Bank Statement",
@@ -157,20 +172,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
         {/* Document table */}
         <Card>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Document Type</th>
-                  <th className="px-4 py-3 font-medium">Document Name</th>
-                  <th className="px-4 py-3 font-medium">Bucket</th>
-                  <th className="px-4 py-3 font-medium">Pertains to</th>
-                  <th className="px-4 py-3 font-medium">Issuer / payer</th>
-                  <th className="px-4 py-3 font-medium">Year</th>
-                  <th className="px-4 py-3 font-medium">Extraction</th>
-                  <th className="px-4 py-3 font-medium">Uploaded</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
+            <ResizableTable columns={DOCUMENT_TABLE_COLUMNS} storageKey="documents-table-column-widths-v1">
               <tbody>
                 {docs.length === 0 && (
                   <tr>
@@ -192,7 +194,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                       {/* Falls back to the legacy upload note for documents that
                           have no generated name, so nothing previously visible is lost. */}
                       <td
-                        className="px-4 py-2 text-xs max-w-sm truncate"
+                        className="px-4 py-2 text-xs truncate"
                         title={doc.documentName ?? doc.notes ?? undefined}
                       >
                         {doc.documentName ?? doc.notes ?? <span className="text-muted-foreground">—</span>}
@@ -250,7 +252,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                   );
                 })}
               </tbody>
-            </table>
+            </ResizableTable>
           </CardContent>
         </Card>
       </div>

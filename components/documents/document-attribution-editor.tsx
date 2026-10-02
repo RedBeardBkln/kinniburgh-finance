@@ -102,7 +102,7 @@ export function DocumentAttributionCells({
             onChange={(e) => setSubjectValue(e.target.value)}
             disabled={isPending}
             aria-label="Pertains to"
-            className="rounded border bg-background px-2 py-1 text-xs"
+            className="max-w-full rounded border bg-background px-2 py-1 text-xs"
           >
             <option value="">Unassigned</option>
             {needsUnknownPersonOption(subjectValue, people) && (
@@ -124,7 +124,10 @@ export function DocumentAttributionCells({
             disabled={isPending}
             aria-label="Issuer / payer"
             placeholder="e.g. Alpine Bio"
-            className="w-full min-w-[160px] rounded border bg-background px-2 py-1 text-xs"
+            // The min width keeps the input usable in auto-layout tables; inside a
+            // user-resizable (fixed-layout) table the input must instead shrink
+            // to its column so editing never pushes the table wider.
+            className="w-full min-w-[160px] [.resizable-table_&]:min-w-0 rounded border bg-background px-2 py-1 text-xs"
           />
           {!issuer.trim() && suggestedIssuer && (
             <button
