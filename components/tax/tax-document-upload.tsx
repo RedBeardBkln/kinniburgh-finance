@@ -12,7 +12,9 @@ import {
   updateTaxDocument,
   getTaxDocumentSignedUrl,
 } from "@/actions/tax-planning";
-import { archiveDocument, triggerExtraction } from "@/actions/documents";
+import { archiveDocument, runDocumentExtraction, triggerExtraction } from "@/actions/documents";
+import { isExtractableDocType, type ExtractionDisplay } from "@/lib/document-extraction-state";
+import { EXTRACTION_TONE_CLASS } from "@/components/documents/extraction-cell";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import { DocumentAttributionCells } from "@/components/documents/document-attribution-editor";
 import {
@@ -30,6 +32,8 @@ export interface DocumentRow {
   documentName: string | null;
   notes: string | null;
   extractionStatus: string | null;
+  /** Honest extraction state (lib/document-extraction-state), shared with /documents. */
+  extraction: ExtractionDisplay;
   createdAt: string;
   /** Attribution (who it pertains to + issuer). Null = Unassigned / not set. */
   subjectType: string | null;
@@ -311,7 +315,7 @@ export function TaxDocumentUpload({ entityId, taxYear, documents, people = [], f
                   <th className="py-2 px-3 font-medium">Type</th>
                   <th className="py-2 px-3 font-medium">Pertains to</th>
                   <th className="py-2 px-3 font-medium">Issuer / payer</th>
-                  <th className="py-2 px-3 font-medium">Parsed</th>
+                  <th className="py-2 px-3 font-medium">Extraction</th>
                   <th className="py-2 px-3 font-medium">Uploaded</th>
                   <th className="py-2 px-3 font-medium text-right">Edit</th>
                 </tr>
@@ -395,12 +399,17 @@ function DocumentRowEditable({
     // Auto re-extract only when the docType actually changed — the old
     // extraction is only provably wrong in that case. A pure rename (same
     // docType) would just re-run the same prompt against unchanged data.
-    if (docType !== originalDocType) {
+    if (docType !== originalDocType && isExtractableDocType(docType)) {
       setExtracting(true);
       setExtractError(null);
       setStatusMsg("DocType changed — re-extracting…");
       try {
-        await triggerExtraction(doc.id);
+        // force: the old extraction is the wrong shape by definition, so the
+        // "already have usable data" shortcut must not apply.
+        const res = await runDocumentExtraction(doc.id, { force: true });
+        if (!res.ok) {
+          setExtractError(`Retyped, but re-extraction failed: ${res.error}`);
+        }
       } catch {
         setExtractError("Retyped, but re-extraction failed — try the Re-extract button.");
       } finally {
@@ -428,11 +437,27 @@ function DocumentRowEditable({
     }
   }
 
+  // Forced: without `force`, runExtraction returns the existing data
+  // immediately for any document that already has usable data, so this button
+  // used to be a silent no-op for every good document.
   async function handleReExtract() {
+    const hasData = doc.extraction.kind !== "not_extracted" && doc.extraction.kind !== "failed" && doc.extraction.kind !== "skipped";
+    if (hasData) {
+      const verified = doc.extraction.kind === "verified";
+      const ok = confirm(
+        "Re-extract replaces the AI-read values with a fresh AI read (one API call). Your corrections are kept and still override it." +
+          (verified ? " This document is verified - re-extracting marks it unverified until you confirm it again." : "")
+      );
+      if (!ok) return;
+    }
     setExtractError(null);
     setExtracting(true);
     try {
-      await triggerExtraction(doc.id);
+      const res = await runDocumentExtraction(doc.id, {
+        force: true,
+        discardVerification: doc.extraction.kind === "verified",
+      });
+      if (!res.ok) setExtractError(res.error);
       router.refresh();
     } catch {
       setExtractError("Re-extraction failed — try again.");
@@ -502,6 +527,18 @@ function DocumentRowEditable({
   }
 
   const typeLabel = documentTypeLabel(docType);
+  // Only offer a run when the type is extractable (extension / other are not).
+  const reextractLabel = !isExtractableDocType(doc.docType)
+    ? null
+    : doc.extraction.kind === "not_extracted"
+      ? "Extract"
+      : doc.extraction.kind === "failed"
+        ? "Retry"
+        : doc.extraction.kind === "skipped"
+          ? "Extract anyway"
+          : doc.extraction.kind === "processing"
+            ? null
+            : "Re-extract";
   const displayName = doc.documentName ?? documentTypeLabel(doc.docType);
 
   return (
@@ -557,14 +594,14 @@ function DocumentRowEditable({
         people={people}
       />
       <td className="py-2 px-3 text-xs">
-        {doc.extractionStatus === "complete" ? (
-          <span className="text-green-600">✓ Parsed</span>
-        ) : doc.extractionStatus === "failed" ? (
-          <span className="text-destructive">Failed</span>
-        ) : doc.extractionStatus ? (
-          <span className="text-amber-600">{doc.extractionStatus}</span>
-        ) : (
-          <span className="text-muted-foreground">—</span>
+        <span
+          title={doc.extraction.hint}
+          className={`inline-block rounded border px-1.5 py-0.5 text-xs font-medium ${EXTRACTION_TONE_CLASS[doc.extraction.tone]}`}
+        >
+          {doc.extraction.label}
+        </span>
+        {doc.extraction.reason && (
+          <span className="mt-0.5 block text-xs text-muted-foreground">{doc.extraction.reason}</span>
         )}
       </td>
       <td className="py-2 px-3 text-xs text-muted-foreground whitespace-nowrap">
@@ -608,13 +645,15 @@ function DocumentRowEditable({
             >
               Rename / retype
             </button>
-            <button
-              onClick={handleReExtract}
-              disabled={extracting}
-              className="text-xs text-primary hover:underline disabled:opacity-60"
-            >
-              {extracting ? "Re-extracting…" : "Re-extract"}
-            </button>
+            {reextractLabel && (
+              <button
+                onClick={handleReExtract}
+                disabled={extracting}
+                className="text-xs text-primary hover:underline disabled:opacity-60"
+              >
+                {extracting ? "Extracting…" : reextractLabel}
+              </button>
+            )}
             <input
               ref={swapInputRef}
               type="file"

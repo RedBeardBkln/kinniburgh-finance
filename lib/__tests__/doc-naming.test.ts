@@ -77,6 +77,23 @@ describe("generateDocumentName", () => {
   });
 });
 
+describe("generateDocumentName - consolidated 1099", () => {
+  it("names a consolidated 1099 without a bogus variant suffix", () => {
+    const name = generateDocumentName("1099", 2025, {
+      docType: "1099",
+      data: { payerName: "Robinhood", formVariant: "consolidated", taxYear: 2025 },
+    });
+    expect(name).toBe("1099 consolidated — Robinhood (2025)");
+  });
+  it("still names single-form 1099s by variant", () => {
+    const name = generateDocumentName("1099", 2025, {
+      docType: "1099",
+      data: { payerName: "Fiverr", formVariant: "1099-NEC", taxYear: 2025 },
+    });
+    expect(name).toBe("1099-NEC — Fiverr (2025)");
+  });
+});
+
 describe("documentTypeLabel", () => {
   it("maps known types", () => {
     expect(documentTypeLabel("w2")).toBe("W-2");

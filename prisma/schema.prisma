@@ -36,6 +36,7 @@ model User {
   reviewBatchesAssigned ReviewBatch[]         @relation("ReviewBatchAssignee")
   reviewBatchesCreated  ReviewBatch[]         @relation("ReviewBatchCreator")
   documentsAsSubject    Document[]            @relation("DocumentSubject")
+  documentsConfirmed    Document[]            @relation("DocumentExtractionConfirmer")
 }
 
 model PasswordResetToken {
@@ -544,11 +545,18 @@ model Document {
   subjectType       String?   // person | joint; NULL = Unassigned (document-attribution)
   subjectUserId     String?   // the person (User) when subjectType = person
   issuerName        String?   // free-text issuer/payer (e.g. employer on a W-2); NULL = not set
+  // Owner verification of the extracted values (document-extraction-status-and-review).
+  // extractionStatus keeps meaning "the AI run finished"; "verified" is this separate fact.
+  extractionConfirmedAt   DateTime? // NULL = not verified by the owner
+  extractionConfirmedById String?   // who verified it
+  extractionCorrections   Json?     // owner corrections overlay; never overwrites extractionData
+  extractionError         String?   // short sanitized reason for the last failed run
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
   entity          Entity           @relation(fields: [entityId], references: [id])
   subjectUser     User?            @relation("DocumentSubject", fields: [subjectUserId], references: [id], onDelete: SetNull)
+  extractionConfirmedBy User?      @relation("DocumentExtractionConfirmer", fields: [extractionConfirmedById], references: [id], onDelete: SetNull)
   insurancePolicy InsurancePolicy?
   solarEntries    SolarEntry[]
   bankStatement   BankStatement?

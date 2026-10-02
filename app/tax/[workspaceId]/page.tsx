@@ -6,6 +6,8 @@ import { listDocuments } from "@/actions/documents";
 import { TaxWorkspaceClient } from "@/components/tax/tax-workspace-client";
 import { db } from "@/lib/db";
 import { suggestIssuerFromExtraction } from "@/lib/document-attribution";
+import { describeDocumentRow } from "@/lib/document-extraction-state";
+import { resolveTaxDocForCompute } from "@/lib/tax-extraction-policy";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -81,7 +83,8 @@ export default async function TaxWorkspacePage({ params }: PageProps) {
             subjectType: d.subjectType,
             subjectUserId: d.subjectUserId,
             issuerName: d.issuerName,
-            suggestedIssuer: suggestIssuerFromExtraction(d.docType, d.extractionData),
+            suggestedIssuer: suggestIssuerFromExtraction(d.docType, resolveTaxDocForCompute(d).extractionData),
+            extraction: describeDocumentRow(d),
           }))}
           otherYearDocs={otherYearDocs.map((d) => ({
             id: d.id,

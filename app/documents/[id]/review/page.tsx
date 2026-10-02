@@ -1,8 +1,9 @@
 import { auth } from "@/lib/auth";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/app-shell";
 import {
+  getDocumentSignedUrl,
   getDocumentWithExtraction,
   getLedgerPresenceByAccount,
   skipExtraction,
@@ -10,15 +11,20 @@ import {
 import { listEntityAccounts, listBankStatements } from "@/actions/bank-statements";
 import { getEntityBySlug } from "@/lib/entity";
 import { DocumentReviewClient } from "@/components/documents/document-review-client";
+import { TaxReviewClient } from "@/components/documents/tax-review-client";
 import { ExtractionRunner } from "@/components/documents/extraction-runner";
 import Link from "next/link";
 import type { Route } from "next";
 import type { ExtractedDocument } from "@/lib/doc-extract";
+import { isTaxDocType } from "@/lib/document-attribution";
+import { describeDocumentRow, isExtractableDocType, isUsableExtraction } from "@/lib/document-extraction-state";
+import { documentTypeLabel } from "@/lib/doc-naming";
+import { readCorrectionEntries } from "@/lib/extraction-effective";
+import { schemaTypeForDocType } from "@/lib/tax-extraction-schema";
 import { needsCreditCardReclassification } from "@/lib/statement-review";
 import {
   deriveStatementStage,
   effectiveDocumentStatus,
-  hasUsableExtraction,
   importableRowIndices,
   stageNeedsAttention,
 } from "@/lib/statement-import";
@@ -40,13 +46,20 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
   const { id } = await params;
   const { bucket } = await searchParams;
   const doc = await getDocumentWithExtraction(id);
+  // Archived documents are not reviewable (archive only hides; nothing is deleted).
+  if (doc.archivedAt) notFound();
+  const isTaxDoc = isTaxDocType(doc.docType);
 
   const extraction = doc.extractionData as ExtractedDocument | null;
   const rows = extraction?.transactionRows ?? [];
   // Real, reviewable data — judged by the data itself, never the status label,
   // because the two can disagree (a "failed" label can sit on a complete
   // extraction, and a "complete" label on an unparseable stub).
-  const usable = hasUsableExtraction(extraction);
+  // For tax forms "usable" also needs at least one non-null money box, so an
+  // all-null reading offers a retry instead of an empty review form.
+  const usable = isUsableExtraction(doc.docType, extraction);
+  // Tax documents (not "extension") get the side-by-side review & verify screen.
+  const taxSchemaType = isTaxDoc && doc.docType !== "extension" ? schemaTypeForDocType(doc.docType) : null;
   // A "processing" lock older than a few minutes is a dead extraction.
   const docStatus = effectiveDocumentStatus(doc.extractionStatus, doc.updatedAt);
   // Extracted before the account was known to be a credit card (no row carries
@@ -118,9 +131,28 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
   let runner: ReactNode = null;
   if (staleCreditCard) {
     runner = <ExtractionRunner key={runnerKey} documentId={id} mode="auto" force />;
+  } else if (!usable && !isExtractableDocType(doc.docType)) {
+    // No extraction schema for this type (extension / other): say so instead of
+    // offering a run that the server would reject.
+    runner = (
+      <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        This document type is not extracted, so there is nothing to review.
+      </div>
+    );
   } else if (!usable) {
     if (docStatus === null || docStatus === "pending") {
-      runner = <ExtractionRunner key={runnerKey} documentId={id} mode="auto" />;
+      // Tax documents never start an AI call on page open: the owner clicks.
+      runner = isTaxDoc ? (
+        <ExtractionRunner
+          key={runnerKey}
+          documentId={id}
+          mode="manual"
+          message="This document has not been extracted yet. Extracting makes one AI call."
+          buttonLabel="Extract now"
+        />
+      ) : (
+        <ExtractionRunner key={runnerKey} documentId={id} mode="auto" />
+      );
     } else if (docStatus === "processing") {
       runner = <ExtractionRunner key={runnerKey} documentId={id} mode="wait" />;
     } else if (docStatus === "failed") {
@@ -163,7 +195,7 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
   // "Extracted" alone is not the same as "imported", and a green check next to
   // "not yet confirmed" read as done when nothing had been imported.
   let banner: { tone: "green" | "amber" | "red" | "muted"; text: string } | null = null;
-  if (showReview) {
+  if (showReview && !taxSchemaType) {
     if (!isBankStatement) {
       banner = { tone: "green", text: `✓ Extracted${confirmed ? " and confirmed" : ""}.` };
     } else if (stage === "imported") {
@@ -191,6 +223,48 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
     red: "border-red-300 bg-red-50 text-red-900",
     muted: "border-border bg-muted/30 text-muted-foreground",
   } as const;
+
+  // Tax review data (pure reads; nothing here writes or starts an extraction).
+  let taxReview: {
+    key: string;
+    display: ReturnType<typeof describeDocumentRow>;
+    corrections: ReturnType<typeof readCorrectionEntries>;
+    verifiedBy: string | null;
+    fileUrl: string | null;
+    isImage: boolean;
+  } | null = null;
+  if (showReview && taxSchemaType) {
+    let fileUrl: string | null = null;
+    try {
+      fileUrl = await getDocumentSignedUrl(id);
+    } catch {
+      fileUrl = null; // the page still works; the owner can open the file from the list
+    }
+    const corrections = readCorrectionEntries(doc.docType, doc.extractionCorrections);
+    const events = (doc.extractionCorrections as { events?: unknown[] } | null)?.events;
+    taxReview = {
+      // Remounts the form (fresh drafts) whenever the stored reading, verification or corrections change.
+      key: [
+        id,
+        doc.extractedAt?.getTime() ?? 0,
+        doc.extractionConfirmedAt?.getTime() ?? 0,
+        Array.isArray(events) ? events.length : 0,
+        Object.keys(corrections).join(","),
+      ].join("-"),
+      display: describeDocumentRow(doc),
+      corrections,
+      verifiedBy: doc.extractionConfirmedAt
+        ? `${doc.extractionConfirmedBy?.name ?? "the owner"} on ${doc.extractionConfirmedAt.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+            timeZone: "America/New_York",
+          })}`
+        : null,
+      fileUrl,
+      isImage: !doc.fileKey.toLowerCase().endsWith(".pdf"),
+    };
+  }
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
@@ -258,7 +332,28 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
 
         {runner}
 
-        {showReview && extraction && (
+        {showReview && extraction && taxSchemaType && taxReview && (
+          <TaxReviewClient
+            key={taxReview.key}
+            documentId={id}
+            docTypeLabel={documentTypeLabel(doc.docType)}
+            schemaType={taxSchemaType}
+            documentTaxYear={doc.taxYear}
+            extractedAtIso={doc.extractedAt ? doc.extractedAt.toISOString() : null}
+            summary={extraction.summary ?? ""}
+            warnings={extraction.warnings ?? []}
+            aiData={(extraction.data ?? {}) as Record<string, unknown>}
+            corrections={taxReview.corrections}
+            display={taxReview.display}
+            verifiedBy={taxReview.verifiedBy}
+            fileUrl={taxReview.fileUrl}
+            isImage={taxReview.isImage}
+            backHref={backHref}
+            backLabel={backLabel}
+          />
+        )}
+
+        {showReview && extraction && !taxSchemaType && (
           <DocumentReviewClient
             documentId={id}
             extraction={extraction}

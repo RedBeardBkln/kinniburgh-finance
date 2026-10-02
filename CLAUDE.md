@@ -88,6 +88,8 @@ pnpm db:seed      # seed from data/*.csv
 
 **Tags** — `lib/tags.ts`: hierarchical (parent/children paths like "Food & Drink / Groceries"); `matchTagRule()` for auto-assignment; always use `normalizePayee()` for `payeeNormalized`.
 
+**Document extraction** — `Document.extractionStatus === "complete"` means only that the AI run finished; "verified" is `extractionConfirmedAt` being set, and owner corrections live in an overlay column `extractionCorrections` (the AI's `extractionData` is never edited). `TAX_EXTRACTION_POLICY` (`lib/tax-extraction-policy.ts`) defaults to `verified_else_ai` (unverified AI reads are used but labelled). Compute/Forms code must read tax extraction data only through `resolveTaxDocForCompute` / `resolveEffectiveExtraction`, never raw `extractionData`.
+
 **Testing pattern** — pure function unit tests in `lib/__tests__/`. Use `Decimal` (never floats). Test factory `makeTx(overrides)` for mock Plaid transactions. No integrated DB tests; mock at the function boundary.
 
 **Key env vars:** `DATABASE_URL`, `ENCRYPTION_KEY`, `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`, `NEXTAUTH_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, VAPID vars.

@@ -162,7 +162,11 @@ export function DocumentReviewClient({
           }
           setImportResult({ imported: res.imported, skipped: res.skipped, invalid: res.invalid });
         } else {
-          await confirmDocExtraction(documentId, extraction as unknown as Record<string, unknown>);
+          const res = await confirmDocExtraction(documentId);
+          if (!res.ok) {
+            setConfirmError(res.error);
+            return;
+          }
         }
         setSaved(true);
         router.refresh();

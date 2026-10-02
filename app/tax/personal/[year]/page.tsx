@@ -16,6 +16,8 @@ import { buildPersonalTaxComputeInput, findUnparseableExtractions } from "@/lib/
 import { computePersonalTaxReturn } from "@/lib/tax-compute";
 import { serializeTaxComputeResult, type SerializedTaxDraft } from "@/lib/tax-compute-display";
 import { suggestIssuerFromExtraction } from "@/lib/document-attribution";
+import { describeDocumentRow } from "@/lib/document-extraction-state";
+import { resolveTaxDocForCompute } from "@/lib/tax-extraction-policy";
 import type { Route } from "next";
 
 interface PageProps {
@@ -94,14 +96,19 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
   // workspace is open. Enriched with createdAt (not part of
   // findUnparseableExtractions's own return shape) so TaxDraftNumbers can
   // render "uploaded {date}" without a second query.
+  // Effective values (owner corrections overlaid, verified-else-AI) - the same
+  // loader boundary buildPersonalTaxComputeInput and the Forms page use.
   const unparseableExtractions = findUnparseableExtractions(
-    allDocs.map((d) => ({
-      id: d.id,
-      docType: d.docType,
-      taxYear: d.taxYear,
-      extractionStatus: d.extractionStatus,
-      extractionData: d.extractionData,
-    }))
+    allDocs.map((d) => {
+      const resolved = resolveTaxDocForCompute(d);
+      return {
+        id: d.id,
+        docType: d.docType,
+        taxYear: d.taxYear,
+        extractionStatus: d.extractionStatus,
+        extractionData: resolved.extractionData,
+      };
+    })
   );
   const allDocsById = new Map(allDocs.map((d) => [d.id, d]));
   const mistaggedDocs = unparseableExtractions.map((doc) => ({
@@ -165,7 +172,8 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
             subjectType: d.subjectType,
             subjectUserId: d.subjectUserId,
             issuerName: d.issuerName,
-            suggestedIssuer: suggestIssuerFromExtraction(d.docType, d.extractionData),
+            suggestedIssuer: suggestIssuerFromExtraction(d.docType, resolveTaxDocForCompute(d).extractionData),
+            extraction: describeDocumentRow(d),
           }))}
           otherYearDocs={otherYearDocs.map((d) => ({
             id: d.id,

@@ -12,10 +12,12 @@ import {
   downloadTaxFile,
   getTaxSignedUploadUrl,
 } from "@/lib/supabase-storage";
-import { extractDocument, classifyDocType, type ExtractedDocument } from "@/lib/doc-extract";
+import { extractDocumentOrThrow, classifyDocType, type ExtractedDocument } from "@/lib/doc-extract";
+import { sanitizeExtractionError } from "@/lib/document-extraction-state";
 import { generateDocumentName } from "@/lib/doc-naming";
 import { validateAttribution, type ValidAttribution } from "@/lib/document-attribution";
 import { parseModelJson } from "@/lib/model-json";
+import { buildModelDocLine } from "@/lib/tax-extraction-policy";
 import { TAX_QUESTION_BANK, baseOpportunitiesForHousehold } from "@/lib/tax-guidance";
 import {
   MAX_SIZE_BYTES,
@@ -226,7 +228,10 @@ async function uploadTaxDocumentCore(input: {
   if (extractable) {
     try {
       const mappedType = classifyDocType(docType, fileKey);
-      extraction = await extractDocument(buffer, mimeType, mappedType);
+      // OrThrow, not the lenient extractDocument: that one swallows every error
+      // into an "Extraction failed." stub, which was then recorded below as a
+      // successful "complete" extraction (a fake success).
+      extraction = await extractDocumentOrThrow(buffer, mimeType, mappedType);
       // Autogenerate a human-friendly name from the parsed data
       documentName = generateDocumentName(docType, taxYear, extraction);
       await db.document.update({
@@ -237,12 +242,16 @@ async function uploadTaxDocumentCore(input: {
           extractionData: extraction as unknown as Prisma.InputJsonValue,
           extractionModel: "claude-sonnet-4-6",
           extractedAt: new Date(),
+          extractionError: null,
         },
       });
-    } catch {
+    } catch (err) {
+      // Honest failure: status "failed" plus a short reason, so the Extraction
+      // column shows Failed with a Retry action instead of a bogus "complete".
+      extraction = null;
       await db.document.update({
         where: { id: docId },
-        data: { extractionStatus: "failed" },
+        data: { extractionStatus: "failed", extractionError: sanitizeExtractionError(err) },
       });
     }
   }
@@ -419,6 +428,13 @@ export async function updateTaxDocument(
   const doc = await db.document.findUnique({ where: { id: parsed.data.documentId } });
   if (!doc || doc.archivedAt) return { error: "Document not found" };
 
+  // A verified document's extracted values were confirmed against ITS type; a
+  // retype would silently orphan that verification, so make the owner
+  // un-verify first.
+  if (doc.extractionConfirmedAt && doc.docType !== parsed.data.docType) {
+    return { error: "This document is verified. Un-verify it before changing its type." };
+  }
+
   await db.document.update({
     where: { id: parsed.data.documentId },
     data: {
@@ -488,15 +504,20 @@ export async function generateTaxReview(workspaceId: string): Promise<
     orderBy: { createdAt: "desc" },
   });
 
-  // Assemble the extraction summary (only structured data — no raw PII dumps)
+  // Assemble the extraction summary (only structured data — no raw PII dumps).
+  // Uses the EFFECTIVE values (owner corrections overlaid), labels each tax
+  // document verified / unverified AI extraction, and strips EIN-like
+  // identifiers before anything is sent to the model.
   const docSummaries = docs
-    .map((d) => {
-      const data = d.extractionData as ExtractedDocument | null;
-      if (!data) return `- ${d.docType}: uploaded (not extracted)`;
-      return `- ${d.docType}: ${data.summary ?? "no summary"}${
-        data.data ? ` — ${JSON.stringify(data.data).slice(0, 500)}` : ""
-      }`;
-    })
+    .map((d) =>
+      buildModelDocLine({
+        docType: d.docType,
+        extractionStatus: d.extractionStatus,
+        extractionData: d.extractionData,
+        extractionCorrections: d.extractionCorrections,
+        extractionConfirmedAt: d.extractionConfirmedAt,
+      })
+    )
     .join("\n");
 
   const answers = workspace.questions

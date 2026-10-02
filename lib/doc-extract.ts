@@ -1,4 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
+import {
+  buildTaxExtractionPrompt,
+  normalizeTaxExtraction,
+  schemaTypeForDocType,
+  type TaxSchemaDocType,
+} from "@/lib/tax-extraction-schema";
 
 export type DocType =
   | "bank_statement"
@@ -9,6 +15,8 @@ export type DocType =
   | "w2"
   | "1099"
   | "k1"
+  | "form_1098"
+  | "property_tax"
   | "tax_return"
   | "other";
 
@@ -24,6 +32,11 @@ export interface ExtractedDocument {
   summary: string;
   period?: string; // YYYY-MM for statements, YYYY for annual
   data: Record<string, unknown>;
+  /**
+   * Stamped by the tax normalizer (lib/tax-extraction-schema). Absent = an
+   * extraction made before the expanded tax schemas ("older format").
+   */
+  schemaVersion?: number;
   transactionRows?: TransactionRow[];
   // Non-fatal caveats the reviewer should see before trusting the rows (e.g.
   // the extraction hit its row cap and may be missing transactions).
@@ -138,72 +151,14 @@ Rules: amounts in integer cents. cashValueCents is 0 if not applicable (term). R
 }
 Rules: amountDueCents and gridCreditCents in integer cents. usageKwh as decimal. Return null for unknown fields.`,
 
-  w2: `Extract from this W-2 form and return ONLY valid JSON:
-{
-  "docType": "w2",
-  "summary": "1-2 sentence description",
-  "data": {
-    "taxYear": 0,
-    "employerName": "employer",
-    "employerEIN": "XX-XXXXXXX",
-    "wagesCents": 0,
-    "federalWithheldCents": 0,
-    "stateWithheldCents": 0,
-    "socialSecurityWagesCents": 0,
-    "medicareWagesCents": 0
-  }
-}
-Rules: all dollar amounts in integer cents. taxYear as integer. Return null for unknown fields.`,
-
-  "1099": `Extract from this 1099 form and return ONLY valid JSON:
-{
-  "docType": "1099",
-  "summary": "1-2 sentence description",
-  "data": {
-    "taxYear": 0,
-    "formVariant": "1099-NEC|1099-INT|1099-DIV|1099-MISC|other",
-    "payerName": "payer",
-    "payerEIN": "XX-XXXXXXX",
-    "amountCents": 0,
-    "federalWithheldCents": 0
-  }
-}
-Rules: amounts in integer cents. taxYear as integer. Return null for unknown fields.`,
-
-  k1: `Extract from this Schedule K-1 and return ONLY valid JSON:
-{
-  "docType": "k1",
-  "summary": "1-2 sentence description",
-  "data": {
-    "taxYear": 0,
-    "formType": "1065|1120S|1041",
-    "entityName": "partnership/S-corp name",
-    "entityEIN": "XX-XXXXXXX",
-    "partnerSharePct": 0.0,
-    "ordinaryIncomeCents": 0,
-    "guaranteedPaymentsCents": 0,
-    "distributionsCents": 0,
-    "capitalAccountCents": 0
-  }
-}
-Rules: amounts in integer cents. partnerSharePct as decimal 0–100. taxYear as integer. Return null for unknown fields.`,
-
-  tax_return: `Extract from this tax return and return ONLY valid JSON:
-{
-  "docType": "tax_return",
-  "summary": "1-2 sentence description",
-  "data": {
-    "taxYear": 0,
-    "formType": "1040|1065|1120S|other",
-    "taxpayerName": "name",
-    "agiCents": 0,
-    "totalTaxCents": 0,
-    "refundCents": 0,
-    "balanceDueCents": 0,
-    "filingStatus": "single|mfj|mfs|hoh|qw"
-  }
-}
-Rules: amounts in integer cents. taxYear as integer. Return null for unknown fields.`,
+  // Tax documents: generated from the schema registry (lib/tax-extraction-schema)
+  // so the prompt, normalizer and review form cannot drift apart.
+  w2: buildTaxExtractionPrompt("w2"),
+  "1099": buildTaxExtractionPrompt("1099"),
+  form_1098: buildTaxExtractionPrompt("form_1098"),
+  property_tax: buildTaxExtractionPrompt("property_tax"),
+  k1: buildTaxExtractionPrompt("k1"),
+  tax_return: buildTaxExtractionPrompt("tax_return"),
 
   other: `Summarize this document and return ONLY valid JSON:
 {
@@ -238,7 +193,11 @@ export function classifyDocType(docType: string, fileName?: string): DocType {
     utility_bill: "utility_bill",
     tax_return: "tax_return",
     policy: "insurance_policy",
-    mortgage_interest: "mortgage_statement",
+    // An annual Form 1098 has its own box shape; the monthly mortgage-statement
+    // prompt (mortgage_statement above) is for statements only.
+    mortgage_interest: "form_1098",
+    form_1098: "form_1098",
+    property_tax: "property_tax",
   };
 
   if (mapped[docType]) return mapped[docType]!;
@@ -253,6 +212,35 @@ export function classifyDocType(docType: string, fileName?: string): DocType {
 }
 
 // ── Core extraction ───────────────────────────────────────────────────────────
+
+/**
+ * Output budget per type. A 200-row statement is ~7k+ output tokens; the old
+ * 4096 cap cut long statements off mid-array. Consolidated 1099s, K-1s and
+ * property-tax bills (many installments) are long too; a `max_tokens` stop
+ * throws in extractDocumentOrThrow, so under-sizing is a failure, never a
+ * silent truncation.
+ */
+function maxTokensFor(docType: DocType): number {
+  if (STATEMENT_DOC_TYPES.has(docType)) return 16000;
+  if (docType === "1099" || docType === "k1" || docType === "property_tax") return 8192;
+  return 4096;
+}
+
+/**
+ * Tax documents only: the one post-parse clean-up (drops unknown keys, scrubs
+ * SSN/ITIN-shaped text, enforces EIN format and integer cents, stamps
+ * schemaVersion). Returns the input untouched for every other type.
+ */
+function normalizeIfTax(docType: DocType, result: ExtractedDocument): ExtractedDocument {
+  const schemaType: TaxSchemaDocType | null = schemaTypeForDocType(docType);
+  if (!schemaType) return result;
+  const normalized = normalizeTaxExtraction(schemaType, result);
+  const { warnings, ...rest } = normalized;
+  return {
+    ...rest,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
+}
 
 export function parseExtractionResponse(text: string): ExtractedDocument {
   const raw = text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
@@ -327,9 +315,7 @@ export async function extractDocumentOrThrow(
   const isStatement = STATEMENT_DOC_TYPES.has(docType);
   const message = await client.messages.create({
     model: "claude-sonnet-4-6",
-    // A 200-row statement is ~7k+ output tokens; the old 4096 cap cut long
-    // statements off mid-array.
-    max_tokens: isStatement ? 16000 : 4096,
+    max_tokens: maxTokensFor(docType),
     system: systemPrompt,
     messages: [{ role: "user", content: [contentBlock, { type: "text", text: "Extract the data." }] }],
   });
@@ -343,8 +329,9 @@ export async function extractDocumentOrThrow(
     .map((b) => (b as { type: "text"; text: string }).text)
     .join("");
 
-  const result = parseExtractionStrict(text);
-  if (typeof result.data !== "object" || result.data === null) result.data = {};
+  const parsed = parseExtractionStrict(text);
+  if (typeof parsed.data !== "object" || parsed.data === null) parsed.data = {};
+  const result = normalizeIfTax(docType, parsed);
 
   if (isStatement) {
     if (!Array.isArray(result.transactionRows)) {
@@ -392,7 +379,7 @@ export async function extractDocument(
 
     const message = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 4096,
+      max_tokens: maxTokensFor(docType),
       system: PROMPTS[docType],
       messages: [{ role: "user", content: [contentBlock, { type: "text", text: "Extract the data." }] }],
     });
@@ -402,7 +389,10 @@ export async function extractDocument(
       .map((b) => (b as { type: "text"; text: string }).text)
       .join("");
 
-    return parseExtractionResponse(text);
+    const parsed = parseExtractionResponse(text);
+    // The unparseable-response stub must stay recognisable (findUnparseableExtractions
+    // keys on its summary), so only a real parse is normalized.
+    return parsed.summary === "Could not parse extraction response." ? parsed : normalizeIfTax(docType, parsed);
   } catch (err) {
     console.error("Document extraction failed:", err);
     return { docType, summary: "Extraction failed.", data: {} };

@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { computePL } from "@/lib/reports";
 import { buildPersonalTaxComputeInput } from "@/lib/tax-compute-build";
 import { computePersonalTaxReturn } from "@/lib/tax-compute";
+import { describeDocumentRow } from "@/lib/document-extraction-state";
+import { resolveTaxDocForCompute } from "@/lib/tax-extraction-policy";
 import {
   buildFormsPageData,
   type FormsPageData,
@@ -65,6 +67,10 @@ export async function loadFormsPageData(year: number): Promise<FormsPageData> {
         taxYear: true,
         extractionStatus: true,
         extractionData: true,
+        extractionCorrections: true,
+        extractionConfirmedAt: true,
+        extractionError: true,
+        updatedAt: true,
         archivedAt: true,
         subjectType: true,
         issuerName: true,
@@ -106,6 +112,21 @@ export async function loadFormsPageData(year: number): Promise<FormsPageData> {
     }
   }
 
+  // Effective values (owner corrections overlaid on the AI read; verified-else-AI
+  // per TAX_EXTRACTION_POLICY) + provenance. `extraction` is the same
+  // describeExtraction state the Documents list shows, so the two always agree.
+  const resolvedById = new Map(
+    docRows.map((d) => [
+      d.id,
+      resolveTaxDocForCompute({
+        docType: d.docType,
+        extractionStatus: d.extractionStatus,
+        extractionData: d.extractionData,
+        extractionCorrections: d.extractionCorrections,
+        extractionConfirmedAt: d.extractionConfirmedAt,
+      }),
+    ])
+  );
   const documents: FormsDocumentInput[] = docRows.map((d) => ({
     id: d.id,
     docType: d.docType,
@@ -113,11 +134,13 @@ export async function loadFormsPageData(year: number): Promise<FormsPageData> {
     entityId: d.entityId,
     taxYear: d.taxYear,
     extractionStatus: d.extractionStatus,
-    extractionData: d.extractionData,
+    extractionData: resolvedById.get(d.id)?.extractionData ?? d.extractionData,
     archivedAt: d.archivedAt,
     subjectType: d.subjectType,
     subjectUser: d.subjectUser ? { id: d.subjectUser.id, name: d.subjectUser.name } : null,
     issuerName: d.issuerName,
+    verified: resolvedById.get(d.id)?.verified ?? false,
+    extraction: describeDocumentRow(d),
   }));
 
   // ── Inputs for the existing computed form-readiness plan ──────────────────
@@ -160,11 +183,16 @@ export async function loadFormsPageData(year: number): Promise<FormsPageData> {
     formPlanInput: {
       documents: documents
         .filter((d) => personal !== null && d.entityId === personal.id && d.taxYear === year)
-        .map((d) => ({
-          docType: d.docType,
-          extractionStatus: d.extractionStatus,
-          extractionData: d.extractionData,
-        })),
+        .map((d) => {
+          // Policy-aware status/data (verified_only drops unverified docs here).
+          const resolved = resolvedById.get(d.id);
+          return {
+            docType: d.docType,
+            extractionStatus: resolved?.extractionStatus ?? d.extractionStatus,
+            extractionData: resolved?.extractionData ?? d.extractionData,
+            verified: resolved?.verified ?? false,
+          };
+        }),
       questions,
       ekConsultingPL: ekcPL,
       suddenValleyPL: svPL,

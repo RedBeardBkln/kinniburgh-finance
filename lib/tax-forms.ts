@@ -22,7 +22,14 @@ import {
   formatOpportunityForDisplay,
   type FormPlan,
 } from "@/lib/tax-guidance";
-import { computePersonalFormPlan, type PersonalFormPlanInput } from "@/lib/tax-form-plan";
+import {
+  computePersonalFormPlan,
+  computePersonalFormPlanBasis,
+  type FieldBasis,
+  type PersonalFormPlanInput,
+} from "@/lib/tax-form-plan";
+import type { ExtractionDisplay } from "@/lib/document-extraction-state";
+import { TAX_EXTRACTION_POLICY, type TaxExtractionPolicy } from "@/lib/tax-extraction-policy";
 import {
   attributionLabel,
   isTaxDocType,
@@ -49,6 +56,14 @@ export interface FormsDocumentInput {
   subjectType: string | null;
   subjectUser: PersonRef | null;
   issuerName: string | null;
+  /**
+   * Pass 3: owner marked this document's extraction verified, and the
+   * describeExtraction state shared with the Documents list. Both optional so
+   * existing callers/tests compile unchanged (absent = unverified / unknown).
+   * `extractionData` is the EFFECTIVE data (corrections overlaid).
+   */
+  verified?: boolean;
+  extraction?: ExtractionDisplay | null;
 }
 
 export interface FormsEntityInput {
@@ -99,6 +114,12 @@ export interface FormInputRef {
   extractionStatus: string | null;
   /** True only when extraction finished — failed/pending/null docs are listed but not "ready". */
   extractionComplete: boolean;
+  /** The Documents-list extraction state (label/tone/kind); null when the caller supplied none. */
+  extraction: ExtractionDisplay | null;
+  /** Owner verified this document's extraction. */
+  verified: boolean;
+  /** Review screen link, only when there is a reading to review. */
+  reviewHref: string | null;
   taxYear: number | null;
   priorYear: boolean;
   href: string;
@@ -108,6 +129,12 @@ export interface FormFieldStatus {
   line: string;
   source: string;
   haveData: boolean;
+  /**
+   * Where the data comes from: a verified document, an unverified AI read, a
+   * non-document source (answers / books / mileage) or missing. Absent for
+   * entries that do not read form-plan lines. `haveData` is true unless "missing".
+   */
+  basis?: FieldBasis;
 }
 
 export interface FormOpportunityRef {
@@ -134,6 +161,10 @@ export interface FormEntry {
   readiness: FormReadiness;
   fieldsReady: number;
   fieldsTotal: number;
+  /** Of the ready fields: from verified documents / unverified AI reads / non-document sources. */
+  fieldsVerified: number;
+  fieldsUnverified: number;
+  fieldsOtherSource: number;
   fields: FormFieldStatus[];
   missing: { line: string; source: string }[];
   /** True when the claim hinges on something only the CPA can confirm. */
@@ -167,6 +198,22 @@ export interface FormsPageData {
   draft: TaxDraftSummary;
   personalWorkspaceExists: boolean;
   unansweredQuestionCount: number;
+  /** How this year's tax documents' extractions stand (basis banner). */
+  extractionBasis: ExtractionBasisSummary;
+}
+
+/** Counts over this tax year's extractable tax documents (documents with no extraction state are skipped). */
+export interface ExtractionBasisSummary {
+  policy: TaxExtractionPolicy;
+  /** Extractable tax documents counted (excludes extension/N-A). */
+  documentCount: number;
+  verified: number;
+  /** Extracted (usable) but not verified - includes older-format ones. */
+  unverified: number;
+  /** Of the counted documents, how many are in the older extraction format. */
+  olderFormat: number;
+  /** Failed / not extracted / skipped / processing: no usable reading yet. */
+  noReading: number;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -238,6 +285,7 @@ export function matchDocuments(docs: readonly FormsDocumentInput[], q: DocumentM
 function toInputRef(doc: FormsDocumentInput, people: readonly PersonRef[], year: number): FormInputRef {
   const attribution = attributionLabel({ subjectType: doc.subjectType, subjectUser: doc.subjectUser }, people);
   const suggested = doc.issuerName ? null : suggestIssuerFromExtraction(doc.docType, doc.extractionData);
+  const extraction = doc.extraction ?? null;
   const label = docTypeLabel(doc.docType);
   const priorYear = doc.taxYear !== null && doc.taxYear < year;
   return {
@@ -251,6 +299,9 @@ function toInputRef(doc: FormsDocumentInput, people: readonly PersonRef[], year:
     issuerIsSuggestion: !doc.issuerName && suggested !== null,
     extractionStatus: doc.extractionStatus,
     extractionComplete: doc.extractionStatus === "complete",
+    extraction,
+    verified: doc.verified === true,
+    reviewHref: extraction?.actions.includes("review") ? `/documents/${doc.id}/review` : null,
     taxYear: doc.taxYear,
     priorYear,
     href: `/documents?bucket=taxes&entityId=${encodeURIComponent(doc.entityId)}&docType=${encodeURIComponent(doc.docType)}${
@@ -309,6 +360,9 @@ function makeEntry(spec: EntrySpec): FormEntry {
     readiness: r.readiness,
     fieldsReady: r.fieldsReady,
     fieldsTotal: r.fieldsTotal,
+    fieldsVerified: fields.filter((f) => f.basis === "verified").length,
+    fieldsUnverified: fields.filter((f) => f.basis === "unverified").length,
+    fieldsOtherSource: fields.filter((f) => f.basis === "not_document_based").length,
     fields,
     missing: fields.filter((f) => !f.haveData).map((f) => ({ line: f.line, source: f.source })),
     confirmWithCpa: spec.confirmWithCpa ?? false,
@@ -331,9 +385,20 @@ export function noteSaysDisregarded(notes: string | null): boolean {
   return /disregarded/i.test(notes ?? "");
 }
 
-function planFields(plan: readonly FormPlan[], planFormName: string): FormFieldStatus[] {
+function planFields(
+  plan: readonly FormPlan[],
+  planFormName: string,
+  basisByLine: Record<string, FieldBasis>
+): FormFieldStatus[] {
   const form = plan.find((f) => f.formName === planFormName);
-  return form ? form.fields.map((f) => ({ line: f.line, source: f.source, haveData: f.haveData })) : [];
+  return form
+    ? form.fields.map((f) => ({
+        line: f.line,
+        source: f.source,
+        haveData: f.haveData,
+        basis: basisByLine[f.line] ?? (f.haveData ? "not_document_based" : "missing"),
+      }))
+    : [];
 }
 
 function opportunityRef(key: string): FormOpportunityRef | null {
@@ -436,6 +501,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
   );
 
   const plan = computePersonalFormPlan(input.formPlanInput);
+  const basisByLine = computePersonalFormPlanBasis(input.formPlanInput);
   const answerMap: Record<string, unknown> = {};
   for (const q of questions) answerMap[q.key] = q.answer;
   const { excluded } = evaluateAnswers(answerMap);
@@ -450,13 +516,13 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     reason: "The core federal return for the household; every other federal schedule attaches to it.",
     source: "lib/tax-guidance.ts PERSONAL_FORM_PLAN (Form 1040); specs/09 (married filing jointly)",
     planFormName: PLAN_FORM.f1040,
-    fields: planFields(plan, PLAN_FORM.f1040),
+    fields: planFields(plan, PLAN_FORM.f1040, basisByLine),
     inputs: [
       ...refs(personalDocs(["w2", "1099", "extension"])),
       ...priorReturnRefs,
     ],
     cpaNote:
-      "W-2s feed wages and withholding; only 1099-INT interest is read by the readiness check. An extension document is informational.",
+      "W-2s feed wages and withholding; 1099 interest box 1 (or a 1099-INT headline amount on older extractions) feeds line 2b. An extension document is informational.",
   });
 
   const schedule1Required = ekcActive || svActive;
@@ -470,12 +536,12 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       ? "Business income (EK Consulting Schedule C) and/or rental income (Sudden Valley Schedule E) flow to Form 1040 through Schedule 1."
       : "Would be needed for business/rental income or above-the-line adjustments; none of those entities apply this year.",
     source: "lib/tax-guidance.ts PERSONAL_FORM_PLAN (Form 1040 lines tagged \"Schedule 1\")",
-    fields: planFields(plan, PLAN_FORM.f1040).filter((f) => (SCHEDULE_1_LINES as readonly string[]).includes(f.line)),
+    fields: planFields(plan, PLAN_FORM.f1040, basisByLine).filter((f) => (SCHEDULE_1_LINES as readonly string[]).includes(f.line)),
   });
 
   // Schedule A
   const propertyTaxNote =
-    "Property-tax bills never yield a dollar amount (generic extraction), so an itemized total can be understated.";
+    "A property-tax line only has data once you enter (or verify) the amount actually paid in the tax year on the bill's review screen — the AI never fills it, because a bill shows what is billed and due, not what was paid. Until then the itemized total can be understated.";
   let scheduleAApplicability: FormApplicability = "conditional";
   let scheduleAReason =
     "Depends on whether itemized deductions exceed the standard deduction; the draft engine only exists for tax year 2025.";
@@ -501,7 +567,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     reason: scheduleAReason,
     source: "lib/tax-guidance.ts PERSONAL_FORM_PLAN (Schedule A); lib/tax-compute.ts selectDeductionMethod (TY2025 draft)",
     planFormName: PLAN_FORM.scheduleA,
-    fields: planFields(plan, PLAN_FORM.scheduleA),
+    fields: planFields(plan, PLAN_FORM.scheduleA, basisByLine),
     inputs: [...refs(personalDocs(["mortgage_interest", "property_tax"])), ...priorReturnRefs],
     confirmWithCpa: scheduleAConfirm,
     cpaNote: propertyTaxNote,
@@ -519,7 +585,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       : "EK Consulting has no filing for this tax year (entity not active for the year).",
     source: "specs/03 + specs/07 item 7; Entity.taxStatusNotes (EK Consulting); lib/tax-guidance.ts PERSONAL_FORM_PLAN (Schedule C)",
     planFormName: PLAN_FORM.scheduleC,
-    fields: planFields(plan, PLAN_FORM.scheduleC),
+    fields: planFields(plan, PLAN_FORM.scheduleC, basisByLine),
     inputs: ekcActive
       ? [
           ...refs(matchDocuments(documents, { taxYear, docTypes: ["1099", "bank_statement"], entityIds: ekcIds })),
@@ -575,7 +641,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       : "Sudden Valley was formed in 2026; there is no rental activity for this tax year.",
     source: "specs/09 + specs/03 (Sudden Valley formed Feb 2026); prisma/seed.ts + lib/tax-checklist.ts RENTAL_CHECKLIST (Schedule E); lib/tax-guidance.ts PERSONAL_FORM_PLAN",
     planFormName: PLAN_FORM.scheduleE,
-    fields: planFields(plan, PLAN_FORM.scheduleE),
+    fields: planFields(plan, PLAN_FORM.scheduleE, basisByLine),
     inputs: svActive
       ? [
           ...refs(
@@ -617,7 +683,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     reason: f5695Reason,
     source: "lib/tax-guidance.ts TAX_QUESTION_BANK solar_credit + evaluateAnswers; PERSONAL_FORM_PLAN (Form 5695)",
     planFormName: PLAN_FORM.f5695,
-    fields: planFields(plan, PLAN_FORM.f5695),
+    fields: planFields(plan, PLAN_FORM.f5695, basisByLine),
     inputs: priorReturnRefs,
   });
 
@@ -631,12 +697,12 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     reason: "The household is a Connecticut resident filer.",
     source: "specs/09 (CT tables A–E); lib/tax-guidance.ts PERSONAL_FORM_PLAN (CT-1040)",
     planFormName: PLAN_FORM.ct1040,
-    fields: planFields(plan, PLAN_FORM.ct1040),
+    fields: planFields(plan, PLAN_FORM.ct1040, basisByLine),
     inputs: [...refs(personalDocs(["w2"])), ...priorReturnRefs],
     cpaNote: "W-2 box 17 (CT withholding) feeds this return.",
   });
 
-  const propertyTaxCreditField = planFields(plan, PLAN_FORM.ct1040).filter((f) => f.line === "Property tax credit");
+  const propertyTaxCreditField = planFields(plan, PLAN_FORM.ct1040, basisByLine).filter((f) => f.line === "Property tax credit");
   const ctSchedule3 = makeEntry({
     id: "ct-schedule-3",
     formName: "CT-1040 Schedule 3 (Property Tax Credit)",
@@ -644,7 +710,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     filer: householdFiler,
     applicability: "conditional",
     reason:
-      "Depends on qualifying property tax paid and a nonzero CT-1040 line 10. \"Ready\" here only means a bill was uploaded and processed — the amount cannot be extracted.",
+      "Depends on qualifying property tax paid and a nonzero CT-1040 line 10. \"Ready\" here only means you entered the amount paid in the tax year on a property-tax bill's review screen — the AI reads what the bill charges, not what was paid.",
     source: "specs/09 (Property tax credit, Schedule 3); lib/tax-form-plan.ts (Property tax credit field)",
     fields: propertyTaxCreditField,
     inputs: [...refs(personalDocs(["property_tax"])), ...priorReturnRefs],
@@ -833,6 +899,25 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     missingIssuerCount: taxDocsThisYear.filter((d) => !d.issuerName).length,
   };
 
+  const extractionBasis: ExtractionBasisSummary = {
+    policy: TAX_EXTRACTION_POLICY,
+    documentCount: 0,
+    verified: 0,
+    unverified: 0,
+    olderFormat: 0,
+    noReading: 0,
+  };
+  for (const d of taxDocsThisYear) {
+    const kind = d.extraction?.kind;
+    if (!d.extraction || !kind || kind === "na") continue;
+    extractionBasis.documentCount += 1;
+    if (kind === "verified") extractionBasis.verified += 1;
+    else if (kind === "extracted_unverified" || kind === "extracted_outdated" || kind === "extracted") {
+      extractionBasis.unverified += 1;
+    } else extractionBasis.noReading += 1;
+    if (d.extraction.outdated) extractionBasis.olderFormat += 1;
+  }
+
   return {
     taxYear,
     householdLabel,
@@ -845,6 +930,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     draft: taxDraft,
     personalWorkspaceExists: input.personalWorkspaceExists,
     unansweredQuestionCount: questions.filter((q) => q.answer === null).length,
+    extractionBasis,
   };
 }
 

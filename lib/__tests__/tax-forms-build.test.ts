@@ -191,6 +191,62 @@ describe("loadFormsPageData (read-only assembler)", () => {
     expect(f1040?.inputs[0]?.issuerIsSuggestion).toBe(true);
   });
 
+  it("reads effective values (owner corrections) + verification, and selects only the extraction columns it needs", async () => {
+    const row = (over: Record<string, unknown>) => ({
+      id: "w2-1",
+      docType: "w2",
+      documentName: "W-2",
+      entityId: "e-personal",
+      taxYear: 2026,
+      extractionStatus: "complete",
+      extractionData: { schemaVersion: 2, summary: "", data: { employerName: "Acme", wagesCents: 1000000, federalWithheldCents: null } },
+      extractionCorrections: null,
+      extractionConfirmedAt: null,
+      extractionError: null,
+      updatedAt: new Date("2026-10-01T00:00:00Z"),
+      archivedAt: null,
+      subjectType: null,
+      issuerName: null,
+      subjectUser: null,
+      ...over,
+    });
+    // The AI read no federal withholding; the owner entered it and confirmed.
+    dbMocks.documentFindMany.mockResolvedValue([
+      row({
+        extractionCorrections: { version: 1, fields: { federalWithheldCents: { value: 200000, aiValue: null } }, events: [] },
+        extractionConfirmedAt: new Date("2026-10-02T00:00:00Z"),
+      }),
+    ]);
+    const verified = await loadFormsPageData(2026);
+    const withholding = verified.federal
+      .find((e) => e.id === "form-1040")
+      ?.fields.find((f) => f.line === "Payments/withholding (line 25)");
+    expect(withholding?.haveData).toBe(true); // only the owner's correction supplies it
+    expect(withholding?.basis).toBe("verified");
+    const ref = verified.federal.find((e) => e.id === "form-1040")?.inputs[0];
+    expect(ref?.verified).toBe(true);
+    expect(ref?.extraction?.kind).toBe("verified");
+    expect(ref?.reviewHref).toBe("/documents/w2-1/review");
+
+    // Same correction but not confirmed -> used (verified-else-AI) and labelled unverified.
+    dbMocks.documentFindMany.mockResolvedValue([
+      row({ extractionCorrections: { version: 1, fields: { federalWithheldCents: { value: 200000, aiValue: null } }, events: [] } }),
+    ]);
+    const unverified = await loadFormsPageData(2026);
+    const w2 = unverified.federal
+      .find((e) => e.id === "form-1040")
+      ?.fields.find((f) => f.line === "Payments/withholding (line 25)");
+    expect(w2?.haveData).toBe(true);
+    expect(w2?.basis).toBe("unverified");
+    expect(unverified.extractionBasis.unverified).toBe(1);
+
+    // The query asks for the extraction columns the loader needs (read-only select).
+    const args = dbMocks.documentFindMany.mock.calls[0]![0] as { select: Record<string, unknown> };
+    for (const col of ["extractionCorrections", "extractionConfirmedAt", "extractionError", "updatedAt"]) {
+      expect(args.select[col], col).toBe(true);
+    }
+  });
+
   it("production-shaped entities: Sudden Valley flagged for CPA in 2026, none in 2025; Mezzo only not-applicable", async () => {
     const y26 = await loadFormsPageData(2026);
     const e26 = y26.federal.find((e) => e.id === "schedule-e");

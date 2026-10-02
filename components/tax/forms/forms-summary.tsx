@@ -16,7 +16,7 @@ function Stat({ label, value, className }: { label: string; value: number; class
 }
 
 export function FormsSummary({ data }: { data: FormsPageData }) {
-  const { summary, attribution, draft, taxYear } = data;
+  const { summary, attribution, draft, taxYear, extractionBasis } = data;
 
   return (
     <div className="space-y-3">
@@ -58,6 +58,34 @@ export function FormsSummary({ data }: { data: FormsPageData }) {
         <p className="text-xs text-muted-foreground">
           Schedule A and Schedule SE use the 2025 draft computation (a draft for your CPA, not a filed number).
         </p>
+      )}
+
+      {extractionBasis.documentCount > 0 && (
+        <div
+          className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-900"
+          data-testid="extraction-basis-banner"
+        >
+          <p className="font-medium">Where the document-based numbers on this page come from</p>
+          <p className="mt-0.5">
+            {extractionBasis.policy === "verified_only"
+              ? "Only documents you marked verified are used. "
+              : "Verified values are used as marked; unverified AI extractions are still used but labelled. "}
+            Of {extractionBasis.documentCount} tax document(s) for {taxYear}: {extractionBasis.verified} verified
+            {extractionBasis.unverified > 0 && <>, {extractionBasis.unverified} extracted but not verified</>}
+            {extractionBasis.noReading > 0 && <>, {extractionBasis.noReading} with no usable reading yet</>}
+            {extractionBasis.olderFormat > 0 && (
+              <> ({extractionBasis.olderFormat} in the older extraction format, so newer boxes were never read)</>
+            )}
+            .{" "}
+            {extractionBasis.unverified + extractionBasis.noReading > 0 && (
+              <Link href={"/documents?view=tax" as Route} className="font-medium underline">
+                Review them on Documents
+              </Link>
+            )}
+            {extractionBasis.unverified + extractionBasis.noReading > 0 && ". "}
+            &quot;Verified&quot; means you checked the values, not that they are right.
+          </p>
+        </div>
       )}
 
       {attribution.taxDocCount > 0 && (attribution.unassignedPersonCount > 0 || attribution.missingIssuerCount > 0) && (

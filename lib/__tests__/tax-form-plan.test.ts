@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { computePersonalFormPlan, type PersonalFormPlanInput } from "@/lib/tax-form-plan";
+import {
+  computePersonalFormPlan,
+  computePersonalFormPlanBasis,
+  type PersonalFormPlanInput,
+} from "@/lib/tax-form-plan";
 import { PERSONAL_FORM_PLAN } from "@/lib/tax-guidance";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -43,9 +47,10 @@ const GOLDEN_DOCUMENTS: PersonalFormPlanInput["documents"] = [
     },
   },
   {
+    // Pass 3: property-tax lines read the owner-entered amount paid in the tax year.
     docType: "property_tax",
     extractionStatus: "complete",
-    extractionData: { docType: "other", summary: "Property tax bill", data: {} },
+    extractionData: { docType: "property_tax", summary: "Property tax bill", data: { paidInTaxYearCents: 650000 } },
   },
 ];
 
@@ -262,9 +267,9 @@ describe("computePersonalFormPlan", () => {
     expect(interest?.haveData).toBe(true);
   });
 
-  // ── property_tax "processed but no numeric data" edge case ──────────────────
+  // ── property_tax: only an owner-entered "paid in the tax year" amount counts (pass 3) ──
 
-  it("a property_tax doc with empty data:{} is still 'processed' for its dependent fields", () => {
+  it("a property_tax doc with empty data:{} (legacy / bill only) no longer makes its lines 'have data'", () => {
     const input: PersonalFormPlanInput = {
       ...EMPTY_INPUT,
       documents: [
@@ -275,22 +280,42 @@ describe("computePersonalFormPlan", () => {
         },
       ],
     };
-    const result = computePersonalFormPlan(input);
-    const fields = flatten(result);
-    expect(fields.find((f) => f.line === "State/local taxes (line 5e)")?.haveData).toBe(true);
-    expect(fields.find((f) => f.line === "Property tax credit")?.haveData).toBe(true);
-    // Standard/itemized needs BOTH property tax processed AND mortgage interest complete
+    const fields = flatten(computePersonalFormPlan(input));
+    expect(fields.find((f) => f.line === "State/local taxes (line 5e)")?.haveData).toBe(false);
+    expect(fields.find((f) => f.line === "Property tax credit")?.haveData).toBe(false);
     expect(fields.find((f) => f.line === "Standard or itemized (line 12)")?.haveData).toBe(false);
   });
 
-  it("property_tax processed + mortgage_interest complete together flip Standard or itemized true", () => {
+  it("a property_tax doc with an effective paidInTaxYearCents flips its dependent fields", () => {
     const input: PersonalFormPlanInput = {
       ...EMPTY_INPUT,
       documents: [
         {
           docType: "property_tax",
           extractionStatus: "complete",
-          extractionData: { docType: "other", summary: "Property tax bill", data: {} },
+          extractionData: {
+            docType: "property_tax",
+            summary: "",
+            data: { totalTaxBilledCents: 900000, paidInTaxYearCents: 450000 },
+          },
+        },
+      ],
+    };
+    const fields = flatten(computePersonalFormPlan(input));
+    expect(fields.find((f) => f.line === "State/local taxes (line 5e)")?.haveData).toBe(true);
+    expect(fields.find((f) => f.line === "Property tax credit")?.haveData).toBe(true);
+    // Standard/itemized needs BOTH the paid property tax AND mortgage interest
+    expect(fields.find((f) => f.line === "Standard or itemized (line 12)")?.haveData).toBe(false);
+  });
+
+  it("property tax paid + mortgage_interest complete together flip Standard or itemized true", () => {
+    const input: PersonalFormPlanInput = {
+      ...EMPTY_INPUT,
+      documents: [
+        {
+          docType: "property_tax",
+          extractionStatus: "complete",
+          extractionData: { docType: "property_tax", summary: "", data: { paidInTaxYearCents: 450000 } },
         },
         {
           docType: "mortgage_interest",
@@ -302,6 +327,23 @@ describe("computePersonalFormPlan", () => {
     const result = computePersonalFormPlan(input);
     const field = flatten(result).find((f) => f.line === "Standard or itemized (line 12)");
     expect(field?.haveData).toBe(true);
+  });
+
+  // ── 1099 interest box 1 (pass 3) ──────────────────────────────────────────────
+
+  it("a current-schema 1099 with int_box1Cents counts as interest even when the variant is consolidated", () => {
+    const input: PersonalFormPlanInput = {
+      ...EMPTY_INPUT,
+      documents: [
+        {
+          docType: "1099",
+          extractionStatus: "complete",
+          extractionData: { docType: "1099", summary: "", data: { formVariant: "consolidated", int_box1Cents: 4200 } },
+        },
+      ],
+    };
+    const interest = flatten(computePersonalFormPlan(input)).find((f) => f.line === "Interest income (line 2b)");
+    expect(interest?.haveData).toBe(true);
   });
 
   // ── Skipped vs answered vs unanswered questions ──────────────────────────────
@@ -431,5 +473,109 @@ describe("computePersonalFormPlan", () => {
     };
     const result = flatten(computePersonalFormPlan(input));
     expect(result.find((f) => f.line === "Credits (lines 19-21)")?.haveData).toBe(true);
+  });
+});
+
+// ── computePersonalFormPlanBasis (pass 3) ────────────────────────────────────────
+
+describe("computePersonalFormPlanBasis", () => {
+  const w2 = (verified: boolean | undefined, wages = 1000000): PersonalFormPlanInput["documents"][number] => ({
+    docType: "w2",
+    extractionStatus: "complete",
+    extractionData: { docType: "w2", summary: "", data: { wagesCents: wages, federalWithheldCents: 100000 } },
+    verified,
+  });
+
+  it("has exactly the same keys as the plan and agrees with haveData (basis !== 'missing' <=> haveData)", () => {
+    for (const input of [EMPTY_INPUT, GOLDEN_INPUT]) {
+      const plan = computePersonalFormPlan(input);
+      const basis = computePersonalFormPlanBasis(input);
+      for (const form of plan) {
+        for (const field of form.fields) {
+          expect(basis[field.line], field.line).toBeDefined();
+          expect(basis[field.line] !== "missing", field.line).toBe(field.haveData);
+        }
+      }
+    }
+  });
+
+  it("all-empty input: every line is missing", () => {
+    const basis = computePersonalFormPlanBasis(EMPTY_INPUT);
+    expect(Object.values(basis).every((b) => b === "missing")).toBe(true);
+  });
+
+  it("a verified W-2 makes its lines 'verified'; an unverified or flag-less one 'unverified'", () => {
+    const verified = computePersonalFormPlanBasis({ ...EMPTY_INPUT, documents: [w2(true)] });
+    expect(verified["Wages (line 1a)"]).toBe("verified");
+    expect(verified["Payments/withholding (line 25)"]).toBe("verified");
+    const unverified = computePersonalFormPlanBasis({ ...EMPTY_INPUT, documents: [w2(false)] });
+    expect(unverified["Wages (line 1a)"]).toBe("unverified");
+    const noFlag = computePersonalFormPlanBasis({ ...EMPTY_INPUT, documents: [w2(undefined)] });
+    expect(noFlag["Wages (line 1a)"]).toBe("unverified");
+  });
+
+  it("a line aggregating several documents is verified only if EVERY contributing document is verified", () => {
+    const mixed = computePersonalFormPlanBasis({ ...EMPTY_INPUT, documents: [w2(true), w2(false, 500000)] });
+    expect(mixed["Wages (line 1a)"]).toBe("unverified");
+    const allVerified = computePersonalFormPlanBasis({ ...EMPTY_INPUT, documents: [w2(true), w2(true, 500000)] });
+    expect(allVerified["Wages (line 1a)"]).toBe("verified");
+  });
+
+  it("answers/books/mileage-fed lines are not_document_based, never verified/unverified", () => {
+    const basis = computePersonalFormPlanBasis(GOLDEN_INPUT);
+    expect(basis["Home office (line 30)"]).toBe("not_document_based");
+    expect(basis["Business income (Schedule 1)"]).toBe("not_document_based");
+    expect(basis["Car and truck expenses (line 9)"]).toBe("not_document_based");
+    expect(basis["Gifts to charity (line 11)"]).toBe("missing");
+  });
+
+  it("Payments/withholding falls back to the estimated-payments answer when no W-2 withholding exists", () => {
+    const basis = computePersonalFormPlanBasis({
+      ...EMPTY_INPUT,
+      questions: [{ key: "estimated_taxes_2025", answer: "Paid Q1-Q4", skippedReason: null }],
+    });
+    expect(basis["Payments/withholding (line 25)"]).toBe("not_document_based");
+  });
+
+  it("Standard or itemized aggregates the mortgage and property-tax documents", () => {
+    const input: PersonalFormPlanInput = {
+      ...EMPTY_INPUT,
+      documents: [
+        {
+          docType: "mortgage_interest",
+          extractionStatus: "complete",
+          extractionData: { data: { interestCents: 3000000 } },
+          verified: true,
+        },
+        {
+          docType: "property_tax",
+          extractionStatus: "complete",
+          extractionData: { data: { paidInTaxYearCents: 450000 } },
+          verified: false,
+        },
+      ],
+    };
+    const basis = computePersonalFormPlanBasis(input);
+    expect(basis["Home mortgage interest (line 8a)"]).toBe("verified");
+    expect(basis["State/local taxes (line 5e)"]).toBe("unverified");
+    expect(basis["Standard or itemized (line 12)"]).toBe("unverified");
+  });
+
+  it("CT AGI is document-based only when wages (not the books) supply it", () => {
+    const answers = [{ key: "filing_status", answer: "mfj", skippedReason: null }];
+    const viaBooks = computePersonalFormPlanBasis({
+      ...EMPTY_INPUT,
+      questions: answers,
+      ekConsultingPL: { incomeLines: [{ code: "4000" }], expenseLines: [] },
+    });
+    expect(viaBooks["CT adjusted gross income"]).toBe("not_document_based");
+    const viaWages = computePersonalFormPlanBasis({ ...EMPTY_INPUT, questions: answers, documents: [w2(true)] });
+    expect(viaWages["CT adjusted gross income"]).toBe("verified");
+  });
+
+  it("does not change computePersonalFormPlan's own output", () => {
+    const before = JSON.stringify(computePersonalFormPlan(GOLDEN_INPUT));
+    computePersonalFormPlanBasis(GOLDEN_INPUT);
+    expect(JSON.stringify(computePersonalFormPlan(GOLDEN_INPUT))).toBe(before);
   });
 });

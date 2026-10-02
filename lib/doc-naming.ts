@@ -48,6 +48,10 @@ export function generateDocumentName(
   } else if (docType === "1099") {
     const payer = typeof data["payerName"] === "string" ? data["payerName"] : null;
     const variant = typeof data["formVariant"] === "string" ? data["formVariant"] : null;
+    if (payer && variant === "consolidated") {
+      // A consolidated 1099 holds several forms; there is no single suffix to show.
+      return `1099 consolidated — ${payer}${year ? ` (${year})` : ""}`;
+    }
     if (payer && variant && variant !== "other") {
       return `1099${variant.startsWith("1099") ? variant.slice(4) : `-${variant.slice(-3)}`} — ${payer}${year ? ` (${year})` : ""}`;
     }

@@ -19,10 +19,20 @@ import {
 import {
   STALE_PROCESSING_MS,
   computeLedgerPresence,
-  hasUsableExtraction,
   planImport,
   rowDateBounds,
 } from "@/lib/statement-import";
+import {
+  ALREADY_UP_TO_DATE_ERROR,
+  NOT_EXTRACTED_TYPE_ERROR,
+  VERIFIED_REEXTRACT_ERROR,
+  isExtractableDocType,
+  isUsableExtraction,
+  meetsExtractionExpectation,
+  sanitizeExtractionError,
+  type ExtractionExpectation,
+} from "@/lib/document-extraction-state";
+import { appendExtractionEvent, countCorrections } from "@/lib/extraction-corrections";
 import { loadLedgerIndexes } from "@/lib/statement-ledger";
 import { Prisma } from "@prisma/client";
 import {
@@ -32,7 +42,7 @@ import {
 } from "@/lib/document-upload";
 import { getEntityBySlug } from "@/lib/entity";
 import { normalizePayee } from "@/lib/tags";
-import { validateAttribution } from "@/lib/document-attribution";
+import { isTaxDocType, validateAttribution } from "@/lib/document-attribution";
 
 async function requireAuth() {
   const session = await auth();
@@ -306,21 +316,73 @@ interface ExtractionRun {
   error?: string;
 }
 
+/**
+ * Options for a run. `force` re-runs even when usable data exists.
+ * `discardVerification` is the explicit opt-in required to re-extract a
+ * VERIFIED document (it clears the verification on success; corrections are
+ * never touched). `expect` re-checks, against the freshly read row, that the
+ * caller's view (a list / a bulk run) is still true, so a stale tab cannot
+ * double-spend an API call.
+ */
+export interface RunExtractionOptions {
+  force?: boolean;
+  discardVerification?: boolean;
+  expect?: ExtractionExpectation;
+}
+
 async function runExtraction(
   documentId: string,
-  options?: { force?: boolean }
+  options?: RunExtractionOptions,
+  actingUserId?: string
 ): Promise<ExtractionRun> {
-  const doc = await db.document.findUniqueOrThrow({
-    where: { id: documentId },
+  // archivedAt guard: an archived document is never extracted (and findFirst,
+  // not findUniqueOrThrow, so a missing/archived id is a clean error).
+  const doc = await db.document.findFirst({
+    where: { id: documentId, archivedAt: null },
     include: { bankStatement: { include: { account: { select: { accountType: true } } } } },
   });
+  if (!doc) return { result: null, error: "Document not found" };
+
+  // Gate 1: only types with an extraction schema. Rejected BEFORE any storage
+  // download or API call, for every entry point (list, review page, tax tab,
+  // bulk, cron).
+  if (!isExtractableDocType(doc.docType)) {
+    return { result: null, error: NOT_EXTRACTED_TYPE_ERROR };
+  }
 
   // Cheap early exit using this call's own read: avoids even attempting the
   // claim below when we can already see good data. Not sufficient on its
   // own — see the claim's WHERE clause for why.
   const existingData = doc.extractionData as unknown as ExtractedDocument | null;
-  if (!options?.force && hasUsableExtraction(existingData)) {
+  const existingUsable = isUsableExtraction(doc.docType, existingData);
+
+  // Gate 2: the caller's expectation, re-checked against THIS read.
+  if (options?.expect) {
+    const stillWanted = meetsExtractionExpectation(options.expect, {
+      docType: doc.docType,
+      extractionStatus: doc.extractionStatus,
+      updatedAt: doc.updatedAt,
+      extractionData: doc.extractionData,
+      extractionConfirmedAt: doc.extractionConfirmedAt,
+      correctionCount: countCorrections(doc.extractionCorrections),
+      extractionError: doc.extractionError,
+    });
+    if (!stillWanted) return { result: null, error: ALREADY_UP_TO_DATE_ERROR };
+  }
+
+  if (!options?.force && existingUsable) {
     return { result: existingData };
+  }
+
+  // Gate 3: a verified document is never silently overwritten. Re-extracting
+  // marks it unverified, so it needs the caller's explicit opt-in.
+  if (
+    options?.force &&
+    existingUsable &&
+    doc.extractionConfirmedAt !== null &&
+    !options.discardVerification
+  ) {
+    return { result: null, error: VERIFIED_REEXTRACT_ERROR };
   }
 
   // Atomic claim: only proceed if THIS call is the one that transitions
@@ -353,6 +415,7 @@ async function runExtraction(
   const claim = await db.document.updateMany({
     where: {
       id: documentId,
+      archivedAt: null,
       OR: [
         { extractionStatus: { notIn: excludedStatuses } },
         { extractionStatus: null },
@@ -373,7 +436,7 @@ async function runExtraction(
       });
       if (current?.extractionStatus !== "processing") {
         const data = current?.extractionData as unknown as ExtractedDocument | null;
-        return hasUsableExtraction(data)
+        return isUsableExtraction(doc.docType, data)
           ? { result: data }
           : { result: null, error: "Extraction did not complete" };
       }
@@ -400,6 +463,17 @@ async function runExtraction(
     // those, which this function then saved as a *successful* extraction.
     const result = await extractDocumentOrThrow(buffer, mimeType, docType);
 
+    // A tax form where the model read nothing (every money box null) must not
+    // replace good data nor be saved as "complete": treat it as a failure, so a
+    // re-extract of a good document keeps the old values.
+    if (isTaxDocType(doc.docType) && !isUsableExtraction(doc.docType, result)) {
+      throw new Error("The AI read no usable values from this document");
+    }
+
+    // Re-extracting a verified document: the SAME write that stores the new AI
+    // output also clears the verification and logs who did it. Corrections
+    // (the owner's overlay) are never touched.
+    const discarding = !!options?.discardVerification && doc.extractionConfirmedAt !== null;
     await db.document.update({
       where: { id: documentId },
       data: {
@@ -407,6 +481,18 @@ async function runExtraction(
         extractionData: result as unknown as Prisma.InputJsonValue,
         extractionModel: "claude-sonnet-4-6",
         extractedAt: new Date(),
+        extractionError: null,
+        ...(discarding
+          ? {
+              extractionConfirmedAt: null,
+              extractionConfirmedById: null,
+              extractionCorrections: appendExtractionEvent(doc.extractionCorrections, {
+                type: "re-extracted",
+                at: new Date().toISOString(),
+                by: actingUserId ?? "unknown",
+              }) as unknown as Prisma.InputJsonValue,
+            }
+          : {}),
       },
     });
 
@@ -424,52 +510,82 @@ async function runExtraction(
     }
     return { result };
   } catch (err) {
+    const message = sanitizeExtractionError(err);
+    // A failed re-run of a document that ALREADY has usable data must not
+    // turn it into a "failed" document: the old data is intact, so restore
+    // "complete" and record the reason (shown as "last re-extract failed").
     await db.document.update({
       where: { id: documentId },
-      data: { extractionStatus: "failed" },
+      data: {
+        extractionStatus: existingUsable ? "complete" : "failed",
+        extractionError: message,
+      },
     });
-    return { result: null, error: err instanceof Error ? err.message : "Extraction failed" };
+    return { result: null, error: message };
   }
 }
 
 export async function triggerExtraction(
   documentId: string,
-  options?: { force?: boolean }
+  options?: RunExtractionOptions
 ): Promise<ExtractedDocument | null> {
-  await requireAuth();
-  return (await runExtraction(documentId, options)).result;
+  const user = await requireAuth();
+  return (await runExtraction(documentId, options, user.id)).result;
 }
 
 /**
- * Client-facing wrapper for the review page's extraction runner. Unlike
- * triggerExtraction it reports WHY a run failed so the page can show it.
- * Runs as a real server action (not during a page render), so a slow
- * extraction no longer blocks — or gets killed with — the page navigation.
+ * Client-facing wrapper for the review page's extraction runner and the
+ * Documents list. Unlike triggerExtraction it reports WHY a run failed so the
+ * UI can show it. Runs as a real server action (not during a page render), so
+ * a slow extraction no longer blocks — or gets killed with — the page
+ * navigation. Options come from the browser, so they are re-narrowed here.
  */
 export async function runDocumentExtraction(
   documentId: string,
-  options?: { force?: boolean }
+  options?: RunExtractionOptions
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await requireAuth();
-  const run = await runExtraction(documentId, options);
+  const user = await requireAuth();
+  const safeOptions: RunExtractionOptions = {
+    force: options?.force === true,
+    discardVerification: options?.discardVerification === true,
+    expect: options?.expect === "unextracted" || options?.expect === "outdated" ? options.expect : undefined,
+  };
+  const run = await runExtraction(documentId, safeOptions, user.id);
   return run.result ? { ok: true } : { ok: false, error: run.error ?? "Extraction failed" };
 }
 
+/**
+ * Owner confirmation for NON-tax extracted documents (insurance policy, utility
+ * bill, mortgage statement, ...). It records WHO verified it and WHEN; it no
+ * longer rewrites extractionData (the browser used to post the object back,
+ * and a client-supplied blob must never replace the AI original). Tax
+ * documents are verified through their own review flow, never here.
+ */
 export async function confirmDocExtraction(
-  documentId: string,
-  correctedData: Record<string, unknown>
-): Promise<void> {
-  await requireAuth();
+  documentId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireAuth();
+  const doc = await db.document.findFirst({
+    where: { id: documentId, archivedAt: null },
+    select: { id: true, docType: true },
+  });
+  if (!doc) return { ok: false, error: "Document not found" };
+  if (isTaxDocType(doc.docType)) {
+    return {
+      ok: false,
+      error: "Tax documents are reviewed and verified on their own review screen (Review link).",
+    };
+  }
   await db.document.update({
-    where: { id: documentId },
+    where: { id: doc.id },
     data: {
-      extractionData: correctedData as unknown as Prisma.InputJsonValue,
-      extractionStatus: "complete",
-      extractedAt: new Date(),
+      extractionConfirmedAt: new Date(),
+      extractionConfirmedById: user.id,
     },
   });
   revalidatePath("/documents");
   revalidatePath(`/documents/${documentId}/review`);
+  return { ok: true };
 }
 
 export async function skipExtraction(documentId: string): Promise<void> {
@@ -611,6 +727,7 @@ export async function getDocumentWithExtraction(documentId: string) {
     where: { id: documentId },
     include: {
       entity: true,
+      extractionConfirmedBy: { select: { id: true, name: true } },
       bankStatement: {
         select: { accountId: true, confirmedAt: true, account: { select: { accountType: true } } },
       },

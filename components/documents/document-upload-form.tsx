@@ -96,7 +96,7 @@ export function DocumentUploadForm({ entities, defaultEntityId, people = [] }: P
         // Honest about extraction: it is skipped for extensions and may fail.
         const note =
           docType !== "extension" && !result.extraction
-            ? " Parsing failed or was skipped; open Review from the list to retry."
+            ? " Parsing failed or was skipped - use Retry in the Extraction column."
             : "";
         setMessage(summarizeUploadBatch([result]) + note);
         router.refresh();

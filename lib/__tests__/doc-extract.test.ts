@@ -299,3 +299,112 @@ describe("extractDocumentOrThrow", () => {
     expect(out.summary).toBe("Extraction failed.");
   });
 });
+
+// ── Tax schemas: classification, prompts, normalization, output budget ────────
+
+describe("classifyDocType - tax shapes", () => {
+  it("maps mortgage_interest to the annual 1098 shape, not the monthly mortgage statement", () => {
+    expect(classifyDocType("mortgage_interest")).toBe("form_1098");
+    expect(classifyDocType("form_1098")).toBe("form_1098");
+    expect(classifyDocType("mortgage_statement")).toBe("mortgage_statement");
+  });
+  it("maps property_tax to its own shape (it used to fall through to other)", () => {
+    expect(classifyDocType("property_tax")).toBe("property_tax");
+    expect(classifyDocType("property_tax", "bill.pdf")).toBe("property_tax");
+  });
+  it("leaves the other tax types unchanged", () => {
+    for (const t of ["w2", "1099", "k1", "tax_return"]) expect(classifyDocType(t)).toBe(t);
+  });
+});
+
+describe("extractDocumentOrThrow - tax documents are normalized", () => {
+  const reply = (payload: unknown) =>
+    mockCreate.mockResolvedValue({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(payload) }] });
+
+  it("stamps schemaVersion, drops unknown keys and scrubs SSN-shaped text (summary and fields)", async () => {
+    reply({
+      docType: "w2",
+      summary: "W-2 for Pat, SSN 123-45-6789.",
+      data: {
+        taxYear: 2025,
+        employerName: "Acme",
+        employerEIN: "12-3456789",
+        wagesCents: 5000000,
+        federalWithheldCents: 800000,
+        employeeSSN: "123-45-6789",
+        stateLines: [{ stateCode: "ct", stateEmployerId: "987654321", stateWagesCents: 5000000, stateWithheldCents: 150000 }],
+      },
+    });
+    const out = await extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "w2");
+    expect(out.schemaVersion).toBe(2);
+    expect(out.docType).toBe("w2");
+    expect(out.data).not.toHaveProperty("employeeSSN");
+    expect(JSON.stringify(out)).not.toMatch(/\b\d{3}-?\d{2}-?\d{4}\b/);
+    expect(out.data.wagesCents).toBe(5000000);
+    expect(out.data.stateWithheldCents).toBe(150000); // legacy flat key derived from the CT line
+    expect(out.warnings).toContain("removed text that looked like an SSN");
+  });
+
+  it("1098 uses the form_1098 prompt and stamps docType/schemaVersion", async () => {
+    reply({ docType: "form_1098", summary: "1098", data: { interestCents: 1888269, principalBalanceCents: 37787263 } });
+    const out = await extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "form_1098");
+    expect(out.docType).toBe("form_1098");
+    expect(out.schemaVersion).toBe(2);
+    const system = mockCreate.mock.calls[0]![0].system as string;
+    expect(system).toMatch(/Form 1098/);
+    expect(system).toContain("interestCents");
+    expect(system).not.toContain("monthlyPaymentCents");
+  });
+
+  it("property tax: the AI-supplied paidInTaxYearCents is discarded", async () => {
+    reply({ docType: "property_tax", summary: "bill", data: { totalTaxBilledCents: 600000, paidInTaxYearCents: 600000 } });
+    const out = await extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "property_tax");
+    expect(out.data.paidInTaxYearCents).toBeNull();
+    expect(out.data.totalTaxBilledCents).toBe(600000);
+  });
+
+  it("gives 1099 / K-1 / property tax a bigger output budget; W-2 and 1098 keep 4096", async () => {
+    reply({ docType: "1099", summary: "", data: {} });
+    for (const [type, expected] of [
+      ["1099", 8192],
+      ["k1", 8192],
+      ["property_tax", 8192],
+      ["w2", 4096],
+      ["form_1098", 4096],
+      ["tax_return", 4096],
+    ] as const) {
+      mockCreate.mockClear();
+      reply({ docType: type, summary: "", data: {} });
+      await extractDocumentOrThrow(Buffer.from("x"), "application/pdf", type);
+      expect(mockCreate.mock.calls[0]![0].max_tokens).toBe(expected);
+    }
+  });
+
+  it("an under-sized response is a failure, not a silent truncation", async () => {
+    mockCreate.mockResolvedValue({ stop_reason: "max_tokens", content: [{ type: "text", text: '{"docType":"1099"' }] });
+    await expect(extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "1099")).rejects.toThrow(/cut off/);
+  });
+
+  it("non-tax types are returned as parsed (no normalization side effects)", async () => {
+    reply({ docType: "insurance_policy", summary: "policy 123-45-6789", data: { insurer: "NWM", extra: 1 } });
+    const out = await extractDocumentOrThrow(Buffer.from("x"), "application/pdf", "insurance_policy");
+    expect(out.schemaVersion).toBeUndefined();
+    expect(out.data.extra).toBe(1);
+  });
+});
+
+describe("extractDocument (lenient) - tax documents are normalized too", () => {
+  it("normalizes a parsed tax response but leaves the parse-failure stub recognisable", async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify({ docType: "w2", summary: "s", data: { wagesCents: 100, junk: 1 } }) }],
+    });
+    const ok = await extractDocument(Buffer.from("x"), "application/pdf", "w2");
+    expect(ok.schemaVersion).toBe(2);
+    expect(ok.data).not.toHaveProperty("junk");
+
+    mockCreate.mockResolvedValue({ content: [{ type: "text", text: "not json at all" }] });
+    const stub = await extractDocument(Buffer.from("x"), "application/pdf", "w2");
+    expect(stub.summary).toBe("Could not parse extraction response.");
+    expect(stub.schemaVersion).toBeUndefined();
+  });
+});

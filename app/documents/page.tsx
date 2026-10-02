@@ -9,6 +9,9 @@ import { listDocuments, getDocumentSignedUrl, archiveDocument } from "@/actions/
 import { DocumentAttributionCells } from "@/components/documents/document-attribution-editor";
 import { ResizableTable, type ResizableColumn } from "@/components/documents/resizable-table";
 import { isTaxDocType, suggestIssuerFromExtraction } from "@/lib/document-attribution";
+import { buildExtractionOverview } from "@/lib/document-extraction-state";
+import { ExtractionCell } from "@/components/documents/extraction-cell";
+import { ExtractionBulkBar } from "@/components/documents/extraction-bulk-bar";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -33,7 +36,7 @@ const DOCUMENT_TABLE_COLUMNS: ResizableColumn[] = [
   { key: "pertains", label: "Pertains to", defaultWidth: 120 },
   { key: "issuer", label: "Issuer / payer", defaultWidth: 190 },
   { key: "year", label: "Year", defaultWidth: 60 },
-  { key: "extraction", label: "Extraction", defaultWidth: 90 },
+  { key: "extraction", label: "Extraction", defaultWidth: 200 },
   { key: "uploaded", label: "Uploaded", defaultWidth: 105 },
   { key: "actions", label: "", defaultWidth: 0 },
 ];
@@ -53,18 +56,6 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   policy: "Policy",
   statement: "Statement",
   other: "Other",
-};
-
-const EXTRACTION_TYPES = new Set([
-  "bank_statement", "mortgage_statement", "insurance_policy", "utility_bill", "tax_return",
-]);
-
-const EXTRACTION_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  pending:    { label: "Pending", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  processing: { label: "Processing", cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  complete:   { label: "Extracted", cls: "bg-green-50 text-green-700 border-green-200" },
-  failed:     { label: "Failed", cls: "bg-red-50 text-red-700 border-red-200" },
-  skipped:    { label: "Skipped", cls: "bg-muted text-muted-foreground border-border" },
 };
 
 const DOC_TYPE_COLORS: Record<string, string> = {
@@ -108,6 +99,13 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
     docType: sp.docType,
   });
   const docs = taxView && !sp.docType ? allDocs.filter((d) => isTaxDocType(d.docType)) : allDocs;
+
+  // Honest extraction state for EVERY row (pure; no DB, no AI call). Rendering
+  // this page never starts an extraction: Run/Retry/bulk are button clicks only.
+  const { displayById: extractionById, plan: bulkPlan } = buildExtractionOverview(docs);
+  const docNames = Object.fromEntries(
+    docs.map((d) => [d.id, d.documentName ?? d.notes ?? DOC_TYPE_LABELS[d.docType] ?? d.docType])
+  );
 
   // Default upload bucket is Personal, not alphabetical-first.
   const defaultEntityId =
@@ -169,10 +167,19 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
           ))}
         </div>
 
+        {/* Bulk extraction: user-initiated only, counted, capped, concurrency-limited. */}
+        <ExtractionBulkBar mode="missing" ids={bulkPlan.missing} names={docNames} />
+        <ExtractionBulkBar
+          mode="outdated"
+          ids={bulkPlan.outdated}
+          names={docNames}
+          needIndividual={bulkPlan.needIndividual}
+        />
+
         {/* Document table */}
         <Card>
           <CardContent className="p-0">
-            <ResizableTable columns={DOCUMENT_TABLE_COLUMNS} storageKey="documents-table-column-widths-v1">
+            <ResizableTable columns={DOCUMENT_TABLE_COLUMNS} storageKey="documents-table-column-widths-v2">
               <tbody>
                 {docs.length === 0 && (
                   <tr>
@@ -182,8 +189,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                   </tr>
                 )}
                 {docs.map((doc) => {
-                  const extractable = EXTRACTION_TYPES.has(doc.docType);
-                  const statusInfo = doc.extractionStatus ? EXTRACTION_STATUS_BADGE[doc.extractionStatus] : null;
+                  const extraction = extractionById[doc.id];
                   return (
                     <tr key={doc.id} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="px-4 py-2">
@@ -214,14 +220,8 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                         {doc.taxYear ?? "—"}
                       </td>
                       <td className="px-4 py-2 text-xs">
-                        {extractable ? (
-                          statusInfo ? (
-                            <span className={`inline-block rounded border px-2 py-0.5 text-xs font-medium ${statusInfo.cls}`}>
-                              {statusInfo.label}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )
+                        {extraction ? (
+                          <ExtractionCell documentId={doc.id} display={extraction} />
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
@@ -231,7 +231,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                       </td>
                       <td className="px-4 py-2">
                         <div className="flex items-center gap-2 justify-end">
-                          {extractable && (
+                          {extraction?.actions.includes("review") && (
                             // prefetch={false} — see the matching comment in
                             // components/bank-statements/statements-table.tsx;
                             // this route's render can trigger a real

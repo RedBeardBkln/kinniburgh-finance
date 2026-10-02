@@ -541,3 +541,116 @@ describe("noteSaysDisregarded", () => {
     expect(noteSaysDisregarded(null)).toBe(false);
   });
 });
+
+// ── Pass 3: extraction basis on the Forms page ────────────────────────────────
+
+describe("extraction basis (verified / unverified AI / missing)", () => {
+  const w2Data = { data: { wagesCents: 100000, federalWithheldCents: 20000, stateWithheldCents: 5000 } };
+  const planInput = (verified: boolean) => ({
+    documents: [
+      { docType: "w2", extractionStatus: "complete", extractionData: w2Data, verified },
+    ],
+    questions: [],
+    ekConsultingPL: null,
+    suddenValleyPL: null,
+    ekConsultingMileageCount: 0,
+    solarLoanOriginalCostCents: null,
+  });
+
+  it("per-field basis and per-form counts: unverified W-2 -> Form 1040 fields counted as unverified AI", () => {
+    const data = buildFormsPageData(input({ formPlanInput: planInput(false) }));
+    const e = find(data, "form-1040");
+    expect(e.fields.find((f) => f.line === "Wages (line 1a)")?.basis).toBe("unverified");
+    expect(e.fields.find((f) => f.line === "Gifts to charity (line 11)")).toBeUndefined(); // that is Schedule A
+    expect(e.fieldsUnverified).toBe(2); // wages + withholding
+    expect(e.fieldsVerified).toBe(0);
+    expect(e.fieldsReady).toBe(2);
+    expect(e.missing).toHaveLength(e.fieldsTotal - 2);
+  });
+
+  it("a verified W-2 counts as verified, and verified + unverified + other + missing partition the total", () => {
+    const data = buildFormsPageData(input({ formPlanInput: planInput(true) }));
+    for (const e of allEntries(data)) {
+      if (e.fieldsTotal === 0) continue;
+      const accounted = e.fieldsVerified + e.fieldsUnverified + e.fieldsOtherSource + e.missing.length;
+      expect(accounted, e.id).toBe(e.fieldsTotal);
+    }
+    const e = find(data, "form-1040");
+    expect(e.fieldsVerified).toBe(2);
+    expect(e.fieldsUnverified).toBe(0);
+    expect(find(data, "ct-1040").fields.find((f) => f.line === "CT withholding (W-2 box 17)")?.basis).toBe("verified");
+  });
+
+  it("with no data every field is missing and no counts are claimed", () => {
+    const data = buildFormsPageData(input());
+    const e = find(data, "form-1040");
+    expect(e.fieldsVerified + e.fieldsUnverified + e.fieldsOtherSource).toBe(0);
+    expect(e.fields.every((f) => f.basis === "missing")).toBe(true);
+  });
+
+  it("property-tax lines are missing for a bill with no paid amount (and Schedule 3 copy no longer claims 'uploaded and processed')", () => {
+    const data = buildFormsPageData(
+      input({
+        formPlanInput: {
+          ...planInput(true),
+          documents: [{ docType: "property_tax", extractionStatus: "complete", extractionData: { data: {} }, verified: true }],
+        },
+      })
+    );
+    expect(find(data, "ct-schedule-3").fields[0]?.basis).toBe("missing");
+    expect(find(data, "ct-schedule-3").reason).not.toContain("uploaded and processed");
+    expect(find(data, "schedule-a").cpaNote ?? "").not.toContain("never yield a dollar amount");
+    expect(find(data, "schedule-a").cpaNote ?? "").toContain("paid in the tax year");
+  });
+
+  it("input refs carry the Documents-list extraction state, verified flag and review link", () => {
+    const extraction = {
+      kind: "extracted_unverified" as const,
+      label: "Extracted - needs review",
+      tone: "amber" as const,
+      actions: ["review" as const, "reextract" as const],
+      outdated: false,
+      correctionCount: 0,
+    };
+    const data = buildFormsPageData(
+      input({
+        documents: [
+          doc({ id: "x", docType: "w2", extraction, verified: false }),
+          doc({ id: "n", docType: "1099", extraction: { ...extraction, kind: "not_extracted", label: "Not extracted", actions: ["run"] } }),
+        ],
+      })
+    );
+    const refs = find(data, "form-1040").inputs;
+    const x = refs.find((r) => r.id === "x");
+    expect(x?.extraction?.label).toBe("Extracted - needs review");
+    expect(x?.reviewHref).toBe("/documents/x/review");
+    expect(x?.verified).toBe(false);
+    // nothing readable yet -> no review link (a Review page would offer a paid run)
+    expect(refs.find((r) => r.id === "n")?.reviewHref).toBeNull();
+  });
+
+  it("summarises this year's tax documents by extraction kind (policy included), skipping N/A and unknown ones", () => {
+    const base = { tone: "muted" as const, actions: [], outdated: false, correctionCount: 0 };
+    const data = buildFormsPageData(
+      input({
+        documents: [
+          doc({ id: "1", extraction: { ...base, kind: "verified", label: "Verified" } }),
+          doc({ id: "2", extraction: { ...base, kind: "extracted_outdated", label: "Extracted - older format", outdated: true } }),
+          doc({ id: "3", extraction: { ...base, kind: "extracted_unverified", label: "Extracted - needs review" } }),
+          doc({ id: "4", extraction: { ...base, kind: "failed", label: "Failed" } }),
+          doc({ id: "5", docType: "extension", extraction: { ...base, kind: "na", label: "N/A" } }),
+          doc({ id: "6", taxYear: 2024, extraction: { ...base, kind: "verified", label: "Verified" } }), // other year
+          doc({ id: "7" }), // no extraction state supplied
+        ],
+      })
+    );
+    expect(data.extractionBasis).toEqual({
+      policy: "verified_else_ai",
+      documentCount: 4,
+      verified: 1,
+      unverified: 2,
+      olderFormat: 1,
+      noReading: 1,
+    });
+  });
+});

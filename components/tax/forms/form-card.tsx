@@ -8,6 +8,17 @@ import {
   ReadinessBadge,
 } from "@/components/tax/forms/forms-badges";
 import { FormFieldList } from "@/components/tax/forms/form-field-list";
+import type { ExtractionTone } from "@/lib/document-extraction-state";
+
+// Same palette as the Documents list's Extraction badge (kept local: that map
+// lives in a "use client" module, which a server component must not import values from).
+const TONE_CLASS: Record<ExtractionTone, string> = {
+  muted: "border-border bg-muted text-muted-foreground",
+  blue: "border-blue-200 bg-blue-50 text-blue-700",
+  red: "border-red-200 bg-red-50 text-red-700",
+  amber: "border-amber-200 bg-amber-50 text-amber-700",
+  green: "border-green-200 bg-green-50 text-green-700",
+};
 
 // One form's card: why it is (or is not) needed + the citation, which uploaded
 // documents feed it, and how ready it is. Server-renderable; the missing-field
@@ -40,10 +51,24 @@ function InputRow({ input }: { input: FormInputRef }) {
           {input.issuerIsSuggestion && <span className="italic"> (suggested from document)</span>}
         </span>
       )}
-      {!input.extractionComplete && (
-        <span className="rounded-full border border-amber-300 px-1.5 py-0.5 text-[10px] text-amber-800">
-          extraction {input.extractionStatus ?? "not run"}
+      {input.extraction ? (
+        <span
+          className={`rounded-full border px-1.5 py-0.5 text-[10px] ${TONE_CLASS[input.extraction.tone]}`}
+          title={input.extraction.reason ?? input.extraction.hint}
+        >
+          {input.extraction.label}
         </span>
+      ) : (
+        !input.extractionComplete && (
+          <span className="rounded-full border border-amber-300 px-1.5 py-0.5 text-[10px] text-amber-800">
+            extraction {input.extractionStatus ?? "not run"}
+          </span>
+        )
+      )}
+      {input.reviewHref && (
+        <Link href={input.reviewHref as Route} prefetch={false} className="text-[10px] text-primary hover:underline">
+          {input.verified ? "View" : "Review"}
+        </Link>
       )}
     </li>
   );
@@ -89,6 +114,18 @@ export function FormCard({ entry }: { entry: FormEntry }) {
               {entry.fieldsReady}/{entry.fieldsTotal} fields have data
             </span>
           </div>
+          {entry.fieldsReady > 0 && (
+            <p className="text-[11px] text-muted-foreground" data-testid="basis-counts">
+              {[
+                entry.fieldsVerified > 0 ? `${entry.fieldsVerified} verified` : null,
+                entry.fieldsUnverified > 0 ? `${entry.fieldsUnverified} from unverified AI extraction` : null,
+                entry.fieldsOtherSource > 0 ? `${entry.fieldsOtherSource} from answers/books` : null,
+                `${entry.fieldsTotal - entry.fieldsReady} missing`,
+              ]
+                .filter((part): part is string => part !== null)
+                .join(" · ")}
+            </p>
+          )}
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
           </div>

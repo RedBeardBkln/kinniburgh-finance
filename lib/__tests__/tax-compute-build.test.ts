@@ -329,11 +329,15 @@ describe("sumItemizedDocInputs", () => {
     expect(result.notes.some((n) => n.includes("monthly-statement-vs-annual-1098"))).toBe(true);
   });
 
-  it("property_tax docs, any count including 0, -> always $0 + a note distinguishing the reason", () => {
+  // Pass 3: property tax = the owner-entered "paid in the tax year" amount (never AI-filled).
+  it("0 property_tax docs -> $0 + the '0 documents' note", () => {
     const zeroDocsResult = sumItemizedDocInputs([], 2025);
     expect(zeroDocsResult.propertyTaxCents).toBe(0);
+    expect(zeroDocsResult.propertyTaxDocCount).toBe(0);
     expect(zeroDocsResult.notes.some((n) => n.includes("0 property_tax documents"))).toBe(true);
+  });
 
+  it("a property_tax bill with no paid-in-year amount (legacy/bill only) contributes $0 and the note says to enter it", () => {
     const withDocs: ItemizedDocInput[] = [
       {
         id: "prop-tax-1",
@@ -343,10 +347,80 @@ describe("sumItemizedDocInputs", () => {
         extractionData: { docType: "other", summary: "Property tax bill", data: {} },
       },
     ];
-    const withDocsResult = sumItemizedDocInputs(withDocs, 2025);
-    expect(withDocsResult.propertyTaxCents).toBe(0);
-    expect(withDocsResult.propertyTaxDocCount).toBe(1);
-    expect(withDocsResult.notes.some((n) => n.includes("never yields a numeric field"))).toBe(true);
+    const result = sumItemizedDocInputs(withDocs, 2025);
+    expect(result.propertyTaxCents).toBe(0);
+    expect(result.propertyTaxDocCount).toBe(1);
+    expect(result.propertyTaxPaidDocCount).toBe(0);
+    expect(result.notes.some((n) => n.includes("no \"paid in the tax year\" amount yet"))).toBe(true);
+    // The stale pre-pass-3 wording is gone.
+    expect(result.notes.some((n) => n.includes("never yields a numeric field"))).toBe(false);
+  });
+
+  it("property_tax docs WITH a paid-in-year amount are summed (the deliberate number change)", () => {
+    const docs: ItemizedDocInput[] = [
+      {
+        id: "pt-1",
+        docType: "property_tax",
+        taxYear: 2025,
+        extractionStatus: "complete",
+        extractionData: {
+          data: { jurisdictionName: "Town of X", totalTaxBilledCents: 900000, paidInTaxYearCents: 450000 },
+        },
+        verified: true,
+      },
+      {
+        id: "pt-2",
+        docType: "property_tax",
+        taxYear: 2025,
+        extractionStatus: "complete",
+        extractionData: { data: { paidInTaxYearCents: 120050 } },
+      },
+      {
+        id: "pt-3",
+        docType: "property_tax",
+        taxYear: 2025,
+        extractionStatus: "complete",
+        extractionData: { data: { totalTaxBilledCents: 77700, paidInTaxYearCents: null } },
+      },
+      // other year / not complete: ignored
+      {
+        id: "pt-4",
+        docType: "property_tax",
+        taxYear: 2024,
+        extractionStatus: "complete",
+        extractionData: { data: { paidInTaxYearCents: 999999 } },
+      },
+      {
+        id: "pt-5",
+        docType: "property_tax",
+        taxYear: 2025,
+        extractionStatus: "failed",
+        extractionData: { data: { paidInTaxYearCents: 999999 } },
+      },
+    ];
+    const result = sumItemizedDocInputs(docs, 2025);
+    expect(result.propertyTaxCents).toBe(450000 + 120050);
+    expect(result.propertyTaxDocCount).toBe(3);
+    expect(result.propertyTaxPaidDocCount).toBe(2);
+    expect(result.unverifiedDocs.map((x) => x.id)).toEqual(["pt-2"]); // pt-1 verified; pt-3 contributes nothing
+    expect(result.notes.some((n) => n.includes("$5700.50"))).toBe(true);
+    expect(result.notes.some((n) => n.includes("1 property_tax document(s) uploaded"))).toBe(true);
+  });
+
+  it("1098 box 10 stays display-only: noted, never added to property tax or mortgage interest (plan Q2)", () => {
+    const docs: ItemizedDocInput[] = [
+      {
+        id: "1098",
+        docType: "mortgage_interest",
+        taxYear: 2025,
+        extractionStatus: "complete",
+        extractionData: { data: { servicerName: "PennyMac", interestCents: 1888269, box10Cents: 555500 } },
+      },
+    ];
+    const result = sumItemizedDocInputs(docs, 2025);
+    expect(result.propertyTaxCents).toBe(0);
+    expect(result.mortgageInterestCents).toBe(1888269);
+    expect(result.notes.some((n) => n.includes("box 10") && n.includes("NOT added to property tax"))).toBe(true);
   });
 });
 
