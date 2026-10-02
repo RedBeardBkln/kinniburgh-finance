@@ -40,3 +40,39 @@ export function widthAfterDrag(startWidth: number, deltaX: number): number {
 export function sameWidths(a: readonly number[], b: readonly number[]): boolean {
   return a.length === b.length && a.every((w, i) => w === b[i]);
 }
+
+// ── Split pane (document preview | form) ─────────────────────────────────────
+
+export const SPLIT_MIN_PERCENT = 25;
+export const SPLIT_MAX_PERCENT = 80;
+export const SPLIT_DEFAULT_PERCENT = 55;
+
+export function clampSplitPercent(percent: number): number {
+  if (!Number.isFinite(percent)) return SPLIT_DEFAULT_PERCENT;
+  return Math.min(SPLIT_MAX_PERCENT, Math.max(SPLIT_MIN_PERCENT, Math.round(percent * 10) / 10));
+}
+
+/** Split saved in localStorage, or the default for anything missing/invalid. */
+export function parseStoredSplit(raw: string | null): number {
+  if (raw === null || raw.trim() === "") return SPLIT_DEFAULT_PERCENT;
+  const n = Number(raw);
+  return Number.isFinite(n) ? clampSplitPercent(n) : SPLIT_DEFAULT_PERCENT;
+}
+
+/** Left-pane width (percent of the container) for a pointer at clientX. */
+export function splitPercentFromPointer(clientX: number, containerLeft: number, containerWidth: number): number {
+  if (!(containerWidth > 0)) return SPLIT_DEFAULT_PERCENT;
+  return clampSplitPercent(((clientX - containerLeft) / containerWidth) * 100);
+}
+
+// ── Image zoom (scanned documents in the preview pane) ───────────────────────
+
+/** Zoom is the image width as a percent of the pane: 100 = fit to the pane width. */
+export const IMAGE_ZOOM_MIN = 100;
+export const IMAGE_ZOOM_MAX = 400;
+export const IMAGE_ZOOM_STEP = 25;
+
+export function stepImageZoom(current: number, direction: 1 | -1): number {
+  const next = current + direction * IMAGE_ZOOM_STEP;
+  return Math.min(IMAGE_ZOOM_MAX, Math.max(IMAGE_ZOOM_MIN, next));
+}

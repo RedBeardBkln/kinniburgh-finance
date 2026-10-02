@@ -11,9 +11,11 @@ export { BUCKET_ENTITY_NAMES } from "@/lib/buckets";
 interface AppShellProps {
   children: React.ReactNode;
   userName?: string;
+  /** Let the page use (nearly) the full content width, e.g. side-by-side document review. */
+  wide?: boolean;
 }
 
-export async function AppShell({ children, userName }: AppShellProps) {
+export async function AppShell({ children, userName, wide }: AppShellProps) {
   const session = await auth();
   if (session?.user && !(session.user as { totpVerified?: boolean }).totpVerified) {
     redirect("/setup-2fa");
@@ -54,6 +56,7 @@ export async function AppShell({ children, userName }: AppShellProps) {
           taxEntityLinks={taxEntityLinks}
           taxFormsHref={taxFormsHref}
           taxMileageHref={taxMileageHref}
+          wide={wide}
         >
           {children}
         </AppShellNav>

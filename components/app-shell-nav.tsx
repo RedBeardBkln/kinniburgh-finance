@@ -14,6 +14,8 @@ interface AppShellNavProps {
   taxEntityLinks: TaxEntityLink[];
   taxFormsHref: string;
   taxMileageHref: string | null;
+  /** Use (nearly) the full content width instead of the default max-w-6xl column. */
+  wide?: boolean;
   children: React.ReactNode;
 }
 
@@ -26,6 +28,7 @@ export function AppShellNav({
   taxEntityLinks,
   taxFormsHref,
   taxMileageHref,
+  wide = false,
   children,
 }: AppShellNavProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -49,7 +52,7 @@ export function AppShellNav({
           taxMileageHref={taxMileageHref}
         />
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl px-6 py-6">{children}</div>
+          <div className={`mx-auto px-6 py-6 ${wide ? "max-w-[2000px]" : "max-w-6xl"}`}>{children}</div>
         </main>
       </div>
     </>

@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
@@ -14,6 +22,15 @@ import {
 import { EXTRACTION_TONE_CLASS } from "@/components/documents/extraction-cell";
 import type { ExtractionDisplay } from "@/lib/document-extraction-state";
 import { jsonEqual } from "@/lib/extraction-corrections";
+import {
+  IMAGE_ZOOM_MAX,
+  IMAGE_ZOOM_MIN,
+  SPLIT_DEFAULT_PERCENT,
+  clampSplitPercent,
+  parseStoredSplit,
+  splitPercentFromPointer,
+  stepImageZoom,
+} from "@/lib/resizable-columns";
 import {
   crossFieldWarnings,
   getTaxSchema,
@@ -54,6 +71,8 @@ interface Props {
   backHref: Route;
   backLabel: string;
 }
+
+const SPLIT_STORAGE_KEY = "tax-review-split-percent-v1";
 
 const REEXTRACT_CONFIRM =
   "Re-extract replaces the AI-read values with a fresh AI read (one API call). Your corrections are kept and still override it.";
@@ -100,6 +119,62 @@ export function TaxReviewClient({
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<"reextract" | null>(null);
+
+  // Side-by-side layout: the document pane's share of the width (draggable
+  // divider, remembered per browser) and the zoom of a scanned image.
+  const splitRef = useRef<HTMLDivElement>(null);
+  const splitDragging = useRef(false);
+  const [splitPercent, setSplitPercent] = useState(SPLIT_DEFAULT_PERCENT);
+  const [imageZoom, setImageZoom] = useState(IMAGE_ZOOM_MIN);
+
+  useEffect(() => {
+    // Read after mount so the server render and first client render agree.
+    try {
+      setSplitPercent(parseStoredSplit(window.localStorage.getItem(SPLIT_STORAGE_KEY)));
+    } catch {
+      /* storage unavailable: keep the default */
+    }
+  }, []);
+
+  function setSplit(percent: number, save: boolean) {
+    const next = clampSplitPercent(percent);
+    setSplitPercent(next);
+    if (save) {
+      try {
+        window.localStorage.setItem(SPLIT_STORAGE_KEY, String(next));
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  function percentForPointer(clientX: number): number {
+    const rect = splitRef.current?.getBoundingClientRect();
+    return rect ? splitPercentFromPointer(clientX, rect.left, rect.width) : SPLIT_DEFAULT_PERCENT;
+  }
+
+  function onSplitPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    splitDragging.current = true;
+  }
+
+  function onSplitPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (splitDragging.current) setSplit(percentForPointer(e.clientX), false);
+  }
+
+  function onSplitPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!splitDragging.current) return;
+    splitDragging.current = false;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    setSplit(percentForPointer(e.clientX), true);
+  }
+
+  function onSplitKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    setSplit(splitPercent + (e.key === "ArrowRight" ? 2 : -2), true);
+  }
 
   const stateLinesFilled = (drafts["stateLines"]?.rows.length ?? 0) > 0;
   const isVisible = (def: FieldDef) => !def.legacy || !stateLinesFilled;
@@ -205,23 +280,50 @@ export function TaxReviewClient({
   const working = isPending || busy !== null;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      {/* Document viewer */}
-      <div className="space-y-2 lg:sticky lg:top-4 lg:self-start">
-        <div className="flex items-center justify-between">
+    <div
+      ref={splitRef}
+      className="flex flex-col gap-6 lg:flex-row lg:gap-0"
+      style={{ "--split": `${splitPercent}%` } as CSSProperties}
+    >
+      {/* Document viewer: its width follows the draggable divider on wide screens */}
+      <div className="min-w-0 space-y-2 lg:sticky lg:top-4 lg:w-[var(--split)] lg:shrink-0 lg:self-start">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-medium">Document</h2>
-          {fileUrl && (
-            <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">
-              Open in new tab
-            </a>
-          )}
+          <div className="flex items-center gap-3">
+            {fileUrl && isImage && (
+              <span className="flex items-center gap-1 text-xs" aria-label="Zoom">
+                <button type="button" className={smallButton} onClick={() => setImageZoom((z) => stepImageZoom(z, -1))} disabled={imageZoom <= IMAGE_ZOOM_MIN} aria-label="Zoom out">
+                  −
+                </button>
+                <button type="button" className={smallButton} onClick={() => setImageZoom(IMAGE_ZOOM_MIN)} title="Fit the document to the pane width">
+                  {imageZoom}%
+                </button>
+                <button type="button" className={smallButton} onClick={() => setImageZoom((z) => stepImageZoom(z, 1))} disabled={imageZoom >= IMAGE_ZOOM_MAX} aria-label="Zoom in">
+                  +
+                </button>
+              </span>
+            )}
+            {fileUrl && (
+              <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">
+                Open in new tab
+              </a>
+            )}
+          </div>
         </div>
         {fileUrl ? (
           isImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={fileUrl} alt="Source document" className="max-h-[80vh] w-full rounded-md border object-contain" />
+            // The pane scrolls in both directions, so a zoomed-in scan can always
+            // be panned to its right-hand side.
+            <div className="h-[calc(100vh-9rem)] min-h-[24rem] overflow-auto rounded-md border bg-muted/20">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={fileUrl} alt="Source document" style={{ width: `${imageZoom}%`, maxWidth: "none" }} className="block h-auto" />
+            </div>
           ) : (
-            <iframe title="Source document" src={fileUrl} className="h-[80vh] w-full rounded-md border" />
+            <iframe
+              title="Source document"
+              src={fileUrl.includes("#") ? fileUrl : `${fileUrl}#view=FitH`}
+              className="h-[calc(100vh-9rem)] min-h-[24rem] w-full rounded-md border"
+            />
           )
         ) : (
           <p className="rounded-md border bg-muted/30 px-3 py-6 text-center text-sm text-muted-foreground">
@@ -229,12 +331,31 @@ export function TaxReviewClient({
           </p>
         )}
         <p className="text-xs text-muted-foreground">
-          If the document does not appear above, use Open in new tab and compare the values side by side.
+          Drag the divider to resize this pane. If the document does not appear above, use Open in new tab and compare the
+          values side by side.
         </p>
       </div>
 
+      {/* Draggable divider (side-by-side layout only) */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the document pane"
+        tabIndex={0}
+        title="Drag to resize · double-click to reset"
+        onPointerDown={onSplitPointerDown}
+        onPointerMove={onSplitPointerMove}
+        onPointerUp={onSplitPointerUp}
+        onPointerCancel={onSplitPointerUp}
+        onKeyDown={onSplitKeyDown}
+        onDoubleClick={() => setSplit(SPLIT_DEFAULT_PERCENT, true)}
+        className="hidden w-3 shrink-0 cursor-col-resize touch-none select-none items-center justify-center lg:flex"
+      >
+        <div className="h-16 w-1 rounded bg-border" />
+      </div>
+
       {/* Review form */}
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4 lg:flex-1 lg:pl-3">
         <div className={`rounded-lg border px-4 py-3 text-sm ${EXTRACTION_TONE_CLASS[display.tone]}`}>
           <p className="font-medium">
             {docTypeLabel}: {display.label}

@@ -267,7 +267,7 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
   }
 
   return (
-    <AppShell userName={session.user.name ?? undefined}>
+    <AppShell userName={session.user.name ?? undefined} wide={showReview && !!taxSchemaType}>
       <div className="space-y-6">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           {entity && entity.type === "business" ? (

@@ -186,6 +186,19 @@ const TEXT_ITEM = (key: string, label: string, extra: Partial<ScalarFieldSpec> =
 const STATE_CODE_PATTERN = /^[A-Z]{2}$/;
 const BOX12_CODE_PATTERN = /^[A-Z]{1,2}$/;
 
+/**
+ * Every Box 12 code the IRS lists on Form W-2 (General Instructions for Forms
+ * W-2 and W-3, "Box 12 - Codes", https://www.irs.gov/instructions/iw2w3, read
+ * 2026-10-02 - that page is the TY2026 edition: TA, TP and TT are new for 2026
+ * W-2s; every other code is also valid on 2025 forms). A code outside this set
+ * (e.g. "CT") is almost certainly a box 14 / state line read into the wrong box,
+ * so the review page warns about it rather than trusting it.
+ */
+export const W2_BOX12_VALID_CODES: ReadonlySet<string> = new Set([
+  "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P", "Q", "R", "S", "T",
+  "V", "W", "Y", "Z", "AA", "BB", "DD", "EE", "FF", "GG", "HH", "II", "TA", "TP", "TT",
+]);
+
 // ── W-2 ───────────────────────────────────────────────────────────────────────
 
 const W2_SCHEMA: TaxSchema = {
@@ -910,8 +923,14 @@ export function crossFieldWarnings(
     if (Array.isArray(lines)) {
       for (const line of lines) {
         const code = isRecord(line) ? line.code : null;
-        if (typeof code === "string" && !BOX12_CODE_PATTERN.test(code)) {
+        if (typeof code !== "string") continue;
+        const upper = code.trim().toUpperCase();
+        if (!BOX12_CODE_PATTERN.test(upper) && !W2_BOX12_VALID_CODES.has(upper)) {
           out.push(`Box 12 code "${code}" is not a 1-2 letter code.`);
+        } else if (!W2_BOX12_VALID_CODES.has(upper)) {
+          out.push(
+            `Box 12 code "${code}" is not a code the IRS lists for Form W-2. It may be a box 14 or state line that was read into box 12 - check the document, and remove or correct it.`
+          );
         }
       }
     }
@@ -1059,6 +1078,7 @@ const TYPE_RULES: Partial<Record<TaxSchemaDocType, string[]>> = {
   ],
   w2: [
     "- Put each box 12 line (code and amount) in box12, each box 14 line in box14, and each state/local line in stateLines/localLines. Do not repeat box 17 anywhere else.",
+    "- box12 takes ONLY the lettered IRS codes printed in box 12 itself (A-H, J-N, P-T, V, W, Y, Z, AA, BB, DD-II, TA, TP, TT). A state or employer item such as 'CT', 'CT PFL', 'CTPL', 'NYSDI' or a state paid-leave amount is NOT a box 12 code: put it in box14 (or the state lines), never in box12. If box 12 is empty, return an empty box12 list.",
   ],
   k1: [
     "- partnerSharePct is the ownership percentage as a number from 0 to 100. Amounts can be negative (losses).",

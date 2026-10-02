@@ -21,6 +21,7 @@ import {
   sumInstallmentsDueInYear,
   usableSignalKeys,
   validateCorrections,
+  W2_BOX12_VALID_CODES,
 } from "@/lib/tax-extraction-schema";
 
 const SSN_ANYWHERE = /\b\d{3}-?\d{2}-?\d{4}\b/;
@@ -645,6 +646,29 @@ describe("crossFieldWarnings (non-blocking)", () => {
     expect(
       crossFieldWarnings("w2", { stateLines: [{ stateCode: null, stateWithheldCents: 1 }] }).some((x) => /state code/.test(x))
     ).toBe(true);
+  });
+  it("flags a Box 12 code the IRS does not list (the live 'CT' misread) but accepts every listed code", () => {
+    const ct = crossFieldWarnings("w2", { box12: [{ code: "CT", amountCents: 21654 }] });
+    expect(ct).toHaveLength(1);
+    expect(ct[0]).toMatch(/"CT".*not a code the IRS lists.*box 14/);
+    // The two real live codes stay silent: D (401k deferrals) and every listed code.
+    expect(crossFieldWarnings("w2", { box12: [{ code: "D", amountCents: 54089 }] })).toEqual([]);
+    for (const code of W2_BOX12_VALID_CODES) {
+      expect(crossFieldWarnings("w2", { box12: [{ code, amountCents: 1 }] })).toEqual([]);
+    }
+    // Lower-case / padded input is compared case-insensitively.
+    expect(crossFieldWarnings("w2", { box12: [{ code: " dd ", amountCents: 1 }] })).toEqual([]);
+  });
+  it("lists exactly the IRS Box 12 codes (A-H, J-N, P-T, V, W, Y, Z, AA, BB, DD-II, TA, TP, TT) and not I, O, U, X or state-style codes", () => {
+    expect([...W2_BOX12_VALID_CODES].sort()).toEqual(
+      ["A","AA","B","BB","C","D","DD","E","EE","F","FF","G","GG","H","HH","II","J","K","L","M","N","P","Q","R","S","T","TA","TP","TT","V","W","Y","Z"].sort()
+    );
+    for (const bad of ["I", "O", "U", "X", "CT", "PFL", "NY"]) expect(W2_BOX12_VALID_CODES.has(bad)).toBe(false);
+  });
+  it("tells the model that state items belong in box 14, not box 12", () => {
+    const prompt = buildTaxExtractionPrompt("w2");
+    expect(prompt).toMatch(/ONLY the lettered IRS codes/);
+    expect(prompt).toMatch(/'CT'/);
   });
   it("flags installments that do not add up to the total billed", () => {
     const data = { totalTaxBilledCents: 600000, installments: [{ amountCents: 300000 }, { amountCents: 200000 }] };

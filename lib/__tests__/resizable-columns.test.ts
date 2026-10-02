@@ -62,3 +62,46 @@ describe("sameWidths", () => {
     expect(sameWidths([1, 2], [1, 2, 3])).toBe(false);
   });
 });
+
+import {
+  IMAGE_ZOOM_MAX,
+  IMAGE_ZOOM_MIN,
+  SPLIT_DEFAULT_PERCENT,
+  SPLIT_MAX_PERCENT,
+  SPLIT_MIN_PERCENT,
+  clampSplitPercent,
+  parseStoredSplit,
+  splitPercentFromPointer,
+  stepImageZoom,
+} from "@/lib/resizable-columns";
+
+describe("split pane", () => {
+  it("clamps the split to its limits and falls back on junk", () => {
+    expect(clampSplitPercent(5)).toBe(SPLIT_MIN_PERCENT);
+    expect(clampSplitPercent(99)).toBe(SPLIT_MAX_PERCENT);
+    expect(clampSplitPercent(60)).toBe(60);
+    expect(clampSplitPercent(Number.NaN)).toBe(SPLIT_DEFAULT_PERCENT);
+  });
+  it("parses a stored split, defaulting when absent or invalid", () => {
+    expect(parseStoredSplit(null)).toBe(SPLIT_DEFAULT_PERCENT);
+    expect(parseStoredSplit("")).toBe(SPLIT_DEFAULT_PERCENT);
+    expect(parseStoredSplit("abc")).toBe(SPLIT_DEFAULT_PERCENT);
+    expect(parseStoredSplit("62.5")).toBe(62.5);
+    expect(parseStoredSplit("5")).toBe(SPLIT_MIN_PERCENT);
+  });
+  it("converts a pointer position into a left-pane percentage", () => {
+    expect(splitPercentFromPointer(600, 100, 1000)).toBe(50);
+    expect(splitPercentFromPointer(0, 100, 1000)).toBe(SPLIT_MIN_PERCENT);
+    expect(splitPercentFromPointer(5000, 100, 1000)).toBe(SPLIT_MAX_PERCENT);
+    expect(splitPercentFromPointer(600, 100, 0)).toBe(SPLIT_DEFAULT_PERCENT);
+  });
+});
+
+describe("image zoom", () => {
+  it("steps within the limits", () => {
+    expect(stepImageZoom(100, 1)).toBe(125);
+    expect(stepImageZoom(100, -1)).toBe(IMAGE_ZOOM_MIN);
+    expect(stepImageZoom(IMAGE_ZOOM_MAX, 1)).toBe(IMAGE_ZOOM_MAX);
+    expect(stepImageZoom(200, -1)).toBe(175);
+  });
+});
