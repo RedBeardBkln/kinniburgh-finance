@@ -160,12 +160,12 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Type</th>
+                  <th className="px-4 py-3 font-medium">Document Type</th>
+                  <th className="px-4 py-3 font-medium">Document Name</th>
                   <th className="px-4 py-3 font-medium">Bucket</th>
                   <th className="px-4 py-3 font-medium">Pertains to</th>
                   <th className="px-4 py-3 font-medium">Issuer / payer</th>
                   <th className="px-4 py-3 font-medium">Year</th>
-                  <th className="px-4 py-3 font-medium">Notes</th>
                   <th className="px-4 py-3 font-medium">Extraction</th>
                   <th className="px-4 py-3 font-medium">Uploaded</th>
                   <th className="px-4 py-3" />
@@ -188,11 +188,14 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                         <span className={`inline-block rounded border px-2 py-0.5 text-xs font-medium ${DOC_TYPE_COLORS[doc.docType] ?? DOC_TYPE_COLORS.other}`}>
                           {DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
                         </span>
-                        {doc.documentName && (
-                          <span className="mt-0.5 block max-w-[16rem] truncate text-xs text-muted-foreground" title={doc.documentName}>
-                            {doc.documentName}
-                          </span>
-                        )}
+                      </td>
+                      {/* Falls back to the legacy upload note for documents that
+                          have no generated name, so nothing previously visible is lost. */}
+                      <td
+                        className="px-4 py-2 text-xs max-w-sm truncate"
+                        title={doc.documentName ?? doc.notes ?? undefined}
+                      >
+                        {doc.documentName ?? doc.notes ?? <span className="text-muted-foreground">—</span>}
                       </td>
                       <td className="px-4 py-2 text-xs text-muted-foreground">
                         {doc.entity.name.split(",")[0]}
@@ -207,9 +210,6 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                       />
                       <td className="px-4 py-2 text-xs">
                         {doc.taxYear ?? "—"}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-muted-foreground max-w-xs truncate">
-                        {doc.notes ?? "—"}
                       </td>
                       <td className="px-4 py-2 text-xs">
                         {extractable ? (
