@@ -269,6 +269,32 @@ export interface TaxOpportunity {
   forms: string[];
 }
 
+// ── Sudden Valley is only relevant from the year it exists ───────────────────
+//
+// Sudden Valley Property Management was formed in Feb 2026 and first rented in
+// Apr 2026, so nothing about its rental is a requirement for any earlier tax
+// year. These keys are the planning questions and opportunities that exist ONLY
+// because of that rental; for a year when Sudden Valley is not active they are
+// left out (never deleted - answers already saved are kept untouched).
+export const SUDDEN_VALLEY_ONLY_QUESTION_KEYS: readonly string[] = ["rental_property_use"];
+export const SUDDEN_VALLEY_ONLY_OPPORTUNITY_KEYS: readonly string[] = [
+  "rental_depreciation",
+  "short_term_rental_loophole",
+];
+
+/**
+ * Drops the Sudden Valley-only questions/opportunities when Sudden Valley is not
+ * active for the tax year being viewed. Works on anything with a `key`.
+ */
+export function withoutSuddenValleyItems<T extends { key: string }>(
+  items: readonly T[],
+  suddenValleyActive: boolean
+): T[] {
+  if (suddenValleyActive) return [...items];
+  const hidden = new Set<string>([...SUDDEN_VALLEY_ONLY_QUESTION_KEYS, ...SUDDEN_VALLEY_ONLY_OPPORTUNITY_KEYS]);
+  return items.filter((item) => !hidden.has(item.key));
+}
+
 /**
  * The household's known facts (from specs/documents) power suggestions before
  * the user answers anything. Never fabricates amounts — only names what to check.

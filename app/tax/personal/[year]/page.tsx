@@ -10,7 +10,9 @@ import {
   evaluateAnswers,
   formatOpportunityForDisplay,
   REFUND_OBJECTIVE_STATEMENT,
+  withoutSuddenValleyItems,
 } from "@/lib/tax-guidance";
+import { isSuddenValleyActiveForYear } from "@/lib/sudden-valley-year";
 import { PersonalTaxClient } from "@/components/tax/personal-tax-client";
 import { buildPersonalTaxComputeInput, findUnparseableExtractions } from "@/lib/tax-compute-build";
 import { computePersonalTaxReturn } from "@/lib/tax-compute";
@@ -35,7 +37,11 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
   const workspaceId = await ensurePersonalWorkspace(year);
   const workspace = await getTaxWorkspace(workspaceId);
 
-  const [questions, people, allDocs] = await Promise.all([
+  // Sudden Valley (formed Feb 2026) only matters from its first year: for earlier
+  // years its rental question and rental opportunities are not shown at all.
+  const suddenValleyActive = await isSuddenValleyActiveForYear(year);
+
+  const [allQuestions, people, allDocs] = await Promise.all([
     db.taxQuestion.findMany({
       where: { workspaceId },
       orderBy: { createdAt: "asc" },
@@ -50,6 +56,8 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
   const docs = allDocs.filter((d) => d.taxYear === year);
   const otherYearDocs = allDocs.filter((d) => d.taxYear !== year);
 
+  const questions = withoutSuddenValleyItems(allQuestions, suddenValleyActive);
+
   // Evaluate which opportunities the answers act on / exclude
   const answerMap: Record<string, unknown> = {};
   for (const q of questions) {
@@ -57,7 +65,7 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
   }
   const { excluded, actOn } = evaluateAnswers(answerMap);
 
-  const baseOps = baseOpportunitiesForHousehold().map((op) => {
+  const baseOps = withoutSuddenValleyItems(baseOpportunitiesForHousehold(), suddenValleyActive).map((op) => {
     const display = formatOpportunityForDisplay(op);
     const isExcluded = excluded.includes(op.key);
     const isActOn = actOn.includes(op.key);

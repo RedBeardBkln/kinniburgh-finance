@@ -323,6 +323,17 @@ describe("Sudden Valley and Mezzo", () => {
     expect(ids(2026)).toContain("form-8582");
   });
 
+  it("Schedule E carries the 2025-renovation CPA note in Sudden Valley's first year (2026) only", () => {
+    const e2026 = find(buildFormsPageData(input({ taxYear: 2026 })), "schedule-e");
+    expect(e2026.cpaNote).toMatch(/2025 renovation/);
+    expect(e2026.cpaNote).toMatch(/CPA question/);
+    // It frames a question for the CPA; it does not claim a deduction amount or decide the treatment.
+    expect(e2026.cpaNote).not.toMatch(/\$\d/);
+    // A later year is not the first year, so no note.
+    const e2027 = find(buildFormsPageData(input({ taxYear: 2027 })), "schedule-e");
+    expect(e2027.cpaNote).toBeNull();
+  });
+
   it("Schedule 1 and Form 1040 keep the rental line and Sudden Valley wording for TY2026", () => {
     const data = buildFormsPageData(input({ taxYear: 2026 }));
     const f1040 = data.federal.find((e) => e.id === "form-1040");

@@ -18,7 +18,8 @@ import { generateDocumentName } from "@/lib/doc-naming";
 import { validateAttribution, type ValidAttribution } from "@/lib/document-attribution";
 import { parseModelJson } from "@/lib/model-json";
 import { buildModelDocLine } from "@/lib/tax-extraction-policy";
-import { TAX_QUESTION_BANK, baseOpportunitiesForHousehold } from "@/lib/tax-guidance";
+import { TAX_QUESTION_BANK, baseOpportunitiesForHousehold, withoutSuddenValleyItems } from "@/lib/tax-guidance";
+import { isSuddenValleyActiveForYear } from "@/lib/sudden-valley-year";
 import {
   MAX_SIZE_BYTES,
   buildTaxDocumentFileKey,
@@ -520,12 +521,16 @@ export async function generateTaxReview(workspaceId: string): Promise<
     )
     .join("\n");
 
-  const answers = workspace.questions
+  // Sudden Valley (formed Feb 2026) is not part of any earlier year's review:
+  // leave its rental answers and rental opportunities out of what the model sees.
+  const suddenValleyActive = await isSuddenValleyActiveForYear(workspace.taxYear);
+
+  const answers = withoutSuddenValleyItems(workspace.questions, suddenValleyActive)
     .filter((q) => q.answer !== null)
     .map((q) => `- ${q.key}: ${JSON.stringify(q.answer)}`)
     .join("\n");
 
-  const baseOps = baseOpportunitiesForHousehold();
+  const baseOps = withoutSuddenValleyItems(baseOpportunitiesForHousehold(), suddenValleyActive);
 
   const systemPrompt = `You are the tax preparation assistant inside the Kinniburgh family's private financial platform. The household's directive: maximize the federal and state refund and avoid owing additional tax, using every deduction, credit, and election the tax law legitimately allows.
 

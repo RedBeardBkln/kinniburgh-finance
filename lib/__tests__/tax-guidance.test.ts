@@ -6,6 +6,9 @@ import {
   formatOpportunityForDisplay,
   PERSONAL_FORM_PLAN,
   REFUND_OBJECTIVE_STATEMENT,
+  SUDDEN_VALLEY_ONLY_OPPORTUNITY_KEYS,
+  SUDDEN_VALLEY_ONLY_QUESTION_KEYS,
+  withoutSuddenValleyItems,
 } from "@/lib/tax-guidance";
 
 // ── Question bank integrity ──────────────────────────────────────────────────
@@ -156,5 +159,36 @@ describe("REFUND_OBJECTIVE_STATEMENT", () => {
   it("states the maximize-refund objective honestly", () => {
     expect(REFUND_OBJECTIVE_STATEMENT).toMatch(/deduction and credit the law allows/);
     expect(REFUND_OBJECTIVE_STATEMENT).toMatch(/penalties/i);
+  });
+});
+
+// -- Sudden Valley only matters from the year it exists -------------------------
+
+describe("withoutSuddenValleyItems", () => {
+  it("every Sudden Valley-only key refers to a real question / opportunity", () => {
+    const questionKeys = TAX_QUESTION_BANK.map((q) => q.key);
+    for (const k of SUDDEN_VALLEY_ONLY_QUESTION_KEYS) expect(questionKeys).toContain(k);
+    const opKeys = baseOpportunitiesForHousehold().map((o) => o.key);
+    for (const k of SUDDEN_VALLEY_ONLY_OPPORTUNITY_KEYS) expect(opKeys).toContain(k);
+  });
+
+  it("drops the rental question and rental opportunities when Sudden Valley is not active", () => {
+    const qs = withoutSuddenValleyItems(TAX_QUESTION_BANK, false).map((q) => q.key);
+    expect(qs).not.toContain("rental_property_use");
+    const ops = withoutSuddenValleyItems(baseOpportunitiesForHousehold(), false).map((o) => o.key);
+    expect(ops).not.toContain("rental_depreciation");
+    expect(ops).not.toContain("short_term_rental_loophole");
+    // Everything unrelated to the rental stays.
+    expect(ops).toContain("mortgage_interest");
+    expect(qs).toContain("business_mileage");
+    expect(qs.length).toBe(TAX_QUESTION_BANK.length - SUDDEN_VALLEY_ONLY_QUESTION_KEYS.length);
+  });
+
+  it("keeps everything when Sudden Valley is active, and never mutates its input", () => {
+    const all = baseOpportunitiesForHousehold();
+    const before = all.map((o) => o.key);
+    expect(withoutSuddenValleyItems(all, true).map((o) => o.key)).toEqual(before);
+    withoutSuddenValleyItems(all, false);
+    expect(all.map((o) => o.key)).toEqual(before);
   });
 });

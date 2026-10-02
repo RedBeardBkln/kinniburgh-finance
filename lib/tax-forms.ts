@@ -20,6 +20,7 @@ import {
   baseOpportunitiesForHousehold,
   evaluateAnswers,
   formatOpportunityForDisplay,
+  SUDDEN_VALLEY_ONLY_OPPORTUNITY_KEYS,
   type FormPlan,
 } from "@/lib/tax-guidance";
 import {
@@ -259,11 +260,18 @@ const SV_ONLY_PLAN_LINES: ReadonlySet<string> = new Set(["Rental income (Schedul
 
 /**
  * CPA_INPUT_FORMS entries whose only driver is Sudden Valley's rental (Form 4562
- * rental depreciation, Form 8582 rental passive-loss limits). Keyed by the
- * entry's opportunityKey. Home office (8829) etc. are EK Consulting / household
- * matters and always stay.
+ * rental depreciation, Form 8582 rental passive-loss limits), keyed by the
+ * entry's opportunityKey - the shared list in lib/tax-guidance.ts. Home office
+ * (8829) etc. are EK Consulting / household matters and always stay.
  */
-const SV_ONLY_CPA_OPPORTUNITIES: ReadonlySet<string> = new Set(["rental_depreciation", "short_term_rental_loophole"]);
+const SV_ONLY_CPA_OPPORTUNITIES: ReadonlySet<string> = new Set(SUDDEN_VALLEY_ONLY_OPPORTUNITY_KEYS);
+
+/**
+ * Shown on Sudden Valley's FIRST tax year only. Renovation money was spent in the
+ * year before the rental began; the app does not decide how it is treated.
+ */
+const SV_FIRST_YEAR_RENOVATION_NOTE =
+  "First year of the rental. Money spent renovating the property before it was first rented (2025) is generally not a deduction on the earlier year's return; whether and how it is added to the property's basis for depreciation is a CPA question — bring the 2025 renovation invoices and proof of payment.";
 
 const SLUG_EKC = "ek-consulting";
 const SLUG_SV = "sudden-valley";
@@ -674,6 +682,10 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
         ]
       : [],
     confirmWithCpa: svActive && !classificationConfirmed,
+    cpaNote:
+      svActive && sv?.foundedDate && sv.foundedDate.getUTCFullYear() === taxYear
+        ? SV_FIRST_YEAR_RENOVATION_NOTE
+        : null,
   });
 
   // Form 5695
