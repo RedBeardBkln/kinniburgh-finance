@@ -36,7 +36,10 @@ export async function AppShell({ children, userName }: AppShellProps) {
     .filter((b) => b.type !== "taxes" && b.type !== "projects" && b.id !== null)
     .map((b) => ({ id: b.id as string, slug: b.slug, label: b.label }));
   const taxEntityLinks = await getTaxEntityLinks(entityBuckets, currentYear);
-  const taxFormsHref = `/tax/personal/${currentYear}`;
+  // Points at the index (which redirects to the current year) rather than a
+  // fixed year, so the sidebar's startsWith() highlight also matches
+  // /tax/forms/2025, /tax/forms/2024, etc.
+  const taxFormsHref = "/tax/forms";
   const taxMileageHref = businessSlugs.length > 0 ? `/business/${businessSlugs[0]}/mileage` : null;
 
   return (

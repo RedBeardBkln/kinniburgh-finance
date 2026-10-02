@@ -2,11 +2,14 @@
 
 import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type { Route } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
 import { TaxDocumentUpload, type DocumentRow } from "@/components/tax/tax-document-upload";
 import { OtherYearDocuments, type OtherYearDocument } from "@/components/tax/other-year-documents";
+import type { PersonRef } from "@/lib/document-attribution";
 import { TaxDraftNumbers, type MistaggedDocRef } from "@/components/tax/tax-draft-numbers";
 import {
   isPromotedTaxQuestion,
@@ -45,19 +48,6 @@ interface Opportunity {
   isActOn: boolean;
 }
 
-interface FormField {
-  line: string;
-  source: string;
-  haveData: boolean;
-}
-
-interface FormPlan {
-  formName: string;
-  purpose: string;
-  whereToGet: string;
-  fields: FormField[];
-}
-
 interface Props {
   workspaceId: string;
   entityId: string;
@@ -67,8 +57,9 @@ interface Props {
   questions: Question[];
   documents: DocumentRow[];
   otherYearDocs: OtherYearDocument[];
+  /** Household members (id + name only) for document attribution. */
+  people: PersonRef[];
   opportunities: Opportunity[];
-  formPlan: FormPlan[];
   refundObjective: string;
   unansweredCount: number;
   taxDraft: SerializedTaxDraft | null;
@@ -188,10 +179,11 @@ export function PersonalTaxClient(props: Props) {
         entityId={props.entityId}
         taxYear={props.taxYear}
         documents={props.documents}
+        people={props.people}
         flaggedDocumentIds={flaggedDocumentIds}
       />
 
-      <OtherYearDocuments documents={props.otherYearDocs} />
+      <OtherYearDocuments workspaceId={props.workspaceId} documents={props.otherYearDocs} people={props.people} />
 
       {/* 2. Planning questions */}
       <Card>
@@ -437,46 +429,23 @@ export function PersonalTaxClient(props: Props) {
         </CardContent>
       </Card>
 
-      {/* 5. Form autofill plan */}
+      {/* 5. Forms — the per-year Forms page replaces the old inline plan */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">5 · Forms &amp; autofill plan</CardTitle>
+          <CardTitle className="text-base">5 · Forms</CardTitle>
           <p className="text-xs text-muted-foreground">
-            The forms your {props.taxYear} situation requires, where to get them, and what the
-            platform will autofill vs. what it still needs from you. Nothing is filed automatically —
-            your CPA reviews and signs.
+            The forms your {props.taxYear} situation requires, why each is needed, which documents feed
+            it, and how ready it is now live on the Forms page. Nothing is filed automatically — your
+            CPA reviews and signs.
           </p>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {props.formPlan.map((form) => (
-            <div key={form.formName} className="rounded-lg border p-3">
-              <p className="text-sm font-medium">{form.formName}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{form.purpose}</p>
-              <p className="mt-1 text-xs">
-                <span className="font-medium">Where:</span> {form.whereToGet}
-              </p>
-              <div className="mt-2 space-y-1">
-                {form.fields.map((f, i) => (
-                  <div key={i} className="flex items-start gap-2 text-xs">
-                    <span
-                      className={`mt-0.5 inline-block h-1.5 w-1.5 rounded-full shrink-0 ${
-                        f.haveData ? "bg-green-600" : "bg-amber-500"
-                      }`}
-                    />
-                    <span>
-                      <span className="font-medium">{f.line}:</span>{" "}
-                      <span className="text-muted-foreground">{f.source}</span>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-          <p className="text-xs text-muted-foreground">
-            Fields the platform can&apos;t yet fill are marked with an amber dot — answer the planning
-            questions and upload the matching documents to turn them green. Once every field is
-            sourced, the CPA bundle export from the workspace carries the values.
-          </p>
+        <CardContent>
+          <Link
+            href={`/tax/forms/${props.taxYear}` as Route}
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            Open the {props.taxYear} Forms page →
+          </Link>
         </CardContent>
       </Card>
 

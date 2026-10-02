@@ -14,6 +14,13 @@ import {
 } from "@/actions/tax-planning";
 import { archiveDocument, triggerExtraction } from "@/actions/documents";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
+import { DocumentAttributionCells } from "@/components/documents/document-attribution-editor";
+import {
+  ISSUER_MAX_LENGTH,
+  attributionLabel,
+  selectValueToSubject,
+  type PersonRef,
+} from "@/lib/document-attribution";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,12 +31,20 @@ export interface DocumentRow {
   notes: string | null;
   extractionStatus: string | null;
   createdAt: string;
+  /** Attribution (who it pertains to + issuer). Null = Unassigned / not set. */
+  subjectType: string | null;
+  subjectUserId: string | null;
+  issuerName: string | null;
+  /** Read-time suggestion from extraction; never auto-saved. */
+  suggestedIssuer: string | null;
 }
 
 interface Props {
   entityId: string;
   taxYear: number;
   documents: DocumentRow[];
+  /** Household members (id + name only) for the person picker. */
+  people?: PersonRef[];
   /** Document ids findUnparseableExtractions flagged as an unparseable/likely
    *  -mistagged extraction — defaults to [] (no behavior change for any
    *  existing caller). Drives a per-row anchor + amber highlight so
@@ -56,9 +71,16 @@ const DOC_TYPE_OPTIONS = [
 // upload precedent's concurrency value.
 const BATCH_CONCURRENCY_LIMIT = 4;
 
-type TaxDocType =
+export type TaxDocType =
   | "w2" | "1099" | "k1" | "extension" | "property_tax"
   | "mortgage_interest" | "tax_return" | "bank_statement" | "other";
+
+/** Optional attribution applied to an uploaded file (all null = Unassigned). */
+export interface UploadAttribution {
+  subjectType: string | null;
+  subjectUserId: string | null;
+  issuerName: string | null;
+}
 
 /**
  * Runs the 3-step direct-to-storage upload flow for a single tax document:
@@ -66,14 +88,16 @@ type TaxDocType =
  * → finalize (creates the Document row, runs extraction inline for
  * extractable docTypes — in both single-file and batch mode). Returns a
  * UploadBatchResult-shaped object so summarizeUploadBatch keeps working
- * unmodified.
+ * unmodified. Exported so /documents' upload form reuses this exact flow for
+ * tax docTypes instead of duplicating it.
  */
-async function uploadFile(
+export async function uploadTaxFile(
   file: File,
   entityId: string,
   taxYear: number,
   docType: TaxDocType,
-  notes: string | undefined
+  notes: string | undefined,
+  attribution?: UploadAttribution
 ): Promise<UploadBatchResult> {
   const fileName = file.name || "file";
 
@@ -107,6 +131,9 @@ async function uploadFile(
       taxYear,
       docType,
       notes,
+      subjectType: attribution?.subjectType ?? null,
+      subjectUserId: attribution?.subjectUserId ?? null,
+      issuerName: attribution?.issuerName ?? null,
     });
     if (!finalized.ok) throw new Error(finalized.error);
 
@@ -133,7 +160,7 @@ function fmtDate(iso: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function TaxDocumentUpload({ entityId, taxYear, documents, flaggedDocumentIds = [] }: Props) {
+export function TaxDocumentUpload({ entityId, taxYear, documents, people = [], flaggedDocumentIds = [] }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
 
@@ -164,13 +191,20 @@ export function TaxDocumentUpload({ entityId, taxYear, documents, flaggedDocumen
 
     const docType = formData.get("docType") as TaxDocType;
     const notes = formData.get("notes")?.toString().trim() || undefined;
+    // One person + issuer for the whole batch (applied to every file).
+    const { subjectType, subjectUserId } = selectValueToSubject(formData.get("subject")?.toString() ?? "");
+    const attribution: UploadAttribution = {
+      subjectType,
+      subjectUserId,
+      issuerName: formData.get("issuerName")?.toString().trim() || null,
+    };
 
     setUploading(true);
     try {
       const results = await runWithConcurrencyLimit(
         files,
         BATCH_CONCURRENCY_LIMIT,
-        (file) => uploadFile(file, entityId, taxYear, docType, notes)
+        (file) => uploadTaxFile(file, entityId, taxYear, docType, notes, attribution)
       );
       setUploadMsg(summarizeUploadBatch(results));
       formEl.reset();
@@ -223,6 +257,34 @@ export function TaxDocumentUpload({ entityId, taxYear, documents, flaggedDocumen
               ))}
             </select>
           </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium">Pertains to</label>
+            <select
+              name="subject"
+              defaultValue=""
+              className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">Unassigned</option>
+              {people.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+              <option value="joint">
+                {attributionLabel({ subjectType: "joint", subjectUser: null }, people).label}
+              </option>
+            </select>
+          </div>
+          <div className="space-y-1 sm:col-span-3">
+            <label className="text-xs font-medium">
+              Issuer / payer <span className="font-normal text-muted-foreground">optional, e.g. employer or lender</span>
+            </label>
+            <input
+              name="issuerName"
+              type="text"
+              maxLength={ISSUER_MAX_LENGTH}
+              placeholder="e.g. Alpine Bio"
+              className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            />
+          </div>
           <input type="hidden" name="entityId" value={entityId} />
           <input type="hidden" name="taxYear" value={taxYear} />
           <button
@@ -247,6 +309,8 @@ export function TaxDocumentUpload({ entityId, taxYear, documents, flaggedDocumen
                 <tr className="border-b text-left text-muted-foreground">
                   <th className="py-2 font-medium">Document</th>
                   <th className="py-2 px-3 font-medium">Type</th>
+                  <th className="py-2 px-3 font-medium">Pertains to</th>
+                  <th className="py-2 px-3 font-medium">Issuer / payer</th>
                   <th className="py-2 px-3 font-medium">Parsed</th>
                   <th className="py-2 px-3 font-medium">Uploaded</th>
                   <th className="py-2 px-3 font-medium text-right">Edit</th>
@@ -259,6 +323,7 @@ export function TaxDocumentUpload({ entityId, taxYear, documents, flaggedDocumen
                     doc={d}
                     entityId={entityId}
                     taxYear={taxYear}
+                    people={people}
                     flagged={flaggedDocumentIds.includes(d.id)}
                   />
                 ))}
@@ -277,11 +342,13 @@ function DocumentRowEditable({
   doc,
   entityId,
   taxYear,
+  people,
   flagged,
 }: {
   doc: DocumentRow;
   entityId: string;
   taxYear: number;
+  people: PersonRef[];
   flagged: boolean;
 }) {
   const router = useRouter();
@@ -399,12 +466,19 @@ function DocumentRowEditable({
     setSwapError(null);
     setSwapping(true);
     try {
-      const result = await uploadFile(
+      // The replacement keeps the original's attribution so a swap never
+      // silently drops who the document pertains to / its issuer.
+      const result = await uploadTaxFile(
         file,
         entityId,
         taxYear,
         doc.docType as TaxDocType,
-        doc.notes ?? undefined
+        doc.notes ?? undefined,
+        {
+          subjectType: doc.subjectType,
+          subjectUserId: doc.subjectUserId,
+          issuerName: doc.issuerName,
+        }
       );
       if (!result.success) {
         // Upload failed — the old document is never touched. Nothing lost.
@@ -474,6 +548,14 @@ function DocumentRowEditable({
           </span>
         )}
       </td>
+      <DocumentAttributionCells
+        documentId={doc.id}
+        subjectType={doc.subjectType}
+        subjectUserId={doc.subjectUserId}
+        issuerName={doc.issuerName}
+        suggestedIssuer={doc.suggestedIssuer}
+        people={people}
+      />
       <td className="py-2 px-3 text-xs">
         {doc.extractionStatus === "complete" ? (
           <span className="text-green-600">✓ Parsed</span>

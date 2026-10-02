@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
 import { TaxDocumentUpload, type DocumentRow } from "@/components/tax/tax-document-upload";
 import { OtherYearDocuments, type OtherYearDocument } from "@/components/tax/other-year-documents";
+import type { PersonRef } from "@/lib/document-attribution";
 import { CHECKLIST_LABEL_TO_DOC_TYPES } from "@/lib/tax-checklist";
 import {
   updateWorkspace,
@@ -35,6 +36,8 @@ interface Props {
   checklistItems: ChecklistItem[];
   relatedDocuments: DocumentRow[];
   otherYearDocs: OtherYearDocument[];
+  /** Household members (id + name only) for document attribution. */
+  people: PersonRef[];
   documentCounts: Record<string, number>;
   exportUrl: string;
 }
@@ -57,6 +60,7 @@ export function TaxWorkspaceClient({
   checklistItems: initialItems,
   relatedDocuments,
   otherYearDocs,
+  people,
   documentCounts,
   exportUrl,
 }: Props) {
@@ -312,9 +316,10 @@ export function TaxWorkspaceClient({
         entityId={entityId}
         taxYear={taxYear}
         documents={relatedDocuments}
+        people={people}
       />
 
-      <OtherYearDocuments documents={otherYearDocs} />
+      <OtherYearDocuments workspaceId={workspaceId} documents={otherYearDocs} people={people} />
 
       <UnsavedChangesGuard
         isDirty={isDirty}

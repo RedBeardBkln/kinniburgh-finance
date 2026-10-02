@@ -11,13 +11,11 @@ import {
   formatOpportunityForDisplay,
   REFUND_OBJECTIVE_STATEMENT,
 } from "@/lib/tax-guidance";
-import { computePersonalFormPlan } from "@/lib/tax-form-plan";
-import { getEntityBySlug } from "@/lib/entity";
-import { computePL } from "@/lib/reports";
 import { PersonalTaxClient } from "@/components/tax/personal-tax-client";
 import { buildPersonalTaxComputeInput, findUnparseableExtractions } from "@/lib/tax-compute-build";
 import { computePersonalTaxReturn } from "@/lib/tax-compute";
 import { serializeTaxComputeResult, type SerializedTaxDraft } from "@/lib/tax-compute-display";
+import { suggestIssuerFromExtraction } from "@/lib/document-attribution";
 import type { Route } from "next";
 
 interface PageProps {
@@ -35,11 +33,13 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
   const workspaceId = await ensurePersonalWorkspace(year);
   const workspace = await getTaxWorkspace(workspaceId);
 
-  const [questions, allDocs] = await Promise.all([
+  const [questions, people, allDocs] = await Promise.all([
     db.taxQuestion.findMany({
       where: { workspaceId },
       orderBy: { createdAt: "asc" },
     }),
+    // id + name only — never select email/passwordHash/totpSecret.
+    db.user.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db.document.findMany({
       where: { entityId: workspace.entityId, archivedAt: null },
       orderBy: { createdAt: "desc" },
@@ -47,49 +47,6 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
   ]);
   const docs = allDocs.filter((d) => d.taxYear === year);
   const otherYearDocs = allDocs.filter((d) => d.taxYear !== year);
-
-  // ── Inputs for the computed form-readiness plan ─────────────────────────────
-  const yearStart = new Date(Date.UTC(year, 0, 1));
-  const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
-
-  const [ekcEntity, svEntity, solarLoanAccount] = await Promise.all([
-    getEntityBySlug("ek-consulting"),
-    getEntityBySlug("sudden-valley"),
-    db.account.findUnique({
-      where: {
-        entityId_nickname: { entityId: workspace.entityId, nickname: "Solar loan" },
-        archivedAt: null,
-      },
-      include: { debtDetail: true },
-    }),
-  ]);
-
-  const [ekcPL, svPL, ekcMileageCount] = await Promise.all([
-    ekcEntity ? computePL(ekcEntity.id, yearStart, yearEnd) : Promise.resolve(null),
-    svEntity ? computePL(svEntity.id, yearStart, yearEnd) : Promise.resolve(null),
-    ekcEntity
-      ? db.mileageEntry.count({
-          where: { entityId: ekcEntity.id, archivedAt: null, date: { gte: yearStart, lte: yearEnd } },
-        })
-      : Promise.resolve(0),
-  ]);
-
-  const formPlan = computePersonalFormPlan({
-    documents: docs.map((d) => ({
-      docType: d.docType,
-      extractionStatus: d.extractionStatus,
-      extractionData: d.extractionData,
-    })),
-    questions: questions.map((q) => ({
-      key: q.key,
-      answer: q.answer,
-      skippedReason: q.skippedReason,
-    })),
-    ekConsultingPL: ekcPL ? { incomeLines: ekcPL.incomeLines, expenseLines: ekcPL.expenseLines } : null,
-    suddenValleyPL: svPL ? { incomeLines: svPL.incomeLines, expenseLines: svPL.expenseLines } : null,
-    ekConsultingMileageCount: ekcMileageCount,
-    solarLoanOriginalCostCents: solarLoanAccount?.debtDetail?.originalBalanceCents ?? null,
-  });
 
   // Evaluate which opportunities the answers act on / exclude
   const answerMap: Record<string, unknown> = {};
@@ -205,6 +162,10 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
             notes: d.notes,
             extractionStatus: d.extractionStatus,
             createdAt: d.createdAt.toISOString(),
+            subjectType: d.subjectType,
+            subjectUserId: d.subjectUserId,
+            issuerName: d.issuerName,
+            suggestedIssuer: suggestIssuerFromExtraction(d.docType, d.extractionData),
           }))}
           otherYearDocs={otherYearDocs.map((d) => ({
             id: d.id,
@@ -213,9 +174,12 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
             notes: d.notes,
             taxYear: d.taxYear,
             createdAt: d.createdAt.toISOString(),
+            subjectType: d.subjectType,
+            subjectUserId: d.subjectUserId,
+            issuerName: d.issuerName,
           }))}
+          people={people}
           opportunities={baseOps}
-          formPlan={formPlan}
           refundObjective={REFUND_OBJECTIVE_STATEMENT}
           unansweredCount={unanswered}
           taxDraft={taxDraft}

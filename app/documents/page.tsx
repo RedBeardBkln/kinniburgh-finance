@@ -6,11 +6,21 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DocumentUploadForm } from "@/components/documents/document-upload-form";
 import { listDocuments, getDocumentSignedUrl, archiveDocument } from "@/actions/documents";
+import { DocumentAttributionCells } from "@/components/documents/document-attribution-editor";
+import { isTaxDocType, suggestIssuerFromExtraction } from "@/lib/document-attribution";
 import Link from "next/link";
 import type { Route } from "next";
 
 interface PageProps {
-  searchParams: Promise<{ entityId?: string; year?: string; docType?: string }>;
+  searchParams: Promise<{
+    entityId?: string;
+    year?: string;
+    docType?: string;
+    /** "tax" = the Tax documents view; "all" = explicitly everything. */
+    view?: string;
+    /** The Taxes sidebar sends ?bucket=taxes; that defaults to the tax view. */
+    bucket?: string;
+  }>;
 }
 
 const DOC_TYPE_LABELS: Record<string, string> = {
@@ -63,14 +73,38 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
   const entities = await db.entity.findMany({
     where: { archivedAt: null },
     orderBy: { name: "asc" },
+    select: { id: true, name: true, slug: true, type: true },
+  });
+  // Household members for attribution — id + name only (never email/hash/TOTP).
+  const people = await db.user.findMany({
     select: { id: true, name: true },
+    orderBy: { name: "asc" },
   });
 
-  const docs = await listDocuments({
+  // Tax view: explicit ?view=tax, or ?bucket=taxes (what the Taxes sidebar
+  // sends) when no other filter/view was chosen. ?view=all always shows everything.
+  const taxView =
+    sp.view === "tax" ||
+    (sp.bucket === "taxes" && !sp.view && !sp.entityId && !sp.year && !sp.docType);
+
+  const allDocs = await listDocuments({
     entityId: sp.entityId,
     taxYear: sp.year ? Number(sp.year) : undefined,
     docType: sp.docType,
   });
+  const docs = taxView && !sp.docType ? allDocs.filter((d) => isTaxDocType(d.docType)) : allDocs;
+
+  // Default upload bucket is Personal, not alphabetical-first.
+  const defaultEntityId =
+    (entities.find((e) => e.slug === "personal") ?? entities.find((e) => e.type === "personal") ?? entities[0])?.id ?? "";
+
+  // Chip links keep the bucket param so the Taxes tab stays active.
+  const keepBucket: Record<string, string> = sp.bucket ? { bucket: sp.bucket } : {};
+  const chipHref = (params: Record<string, string>): Route => {
+    const qs = new URLSearchParams({ ...params, ...keepBucket }).toString();
+    return (qs ? `/documents?${qs}` : "/documents") as Route;
+  };
+  const noFilter = !sp.entityId && !sp.year && !sp.docType;
 
   const availableYears = Array.from(
     new Set(docs.map((d) => d.taxYear).filter(Boolean) as number[])
@@ -82,19 +116,30 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
         <div>
           <h1 className="text-2xl font-semibold">Document Vault</h1>
           <p className="text-sm text-muted-foreground">
-            Tax documents, policies, and statements. Documents are never deleted — archive only.
+            Tax documents, policies, and statements. Each document shows who it pertains to and its
+            issuer. Documents are never deleted — archive only.
           </p>
         </div>
 
-        <DocumentUploadForm entities={entities} />
+        <DocumentUploadForm
+          entities={entities.map((e) => ({ id: e.id, name: e.name }))}
+          defaultEntityId={defaultEntityId}
+          people={people}
+        />
 
         {/* Filters */}
         <div className="flex flex-wrap gap-2">
-          <FilterLink href="/documents" active={!sp.entityId && !sp.year && !sp.docType} label="All" />
+          <FilterLink href={chipHref({ view: "all" })} active={!taxView && noFilter} label="All" />
+          <FilterLink href={chipHref({ view: "tax" })} active={taxView && !sp.docType} label="Tax documents" />
+          <FilterLink
+            href={chipHref({ docType: "tax_return" })}
+            active={sp.docType === "tax_return"}
+            label="Prior-year returns"
+          />
           {entities.map((e) => (
             <FilterLink
               key={e.id}
-              href={`/documents?entityId=${e.id}` as Route}
+              href={chipHref({ entityId: e.id })}
               active={sp.entityId === e.id}
               label={(e.name.split(",")[0] ?? e.name).replace(" Property Management", "").replace(" Consulting", "")}
             />
@@ -102,7 +147,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
           {availableYears.map((y) => (
             <FilterLink
               key={y}
-              href={`/documents?year=${y}` as Route}
+              href={chipHref(taxView ? { view: "tax", year: String(y) } : { year: String(y) })}
               active={sp.year === String(y)}
               label={String(y)}
             />
@@ -116,7 +161,9 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
                   <th className="px-4 py-3 font-medium">Type</th>
-                  <th className="px-4 py-3 font-medium">Entity</th>
+                  <th className="px-4 py-3 font-medium">Bucket</th>
+                  <th className="px-4 py-3 font-medium">Pertains to</th>
+                  <th className="px-4 py-3 font-medium">Issuer / payer</th>
                   <th className="px-4 py-3 font-medium">Year</th>
                   <th className="px-4 py-3 font-medium">Notes</th>
                   <th className="px-4 py-3 font-medium">Extraction</th>
@@ -127,7 +174,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
               <tbody>
                 {docs.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                       No documents yet. Upload one above.
                     </td>
                   </tr>
@@ -141,10 +188,23 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                         <span className={`inline-block rounded border px-2 py-0.5 text-xs font-medium ${DOC_TYPE_COLORS[doc.docType] ?? DOC_TYPE_COLORS.other}`}>
                           {DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
                         </span>
+                        {doc.documentName && (
+                          <span className="mt-0.5 block max-w-[16rem] truncate text-xs text-muted-foreground" title={doc.documentName}>
+                            {doc.documentName}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2 text-xs text-muted-foreground">
                         {doc.entity.name.split(",")[0]}
                       </td>
+                      <DocumentAttributionCells
+                        documentId={doc.id}
+                        subjectType={doc.subjectType}
+                        subjectUserId={doc.subjectUserId}
+                        issuerName={doc.issuerName}
+                        suggestedIssuer={suggestIssuerFromExtraction(doc.docType, doc.extractionData)}
+                        people={people}
+                      />
                       <td className="px-4 py-2 text-xs">
                         {doc.taxYear ?? "—"}
                       </td>

@@ -9,6 +9,9 @@ import { AddDeadlineForm } from "@/components/tax/add-deadline-form";
 import { AddPriorYearForm } from "@/components/tax/add-prior-year-form";
 import { TaxEntityWidget, type TaxWidgetData } from "@/components/tax/tax-entity-widget";
 import { computePL } from "@/lib/reports";
+import { entitiesForYear } from "@/lib/tax-entities";
+import Link from "next/link";
+import type { Route } from "next";
 
 export default async function TaxPage() {
   const session = await auth();
@@ -110,21 +113,8 @@ export default async function TaxPage() {
     };
   }
 
-  // Entities eligible per year: Personal + businesses. A business formed after
-  // the year started has no filing for that year (e.g. Sudden Valley, founded
-  // Feb 2026, has no 2025 workspace). A business with no foundedDate recorded
-  // is shown by default (undocumented-but-real formation date, e.g. EK
-  // Consulting's "founded 2021, exact date not documented") *unless* its
-  // taxStatusNotes explicitly says it isn't formed yet (e.g. Mezzo) — no
-  // dedicated "formed" field exists on Entity yet, so this string check is a
-  // stopgap; remove it if/when that field is added.
-  function entitiesForYear(year: number) {
-    return allEntities.filter((e) => {
-      if (e.type === "personal") return true;
-      if (e.foundedDate) return e.foundedDate.getUTCFullYear() <= year;
-      return !(e.taxStatusNotes ?? "").toLowerCase().includes("not yet formed");
-    });
-  }
+  // Entities eligible per year: Personal + businesses — the rule lives in
+  // lib/tax-entities.ts so the Forms page (/tax/forms/[year]) shares it.
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
@@ -150,9 +140,15 @@ export default async function TaxPage() {
                   Current year
                 </span>
               )}
+              <Link
+                href={`/tax/forms/${year}` as Route}
+                className="ml-2 text-xs text-primary hover:underline"
+              >
+                View required forms →
+              </Link>
             </div>
             <div className="grid gap-4 md:grid-cols-3">
-              {entitiesForYear(year).map((entity) => (
+              {entitiesForYear(allEntities, year).map((entity) => (
                 <TaxEntityWidget key={entity.id} data={widgetData(entity.id, year)} />
               ))}
             </div>

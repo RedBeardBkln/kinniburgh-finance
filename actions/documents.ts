@@ -32,6 +32,7 @@ import {
 } from "@/lib/document-upload";
 import { getEntityBySlug } from "@/lib/entity";
 import { normalizePayee } from "@/lib/tags";
+import { validateAttribution } from "@/lib/document-attribution";
 
 async function requireAuth() {
   const session = await auth();
@@ -120,6 +121,11 @@ const finalizeSchema = z.object({
   docType: z.enum(DOC_TYPES),
   taxYear: z.number().int().optional(),
   notes: z.string().optional(),
+  // Optional attribution (who it pertains to + issuer). Validated by
+  // validateAttribution below; omitted = Unassigned / no issuer (unchanged).
+  subjectType: z.string().nullish(),
+  subjectUserId: z.string().nullish(),
+  issuerName: z.string().nullish(),
 });
 
 export type FinalizeDocumentUploadInput = z.input<typeof finalizeSchema>;
@@ -134,6 +140,24 @@ export async function finalizeDocumentUpload(
     return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
   }
   const { documentId, fileKey, entityId, fileType, docType, taxYear, notes } = parsed.data;
+
+  // Reject bad attribution before any storage read or DB write.
+  const attribution = validateAttribution({
+    subjectType: parsed.data.subjectType,
+    subjectUserId: parsed.data.subjectUserId,
+    issuerName: parsed.data.issuerName,
+  });
+  if (!attribution.ok) return { ok: false, error: attribution.error };
+
+  // A well-formed but non-existent person id would otherwise surface as an FK
+  // throw at document.create, after the file is already in storage.
+  if (attribution.value.subjectType === "person" && attribution.value.subjectUserId) {
+    const user = await db.user.findUnique({
+      where: { id: attribution.value.subjectUserId },
+      select: { id: true },
+    });
+    if (!user) return { ok: false, error: "That person was not found" };
+  }
 
   // Defense-in-depth: reject if the client-supplied fileKey doesn't match
   // what the server would have generated for this documentId/entityId/type.
@@ -173,6 +197,9 @@ export async function finalizeDocumentUpload(
       docType,
       fileKey,
       notes,
+      subjectType: attribution.value.subjectType,
+      subjectUserId: attribution.value.subjectUserId,
+      issuerName: attribution.value.issuerName,
     },
   });
 
@@ -189,9 +216,70 @@ export async function listDocuments(filters: { entityId?: string; taxYear?: numb
       ...(filters.taxYear && { taxYear: filters.taxYear }),
       ...(filters.docType && { docType: filters.docType }),
     },
-    include: { entity: true },
+    include: { entity: true, subjectUser: { select: { id: true, name: true } } },
     orderBy: [{ taxYear: "desc" }, { createdAt: "desc" }],
   });
+}
+
+// ── Attribution (who a document pertains to + its issuer/payer) ─────────────
+
+const updateAttributionSchema = z.object({
+  documentId: z.string().uuid(),
+  subjectType: z.string().nullish(),
+  subjectUserId: z.string().nullish(),
+  issuerName: z.string().nullish(),
+});
+
+export type UpdateDocumentAttributionInput = z.input<typeof updateAttributionSchema>;
+
+/**
+ * Full-replacement update of a document's attribution: the caller sends all
+ * three fields. Writes ONLY subjectType/subjectUserId/issuerName — never
+ * archivedAt, fileKey, or extraction data.
+ */
+export async function updateDocumentAttribution(
+  input: UpdateDocumentAttributionInput
+): Promise<{ success: true } | { error: string }> {
+  await requireAuth();
+
+  const parsed = updateAttributionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  }
+  const attribution = validateAttribution({
+    subjectType: parsed.data.subjectType,
+    subjectUserId: parsed.data.subjectUserId,
+    issuerName: parsed.data.issuerName,
+  });
+  if (!attribution.ok) return { error: attribution.error };
+
+  const doc = await db.document.findFirst({
+    where: { id: parsed.data.documentId, archivedAt: null },
+    select: { id: true },
+  });
+  if (!doc) return { error: "Document not found" };
+
+  // Clean error instead of an FK violation for a stale/forged user id.
+  if (attribution.value.subjectType === "person" && attribution.value.subjectUserId) {
+    const user = await db.user.findUnique({
+      where: { id: attribution.value.subjectUserId },
+      select: { id: true },
+    });
+    if (!user) return { error: "That person was not found" };
+  }
+
+  await db.document.update({
+    where: { id: doc.id },
+    data: {
+      subjectType: attribution.value.subjectType,
+      subjectUserId: attribution.value.subjectUserId,
+      issuerName: attribution.value.issuerName,
+    },
+  });
+
+  revalidatePath("/documents");
+  revalidatePath("/tax");
+  return { success: true };
 }
 
 export async function getDocumentSignedUrl(documentId: string): Promise<string> {

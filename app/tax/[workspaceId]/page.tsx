@@ -5,6 +5,7 @@ import { getTaxWorkspace } from "@/actions/tax";
 import { listDocuments } from "@/actions/documents";
 import { TaxWorkspaceClient } from "@/components/tax/tax-workspace-client";
 import { db } from "@/lib/db";
+import { suggestIssuerFromExtraction } from "@/lib/document-attribution";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -25,9 +26,11 @@ export default async function TaxWorkspacePage({ params }: PageProps) {
     redirect("/tax" as Route);
   }
 
-  const [allDocs, entity] = await Promise.all([
+  const [allDocs, entity, people] = await Promise.all([
     listDocuments({ entityId: workspace.entityId }),
     db.entity.findUnique({ where: { id: workspace.entityId } }),
+    // id + name only — never select email/passwordHash/totpSecret.
+    db.user.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   const relatedDocs = allDocs.filter((d) => d.taxYear === workspace.taxYear);
   const otherYearDocs = allDocs.filter((d) => d.taxYear !== workspace.taxYear);
@@ -75,6 +78,10 @@ export default async function TaxWorkspacePage({ params }: PageProps) {
             notes: d.notes,
             extractionStatus: d.extractionStatus,
             createdAt: d.createdAt.toISOString(),
+            subjectType: d.subjectType,
+            subjectUserId: d.subjectUserId,
+            issuerName: d.issuerName,
+            suggestedIssuer: suggestIssuerFromExtraction(d.docType, d.extractionData),
           }))}
           otherYearDocs={otherYearDocs.map((d) => ({
             id: d.id,
@@ -83,7 +90,11 @@ export default async function TaxWorkspacePage({ params }: PageProps) {
             notes: d.notes,
             taxYear: d.taxYear,
             createdAt: d.createdAt.toISOString(),
+            subjectType: d.subjectType,
+            subjectUserId: d.subjectUserId,
+            issuerName: d.issuerName,
           }))}
+          people={people}
           documentCounts={documentCounts}
           exportUrl={exportUrl}
         />

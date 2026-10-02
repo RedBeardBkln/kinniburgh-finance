@@ -35,6 +35,7 @@ model User {
   approvedNotifications Notification[]        @relation("NotificationApprovedBy")
   reviewBatchesAssigned ReviewBatch[]         @relation("ReviewBatchAssignee")
   reviewBatchesCreated  ReviewBatch[]         @relation("ReviewBatchCreator")
+  documentsAsSubject    Document[]            @relation("DocumentSubject")
 }
 
 model PasswordResetToken {
@@ -540,10 +541,14 @@ model Document {
   extractionModel   String?
   extractedAt       DateTime?
   archivedAt        DateTime? // archive only; hard delete is forbidden
+  subjectType       String?   // person | joint; NULL = Unassigned (document-attribution)
+  subjectUserId     String?   // the person (User) when subjectType = person
+  issuerName        String?   // free-text issuer/payer (e.g. employer on a W-2); NULL = not set
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
   entity          Entity           @relation(fields: [entityId], references: [id])
+  subjectUser     User?            @relation("DocumentSubject", fields: [subjectUserId], references: [id], onDelete: SetNull)
   insurancePolicy InsurancePolicy?
   solarEntries    SolarEntry[]
   bankStatement   BankStatement?

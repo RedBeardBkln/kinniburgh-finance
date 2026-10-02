@@ -14,6 +14,7 @@ import {
 } from "@/lib/supabase-storage";
 import { extractDocument, classifyDocType, type ExtractedDocument } from "@/lib/doc-extract";
 import { generateDocumentName } from "@/lib/doc-naming";
+import { validateAttribution, type ValidAttribution } from "@/lib/document-attribution";
 import { parseModelJson } from "@/lib/model-json";
 import { TAX_QUESTION_BANK, baseOpportunitiesForHousehold } from "@/lib/tax-guidance";
 import {
@@ -195,6 +196,8 @@ async function uploadTaxDocumentCore(input: {
   taxYear: number | null;
   docType: (typeof TAX_DOC_TYPES)[number];
   notes: string | undefined;
+  /** Already validated by finalizeTaxDocumentUpload; omitted = Unassigned. */
+  attribution?: ValidAttribution;
 }): Promise<UploadedTaxDoc> {
   const { documentId: docId, fileKey, buffer, mimeType, entityId, taxYear, docType, notes } = input;
 
@@ -206,6 +209,9 @@ async function uploadTaxDocumentCore(input: {
       docType,
       fileKey,
       notes,
+      subjectType: input.attribution?.subjectType ?? null,
+      subjectUserId: input.attribution?.subjectUserId ?? null,
+      issuerName: input.attribution?.issuerName ?? null,
     },
   });
 
@@ -305,6 +311,10 @@ const finalizeSchema = z.object({
   taxYear: z.number().int().nullable(),
   docType: z.enum(TAX_DOC_TYPES),
   notes: z.string().optional(),
+  // Optional attribution (who it pertains to + issuer); see lib/document-attribution.ts.
+  subjectType: z.string().nullish(),
+  subjectUserId: z.string().nullish(),
+  issuerName: z.string().nullish(),
 });
 
 export type FinalizeTaxDocumentUploadInput = z.input<typeof finalizeSchema>;
@@ -325,6 +335,24 @@ export async function finalizeTaxDocumentUpload(
 
   if (taxYear !== null && (taxYear < 2000 || taxYear > 2100)) {
     return { ok: false, error: "Invalid tax year" };
+  }
+
+  // Reject bad attribution before any storage read or DB write.
+  const attribution = validateAttribution({
+    subjectType: parsed.data.subjectType,
+    subjectUserId: parsed.data.subjectUserId,
+    issuerName: parsed.data.issuerName,
+  });
+  if (!attribution.ok) return { ok: false, error: attribution.error };
+
+  // A well-formed but non-existent person id would otherwise surface as an FK
+  // throw at document.create, after the file is already in storage.
+  if (attribution.value.subjectType === "person" && attribution.value.subjectUserId) {
+    const user = await db.user.findUnique({
+      where: { id: attribution.value.subjectUserId },
+      select: { id: true },
+    });
+    if (!user) return { ok: false, error: "That person was not found" };
   }
 
   // Defense-in-depth: reject if the client-supplied fileKey doesn't match
@@ -362,6 +390,7 @@ export async function finalizeTaxDocumentUpload(
     taxYear,
     docType,
     notes,
+    attribution: attribution.value,
   });
 
   revalidatePath("/documents");
