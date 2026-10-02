@@ -18,6 +18,15 @@ export interface ShouldShowInstallBannerOptions {
  * - Otherwise, only show once we actually have a captured deferred prompt
  *   to act on (the common case: the browser never fired the event at all).
  */
+/**
+ * True for the public review-queue pages (/queue and /queue/...). The install
+ * banner is a fixed bottom bar that would sit on top of Eva's sticky Save bar
+ * there, and nagging a link-only visitor to install the app is wrong anyway.
+ */
+export function isReviewQueuePath(pathname: string | null | undefined): boolean {
+  return pathname != null && (pathname === "/queue" || pathname.startsWith("/queue/"));
+}
+
 export function shouldShowInstallBanner(opts: ShouldShowInstallBannerOptions): boolean {
   return opts.hasDeferredPrompt && !opts.isStandalone && !opts.dismissed;
 }

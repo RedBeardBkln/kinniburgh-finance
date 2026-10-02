@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { shouldShowInstallBanner } from "@/lib/pwa-install";
+import { usePathname } from "next/navigation";
+import { isReviewQueuePath, shouldShowInstallBanner } from "@/lib/pwa-install";
 
 const DISMISSED_KEY = "pwaInstallDismissed";
 
@@ -28,6 +29,7 @@ interface BeforeInstallPromptEvent extends Event {
  * install affordance (e.g. Chrome's address-bar icon) as the fallback.
  */
 export function PwaInstallPrompt() {
+  const pathname = usePathname();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [visible, setVisible] = useState(false);
 
@@ -76,7 +78,8 @@ export function PwaInstallPrompt() {
     setVisible(false);
   }
 
-  if (!visible) {
+  // Never on the public /queue/[token] pages (it would cover the sticky Save bar).
+  if (!visible || isReviewQueuePath(pathname)) {
     return null;
   }
 

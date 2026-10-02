@@ -454,7 +454,7 @@ function ConnectInner() {
                 className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
                 Go to Accounts
               </button>
-              <button onClick={() => router.push("/transactions")}
+              <button onClick={() => router.push("/transactions?tab=all")}
                 className="rounded-md px-4 py-2 text-sm text-muted-foreground hover:bg-accent">
                 View Transactions
               </button>

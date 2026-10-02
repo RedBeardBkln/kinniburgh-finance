@@ -9,6 +9,8 @@ import {
   isAssignableEntitySlug,
   notAssignableMessage,
   resolveAssignee,
+  rulePatternMatchesPayee,
+  visibleChipKind,
   type AssignableCandidate,
   type NotAssignableReason,
 } from "@/lib/review-queue";
@@ -253,5 +255,39 @@ describe("isActiveAssignment", () => {
     expect(isActiveAssignment("draft", "removed")).toBe(false);
     expect(isActiveAssignment("submitted", "returned")).toBe(false);
     expect(isActiveAssignment("submitted", "resolved")).toBe(false);
+  });
+});
+
+describe("rulePatternMatchesPayee", () => {
+  it("true when the alnum-stripped pattern is contained in the alnum-stripped payee (case/punctuation-insensitive)", () => {
+    expect(rulePatternMatchesPayee("shell oil", ["Shell Oil 123"])).toBe(true);
+    expect(rulePatternMatchesPayee("Shell-Oil", ["SHELL OIL #123"])).toBe(true);
+    expect(rulePatternMatchesPayee("lowes", ["LOWE'S #1234 BELLINGHAM"])).toBe(true);
+    expect(rulePatternMatchesPayee("shell oil 123", ["shell oil 123"])).toBe(true);
+  });
+  it("false when the pattern is not in the payee, even if it shares a word", () => {
+    expect(rulePatternMatchesPayee("acme", ["Shell Oil 123"])).toBe(false);
+    expect(rulePatternMatchesPayee("shell oil 123 extra", ["Shell Oil 123"])).toBe(false);
+  });
+  it("matches if ANY candidate payee string contains it; ignores null/empty ones", () => {
+    expect(rulePatternMatchesPayee("shell", [null, undefined, "", "Shell Oil"])).toBe(true);
+    expect(rulePatternMatchesPayee("shell", [null, undefined, ""])).toBe(false);
+  });
+  it("a blank / punctuation-only pattern never matches (it would otherwise match everything)", () => {
+    expect(rulePatternMatchesPayee("", ["Shell Oil"])).toBe(false);
+    expect(rulePatternMatchesPayee("---", ["Shell Oil"])).toBe(false);
+  });
+});
+
+describe("visibleChipKind", () => {
+  it("hides a stale 'With <assignee>' chip once the row has tags", () => {
+    expect(visibleChipKind("with_assignee", 1)).toBeNull();
+    expect(visibleChipKind("with_assignee", 3)).toBeNull();
+  });
+  it("shows it while the row is untagged, and leaves other chips alone", () => {
+    expect(visibleChipKind("with_assignee", 0)).toBe("with_assignee");
+    expect(visibleChipKind("draft", 2)).toBe("draft");
+    expect(visibleChipKind("returned", 2)).toBe("returned");
+    expect(visibleChipKind(null, 2)).toBeNull();
   });
 });

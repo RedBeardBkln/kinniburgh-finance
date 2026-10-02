@@ -27,8 +27,10 @@ import {
 import {
   MAX_QUEUE_SAVE_ITEMS,
   classifyQueueItem,
+  RULE_PATTERN_NOT_IN_PAYEE_NOTE,
   isUsableRulePattern,
   ruleSkippedNote,
+  rulePatternMatchesPayee,
   type QueueItemSaveResult,
 } from "@/lib/review-queue";
 import {
@@ -158,6 +160,9 @@ export async function saveQueue(
           entityId: true,
           archivedAt: true,
           transferPairId: true,
+          // Only used to bind a saved rule's pattern to this item's own payee.
+          payeeRaw: true,
+          payeeNormalized: true,
           _count: { select: { tags: true } },
         },
       },
@@ -235,8 +240,17 @@ export async function saveQueue(
         rule: "failed",
         ruleNote: "Rule not saved: the payee text is too short to match safely.",
       };
+    } else if (
+      item.rule &&
+      !rulePatternMatchesPayee(item.rule.payeePattern, [
+        assignment.transaction.payeeRaw,
+        assignment.transaction.payeeNormalized,
+      ])
+    ) {
+      // Bound to the item's own payee: the tag is saved, the rule is not.
+      ruleOutcome = { rule: "failed", ruleNote: RULE_PATTERN_NOT_IN_PAYEE_NOTE };
     } else if (item.rule) {
-      const key =`${normalizePattern(item.rule.payeePattern)}|${item.tagId}`;
+      const key = `${normalizePattern(item.rule.payeePattern)}|${item.tagId}`;
       const cached = ruleCache.get(key);
       if (cached) {
         ruleOutcome = cached;

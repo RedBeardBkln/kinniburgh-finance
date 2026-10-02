@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { shouldShowInstallBanner } from "@/lib/pwa-install";
+import { isReviewQueuePath, shouldShowInstallBanner } from "@/lib/pwa-install";
 
 describe("shouldShowInstallBanner", () => {
   it("shows when a deferred prompt exists, not standalone, not dismissed", () => {
@@ -45,5 +45,19 @@ describe("shouldShowInstallBanner", () => {
     expect(
       shouldShowInstallBanner({ hasDeferredPrompt: false, isStandalone: false, dismissed: false })
     ).toBe(false);
+  });
+});
+
+describe("isReviewQueuePath", () => {
+  it("is true for /queue and anything under /queue/", () => {
+    expect(isReviewQueuePath("/queue")).toBe(true);
+    expect(isReviewQueuePath("/queue/abc123")).toBe(true);
+  });
+  it("is false for every other path, including look-alikes, and for a missing pathname", () => {
+    for (const p of ["/", "/transactions", "/queue-admin", "/queues", "/api/queue", "/tags/queue/x"]) {
+      expect(isReviewQueuePath(p)).toBe(false);
+    }
+    expect(isReviewQueuePath(null)).toBe(false);
+    expect(isReviewQueuePath(undefined)).toBe(false);
   });
 });

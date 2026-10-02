@@ -12,6 +12,12 @@ import { QueueClient } from "@/components/review-queue/queue-client";
 
 export const dynamic = "force-dynamic";
 
+// Server actions invoked from this page (saveQueue loops over up to 200 items)
+// run under this route's function limit. 60s is the Vercel Hobby ceiling for
+// functions without Fluid compute (Hobby with Fluid allows more), so it is valid
+// on every Hobby configuration; a longer value could fail the deploy.
+export const maxDuration = 60;
+
 export const metadata: Metadata = {
   title: "Transactions to review",
   referrer: "no-referrer",

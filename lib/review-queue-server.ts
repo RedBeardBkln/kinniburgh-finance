@@ -401,6 +401,22 @@ export async function mintShareToken(
   });
 }
 
+/**
+ * Mints a token for the one reminder text. Unlike mintShareToken this does NOT
+ * extend the batch expiry (reminders never extend the window); the new token
+ * expires with the batch, and the original link keeps working alongside it.
+ */
+export async function mintReminderToken(
+  batchId: string,
+  batchExpiresAt: Date
+): Promise<{ token: string }> {
+  const { token, tokenHash } = generateReviewToken();
+  await db.reviewLinkToken.create({
+    data: { batchId, tokenHash, kind: "reminder", expiresAt: batchExpiresAt },
+  });
+  return { token };
+}
+
 // ── Eric's batch-status panel ───────────────────────────────────────────────────
 
 export interface BatchStatusRow {
@@ -409,6 +425,14 @@ export interface BatchStatusRow {
   submittedAt: string | null; // ISO
   firstOpenedAt: string | null; // ISO
   expiresAt: string | null; // ISO
+  /** Most recent text attempt: null (never texted) | "sent" | "failed". */
+  smsStatus: string | null;
+  smsSentAt: string | null; // ISO
+  smsError: string | null;
+  /** null | "sending" | "sent" | "failed" */
+  reminderStatus: string | null;
+  reminderSentAt: string | null; // ISO
+  reminderError: string | null;
   total: number;
   resolved: number;
   returned: number;
@@ -430,6 +454,12 @@ export async function loadBatchStatuses(
       submittedAt: true,
       firstOpenedAt: true,
       expiresAt: true,
+      smsStatus: true,
+      smsSentAt: true,
+      smsError: true,
+      reminderStatus: true,
+      reminderSentAt: true,
+      reminderError: true,
       assignments: { select: { status: true } },
     },
   });
@@ -439,6 +469,12 @@ export async function loadBatchStatuses(
     submittedAt: b.submittedAt?.toISOString() ?? null,
     firstOpenedAt: b.firstOpenedAt?.toISOString() ?? null,
     expiresAt: b.expiresAt?.toISOString() ?? null,
+    smsStatus: b.smsStatus,
+    smsSentAt: b.smsSentAt?.toISOString() ?? null,
+    smsError: b.smsError,
+    reminderStatus: b.reminderStatus,
+    reminderSentAt: b.reminderSentAt?.toISOString() ?? null,
+    reminderError: b.reminderError,
     ...batchProgress(b.assignments.map((a) => a.status)),
   }));
 }

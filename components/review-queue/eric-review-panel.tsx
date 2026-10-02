@@ -1,14 +1,15 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { getShareLink, submitToEva } from "@/actions/review-assignments";
+import { getShareLink, resendText, submitToEva } from "@/actions/review-assignments";
 import { assigneeFirstName } from "@/lib/review-queue";
 import type { BatchStatusRow } from "@/lib/review-queue-server";
 
 // Eric-side panel above the transactions table: submit the draft to the
-// assignee, see the status of recent batches, and (until SMS exists in Phase 3)
-// copy a fresh magic link to share by hand. The raw token is shown once; only
-// its hash is stored, so "Get link" mints a new one each time.
+// assignee (which texts her the link), see the status of recent batches
+// including text / reminder failures, Resend the text, or copy a fresh magic
+// link to share by hand. The raw token is shown once; only its hash is stored,
+// so "Get link" and "Resend text" each mint a new one.
 
 interface Props {
   assigneeName: string;
@@ -76,12 +77,50 @@ function LinkBox({ link }: { link: ShownLink }) {
   );
 }
 
+/** The status lines for one submitted batch: text outcome first, then the reminder. */
+function TextStatus({ batch, who }: { batch: BatchStatusRow; who: string }) {
+  if (batch.status !== "submitted") return null;
+  return (
+    <div className="mt-1 space-y-0.5 text-xs">
+      {batch.smsStatus === "failed" ? (
+        <p role="alert" className="font-medium text-destructive">
+          Text failed: {batch.smsError ?? "unknown error"}. Use Resend text, or Get link and send it to {who}{" "}
+          yourself.
+        </p>
+      ) : batch.smsStatus === "sent" ? (
+        <p className="text-amber-700 dark:text-amber-400">
+          Text sent to the carrier gateway{batch.smsSentAt ? ` ${formatDateTime(batch.smsSentAt)}` : ""} -
+          carriers don&apos;t confirm delivery.
+        </p>
+      ) : (
+        <p className="text-muted-foreground">No text was sent for this batch.</p>
+      )}
+      {batch.reminderStatus === "sent" && (
+        <p className="text-muted-foreground">
+          Reminder text sent{batch.reminderSentAt ? ` ${formatDateTime(batch.reminderSentAt)}` : ""}.
+        </p>
+      )}
+      {batch.reminderStatus === "failed" && (
+        <p role="alert" className="font-medium text-destructive">
+          Reminder text failed: {batch.reminderError ?? "unknown error"}. It won&apos;t be retried
+          automatically.
+        </p>
+      )}
+      {batch.reminderStatus === "sending" && (
+        <p className="text-muted-foreground">Reminder text in progress (or interrupted - Resend text if needed).</p>
+      )}
+    </div>
+  );
+}
+
 export function EricReviewPanel({ assigneeName, draftCount, batches }: Props) {
   const who = assigneeFirstName(assigneeName);
   const [shown, setShown] = useState<ShownLink | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, startSubmit] = useTransition();
   const [isMinting, startMint] = useTransition();
+  const [isResending, startResend] = useTransition();
 
   if (draftCount === 0 && batches.length === 0) return null;
 
@@ -89,10 +128,11 @@ export function EricReviewPanel({ assigneeName, draftCount, batches }: Props) {
     if (draftCount === 0) return;
     const ok = window.confirm(
       `Submit ${draftCount} transaction${draftCount === 1 ? "" : "s"} to ${who}? ` +
-        `You'll get a link to send her (nothing is texted automatically yet).`
+        `She'll be texted a link to tag them.`
     );
     if (!ok) return;
     setError(null);
+    setNotice(null);
     setShown(null);
     startSubmit(async () => {
       const res = await submitToEva();
@@ -100,19 +140,49 @@ export function EricReviewPanel({ assigneeName, draftCount, batches }: Props) {
         setError(res.error);
         return;
       }
+      const what = res.appended
+        ? `Added ${res.itemCount} to ${who}'s open list.`
+        : `Submitted ${res.itemCount}.`;
+      if (res.text.sent) {
+        setNotice(`${what} Text sent to ${who}.`);
+        return;
+      }
+      // The submit stands; only the text failed. Give Eric the link to share by hand.
       setShown({
         forKey: "draft",
         url: `${window.location.origin}${res.path}`,
         expiresAt: res.expiresAt,
-        note: res.appended
-          ? `Added ${res.itemCount} to ${who}'s open list. Use this new link (the earlier link still works too).`
-          : `Submitted ${res.itemCount}. Send this link to ${who}:`,
+        note: `${what} The text to ${who} failed (${res.text.error}). Send her this link yourself, or use Resend text:`,
+      });
+    });
+  }
+
+  function handleResend(batchId: string) {
+    setError(null);
+    setNotice(null);
+    setShown(null);
+    startResend(async () => {
+      const res = await resendText(batchId);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      if (res.text.sent) {
+        setNotice(`Text sent to ${who} with a new link.`);
+        return;
+      }
+      setShown({
+        forKey: batchId,
+        url: `${window.location.origin}${res.path}`,
+        expiresAt: res.expiresAt,
+        note: `The text failed again (${res.text.error}). Send her this link yourself:`,
       });
     });
   }
 
   function handleGetLink(batchId: string) {
     setError(null);
+    setNotice(null);
     setShown(null);
     startMint(async () => {
       const res = await getShareLink(batchId);
@@ -185,21 +255,38 @@ export function EricReviewPanel({ assigneeName, draftCount, batches }: Props) {
                     </p>
                   </div>
                   {b.status === "submitted" && (
-                    <button
-                      type="button"
-                      onClick={() => handleGetLink(b.id)}
-                      disabled={isMinting}
-                      className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
-                    >
-                      Get link
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleResend(b.id)}
+                        disabled={isResending || isMinting}
+                        className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
+                      >
+                        {isResending ? "Sending…" : "Resend text"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleGetLink(b.id)}
+                        disabled={isMinting || isResending}
+                        className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
+                      >
+                        Get link
+                      </button>
+                    </div>
                   )}
                 </div>
+                <TextStatus batch={b} who={who} />
                 {shown?.forKey === b.id && <LinkBox link={shown} />}
               </li>
             ))}
           </ul>
         </div>
+      )}
+
+      {notice && (
+        <p role="status" className="text-xs font-medium text-green-700 dark:text-green-400">
+          {notice}
+        </p>
       )}
 
       {error && (

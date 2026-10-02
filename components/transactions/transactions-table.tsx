@@ -5,7 +5,12 @@ import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { deleteTransaction } from "@/actions/transactions";
 import { assignTransactions, unassignTransaction } from "@/actions/review-assignments";
-import { assignmentChipLabel, assigneeFirstName, type AssignmentChipKind } from "@/lib/review-queue";
+import {
+  assignmentChipLabel,
+  assigneeFirstName,
+  visibleChipKind,
+  type AssignmentChipKind,
+} from "@/lib/review-queue";
 import { InlineTagCell } from "./inline-tag-cell";
 import { InlineProjectCell } from "./inline-project-cell";
 import { Card, CardContent } from "@/components/ui/card";
@@ -283,6 +288,9 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
             {transactions.map((tx) => {
               const { display, isOutflow } = formatAmount(tx.amount);
               const isTransfer = tx.transferPairId !== null;
+              // A row that already has tags is no longer "with Eva" in any useful
+              // sense (Eric or a rule tagged it since): hide a stale chip.
+              const chipKind = visibleChipKind(tx.assignKind ?? null, tx.tagIds.length);
               return (
                 <tr
                   key={tx.id}
@@ -313,16 +321,16 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                     {tx.description && (
                       <p className="text-xs text-muted-foreground truncate">{tx.description}</p>
                     )}
-                    {canAssign && tx.assignKind && (
+                    {canAssign && chipKind && (
                       <span
                         className={`mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                          tx.assignKind === "returned"
+                          chipKind === "returned"
                             ? "bg-amber-100 text-amber-800"
                             : "bg-primary/10 text-primary"
                         }`}
                       >
-                        {assignmentChipLabel(tx.assignKind, assign.assigneeName)}
-                        {tx.assignKind === "draft" && (
+                        {assignmentChipLabel(chipKind, assign.assigneeName)}
+                        {chipKind === "draft" && (
                           <button
                             type="button"
                             aria-label="Remove from draft"

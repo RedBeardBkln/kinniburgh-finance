@@ -39,7 +39,12 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const bucket = params.bucket ?? "personal";
-  const tab = params.tab ?? "all";
+  // Default tab is "Needs Review"; "All" only when explicitly selected (tab=all).
+  // Any other/unknown value falls back to the default rather than showing an
+  // unhighlighted, unfiltered list. A tag filter forces "all": Needs Review means
+  // untagged, and its `tags: none` clause would otherwise silently overwrite the
+  // tag filter's `tags` clause.
+  const tab = params.tab === "all" || params.tagId ? "all" : "review";
   const page = Math.max(1, Number(params.page ?? 1));
   const pageSize = 50;
   const sort = params.sort ?? "date";
@@ -169,6 +174,9 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
 
   function buildPageUrl(p: number) {
     const q = new URLSearchParams(params as Record<string, string>);
+    // Carry the resolved bucket/tab explicitly so paging never depends on a default.
+    q.set("bucket", bucket);
+    q.set("tab", tab);
     q.set("page", String(p));
     return `/transactions?${q.toString()}` as Route;
   }

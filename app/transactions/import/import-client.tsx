@@ -336,7 +336,7 @@ function ImportInner() {
               <p className="text-muted-foreground text-sm">{result.skipped} skipped (duplicates or invalid dates)</p>
             )}
             <div className="flex gap-3">
-              <Button onClick={() => router.push(`/transactions?bucket=${bucket}`)}>View Transactions</Button>
+              <Button onClick={() => router.push(`/transactions?bucket=${bucket}&tab=all`)}>View Transactions</Button>
               <Button variant="outline" onClick={() => {
                 setStep("upload");
                 setCsvContent("");

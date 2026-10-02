@@ -92,7 +92,7 @@ function NewTransactionInner() {
         transferToAccountId: isTransfer ? transferToAccountId : undefined,
       });
       if (result.success) {
-        router.push(`/transactions?bucket=${bucket}`);
+        router.push(`/transactions?bucket=${bucket}&tab=all`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save transaction");

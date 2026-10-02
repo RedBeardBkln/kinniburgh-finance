@@ -22,7 +22,11 @@ const mockDb = vi.hoisted(() => {
 });
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 
-import { getShareLink, submitToEva } from "@/actions/review-assignments";
+// Texting is mocked at its own boundary: no real email/SMS is ever sent here.
+const smsMock = vi.hoisted(() => ({ sendBatchText: vi.fn() }));
+vi.mock("@/lib/review-sms-server", () => smsMock);
+
+import { getShareLink, resendText, submitToEva } from "@/actions/review-assignments";
 import { hashReviewToken } from "@/lib/review-token";
 
 const ERIC = "11111111-1111-4111-8111-111111111111";
@@ -55,6 +59,7 @@ beforeEach(() => {
   mockDb._tx.transactionAssignment.updateMany.mockResolvedValue({ count: 1 });
   mockDb._tx.transactionAssignment.update.mockResolvedValue({});
   mockDb._tx.reviewLinkToken.create.mockResolvedValue({});
+  smsMock.sendBatchText.mockResolvedValue({ ok: true });
 });
 
 describe("auth", () => {
@@ -62,6 +67,8 @@ describe("auth", () => {
     authMock.mockResolvedValue(null);
     await expect(submitToEva()).rejects.toThrow("Unauthorized");
     await expect(getShareLink(DRAFT)).rejects.toThrow("Unauthorized");
+    await expect(resendText(OPEN)).rejects.toThrow("Unauthorized");
+    expect(smsMock.sendBatchText).not.toHaveBeenCalled();
     expect(mockDb.user.findMany).not.toHaveBeenCalled();
     expect(mockDb.$transaction).not.toHaveBeenCalled();
   });
@@ -189,6 +196,91 @@ describe("submitToEva", () => {
       data: { status: "pending", resolvedAt: null },
     });
     expect(updates).toContainEqual({ where: { id: `asg-${T1}` }, data: { status: "removed" } });
+  });
+});
+
+describe("submitToEva texting (Phase 3)", () => {
+  function draftWith(...txIds: string[]) {
+    mockDb._tx.reviewBatch.findFirst.mockResolvedValueOnce({ id: DRAFT });
+    mockDb._tx.transactionAssignment.findMany.mockResolvedValueOnce(
+      txIds.map((transactionId) => ({ id: `asg-${transactionId}`, transactionId }))
+    );
+  }
+
+  it("texts the freshly minted token AFTER the submit committed, as an initial text", async () => {
+    draftWith(T1);
+    const res = await submitToEva();
+    if (!res.ok) throw new Error(`unexpected: ${res.error}`);
+    expect(res.text).toEqual({ sent: true });
+    expect(smsMock.sendBatchText).toHaveBeenCalledTimes(1);
+    const [batchId, token, kind] = smsMock.sendBatchText.mock.calls[0]!;
+    expect(batchId).toBe(DRAFT);
+    expect(kind).toBe("initial");
+    expect(res.path).toBe(`/queue/${token}`);
+    // The transaction (the submit) was done before the text was attempted.
+    expect(mockDb.$transaction.mock.invocationCallOrder[0]!).toBeLessThan(
+      smsMock.sendBatchText.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it("a failed text never rolls back the submit: ok:true, the batch/token were written, and the failure + link are returned", async () => {
+    draftWith(T1, T2);
+    smsMock.sendBatchText.mockResolvedValue({ ok: false, error: "SMS gateway address is not configured" });
+    const res = await submitToEva();
+    if (!res.ok) throw new Error(`unexpected: ${res.error}`);
+    expect(res.text).toEqual({ sent: false, error: "SMS gateway address is not configured" });
+    expect(res.path).toMatch(/^\/queue\/[A-Za-z0-9_-]{43}$/); // manual-share fallback still available
+    expect(mockDb._tx.reviewBatch.updateMany.mock.calls[0]![0].data.status).toBe("submitted");
+    expect(mockDb._tx.reviewLinkToken.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("an append to an open batch texts as a resend (fresh token, one new text)", async () => {
+    draftWith(T1);
+    mockDb._tx.reviewBatch.findFirst.mockResolvedValueOnce({ id: OPEN });
+    mockDb._tx.transactionAssignment.findMany.mockResolvedValueOnce([]);
+    const res = await submitToEva();
+    expect(res.ok).toBe(true);
+    expect(smsMock.sendBatchText.mock.calls[0]![0]).toBe(OPEN);
+    expect(smsMock.sendBatchText.mock.calls[0]![2]).toBe("resend");
+  });
+
+  it("sends nothing when there was nothing to submit", async () => {
+    const res = await submitToEva();
+    expect(res).toEqual({ ok: false, error: "Nothing to submit." });
+    expect(smsMock.sendBatchText).not.toHaveBeenCalled();
+  });
+});
+
+describe("resendText", () => {
+  it("mints a NEW token for the open batch, texts it as a resend, and returns the outcome and link", async () => {
+    const res = await resendText(OPEN);
+    if (!res.ok) throw new Error(`unexpected: ${res.error}`);
+    expect(res.text).toEqual({ sent: true });
+    const stored = mockDb._tx.reviewLinkToken.create.mock.calls[0]![0].data;
+    expect(stored).toMatchObject({ batchId: OPEN, kind: "resend" });
+    expect(stored.tokenHash).toBe(hashReviewToken(tokenFromPath(res.path)));
+    expect(smsMock.sendBatchText).toHaveBeenCalledWith(OPEN, tokenFromPath(res.path), "resend");
+  });
+
+  it("reports a failed resend without throwing; the link is still returned", async () => {
+    smsMock.sendBatchText.mockResolvedValue({ ok: false, error: "gateway down" });
+    const res = await resendText(OPEN);
+    if (!res.ok) throw new Error(`unexpected: ${res.error}`);
+    expect(res.text).toEqual({ sent: false, error: "gateway down" });
+    expect(res.path).toMatch(/^\/queue\//);
+  });
+
+  it("does not consume or touch the reminder (no reminder columns are written)", async () => {
+    await resendText(OPEN);
+    expect(JSON.stringify(mockDb._tx.reviewBatch.updateMany.mock.calls)).not.toContain("reminder");
+  });
+
+  it("refuses a batch that is not open (no token, no text) and a malformed id", async () => {
+    mockDb._tx.reviewBatch.updateMany.mockResolvedValue({ count: 0 });
+    expect((await resendText(OPEN)).ok).toBe(false);
+    expect((await resendText("nope")).ok).toBe(false);
+    expect(mockDb._tx.reviewLinkToken.create).not.toHaveBeenCalled();
+    expect(smsMock.sendBatchText).not.toHaveBeenCalled();
   });
 });
 

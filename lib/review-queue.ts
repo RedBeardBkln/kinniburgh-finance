@@ -150,6 +150,18 @@ export function assignmentChipLabel(kind: AssignmentChipKind, assigneeName: stri
   }
 }
 
+/**
+ * The chip actually shown on a row: a "With <assignee>" chip is hidden once the
+ * row has tags (Eric tagged it, or a rule did, since it was assigned), so a
+ * tagged row never looks like it is still waiting on someone.
+ */
+export function visibleChipKind(
+  kind: AssignmentChipKind | null,
+  tagCount: number
+): AssignmentChipKind | null {
+  return kind === "with_assignee" && tagCount > 0 ? null : kind;
+}
+
 // ── Queue item classification (Eva's page) ─────────────────────────────────────
 
 export type QueueItemClass =
@@ -281,6 +293,28 @@ export const MIN_RULE_PATTERN_ALNUM = 3;
 export function isUsableRulePattern(pattern: string): boolean {
   return alnum(pattern).length >= MIN_RULE_PATTERN_ALNUM;
 }
+
+/**
+ * A queue rule may only be saved when its pattern actually appears in the payee
+ * of the item it came from (same alnum-stripped contains-comparison that
+ * matchTagRule uses, against the normalized payee). This turns "an arbitrary
+ * global rule" into "a rule for a payee that is really in this batch": rules
+ * are global and also auto-tag EK Consulting / Mezzo, so a pattern the item
+ * does not contain (a typo, or one typed by someone holding a leaked link) is
+ * refused. `payees` are the item's candidate payee strings (raw and/or
+ * normalized); null/empty ones are ignored.
+ */
+export function rulePatternMatchesPayee(
+  pattern: string,
+  payees: ReadonlyArray<string | null | undefined>
+): boolean {
+  const needle = alnum(pattern);
+  if (needle.length === 0) return false;
+  return payees.some((p) => p != null && alnum(normalizePayee(p)).includes(needle));
+}
+
+export const RULE_PATTERN_NOT_IN_PAYEE_NOTE =
+  "Rule not saved: the pattern doesn't match this payee.";
 
 /** Plain-language explanation of why a requested rule was not saved. */
 export function ruleSkippedNote(kinds: readonly string[]): string {

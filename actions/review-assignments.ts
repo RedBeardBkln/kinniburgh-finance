@@ -1,7 +1,7 @@
 "use server";
 
 // Eric-side "Assign to Eva" actions: draft assignment, Submit (mints the magic
-// link), and Get link. No SMS sending yet (Phase 3).
+// link and texts it), Resend text, and Get link.
 //
 // Every export starts with requireAuth(). Eligibility is enforced HERE, not in
 // the UI: only Personal and Sudden Valley transactions can be assigned, even
@@ -25,6 +25,7 @@ import {
   resolveAssigneeFor,
   submitDraftBatch,
 } from "@/lib/review-queue-server";
+import { sendBatchText } from "@/lib/review-sms-server";
 
 function requireAuth(): Promise<{ id: string }> {
   return auth().then((session) => {
@@ -221,13 +222,18 @@ export async function unassignTransaction(transactionId: string): Promise<Unassi
 
 // ── Submit (hand the draft to the assignee) ───────────────────────────────────
 //
-// Phase 2: no SMS yet. Submit mints a magic-link token and returns its path to
-// Eric ONCE so he can copy/share it manually. Only a SHA-256 hash is stored, so
-// the raw token cannot be shown again; "Get link" mints a fresh one.
+// Submit mints a magic-link token, texts it to the assignee (SMS gateway via
+// lib/review-sms-server.ts) and returns its path to Eric so he always has a
+// manual fallback. Only a SHA-256 hash is stored, so the raw token cannot be
+// shown again; "Get link" mints a fresh one. A failed text NEVER rolls back the
+// submit: it is recorded on the batch and surfaced to Eric.
 
 export type ShareLinkResult =
   | { ok: true; path: string; expiresAt: string }
   | { ok: false; error: string };
+
+/** Outcome of the text for the action that just ran; the durable copy is on the batch. */
+export type TextOutcome = { sent: true } | { sent: false; error: string };
 
 export type SubmitToAssigneeResult =
   | {
@@ -239,7 +245,12 @@ export type SubmitToAssigneeResult =
       appended: boolean;
       itemCount: number;
       expiresAt: string;
+      text: TextOutcome;
     }
+  | { ok: false; error: string };
+
+export type ResendTextResult =
+  | { ok: true; path: string; expiresAt: string; text: TextOutcome }
   | { ok: false; error: string };
 
 export async function submitToEva(): Promise<SubmitToAssigneeResult> {
@@ -259,6 +270,11 @@ export async function submitToEva(): Promise<SubmitToAssigneeResult> {
   const result = await submitDraftBatch(user.id, assigneeResult.assignee.id);
   if (!result.ok) return result;
 
+  // The submit has committed (batch + token exist). Texting happens AFTER and
+  // can never undo it; sendBatchText never throws and records the outcome.
+  // An append to an open batch is a "resend" (new token, fresh text).
+  const sms = await sendBatchText(result.batchId, result.token, result.appended ? "resend" : "initial");
+
   revalidatePath("/transactions");
   return {
     ok: true,
@@ -267,6 +283,33 @@ export async function submitToEva(): Promise<SubmitToAssigneeResult> {
     appended: result.appended,
     itemCount: result.itemCount,
     expiresAt: result.expiresAt.toISOString(),
+    text: sms.ok ? { sent: true } : { sent: false, error: sms.error },
+  };
+}
+
+/**
+ * Mints a new link for an open batch and texts it again (the old raw token can
+ * never be re-sent: only its hash is stored). Updates the batch's text status;
+ * does not touch or consume the single 24h reminder. The new path is returned
+ * too, so Eric can still share it by hand if the gateway fails again.
+ */
+export async function resendText(batchId: string): Promise<ResendTextResult> {
+  await requireAuth();
+
+  const parsed = z.string().uuid().safeParse(batchId);
+  if (!parsed.success) return { ok: false, error: "Invalid batch." };
+
+  const minted = await mintShareToken(parsed.data);
+  if (!minted) return { ok: false, error: "This batch is no longer open." };
+
+  const sms = await sendBatchText(parsed.data, minted.token, "resend");
+
+  revalidatePath("/transactions");
+  return {
+    ok: true,
+    path: `/queue/${minted.token}`,
+    expiresAt: minted.expiresAt.toISOString(),
+    text: sms.ok ? { sent: true } : { sent: false, error: sms.error },
   };
 }
 

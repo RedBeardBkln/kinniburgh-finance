@@ -70,7 +70,7 @@ pnpm db:seed      # seed from data/*.csv
 
 **Server actions** (`actions/*.ts`) — all use `"use server"` and call `requireAuth()` as the first line; never skip it. `requireAuth()` throws if no session.
 
-**Auth** — NextAuth v5 credentials provider (email + password + optional TOTP). Session cookie: `authjs.session-token` (HTTP) / `__Secure-authjs.session-token` (HTTPS). Middleware in `middleware.ts` gates all routes except `/login`.
+**Auth** — NextAuth v5 credentials provider (email + password + optional TOTP). Session cookie: `authjs.session-token` (HTTP) / `__Secure-authjs.session-token` (HTTPS). Middleware in `middleware.ts` gates all routes except `/login`. **Deliberate exception:** the public `/queue/[token]` review page (Eva's "assign to Eva" magic link) is exempt in middleware, and every export in `actions/review-queue.ts` is token-gated by `requireReviewAccess(token)` (validated against the DB on each call) instead of `requireAuth()`; this is intentional because the caller has no NextAuth session, so it must never be "fixed" to use `requireAuth()` or have the gate removed. Its security boundary is that per-action token check (not the middleware exemption), and a test pins that every export starts with it.
 
 **Entities** — the core multi-tenancy unit. Personal + three LLCs (Sudden Valley, EK Consulting, Mezzo). Entity slug drives the URL (`/business/[slug]/...`). `getNavBuckets()` in `lib/entity.ts` builds the header tabs.
 

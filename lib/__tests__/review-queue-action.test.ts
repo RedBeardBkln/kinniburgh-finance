@@ -415,6 +415,63 @@ describe("saveQueue", () => {
     expect(mockDb.tagRule.findMany).not.toHaveBeenCalled();
   });
 
+  it("refuses a rule whose pattern is not contained in the saved item's own payee (tag saved, no rule, no rule lookup)", async () => {
+    mockDb.transactionAssignment.findMany.mockResolvedValueOnce([assignmentRow(T1)]).mockResolvedValue([]);
+    mockDb.transaction.findUnique.mockResolvedValue(txRow(T1));
+    const res = await saveQueue(TOKEN, {
+      // The item's payee is "Shell Oil 123"; this pattern is something else entirely.
+      items: [{ transactionId: T1, tagId: TAG1, rule: { payeePattern: "acme consulting" } }],
+    });
+    if (!res.ok) throw new Error("unexpected");
+    expect(res.results[0]).toMatchObject({ status: "saved", rule: "failed" });
+    expect(res.results[0]!.ruleNote).toMatch(/doesn't match this payee/);
+    expect(mockDb.transactionTag.createMany).toHaveBeenCalledTimes(1); // the tag itself was saved
+    expect(mockDb.tagRule.create).not.toHaveBeenCalled();
+    expect(mockDb.tagRule.findMany).not.toHaveBeenCalled();
+  });
+
+  it("accepts a rule pattern that is a substring of the payee ignoring case/punctuation, and one found only in payeeNormalized", async () => {
+    mockDb.transactionAssignment.findMany
+      .mockResolvedValueOnce([
+        assignmentRow(T1, {
+          transaction: {
+            ...assignmentRow(T1).transaction,
+            payeeRaw: "SHELL OIL #123",
+            payeeNormalized: "shell oil 123",
+          },
+        }),
+      ])
+      .mockResolvedValue([]);
+    mockDb.transaction.findUnique.mockResolvedValue(txRow(T1));
+    const res = await saveQueue(TOKEN, {
+      items: [{ transactionId: T1, tagId: TAG1, rule: { payeePattern: "Shell-Oil" } }],
+    });
+    if (!res.ok) throw new Error("unexpected");
+    expect(res.results[0]).toMatchObject({ status: "saved", rule: "saved" });
+    expect(mockDb.tagRule.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds each item separately: the same pattern is saved for the item that contains it and refused for the one that does not", async () => {
+    mockDb.transactionAssignment.findMany
+      .mockResolvedValueOnce([
+        assignmentRow(T1),
+        assignmentRow(T2, {
+          transaction: { ...assignmentRow(T2).transaction, payeeRaw: "Totally Different LLC", payeeNormalized: "totally different llc" },
+        }),
+      ])
+      .mockResolvedValue([]);
+    mockDb.transaction.findUnique.mockResolvedValueOnce(txRow(T1)).mockResolvedValueOnce(txRow(T2));
+    const res = await saveQueue(TOKEN, {
+      items: [
+        { transactionId: T1, tagId: TAG1, rule: { payeePattern: "shell oil" } },
+        { transactionId: T2, tagId: TAG1, rule: { payeePattern: "shell oil" } },
+      ],
+    });
+    if (!res.ok) throw new Error("unexpected");
+    expect(res.results.map((r) => r.rule)).toEqual(["saved", "failed"]);
+    expect(mockDb.tagRule.create).toHaveBeenCalledTimes(1);
+  });
+
   it("closes the batch and revokes every token when nothing is left; stays open otherwise", async () => {
     // Nothing left -> completed.
     mockDb.transactionAssignment.findMany.mockResolvedValueOnce([assignmentRow(T1)]).mockResolvedValue([]);
