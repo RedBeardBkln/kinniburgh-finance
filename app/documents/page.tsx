@@ -12,6 +12,8 @@ import { isTaxDocType, suggestIssuerFromExtraction } from "@/lib/document-attrib
 import { buildExtractionOverview } from "@/lib/document-extraction-state";
 import { ExtractionCell } from "@/components/documents/extraction-cell";
 import { ExtractionBulkBar } from "@/components/documents/extraction-bulk-bar";
+import { FillMissingYearsBar } from "@/components/documents/fill-missing-years-bar";
+import { planYearFill } from "@/lib/document-year";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -35,7 +37,7 @@ const DOCUMENT_TABLE_COLUMNS: ResizableColumn[] = [
   { key: "bucket", label: "Bucket", defaultWidth: 95 },
   { key: "pertains", label: "Pertains to", defaultWidth: 120 },
   { key: "issuer", label: "Issuer / payer", defaultWidth: 190 },
-  { key: "year", label: "Year", defaultWidth: 60 },
+  { key: "year", label: "Year", defaultWidth: 90 },
   { key: "extraction", label: "Extraction", defaultWidth: 200 },
   { key: "uploaded", label: "Uploaded", defaultWidth: 105 },
   { key: "actions", label: "", defaultWidth: 0 },
@@ -107,6 +109,15 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
     docs.map((d) => [d.id, d.documentName ?? d.notes ?? DOC_TYPE_LABELS[d.docType] ?? d.docType])
   );
 
+  // Yearless documents whose stored extraction says a year: drives the "fill in
+  // missing years" control. Whole vault (independent of the filters/view above);
+  // read-only here, the write is the user-confirmed fillMissingDocumentYears action.
+  const yearlessDocs = await db.document.findMany({
+    where: { archivedAt: null, taxYear: null },
+    select: { id: true, docType: true, extractionData: true, extractionCorrections: true, extractionConfirmedAt: true },
+  });
+  const fillableYears = planYearFill(yearlessDocs).fills.length;
+
   // Default upload bucket is Personal, not alphabetical-first.
   const defaultEntityId =
     (entities.find((e) => e.slug === "personal") ?? entities.find((e) => e.type === "personal") ?? entities[0])?.id ?? "";
@@ -167,6 +178,9 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
           ))}
         </div>
 
+        {/* Fill missing years from already-extracted data: user-initiated, no AI calls. */}
+        <FillMissingYearsBar count={fillableYears} />
+
         {/* Bulk extraction: user-initiated only, counted, capped, concurrency-limited. */}
         <ExtractionBulkBar mode="missing" ids={bulkPlan.missing} names={docNames} />
         <ExtractionBulkBar
@@ -179,7 +193,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
         {/* Document table */}
         <Card>
           <CardContent className="p-0">
-            <ResizableTable columns={DOCUMENT_TABLE_COLUMNS} storageKey="documents-table-column-widths-v2">
+            <ResizableTable columns={DOCUMENT_TABLE_COLUMNS} storageKey="documents-table-column-widths-v3">
               <tbody>
                 {docs.length === 0 && (
                   <tr>
@@ -217,7 +231,11 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                         people={people}
                       />
                       <td className="px-4 py-2 text-xs">
-                        {doc.taxYear ?? "—"}
+                        {doc.taxYear ?? (
+                          <span className="whitespace-nowrap rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-700">
+                            No year
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2 text-xs">
                         {extraction ? (

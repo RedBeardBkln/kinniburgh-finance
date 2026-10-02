@@ -43,6 +43,7 @@ import {
 import { getEntityBySlug } from "@/lib/entity";
 import { normalizePayee } from "@/lib/tags";
 import { isTaxDocType, validateAttribution } from "@/lib/document-attribution";
+import { deriveEffectiveDocumentTaxYear, planYearFill } from "@/lib/document-year";
 
 async function requireAuth() {
   const session = await auth();
@@ -496,6 +497,36 @@ async function runExtraction(
       },
     });
 
+    // Fill a MISSING year from what was just read (never overrides a year that
+    // is already set). Deliberately a SEPARATE guarded updateMany, not part of
+    // the write above: an extraction takes 20-60 s, so `doc.taxYear` (read at
+    // the top) can be stale by now. `update` cannot carry a `taxYear IS NULL`
+    // condition without throwing on a mismatch (which would fail the whole
+    // extraction write), whereas `updateMany` with the null guard is race-safe
+    // and silently no-ops if the owner set a year in the meantime. Best-effort
+    // and in its own try/catch for the same reason as the revalidation below:
+    // the extraction already succeeded, so a failure here must never reach the
+    // outer catch and flip a good "complete" to "failed". The Documents-page
+    // "fill in missing years" button is the safety net for any miss.
+    try {
+      if (doc.taxYear == null) {
+        const year = deriveEffectiveDocumentTaxYear({
+          docType: doc.docType,
+          extractionData: result,
+          extractionCorrections: doc.extractionCorrections,
+          extractionConfirmedAt: discarding ? null : doc.extractionConfirmedAt,
+        });
+        if (year !== null) {
+          await db.document.updateMany({
+            where: { id: documentId, archivedAt: null, taxYear: null },
+            data: { taxYear: year },
+          });
+        }
+      }
+    } catch {
+      // best effort — see comment above.
+    }
+
     // Best-effort only, deliberately outside the try/catch that decides
     // success vs failure: the extraction already succeeded and was persisted
     // above, so a revalidation failure must never flip it to "failed".
@@ -552,6 +583,50 @@ export async function runDocumentExtraction(
   };
   const run = await runExtraction(documentId, safeOptions, user.id);
   return run.result ? { ok: true } : { ok: false, error: run.error ?? "Extraction failed" };
+}
+
+/**
+ * User-initiated backfill for the "No year" documents: sets Document.taxYear
+ * from the year each document's already-stored extraction says it covers
+ * (planYearFill, the same plan the /documents page counts from). It reads and
+ * writes only the database: no storage, no Anthropic, no extraction. Only
+ * non-archived rows whose taxYear is NULL are read, and every write carries the
+ * same `taxYear: null` + `archivedAt: null` guards, so a year that is already
+ * set (including one set concurrently) is never changed. `updated` is what the
+ * database reports it changed, not what was planned.
+ */
+export async function fillMissingDocumentYears(): Promise<{ updated: number; skippedNoYear: number }> {
+  await requireAuth();
+  const rows = await db.document.findMany({
+    where: { archivedAt: null, taxYear: null },
+    select: { id: true, docType: true, extractionData: true, extractionCorrections: true, extractionConfirmedAt: true },
+  });
+  const plan = planYearFill(rows);
+
+  const idsByYear = new Map<number, string[]>();
+  for (const fill of plan.fills) {
+    const ids = idsByYear.get(fill.year);
+    if (ids) ids.push(fill.id);
+    else idsByYear.set(fill.year, [fill.id]);
+  }
+
+  let updated = 0;
+  for (const [year, ids] of idsByYear) {
+    const res = await db.document.updateMany({
+      where: { id: { in: ids }, archivedAt: null, taxYear: null },
+      data: { taxYear: year },
+    });
+    updated += res.count;
+  }
+
+  // Non-fatal: the writes above already succeeded.
+  try {
+    revalidatePath("/documents");
+    revalidatePath("/tax");
+  } catch {
+    // ignore
+  }
+  return { updated, skippedNoYear: plan.skippedNoYear };
 }
 
 /**
