@@ -107,8 +107,9 @@ export default async function TaxFormsPage({ params }: PageProps) {
           <div>
             <h2 className="text-lg font-semibold">Business entities</h2>
             <p className="text-sm text-muted-foreground">
-              Grouped under the household return. EK Consulting and Sudden Valley activity is reported on the household
-              forms above unless the CPA says otherwise.
+              {data.entities.some((section) => section.slug === "sudden-valley")
+                ? "Grouped under the household return. EK Consulting and Sudden Valley activity is reported on the household forms above unless the CPA says otherwise."
+                : "Grouped under the household return. EK Consulting activity is reported on the household forms above unless the CPA says otherwise."}
             </p>
           </div>
           {data.entities.map((section) => (

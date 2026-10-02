@@ -250,6 +250,21 @@ const SCHEDULE_1_LINES = [
   "Adjustments (Schedule 1, Part II)",
 ] as const;
 
+/**
+ * Form 1040 plan lines that only exist because of Sudden Valley's rental. For a
+ * tax year when Sudden Valley is not active they are left off the page entirely
+ * (a line about a "2026 forward" source is not a 2025 requirement).
+ */
+const SV_ONLY_PLAN_LINES: ReadonlySet<string> = new Set(["Rental income (Schedule 1)"]);
+
+/**
+ * CPA_INPUT_FORMS entries whose only driver is Sudden Valley's rental (Form 4562
+ * rental depreciation, Form 8582 rental passive-loss limits). Keyed by the
+ * entry's opportunityKey. Home office (8829) etc. are EK Consulting / household
+ * matters and always stay.
+ */
+const SV_ONLY_CPA_OPPORTUNITIES: ReadonlySet<string> = new Set(["rental_depreciation", "short_term_rental_loophole"]);
+
 const SLUG_EKC = "ek-consulting";
 const SLUG_SV = "sudden-valley";
 
@@ -516,7 +531,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     reason: "The core federal return for the household; every other federal schedule attaches to it.",
     source: "lib/tax-guidance.ts PERSONAL_FORM_PLAN (Form 1040); specs/09 (married filing jointly)",
     planFormName: PLAN_FORM.f1040,
-    fields: planFields(plan, PLAN_FORM.f1040, basisByLine),
+    fields: planFields(plan, PLAN_FORM.f1040, basisByLine).filter((f) => svActive || !SV_ONLY_PLAN_LINES.has(f.line)),
     inputs: [
       ...refs(personalDocs(["w2", "1099", "extension"])),
       ...priorReturnRefs,
@@ -533,10 +548,14 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     filer: householdFiler,
     applicability: schedule1Required ? "required" : "conditional",
     reason: schedule1Required
-      ? "Business income (EK Consulting Schedule C) and/or rental income (Sudden Valley Schedule E) flow to Form 1040 through Schedule 1."
+      ? svActive
+        ? "Business income (EK Consulting Schedule C) and/or rental income (Sudden Valley Schedule E) flow to Form 1040 through Schedule 1."
+        : "Business income (EK Consulting Schedule C) flows to Form 1040 through Schedule 1."
       : "Would be needed for business/rental income or above-the-line adjustments; none of those entities apply this year.",
     source: "lib/tax-guidance.ts PERSONAL_FORM_PLAN (Form 1040 lines tagged \"Schedule 1\")",
-    fields: planFields(plan, PLAN_FORM.f1040, basisByLine).filter((f) => (SCHEDULE_1_LINES as readonly string[]).includes(f.line)),
+    fields: planFields(plan, PLAN_FORM.f1040, basisByLine)
+      .filter((f) => (SCHEDULE_1_LINES as readonly string[]).includes(f.line))
+      .filter((f) => svActive || !SV_ONLY_PLAN_LINES.has(f.line)),
   });
 
   // Schedule A
@@ -719,6 +738,9 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
   // ── Needs CPA input ─────────────────────────────────────────────────────────
   const needsCpa: FormEntry[] = [];
   for (const f of CPA_INPUT_FORMS) {
+    // Forms that exist in this list only because of Sudden Valley's rental are
+    // omitted for a year when Sudden Valley is not active.
+    if (!svActive && SV_ONLY_CPA_OPPORTUNITIES.has(f.opportunityKey)) continue;
     const ruledOut = excluded.includes(f.opportunityKey);
     needsCpa.push(
       makeEntry({
@@ -806,8 +828,12 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
   }
 
   // ── Entity sections ─────────────────────────────────────────────────────────
+  // Sudden Valley has no filing before it was formed: for those years it is left
+  // off the page entirely (no "not applicable" block). Other inactive entities
+  // (e.g. Mezzo, not yet formed) keep their explanatory row.
   const businesses = entities
     .filter((e) => e.type === "business")
+    .filter((e) => e.slug !== SLUG_SV || svActive)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
   const entitySections: EntityFormsSection[] = businesses.map((e) => {
@@ -877,7 +903,9 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     };
   });
 
-  const federal = [f1040, scheduleOne, scheduleA, scheduleC, scheduleSE, scheduleE, f5695];
+  // Schedule E exists in this catalog only for Sudden Valley's rental, so it is
+  // omitted for years before Sudden Valley existed instead of shown as "not applicable".
+  const federal = [f1040, scheduleOne, scheduleA, scheduleC, scheduleSE, ...(svActive ? [scheduleE] : []), f5695];
   const connecticut = [ct1040, ctSchedule3];
 
   const all = [...federal, ...connecticut, ...needsCpa, ...entitySections.flatMap((s) => s.entries)];

@@ -253,11 +253,11 @@ describe("loadFormsPageData (read-only assembler)", () => {
     expect(e26?.applicability).toBe("required");
     expect(e26?.confirmWithCpa).toBe(true);
     const y25 = await loadFormsPageData(2025);
-    expect(y25.federal.find((e) => e.id === "schedule-e")?.applicability).toBe("not_applicable");
+    // Sudden Valley does not exist in 2025: no Schedule E card and no entity block at all.
+    expect(y25.federal.find((e) => e.id === "schedule-e")).toBeUndefined();
     const mezzo = y25.entities.find((s) => s.slug === "mezzo");
     expect(mezzo?.entries.every((e) => e.applicability === "not_applicable")).toBe(true);
-    const sv25 = y25.entities.find((s) => s.slug === "sudden-valley");
-    expect(sv25?.activeForYear).toBe(false);
+    expect(y25.entities.find((s) => s.slug === "sudden-valley")).toBeUndefined();
   });
 
   it("no needs_cpa_input entry from the CPA list is ever 'required', across years and answer sets", async () => {

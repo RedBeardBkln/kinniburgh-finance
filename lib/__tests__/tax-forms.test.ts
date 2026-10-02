@@ -118,8 +118,13 @@ describe("catalog integrity", () => {
     const data = buildFormsPageData(input());
     for (const form of PERSONAL_FORM_PLAN) {
       const matches = allEntries(data).filter((e) => e.planFormName === form.formName);
-      expect(matches, form.formName).toHaveLength(1);
+      // Schedule E exists only for Sudden Valley, which has no 2025 activity: absent, not "not applicable".
+      const expected = form.formName === PLAN_FORM.scheduleE ? 0 : 1;
+      expect(matches, form.formName).toHaveLength(expected);
     }
+    const data2026 = buildFormsPageData(input({ taxYear: 2026 }));
+    const sched = allEntries(data2026).filter((e) => e.planFormName === PLAN_FORM.scheduleE);
+    expect(sched).toHaveLength(1);
   });
 
   it("PLAN_FORM names all exist in PERSONAL_FORM_PLAN", () => {
@@ -255,10 +260,14 @@ describe("answer-excluded CPA-input forms", () => {
   });
 
   it("each CPA-input form carries its originating opportunity with a risk label", () => {
-    const data = buildFormsPageData(input());
-    const f4562 = find(data, "form-4562");
+    // The rental form only exists once Sudden Valley is active (2026).
+    const f4562 = find(buildFormsPageData(input({ taxYear: 2026 })), "form-4562");
     expect(f4562.opportunity?.key).toBe("rental_depreciation");
     expect(f4562.opportunity?.riskLabel).toBeTruthy();
+    // A household form that always stays carries its opportunity in 2025 too.
+    const f8889 = find(buildFormsPageData(input()), "form-8889");
+    expect(f8889.opportunity?.key).toBe("hsa");
+    expect(f8889.opportunity?.riskLabel).toBeTruthy();
   });
 
   it("child and EV credit rows are ruled out only by the matching answers", () => {
@@ -280,10 +289,48 @@ describe("answer-excluded CPA-input forms", () => {
 });
 
 describe("Sudden Valley and Mezzo", () => {
-  it("Schedule E is not_applicable for TY2025 (formed Feb 2026)", () => {
-    const e = find(buildFormsPageData(input({ taxYear: 2025 })), "schedule-e");
-    expect(e.applicability).toBe("not_applicable");
-    expect(e.inputs).toEqual([]);
+  it("Schedule E is left off the page entirely for TY2025 (Sudden Valley formed Feb 2026)", () => {
+    for (const year of [2024, 2025]) {
+      const data = buildFormsPageData(input({ taxYear: year }));
+      expect(data.federal.some((e) => e.id === "schedule-e"), `${year} federal`).toBe(false);
+      const everyEntry = [...data.federal, ...data.connecticut, ...data.needsCpaInput, ...data.entities.flatMap((s) => s.entries)];
+      expect(everyEntry.some((e) => e.id === "schedule-e"), `${year} anywhere`).toBe(false);
+    }
+  });
+
+  it("nothing on the TY2025 page mentions Sudden Valley, its rental line, or Schedule E", () => {
+    const data = buildFormsPageData(input({ taxYear: 2025 }));
+    expect(data.entities.some((s) => s.slug === "sudden-valley")).toBe(false);
+    const everyEntry = [...data.federal, ...data.connecticut, ...data.needsCpaInput, ...data.entities.flatMap((s) => s.entries)];
+    // List offenders by id so a failure names the card that still mentions it.
+    for (const pattern of [/Sudden Valley/i, /Rental income/i, /Schedule E/i]) {
+      const offenders = everyEntry.filter((e) => pattern.test(JSON.stringify(e))).map((e) => e.id);
+      expect(offenders, String(pattern)).toEqual([]);
+    }
+    // The summary counts only what is shown (no hidden Sudden Valley / Schedule E rows).
+    const shown = everyEntry.length;
+    const counted =
+      data.summary.required + data.summary.conditional + data.summary.needsCpaInput + data.summary.notApplicable;
+    expect(counted).toBe(shown);
+  });
+
+  it("Forms 4562 and 8582 (rental-only) are omitted for TY2025 but kept for TY2026; home office etc. always stay", () => {
+    const ids = (year: number) => buildFormsPageData(input({ taxYear: year })).needsCpaInput.map((e) => e.id);
+    expect(ids(2025)).not.toContain("form-4562");
+    expect(ids(2025)).not.toContain("form-8582");
+    expect(ids(2025)).toContain("form-8829");
+    expect(ids(2026)).toContain("form-4562");
+    expect(ids(2026)).toContain("form-8582");
+  });
+
+  it("Schedule 1 and Form 1040 keep the rental line and Sudden Valley wording for TY2026", () => {
+    const data = buildFormsPageData(input({ taxYear: 2026 }));
+    const f1040 = data.federal.find((e) => e.id === "form-1040");
+    const sched1 = data.federal.find((e) => e.id === "schedule-1");
+    expect(f1040?.fields.some((f) => /Rental income/.test(f.line))).toBe(true);
+    expect(sched1?.fields.some((f) => /Rental income/.test(f.line))).toBe(true);
+    expect(sched1?.reason).toMatch(/Sudden Valley/);
+    expect(data.entities.some((s) => s.slug === "sudden-valley")).toBe(true);
   });
 
   it("Schedule E is required for TY2026 but must be confirmed with the CPA", () => {
@@ -299,7 +346,7 @@ describe("Sudden Valley and Mezzo", () => {
     expect(e.confirmWithCpa).toBe(false);
   });
 
-  it("the Sudden Valley section flags the unconfirmed classification for 2026 and has no filing for 2025", () => {
+  it("the Sudden Valley section flags the unconfirmed classification for 2026 and is absent for 2025", () => {
     const d2026 = buildFormsPageData(input({ taxYear: 2026 }));
     const sec = d2026.entities.find((s) => s.slug === "sudden-valley");
     expect(sec?.activeForYear).toBe(true);
@@ -309,9 +356,7 @@ describe("Sudden Valley and Mezzo", () => {
     expect(ret?.confirmWithCpa).toBe(true);
 
     const d2025 = buildFormsPageData(input({ taxYear: 2025 }));
-    const sec25 = d2025.entities.find((s) => s.slug === "sudden-valley");
-    expect(sec25?.activeForYear).toBe(false);
-    expect(sec25?.entries.map((e) => e.applicability)).toEqual(["not_applicable"]);
+    expect(d2025.entities.find((s) => s.slug === "sudden-valley")).toBeUndefined();
   });
 
   it("Mezzo never gets a form — only a not-applicable 'not yet formed' row", () => {
@@ -478,14 +523,16 @@ describe("readiness", () => {
     );
     const e = find(data, "form-1040");
     expect(e.readiness).toBe("partial");
-    expect(e.fieldsTotal).toBe(8);
+    // 8 plan lines minus "Rental income (Schedule 1)", which is Sudden Valley-only and omitted for 2025.
+    expect(e.fieldsTotal).toBe(7);
     expect(e.fieldsReady).toBe(1);
-    expect(e.missing).toHaveLength(7);
+    expect(e.missing).toHaveLength(6);
   });
 
-  it("Schedule 1 readiness uses only its three Form 1040 lines; Schedule SE is not assessed", () => {
+  it("Schedule 1 readiness uses only its Form 1040 lines (rental line only once Sudden Valley is active); Schedule SE is not assessed", () => {
     const data = buildFormsPageData(input());
-    expect(find(data, "schedule-1").fieldsTotal).toBe(3);
+    expect(find(data, "schedule-1").fieldsTotal).toBe(2);
+    expect(find(buildFormsPageData(input({ taxYear: 2026 })), "schedule-1").fieldsTotal).toBe(3);
     expect(find(data, "schedule-se").readiness).toBe("not_assessed");
   });
 
