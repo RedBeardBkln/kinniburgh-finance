@@ -220,6 +220,33 @@ export async function unassignTransaction(transactionId: string): Promise<Unassi
   return { ok: true };
 }
 
+// ── Mark an assignee-tagged row as reviewed (clears the "Tag assigned by" badge) ──
+
+/**
+ * Eric has looked at a tag the assignee saved: retire the badge. Scoped to the
+ * caller's own batches and only to `resolved` assignments, so it can never touch
+ * a pending/returned one or another user's batch. The tag itself is untouched.
+ */
+export async function markAssigneeTagReviewed(transactionId: string): Promise<UnassignResult> {
+  const user = await requireAuth();
+
+  const parsed = z.string().uuid().safeParse(transactionId);
+  if (!parsed.success) return { ok: false, error: "Invalid transaction." };
+
+  const { count } = await db.transactionAssignment.updateMany({
+    where: {
+      transactionId: parsed.data,
+      status: "resolved",
+      batch: { createdByUserId: user.id },
+    },
+    data: { status: "removed" },
+  });
+  if (count === 0) return { ok: false, error: "Nothing to mark as reviewed for this transaction." };
+
+  revalidatePath("/transactions");
+  return { ok: true };
+}
+
 // ── Submit (hand the draft to the assignee) ───────────────────────────────────
 //
 // Submit mints a magic-link token, texts it to the assignee (SMS gateway via

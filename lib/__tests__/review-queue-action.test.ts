@@ -36,6 +36,7 @@ const mockDb = vi.hoisted(() => {
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 
 import { generateReviewToken, hashReviewToken } from "@/lib/review-token";
+import { closeBatchIfDone } from "@/lib/review-queue-server";
 import {
   createTagForQueue,
   markOpened,
@@ -558,5 +559,23 @@ describe("createTagForQueue", () => {
     expect(empty.ok).toBe(false);
     const tooLong = await createTagForQueue(TOKEN, { shortName: "x".repeat(101) });
     expect(tooLong.ok).toBe(false);
+  });
+});
+
+describe("closeBatchIfDone status of dropped-off assignments", () => {
+  it("closes items that were tagged elsewhere as 'removed' (never 'resolved', which drives the Tag assigned by badge)", async () => {
+    const base = assignmentRow(T1);
+    mockDb.transactionAssignment.findMany.mockResolvedValue([
+      { ...base, transaction: { ...base.transaction, _count: { tags: 2 } } },
+    ]);
+    mockDb._tx.transactionAssignment.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.reviewBatch.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.reviewLinkToken.updateMany.mockResolvedValue({ count: 1 });
+
+    expect(await closeBatchIfDone(BATCH)).toEqual({ completed: true });
+    expect(mockDb._tx.transactionAssignment.updateMany.mock.calls[0]![0]).toMatchObject({
+      where: { id: { in: [`asg-${T1}`] }, status: "pending" },
+      data: { status: "removed" },
+    });
   });
 });

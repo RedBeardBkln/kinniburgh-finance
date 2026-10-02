@@ -46,9 +46,9 @@ export interface RowAssignmentState {
 
 /**
  * For a page of transactions, the assignment (if any) that should display as a
- * chip. Only `pending` (draft/submitted batch) and `returned` assignments are
- * visible; at most one per transaction (a transaction can only have one
- * pending assignment, and a newer row wins over an older `returned` one).
+ * chip. `pending` (draft/submitted batch), `returned` and `resolved` (assignee
+ * tagged it; shown until Eric marks it reviewed) assignments are visible; at
+ * most one per transaction (a newer row wins over an older one).
  */
 export async function loadAssignmentStates(
   transactionIds: readonly string[]
@@ -59,7 +59,7 @@ export async function loadAssignmentStates(
   const rows = await db.transactionAssignment.findMany({
     where: {
       transactionId: { in: [...transactionIds] },
-      status: { in: ["pending", "returned"] },
+      status: { in: ["pending", "returned", "resolved"] },
       batch: { status: { in: ["draft", "submitted", "completed"] } },
     },
     select: {
@@ -242,7 +242,8 @@ export async function markBatchOpened(batchId: string, now: Date = new Date()): 
  * If nothing is left for Eva to do (every assignment resolved, returned, or no
  * longer applicable), complete the batch and revoke every token for it.
  * Pending assignments that dropped off her list (tagged elsewhere, archived,
- * ...) are marked resolved at the same time.
+ * ...) are closed as `removed` at the same time (not `resolved`: that status
+ * means the assignee tagged it, and drives Eric's "Tag assigned by" badge).
  */
 export async function closeBatchIfDone(
   batchId: string,
@@ -256,7 +257,7 @@ export async function closeBatchIfDone(
     if (droppedIds.length > 0) {
       await tx.transactionAssignment.updateMany({
         where: { id: { in: droppedIds }, status: "pending" },
-        data: { status: "resolved", resolvedAt: now },
+        data: { status: "removed", resolvedAt: now },
       });
     }
     await tx.reviewBatch.updateMany({

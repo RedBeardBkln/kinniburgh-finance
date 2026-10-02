@@ -119,11 +119,15 @@ export function assigneeFirstName(name: string): string {
 
 // ── Row chip (Eric-side UI) ─────────────────────────────────────────────────────
 
-export type AssignmentChipKind = "draft" | "with_assignee" | "returned";
+export type AssignmentChipKind = "draft" | "with_assignee" | "returned" | "tagged_by_assignee";
 
 /**
  * Maps a (batch status, assignment status) pair to the chip shown under the
- * payee, or null when nothing should be shown (resolved/removed/cancelled).
+ * payee, or null when nothing should be shown (removed/cancelled). A `resolved`
+ * assignment means the assignee saved a tag on it, so Eric sees "Tag assigned by
+ * <assignee>" until he marks it reviewed (which sets it to `removed`). Items
+ * that merely dropped off the assignee's list (tagged elsewhere, archived) are
+ * closed as `removed`, never `resolved`, so they get no badge.
  */
 export function assignmentChipKind(
   batchStatus: string,
@@ -131,6 +135,9 @@ export function assignmentChipKind(
 ): AssignmentChipKind | null {
   if (assignmentStatus === "returned") {
     return batchStatus === "cancelled" ? null : "returned";
+  }
+  if (assignmentStatus === "resolved") {
+    return batchStatus === "cancelled" ? null : "tagged_by_assignee";
   }
   if (assignmentStatus !== "pending") return null;
   if (batchStatus === "draft") return "draft";
@@ -147,19 +154,24 @@ export function assignmentChipLabel(kind: AssignmentChipKind, assigneeName: stri
       return `With ${who}`;
     case "returned":
       return `Returned by ${who}`;
+    case "tagged_by_assignee":
+      return `Tag assigned by ${who}`;
   }
 }
 
 /**
  * The chip actually shown on a row: a "With <assignee>" chip is hidden once the
  * row has tags (Eric tagged it, or a rule did, since it was assigned), so a
- * tagged row never looks like it is still waiting on someone.
+ * tagged row never looks like it is still waiting on someone. A "Tag assigned
+ * by <assignee>" chip only makes sense while the row still has tags.
  */
 export function visibleChipKind(
   kind: AssignmentChipKind | null,
   tagCount: number
 ): AssignmentChipKind | null {
-  return kind === "with_assignee" && tagCount > 0 ? null : kind;
+  if (kind === "with_assignee" && tagCount > 0) return null;
+  if (kind === "tagged_by_assignee" && tagCount === 0) return null;
+  return kind;
 }
 
 // ── Queue item classification (Eva's page) ─────────────────────────────────────

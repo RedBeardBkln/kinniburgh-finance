@@ -34,6 +34,7 @@ import {
   assignTransactions,
   unassignTransaction,
   getDraftBatchSummary,
+  markAssigneeTagReviewed,
 } from "@/actions/review-assignments";
 
 const ERIC = "11111111-1111-4111-8111-111111111111";
@@ -267,5 +268,30 @@ describe("unassignTransaction scoping", () => {
   it("rejects a malformed id", async () => {
     expect((await unassignTransaction("nope")).ok).toBe(false);
     expect(mockDb.transactionAssignment.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("markAssigneeTagReviewed", () => {
+  it("rejects without a session and touches no DB", async () => {
+    authMock.mockResolvedValue(null);
+    await expect(markAssigneeTagReviewed(T1)).rejects.toThrow("Unauthorized");
+    expect(mockDb.transactionAssignment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("only retires resolved assignments in the caller's own batches", async () => {
+    mockDb.transactionAssignment.updateMany.mockResolvedValue({ count: 1 });
+    expect(await markAssigneeTagReviewed(T1)).toEqual({ ok: true });
+    expect(mockDb.transactionAssignment.updateMany.mock.calls[0]![0]).toEqual({
+      where: { transactionId: T1, status: "resolved", batch: { createdByUserId: ERIC } },
+      data: { status: "removed" },
+    });
+  });
+
+  it("reports nothing-to-review (count 0) as an error and rejects malformed ids before the DB", async () => {
+    mockDb.transactionAssignment.updateMany.mockResolvedValue({ count: 0 });
+    expect((await markAssigneeTagReviewed(T1)).ok).toBe(false);
+    mockDb.transactionAssignment.updateMany.mockClear();
+    expect((await markAssigneeTagReviewed("nope")).ok).toBe(false);
+    expect(mockDb.transactionAssignment.updateMany).not.toHaveBeenCalled();
   });
 });

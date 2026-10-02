@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { deleteTransaction } from "@/actions/transactions";
-import { assignTransactions, unassignTransaction } from "@/actions/review-assignments";
+import { assignTransactions, markAssigneeTagReviewed, unassignTransaction } from "@/actions/review-assignments";
 import {
   assignmentChipLabel,
   assigneeFirstName,
@@ -170,6 +170,14 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
     });
   }
 
+  function handleReviewed(id: string) {
+    setAssignError(null);
+    startUnassign(async () => {
+      const result = await markAssigneeTagReviewed(id);
+      if (!result.ok) setAssignError(result.error);
+    });
+  }
+
   function handleUnassign(id: string) {
     setAssignError(null);
     startUnassign(async () => {
@@ -326,7 +334,9 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                         className={`mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
                           chipKind === "returned"
                             ? "bg-amber-100 text-amber-800"
-                            : "bg-primary/10 text-primary"
+                            : chipKind === "tagged_by_assignee"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-primary/10 text-primary"
                         }`}
                       >
                         {assignmentChipLabel(chipKind, assign.assigneeName)}
@@ -337,6 +347,18 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                             title="Remove from draft"
                             disabled={isUnassigning}
                             onClick={() => handleUnassign(tx.id)}
+                            className="hover:text-destructive disabled:opacity-50"
+                          >
+                            ×
+                          </button>
+                        )}
+                        {chipKind === "tagged_by_assignee" && (
+                          <button
+                            type="button"
+                            aria-label="Mark as reviewed"
+                            title="Mark as reviewed (removes this badge)"
+                            disabled={isUnassigning}
+                            onClick={() => handleReviewed(tx.id)}
                             className="hover:text-destructive disabled:opacity-50"
                           >
                             ×

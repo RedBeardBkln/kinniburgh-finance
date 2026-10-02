@@ -222,9 +222,24 @@ describe("assignmentChipKind / assignmentChipLabel", () => {
     expect(assignmentChipKind("cancelled", "returned")).toBeNull();
   });
 
-  it("resolved / removed never show a chip", () => {
-    expect(assignmentChipKind("draft", "resolved")).toBeNull();
+  it("resolved (assignee tagged it) shows the tagged_by_assignee chip, except in a cancelled batch", () => {
+    expect(assignmentChipKind("submitted", "resolved")).toBe("tagged_by_assignee");
+    expect(assignmentChipKind("completed", "resolved")).toBe("tagged_by_assignee");
+    expect(assignmentChipKind("cancelled", "resolved")).toBeNull();
+  });
+
+  it("removed never shows a chip (covers dismissed badges and items that dropped off the list)", () => {
+    expect(assignmentChipKind("draft", "removed")).toBeNull();
     expect(assignmentChipKind("submitted", "removed")).toBeNull();
+    expect(assignmentChipKind("completed", "removed")).toBeNull();
+  });
+
+  it("tagged_by_assignee is only visible while the row still has tags", () => {
+    expect(visibleChipKind("tagged_by_assignee", 1)).toBe("tagged_by_assignee");
+    expect(visibleChipKind("tagged_by_assignee", 0)).toBeNull();
+    expect(visibleChipKind("with_assignee", 2)).toBeNull();
+    expect(visibleChipKind("returned", 0)).toBe("returned");
+    expect(visibleChipKind("draft", 0)).toBe("draft");
   });
 
   it("unknown statuses show no chip", () => {
@@ -237,6 +252,7 @@ describe("assignmentChipKind / assignmentChipLabel", () => {
     expect(assignmentChipLabel("draft", name)).toBe("Draft for Eva");
     expect(assignmentChipLabel("with_assignee", name)).toBe("With Eva");
     expect(assignmentChipLabel("returned", name)).toBe("Returned by Eva");
+    expect(assignmentChipLabel("tagged_by_assignee", name)).toBe("Tag assigned by Eva");
   });
 });
 
