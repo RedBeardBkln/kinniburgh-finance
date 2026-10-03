@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { parseStoredWidths, sameWidths, widthAfterDrag } from "@/lib/resizable-columns";
 
 export interface ResizableColumn {
@@ -36,6 +36,10 @@ export function ResizableTable({ columns, storageKey, lastColumnMinWidth = 150, 
   const defaults = resizable.map((c) => c.defaultWidth);
   const [widths, setWidths] = useState<number[]>(defaults);
   const drag = useRef<{ index: number; startX: number; startWidth: number } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const [scrollWidth, setScrollWidth] = useState(0);
+  const [clientWidth, setClientWidth] = useState(0);
 
   useEffect(() => {
     try {
@@ -49,6 +53,30 @@ export function ResizableTable({ columns, storageKey, lastColumnMinWidth = 150, 
     // defaults is derived from the static columns prop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
+
+  // The table's own scrollbar sits at the bottom of the (long) table, so a second
+  // scrollbar is pinned to the bottom of the viewport (sticky) and kept in sync.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => {
+      setScrollWidth(el.scrollWidth);
+      setClientWidth(el.clientWidth);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, []);
+
+  function syncScroll(from: "table" | "bar") {
+    const table = scrollRef.current;
+    const bar = barRef.current;
+    if (!table || !bar) return;
+    if (from === "table" && bar.scrollLeft !== table.scrollLeft) bar.scrollLeft = table.scrollLeft;
+    if (from === "bar" && table.scrollLeft !== bar.scrollLeft) table.scrollLeft = bar.scrollLeft;
+  }
 
   function persist(next: number[]) {
     try {
@@ -117,7 +145,11 @@ export function ResizableTable({ columns, storageKey, lastColumnMinWidth = 150, 
           </button>
         )}
       </div>
-      <div className="overflow-x-auto">
+      <div
+        ref={scrollRef}
+        onScroll={() => syncScroll("table")}
+        className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         <table
           className="resizable-table text-sm [&_td]:overflow-hidden [&_td]:break-words"
           style={{ tableLayout: "fixed", width: "100%", minWidth: fixedTotal + lastColumnMinWidth }}
@@ -155,6 +187,16 @@ export function ResizableTable({ columns, storageKey, lastColumnMinWidth = 150, 
           </thead>
           {children}
         </table>
+      </div>
+      <div
+        ref={barRef}
+        onScroll={() => syncScroll("bar")}
+        aria-hidden="true"
+        className={`sticky bottom-0 z-10 overflow-x-auto rounded-b-lg border-t bg-card ${
+          scrollWidth > clientWidth ? "" : "hidden"
+        }`}
+      >
+        <div style={{ width: scrollWidth, height: 1 }} />
       </div>
     </div>
   );

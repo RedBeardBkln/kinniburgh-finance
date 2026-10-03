@@ -35,16 +35,7 @@ export function DocumentTypeCell({ documentId, docType, label, badgeClass, extra
   );
   if (!isRetypableFrom(docType)) return badge;
 
-  if (extractionKind === "verified") {
-    return (
-      <div className="space-y-1">
-        {badge}
-        <p className="text-[11px] text-muted-foreground">
-          Verified - un-verify it on the review screen to change its type.
-        </p>
-      </div>
-    );
-  }
+  if (extractionKind === "verified") return badge;
 
   async function save() {
     if (next === docType) {
