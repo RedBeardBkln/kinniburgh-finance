@@ -260,6 +260,7 @@ export default async function MonthlyReviewPage({ params }: PageProps) {
                           payDay: b.autopayDay,
                           payDayOfWeek: b.payDayOfWeek ?? null,
                           biweeklyAnchorDate: null,
+                          payMonth: b.payMonth ?? null,
                         })}
                       </td>
                       <td className="px-4 py-2 text-right tabular-nums">

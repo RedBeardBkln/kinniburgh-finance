@@ -34,6 +34,18 @@ export interface SerializedBudgetLine {
   frequency: string;
   payDayOfWeek: number | null;
   biweeklyAnchorDate: string | null;
+  payMonth: number | null;
+  /** Total due on the annual due date (annual lines only). */
+  annualAmountDue: number | null;
+  /** Funding check for an annual line; null for every other frequency. */
+  annualStatus: {
+    nextDueDate: string;
+    accruedToDate: number;
+    projectedAtDue: number;
+    shortfall: number;
+    requiredMonthly: number;
+    isUnderfunded: boolean;
+  } | null;
   rolloverAmount: number;
   effectiveBudget: number;
   actualSpend: number;
@@ -43,6 +55,15 @@ export interface SerializedBudgetLine {
   recurringExpenses: RecurringExpenseSummary[];
   recurringMonthlySumCents: number;
   additionalAmountCents: number;
+}
+
+export interface AnnualReserveAlert {
+  accountName: string;
+  balance: number;
+  balanceAsOf: string | null;
+  /** What the account's annual bills should have accrued by now. */
+  reserved: number;
+  shortfall: number;
 }
 
 export interface SerializedAccount {
@@ -74,6 +95,7 @@ interface BudgetPageClientProps {
   totalRemaining: number;
   periodLabel: string;
   entityName: string;
+  annualReserveAlerts: AnnualReserveAlert[];
 }
 
 interface BudgetRowForEdit {
@@ -86,6 +108,8 @@ interface BudgetRowForEdit {
   frequency: string;
   payDayOfWeek: number | null;
   biweeklyAnchorDate: string | null;
+  payMonth: number | null;
+  annualAmountDue: string | null;
 }
 
 export function BudgetPageClient({
@@ -100,6 +124,7 @@ export function BudgetPageClient({
   totalRemaining,
   periodLabel,
   entityName,
+  annualReserveAlerts,
 }: BudgetPageClientProps) {
   const router = useRouter();
   const [modal, setModal] = useState<
@@ -122,6 +147,8 @@ export function BudgetPageClient({
   // names, so filtering by tagId here never conflates them.
   const usedTagIds = new Set(budgetedTagIdsAllEntities);
   const availableTags = tags.filter((t) => !usedTagIds.has(t.id));
+
+  const underfundedAnnual = budgets.filter((b) => b.annualStatus?.isUnderfunded);
 
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {
@@ -161,6 +188,8 @@ export function BudgetPageClient({
         frequency: b.frequency,
         payDayOfWeek: b.payDayOfWeek,
         biweeklyAnchorDate: b.biweeklyAnchorDate,
+        payMonth: b.payMonth,
+        annualAmountDue: b.annualAmountDue !== null ? b.annualAmountDue.toFixed(2) : null,
       },
     });
   }
@@ -238,6 +267,30 @@ export function BudgetPageClient({
             </button>
           </div>
         </div>
+
+        {/* Annual-bill funding warnings */}
+        {(underfundedAnnual.length > 0 || annualReserveAlerts.length > 0) && (
+          <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <p className="font-medium">⚠ Annual bills that aren&apos;t fully funded</p>
+            <ul className="list-disc space-y-1 pl-5">
+              {underfundedAnnual.map((b) => (
+                <li key={b.id}>
+                  <span className="font-medium">{b.tagName}</span> ({formatSchedule(b)}): {formatUSD(b.budgeted)}/mo
+                  builds to {formatUSD(b.annualStatus!.projectedAtDue)} but {formatUSD(b.annualAmountDue ?? 0)} is due —{" "}
+                  {formatUSD(b.annualStatus!.shortfall)} short. Set aside at least{" "}
+                  {formatUSD(b.annualStatus!.requiredMonthly)}/mo.
+                </li>
+              ))}
+              {annualReserveAlerts.map((a) => (
+                <li key={a.accountName}>
+                  <span className="font-medium">{a.accountName}</span> holds {formatUSD(a.balance)}
+                  {a.balanceAsOf ? ` (as of ${a.balanceAsOf})` : ""}, but its annual bills should have accrued{" "}
+                  {formatUSD(a.reserved)} by now — {formatUSD(a.shortfall)} short.
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Summary totals */}
         <div className="grid gap-4 sm:grid-cols-3">
@@ -341,6 +394,17 @@ export function BudgetPageClient({
                                 <span className="text-foreground">{formatSchedule(b)}</span>
                               ) : (
                                 <span className="text-xs">—</span>
+                              )}
+                              {b.frequency === "annual" && b.annualAmountDue !== null && (
+                                <span className="block text-xs">{formatUSD(b.annualAmountDue)} due</span>
+                              )}
+                              {b.annualStatus?.isUnderfunded && (
+                                <span
+                                  className="block text-xs font-medium text-amber-700"
+                                  title={`Needs at least ${formatUSD(b.annualStatus.requiredMonthly)}/mo`}
+                                >
+                                  ⚠ Underfunded by {formatUSD(b.annualStatus.shortfall)}
+                                </span>
                               )}
                             </td>
                             <td className="px-4 py-2 text-right">

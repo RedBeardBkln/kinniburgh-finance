@@ -84,6 +84,8 @@ function makeStaticBill(overrides: Partial<{
   frequency: string;
   payDayOfWeek: number | null;
   biweeklyAnchorDate: string | null;
+  payMonth: number | null;
+  annualBudget: string | null;
 }> = {}) {
   return {
     id: "b2",
@@ -92,7 +94,8 @@ function makeStaticBill(overrides: Partial<{
     amountType: "static",
     expectedAmount: overrides.expectedAmount !== undefined ? overrides.expectedAmount : "184.00",
     autopayDay: overrides.autopayDay !== undefined ? overrides.autopayDay : 20,
-    annualBudget: null,
+    annualBudget: overrides.annualBudget !== undefined ? overrides.annualBudget : null,
+    payMonth: overrides.payMonth !== undefined ? overrides.payMonth : null,
     frequency: overrides.frequency ?? "monthly",
     payDayOfWeek: overrides.payDayOfWeek !== undefined ? overrides.payDayOfWeek : null,
     biweeklyAnchorDate:
@@ -428,6 +431,74 @@ describe("generateBillOccurrences — weekly/biweekly", () => {
 });
 
 // ── perOccurrenceAmount ───────────────────────────────────────────────────────
+
+describe("generateBillOccurrences — annual", () => {
+  // $350/mo set-aside (expectedAmount, monthly by convention); $4,200 due Oct 15 (annualBudget).
+  const annualBill = (over: Parameters<typeof makeStaticBill>[0] = {}) =>
+    makeStaticBill({
+      expectedAmount: "350.00",
+      autopayDay: 15,
+      frequency: "annual",
+      payMonth: 10,
+      annualBudget: "4200.00",
+      ...over,
+    });
+
+  it("emits ONE outflow for the full total due on the due date — not monthly", () => {
+    const events = generateBillOccurrences(annualBill(), d("2026-01-01"), d("2027-01-01"));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.date.toISOString().slice(0, 10)).toBe("2026-10-15");
+    expect(events[0]!.amount.equals(dec("-4200"))).toBe(true);
+    expect(events[0]!.type).toBe("bill");
+  });
+
+  it("emits nothing when the due date is outside the window", () => {
+    expect(generateBillOccurrences(annualBill(), d("2026-01-01"), d("2026-10-15"))).toHaveLength(0);
+    expect(generateBillOccurrences(annualBill(), d("2026-10-16"), d("2027-10-15"))).toHaveLength(0);
+  });
+
+  it("recurs every year across a multi-year window", () => {
+    const events = generateBillOccurrences(annualBill(), d("2026-01-01"), d("2028-12-31"));
+    expect(events.map((e) => e.date.toISOString().slice(0, 10))).toEqual([
+      "2026-10-15",
+      "2027-10-15",
+      "2028-10-15",
+    ]);
+  });
+
+  it("clamps Feb 29 to Feb 28 in a non-leap year", () => {
+    const events = generateBillOccurrences(
+      annualBill({ payMonth: 2, autopayDay: 29 }),
+      d("2027-01-01"),
+      d("2028-12-31")
+    );
+    expect(events.map((e) => e.date.toISOString().slice(0, 10))).toEqual(["2027-02-28", "2028-02-29"]);
+  });
+
+  it("emits nothing when the month, day or total due is missing", () => {
+    const w = [d("2026-01-01"), d("2027-01-01")] as const;
+    expect(generateBillOccurrences(annualBill({ payMonth: null }), ...w)).toHaveLength(0);
+    expect(generateBillOccurrences(annualBill({ autopayDay: null }), ...w)).toHaveLength(0);
+    expect(generateBillOccurrences(annualBill({ annualBudget: null }), ...w)).toHaveLength(0);
+    expect(generateBillOccurrences(annualBill({ annualBudget: "0" }), ...w)).toHaveLength(0);
+  });
+
+  it("account forecast: monthly set-aside accrues, then the lump on the due date drains it", () => {
+    const from = d("2026-09-01");
+    const to = d("2026-11-01");
+    const bill = annualBill();
+    const transferIn = generateTransferOccurrences(
+      makeTransfer("monthly", { dayOfMonth: 1 }, "350.00"),
+      from,
+      to
+    ).filter((e) => e.accountId === ACCT_B);
+    const bills = generateBillOccurrences({ ...bill, accountId: ACCT_B }, from, to);
+    const forecast = buildAccountForecast(dec("3850"), [...transferIn, ...bills], null, from, to);
+    const onDay = (iso: string) => forecast.find((f) => f.date.toISOString().slice(0, 10) === iso)!;
+    expect(onDay("2026-10-14").balanceAfter.equals(dec("4550"))).toBe(true);
+    expect(onDay("2026-10-15").balanceAfter.equals(dec("350"))).toBe(true);
+  });
+});
 
 describe("perOccurrenceAmount", () => {
   it("monthly: passthrough", () => {

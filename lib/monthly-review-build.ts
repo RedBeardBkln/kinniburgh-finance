@@ -53,6 +53,7 @@ export interface ReviewData {
     autopayDay: number | null;
     frequency: string;
     payDayOfWeek: number | null;
+    payMonth?: number | null;
     entityName: string;
   }>;
   accrualStatus: Array<{
@@ -256,6 +257,7 @@ export async function buildMonthlyReviewData(period: string): Promise<ReviewData
     autopayDay: b.autopayDay ?? null,
     frequency: b.frequency,
     payDayOfWeek: b.payDayOfWeek,
+    payMonth: b.payMonth,
     entityName: b.entity.name,
   }));
 

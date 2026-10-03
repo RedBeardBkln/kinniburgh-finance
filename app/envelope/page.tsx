@@ -272,6 +272,7 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
                                         payDay: bill.autopayDay,
                                         payDayOfWeek: bill.payDayOfWeek,
                                         biweeklyAnchorDate: bill.biweeklyAnchorDate,
+                                        payMonth: bill.payMonth,
                                       })
                                     : "—"}
                                 </td>

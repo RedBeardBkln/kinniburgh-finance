@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createBudget, updateBudget } from "@/actions/budgets";
+import { assessAnnualFunding, isValidAnnualDay } from "@/lib/annual-bill";
+import { formatUSD } from "@/lib/utils";
 
 interface Account {
   id: string;
@@ -16,11 +18,19 @@ interface Tag {
   shortName: string;
 }
 
-const FREQUENCY_OPTIONS: { value: "monthly" | "weekly" | "biweekly"; label: string }[] = [
+type Frequency = "monthly" | "weekly" | "biweekly" | "annual";
+
+const FREQUENCY_OPTIONS: { value: Frequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
   { value: "weekly", label: "Weekly" },
   { value: "biweekly", label: "Biweekly" },
+  { value: "annual", label: "Annual" },
 ];
+
+const MONTH_OPTIONS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+].map((label, i) => ({ value: String(i + 1), label }));
 
 // Matches the default used elsewhere in this app (actions/envelope.ts's
 // approveSlushSchema for the Slush Funds weekly transfer approval UI).
@@ -46,6 +56,8 @@ interface BudgetEditModalProps {
     frequency: string;
     payDayOfWeek: number | null;
     biweeklyAnchorDate: string | null;
+    payMonth: number | null;
+    annualAmountDue: string | null;
   };
   accounts: Account[];
   tags?: Tag[];
@@ -71,9 +83,9 @@ export function BudgetEditModal({
   const [budgeted, setBudgeted] = useState(budget?.budgeted ?? "");
   const [payDayStr, setPayDayStr] = useState(budget?.payDay?.toString() ?? "");
   const [accountId, setAccountId] = useState(budget?.accountId ?? accounts[0]?.id ?? "");
-  const [frequency, setFrequency] = useState<"monthly" | "weekly" | "biweekly">(
-    (budget?.frequency as "monthly" | "weekly" | "biweekly" | undefined) ?? "monthly"
-  );
+  const [frequency, setFrequency] = useState<Frequency>((budget?.frequency as Frequency | undefined) ?? "monthly");
+  const [payMonthStr, setPayMonthStr] = useState(budget?.payMonth?.toString() ?? "1");
+  const [annualAmountDueStr, setAnnualAmountDueStr] = useState(budget?.annualAmountDue ?? "");
   const [payDayOfWeekStr, setPayDayOfWeekStr] = useState(
     budget?.payDayOfWeek !== null && budget?.payDayOfWeek !== undefined ? budget.payDayOfWeek.toString() : "1"
   );
@@ -88,22 +100,55 @@ export function BudgetEditModal({
   const originalPayDayOfWeek = budget?.payDayOfWeek ?? null;
   const originalBiweeklyAnchorDate = budget?.biweeklyAnchorDate ? budget.biweeklyAnchorDate.slice(0, 10) : "";
 
+  const originalPayMonth = budget?.payMonth ?? null;
+  const originalAnnualAmountDue = budget?.annualAmountDue ?? "";
+
   const payDayChanged = payDayStr !== (originalPayDay?.toString() ?? "");
   const accountChanged = accountId !== originalAccountId;
   const frequencyChanged = frequency !== originalFrequency;
   const payDayOfWeekChanged =
     frequency !== "monthly" && payDayOfWeekStr !== (originalPayDayOfWeek?.toString() ?? "");
   const biweeklyAnchorChanged = frequency === "biweekly" && biweeklyAnchorDate !== originalBiweeklyAnchorDate;
+  const annualChanged =
+    frequency === "annual" &&
+    (payMonthStr !== (originalPayMonth?.toString() ?? "1") || annualAmountDueStr !== originalAnnualAmountDue);
   const showApplyTo =
     mode === "edit" &&
-    (payDayChanged || accountChanged || frequencyChanged || payDayOfWeekChanged || biweeklyAnchorChanged);
+    (payDayChanged ||
+      accountChanged ||
+      frequencyChanged ||
+      payDayOfWeekChanged ||
+      biweeklyAnchorChanged ||
+      annualChanged);
+
+  // Live funding check for an annual line: will the monthly amount, transferred in
+  // every month, add up to the total due by the due date?
+  const annualInputsReady =
+    frequency === "annual" &&
+    budgeted !== "" &&
+    annualAmountDueStr !== "" &&
+    payDayStr !== "" &&
+    isValidAnnualDay(parseInt(payMonthStr, 10), parseInt(payDayStr, 10));
+  const annualAssessment = annualInputsReady
+    ? assessAnnualFunding({
+        monthlyCents: Math.round(parseFloat(budgeted) * 100),
+        totalDueCents: Math.round(parseFloat(annualAmountDueStr) * 100),
+        dueMonth: parseInt(payMonthStr, 10),
+        dueDay: parseInt(payDayStr, 10),
+        today: new Date(),
+      })
+    : null;
 
   function handleSave() {
     setError(null);
     startTransition(async () => {
-      const payDay = frequency === "monthly" && payDayStr ? parseInt(payDayStr, 10) : undefined;
-      const payDayOfWeek = frequency !== "monthly" ? parseInt(payDayOfWeekStr, 10) : null;
+      const usesDayOfMonth = frequency === "monthly" || frequency === "annual";
+      const payDay = usesDayOfMonth && payDayStr ? parseInt(payDayStr, 10) : undefined;
+      const usesDayOfWeek = frequency === "weekly" || frequency === "biweekly";
+      const payDayOfWeek = usesDayOfWeek ? parseInt(payDayOfWeekStr, 10) : null;
       const anchorDate = frequency === "biweekly" ? biweeklyAnchorDate || null : null;
+      const payMonth = frequency === "annual" ? parseInt(payMonthStr, 10) : null;
+      const annualAmountDue = frequency === "annual" ? annualAmountDueStr : null;
 
       let result: { success: true } | { error: string };
 
@@ -122,16 +167,20 @@ export function BudgetEditModal({
           frequency,
           payDayOfWeek,
           biweeklyAnchorDate: anchorDate,
+          payMonth,
+          annualAmountDue,
         });
       } else {
         result = await updateBudget(budget!.id, {
           budgeted,
-          payDay: frequency === "monthly" ? (payDayStr ? parseInt(payDayStr, 10) : null) : null,
+          payDay: usesDayOfMonth ? (payDayStr ? parseInt(payDayStr, 10) : null) : null,
           accountId,
           applyToFuture,
           frequency,
           payDayOfWeek,
           biweeklyAnchorDate: anchorDate,
+          payMonth,
+          annualAmountDue,
         });
       }
 
@@ -177,7 +226,9 @@ export function BudgetEditModal({
 
           {/* Budgeted amount */}
           <div className="space-y-1">
-            <label className="text-sm font-medium">Monthly Budget</label>
+            <label className="text-sm font-medium">
+              {frequency === "annual" ? "Monthly Set-Aside" : "Monthly Budget"}
+            </label>
             <div className="flex items-center gap-1">
               <span className="text-muted-foreground">$</span>
               <input
@@ -190,7 +241,11 @@ export function BudgetEditModal({
                 className="w-full rounded border px-3 py-2 text-sm"
               />
             </div>
-            <p className="text-xs text-muted-foreground">Leave blank to auto-sum nested budget lines</p>
+            <p className="text-xs text-muted-foreground">
+              {frequency === "annual"
+                ? "Transferred into the account each month and held there until the due date"
+                : "Leave blank to auto-sum nested budget lines"}
+            </p>
           </div>
 
           {/* Frequency */}
@@ -198,7 +253,7 @@ export function BudgetEditModal({
             <label className="text-sm font-medium">Frequency</label>
             <select
               value={frequency}
-              onChange={(e) => setFrequency(e.target.value as "monthly" | "weekly" | "biweekly")}
+              onChange={(e) => setFrequency(e.target.value as Frequency)}
               className="w-full rounded border px-3 py-2 text-sm"
             >
               {FREQUENCY_OPTIONS.map((opt) => (
@@ -210,7 +265,81 @@ export function BudgetEditModal({
           </div>
 
           {/* Due date */}
-          {frequency === "monthly" ? (
+          {frequency === "annual" ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Due Month</label>
+                  <select
+                    value={payMonthStr}
+                    onChange={(e) => setPayMonthStr(e.target.value)}
+                    className="w-full rounded border px-3 py-2 text-sm"
+                  >
+                    {MONTH_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Due Day</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={payDayStr}
+                    onChange={(e) => setPayDayStr(e.target.value)}
+                    placeholder="e.g. 15"
+                    className="w-full rounded border px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Total Amount Due</label>
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={annualAmountDueStr}
+                    onChange={(e) => setAnnualAmountDueStr(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full rounded border px-3 py-2 text-sm"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The full amount paid out on the due date each year.
+                </p>
+              </div>
+              {annualAssessment && (
+                <div
+                  className={`rounded border p-3 text-sm ${
+                    annualAssessment.isUnderfunded
+                      ? "border-amber-300 bg-amber-50 text-amber-900"
+                      : "border-green-200 bg-green-50 text-green-900"
+                  }`}
+                >
+                  {annualAssessment.isUnderfunded ? (
+                    <p>
+                      <span className="font-medium">⚠ Not accruing enough.</span>{" "}
+                      {formatUSD(parseFloat(budgeted))}/mo builds to{" "}
+                      {formatUSD(annualAssessment.projectedAtDueCents / 100)} by the due date, which is{" "}
+                      {formatUSD(annualAssessment.shortfallCents / 100)} short of{" "}
+                      {formatUSD(parseFloat(annualAmountDueStr))}. Set aside at least{" "}
+                      {formatUSD(annualAssessment.requiredMonthlyCents / 100)}/mo.
+                    </p>
+                  ) : (
+                    <p>
+                      Fully funded: {formatUSD(parseFloat(budgeted))}/mo builds to{" "}
+                      {formatUSD(annualAssessment.projectedAtDueCents / 100)} by the due date.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : frequency === "monthly" ? (
             <div className="space-y-1">
               <label className="text-sm font-medium">
                 Due Date <span className="text-muted-foreground font-normal">(day of month, optional)</span>

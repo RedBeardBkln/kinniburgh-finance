@@ -7,6 +7,7 @@ import { computeBudgetSummary } from "@/lib/budget";
 import { decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import { PeriodPicker } from "@/components/period-picker";
+import { assessAnnualFunding, assessAccountReserve } from "@/lib/annual-bill";
 import { exportBudgetCsv } from "@/actions/reports";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import {
@@ -135,11 +136,29 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
   }
 
   // Serialize budget lines with computed summaries
+  const annualByAccountId = new Map<string, number[]>();
   const serializedBudgets: SerializedBudgetLine[] = budgets.map((b) => {
     const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
     const tagExpenses = recurringByTagId.get(b.tagId) ?? [];
     const recurringMonthlySumCents = tagExpenses.reduce((s, e) => s + e.monthlyEquivCents, 0);
     const additionalAmountCents = decimalToNumber(new Prisma.Decimal(b.additionalAmountCents ?? 0));
+
+    // Annual lines: does the monthly set-aside add up to the total due by the due date?
+    const annual =
+      b.frequency === "annual" &&
+      b.payMonth !== null &&
+      b.payDay !== null &&
+      b.annualAmountDue !== null &&
+      b.budgeted !== null
+        ? assessAnnualFunding({
+            monthlyCents: toCents(new Prisma.Decimal(b.budgeted)),
+            totalDueCents: toCents(new Prisma.Decimal(b.annualAmountDue)),
+            dueMonth: b.payMonth,
+            dueDay: b.payDay,
+            today: now,
+          })
+        : null;
+    if (annual) annualByAccountId.set(b.accountId, [...(annualByAccountId.get(b.accountId) ?? []), annual.accruedToDateCents]);
 
     // Effective budgeted = resolved (recurring / explicit / auto-summed) amount
     const effectiveBudgetedDollars = decimalToNumber(resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0));
@@ -161,6 +180,18 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
       frequency: b.frequency,
       payDayOfWeek: b.payDayOfWeek,
       biweeklyAnchorDate: b.biweeklyAnchorDate?.toISOString() ?? null,
+      payMonth: b.payMonth,
+      annualAmountDue: b.annualAmountDue !== null ? decimalToNumber(new Prisma.Decimal(b.annualAmountDue)) : null,
+      annualStatus: annual
+        ? {
+            nextDueDate: annual.nextDueDate.toISOString().slice(0, 10),
+            accruedToDate: annual.accruedToDateCents / 100,
+            projectedAtDue: annual.projectedAtDueCents / 100,
+            shortfall: annual.shortfallCents / 100,
+            requiredMonthly: annual.requiredMonthlyCents / 100,
+            isUnderfunded: annual.isUnderfunded,
+          }
+        : null,
       rolloverAmount: decimalToNumber(summary.rolloverAmount),
       effectiveBudget: decimalToNumber(summary.effectiveBudget),
       actualSpend: decimalToNumber(summary.actualSpend),
@@ -172,6 +203,30 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
       additionalAmountCents,
     };
   });
+
+  // Account-level check: an account holding annual bills' accruing funds should
+  // actually hold at least what those bills have accrued by now.
+  const annualReserveAlerts = budgets
+    .filter((b, i, arr) => arr.findIndex((x) => x.accountId === b.accountId) === i)
+    .flatMap((b) => {
+      const accrued = annualByAccountId.get(b.accountId);
+      if (!accrued) return [];
+      const balance = b.account.currentBalance;
+      const reserve = assessAccountReserve(
+        balance !== null ? toCents(new Prisma.Decimal(balance)) : null,
+        accrued
+      );
+      if (!reserve?.isShort) return [];
+      return [
+        {
+          accountName: b.account.nickname,
+          balance: decimalToNumber(new Prisma.Decimal(balance ?? 0)),
+          balanceAsOf: b.account.currentBalanceAt?.toISOString().slice(0, 10) ?? null,
+          reserved: reserve.reservedCents / 100,
+          shortfall: reserve.shortfallCents / 100,
+        },
+      ];
+    });
 
   // Totals — root-only sum so a parent and its children are never both counted.
   const totalBudgeted = serializedBudgets
@@ -210,10 +265,15 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
           totalRemaining={totalRemaining}
           periodLabel={formatPeriod(period)}
           entityName={bucketLabel}
+          annualReserveAlerts={annualReserveAlerts}
         />
       </div>
     </AppShell>
   );
+}
+
+function toCents(d: Prisma.Decimal): number {
+  return d.times(100).toDecimalPlaces(0).toNumber();
 }
 
 function formatPeriod(period: string): string {

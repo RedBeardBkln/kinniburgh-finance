@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { isValidAnnualDay } from "@/lib/annual-bill";
 
 async function requireAuth() {
   const session = await auth();
@@ -42,6 +43,33 @@ export async function updateBudgetLine(
   return { success: true };
 }
 
+// ── Annual-frequency validation ───────────────────────────────────────────────
+
+const AMOUNT_DUE_REGEX = /^\d+(\.\d{1,2})?$/;
+
+/**
+ * An annual line needs a due month + day, a total due, and a monthly set-aside
+ * (the budget amount) — without the set-aside there is nothing accruing to check.
+ * Returns an error message, or null when valid. Callers pass the EFFECTIVE values
+ * (after merging with what's already stored on an update).
+ */
+function annualScheduleError(v: {
+  payMonth: number | null | undefined;
+  payDay: number | null | undefined;
+  annualAmountDue: string | null | undefined;
+  budgeted: string | null | undefined;
+}): string | null {
+  if (v.payMonth == null || v.payDay == null) return "Due month and day are required for an annual budget line";
+  if (!isValidAnnualDay(v.payMonth, v.payDay)) return "That day does not exist in the selected month";
+  if (!v.annualAmountDue || !AMOUNT_DUE_REGEX.test(v.annualAmountDue) || new Prisma.Decimal(v.annualAmountDue).lte(0)) {
+    return "Total amount due is required for an annual budget line (e.g. 4200.00)";
+  }
+  if (!v.budgeted || new Prisma.Decimal(v.budgeted).lte(0)) {
+    return "A monthly budget amount is required for an annual line — it is the amount set aside each month";
+  }
+  return null;
+}
+
 // ── Internal helper ───────────────────────────────────────────────────────────
 
 async function upsertBudgetBill(
@@ -52,12 +80,18 @@ async function upsertBudgetBill(
   payDay: number | null,
   frequency: string,
   payDayOfWeek: number | null,
-  biweeklyAnchorDate: Date | null
+  biweeklyAnchorDate: Date | null,
+  payMonth: number | null,
+  annualAmountDue: string | null
 ) {
   const tag = await db.tag.findUnique({ where: { id: tagId } });
   if (!tag) return;
 
   const expectedAmount = budgeted ? new Prisma.Decimal(budgeted) : null;
+  const isAnnual = frequency === "annual";
+  // For an annual bill, expectedAmount stays the MONTHLY set-aside (same
+  // convention as every other frequency) and annualBudget holds the total due.
+  const annualBudget = isAnnual && annualAmountDue ? new Prisma.Decimal(annualAmountDue) : undefined;
 
   await db.scheduledBill.upsert({
     where: { budgetTagId_budgetEntityId: { budgetTagId: tagId, budgetEntityId: entityId } },
@@ -71,6 +105,8 @@ async function upsertBudgetBill(
       frequency,
       payDayOfWeek,
       biweeklyAnchorDate,
+      payMonth: isAnnual ? payMonth : null,
+      ...(annualBudget && { annualBudget }),
       budgetTagId: tagId,
       budgetEntityId: entityId,
       active: true,
@@ -82,6 +118,11 @@ async function upsertBudgetBill(
       frequency,
       payDayOfWeek,
       biweeklyAnchorDate,
+      payMonth: isAnnual ? payMonth : null,
+      ...(annualBudget && { annualBudget }),
+      // An annual bill is paid in one lump on its due date; an accrued-type bill
+      // would ignore the annual schedule, so the line's choice wins.
+      ...(isAnnual && { amountType: "static" }),
       active: true,
     },
   });
@@ -106,9 +147,11 @@ const CreateSchema = z.object({
     .regex(/^(\d+(\.\d{1,2})?)?$/, "Must be blank (to auto-sum nested lines) or a positive dollar amount (e.g. 217.00)")
     .optional(),
   payDay: z.number().int().min(1).max(31).optional(),
-  frequency: z.enum(["monthly", "weekly", "biweekly"]).optional(),
+  frequency: z.enum(["monthly", "weekly", "biweekly", "annual"]).optional(),
   payDayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
   biweeklyAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  payMonth: z.number().int().min(1).max(12).nullable().optional(),
+  annualAmountDue: z.string().trim().nullable().optional(),
 })
   .refine((data) => data.frequency !== "weekly" || data.payDayOfWeek != null, {
     message: "Day of week is required for a weekly budget line",
@@ -122,7 +165,17 @@ const CreateSchema = z.object({
       message: "Day of week and anchor date are required for a biweekly budget line",
       path: ["biweeklyAnchorDate"],
     }
-  );
+  )
+  .superRefine((data, ctx) => {
+    if (data.frequency !== "annual") return;
+    const message = annualScheduleError({
+      payMonth: data.payMonth,
+      payDay: data.payDay,
+      annualAmountDue: data.annualAmountDue,
+      budgeted: data.budgeted,
+    });
+    if (message) ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+  });
 
 export async function createBudget(
   input: z.infer<typeof CreateSchema>
@@ -134,12 +187,26 @@ export async function createBudget(
     return { error: parsed.error.errors[0]?.message ?? "Invalid input" };
   }
 
-  const { tagId, entityId, accountId, period, budgeted, payDay, frequency, payDayOfWeek, biweeklyAnchorDate } =
-    parsed.data;
+  const {
+    tagId,
+    entityId,
+    accountId,
+    period,
+    budgeted,
+    payDay,
+    frequency,
+    payDayOfWeek,
+    biweeklyAnchorDate,
+    payMonth,
+    annualAmountDue,
+  } = parsed.data;
   const budgetedDecimal = budgeted ? new Prisma.Decimal(budgeted) : null;
   const effectiveFrequency = frequency ?? "monthly";
   const effectivePayDayOfWeek = payDayOfWeek ?? null;
   const effectiveBiweeklyAnchorDate = biweeklyAnchorDate ? new Date(biweeklyAnchorDate) : null;
+  const isAnnual = effectiveFrequency === "annual";
+  const effectivePayMonth = isAnnual ? payMonth ?? null : null;
+  const effectiveAnnualAmountDue = isAnnual && annualAmountDue ? new Prisma.Decimal(annualAmountDue) : null;
 
   // A tag can only be budgeted by one entity per period, household-wide —
   // the UI's Add Budget Line dropdown already hides tags used by ANY entity
@@ -169,10 +236,17 @@ export async function createBudget(
       frequency: effectiveFrequency,
       payDayOfWeek: effectivePayDayOfWeek,
       biweeklyAnchorDate: effectiveBiweeklyAnchorDate,
+      payMonth: effectivePayMonth,
+      annualAmountDue: effectiveAnnualAmountDue,
     },
   });
 
-  if (payDay !== undefined || effectiveFrequency === "weekly" || effectiveFrequency === "biweekly") {
+  if (
+    payDay !== undefined ||
+    effectiveFrequency === "weekly" ||
+    effectiveFrequency === "biweekly" ||
+    isAnnual
+  ) {
     await upsertBudgetBill(
       tagId,
       entityId,
@@ -181,7 +255,9 @@ export async function createBudget(
       payDay ?? null,
       effectiveFrequency,
       effectivePayDayOfWeek,
-      effectiveBiweeklyAnchorDate
+      effectiveBiweeklyAnchorDate,
+      effectivePayMonth,
+      annualAmountDue ?? null
     );
   }
 
@@ -200,9 +276,11 @@ const UpdateBudgetSchema = z.object({
   payDay: z.number().int().min(1).max(31).nullable().optional(),
   accountId: z.string().uuid().optional(),
   applyToFuture: z.boolean().optional(),
-  frequency: z.enum(["monthly", "weekly", "biweekly"]).optional(),
+  frequency: z.enum(["monthly", "weekly", "biweekly", "annual"]).optional(),
   payDayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
   biweeklyAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  payMonth: z.number().int().min(1).max(12).nullable().optional(),
+  annualAmountDue: z.string().trim().nullable().optional(),
 })
   .refine((data) => data.frequency !== "weekly" || data.payDayOfWeek != null, {
     message: "Day of week is required for a weekly budget line",
@@ -229,16 +307,50 @@ export async function updateBudget(
     return { error: parsed.error.errors[0]?.message ?? "Invalid input" };
   }
 
-  const { budgeted, payDay, accountId, applyToFuture, frequency, payDayOfWeek, biweeklyAnchorDate } = parsed.data;
+  const {
+    budgeted,
+    payDay,
+    accountId,
+    applyToFuture,
+    frequency,
+    payDayOfWeek,
+    biweeklyAnchorDate,
+    payMonth,
+    annualAmountDue,
+  } = parsed.data;
 
   const current = await db.budget.findUnique({ where: { id } });
   if (!current) return { error: "Budget not found" };
+
+  const effectiveFrequency = frequency !== undefined ? frequency : current.frequency;
+  const isAnnual = effectiveFrequency === "annual";
+  // Leaving annual clears the annual-only fields; staying annual keeps what's stored
+  // unless the caller supplied a new value.
+  const effectivePayMonth = isAnnual ? (payMonth !== undefined ? payMonth : current.payMonth) : null;
+  const effectiveAnnualAmountDue = isAnnual
+    ? annualAmountDue !== undefined
+      ? annualAmountDue
+      : current.annualAmountDue !== null
+        ? current.annualAmountDue.toString()
+        : null
+    : null;
 
   // Three distinguishable states: omitted (undefined — no change), explicit
   // blank ("" — clear to auto-sum), explicit value.
   const newBudgetedRaw = budgeted !== undefined ? (budgeted === "" ? null : budgeted) : undefined;
   const newBiweeklyAnchorDate =
     biweeklyAnchorDate !== undefined ? (biweeklyAnchorDate ? new Date(biweeklyAnchorDate) : null) : undefined;
+
+  if (isAnnual) {
+    const message = annualScheduleError({
+      payMonth: effectivePayMonth,
+      payDay: payDay !== undefined ? payDay : current.payDay,
+      annualAmountDue: effectiveAnnualAmountDue,
+      budgeted:
+        newBudgetedRaw !== undefined ? newBudgetedRaw : current.budgeted !== null ? current.budgeted.toString() : null,
+    });
+    if (message) return { error: message };
+  }
 
   const updateData: Prisma.BudgetUpdateInput = {};
   if (newBudgetedRaw !== undefined) {
@@ -249,6 +361,11 @@ export async function updateBudget(
   if (frequency !== undefined) updateData.frequency = frequency;
   if (payDayOfWeek !== undefined) updateData.payDayOfWeek = payDayOfWeek;
   if (newBiweeklyAnchorDate !== undefined) updateData.biweeklyAnchorDate = newBiweeklyAnchorDate;
+  // Only touch the annual-only columns when frequency is being set or they're supplied.
+  if (frequency !== undefined || payMonth !== undefined || annualAmountDue !== undefined) {
+    updateData.payMonth = effectivePayMonth;
+    updateData.annualAmountDue = effectiveAnnualAmountDue ? new Prisma.Decimal(effectiveAnnualAmountDue) : null;
+  }
 
   await db.budget.update({ where: { id }, data: updateData });
 
@@ -258,7 +375,9 @@ export async function updateBudget(
       accountId !== undefined ||
       frequency !== undefined ||
       payDayOfWeek !== undefined ||
-      newBiweeklyAnchorDate !== undefined)
+      newBiweeklyAnchorDate !== undefined ||
+      payMonth !== undefined ||
+      annualAmountDue !== undefined)
   ) {
     const futureData: Prisma.BudgetUpdateManyMutationInput = {};
     if (payDay !== undefined) futureData.payDay = payDay;
@@ -280,6 +399,10 @@ export async function updateBudget(
       if (frequency !== undefined) fbData.frequency = frequency;
       if (payDayOfWeek !== undefined) fbData.payDayOfWeek = payDayOfWeek;
       if (newBiweeklyAnchorDate !== undefined) fbData.biweeklyAnchorDate = newBiweeklyAnchorDate;
+      if (frequency !== undefined || payMonth !== undefined || annualAmountDue !== undefined) {
+        fbData.payMonth = effectivePayMonth;
+        fbData.annualAmountDue = effectiveAnnualAmountDue ? new Prisma.Decimal(effectiveAnnualAmountDue) : null;
+      }
       await db.budget.update({ where: { id: fb.id }, data: fbData });
     }
   }
@@ -288,7 +411,6 @@ export async function updateBudget(
   const effectiveAccountId = accountId ?? current.accountId;
   const effectiveBudgeted =
     newBudgetedRaw !== undefined ? newBudgetedRaw : current.budgeted !== null ? current.budgeted.toString() : null;
-  const effectiveFrequency = frequency !== undefined ? frequency : current.frequency;
   const effectivePayDayOfWeek = payDayOfWeek !== undefined ? payDayOfWeek : current.payDayOfWeek;
   const effectiveBiweeklyAnchorDate =
     newBiweeklyAnchorDate !== undefined ? newBiweeklyAnchorDate : current.biweeklyAnchorDate;
@@ -296,7 +418,8 @@ export async function updateBudget(
   if (
     (effectivePayDay !== null && effectivePayDay !== undefined) ||
     effectiveFrequency === "weekly" ||
-    effectiveFrequency === "biweekly"
+    effectiveFrequency === "biweekly" ||
+    isAnnual
   ) {
     await upsertBudgetBill(
       current.tagId,
@@ -306,7 +429,9 @@ export async function updateBudget(
       effectivePayDay ?? null,
       effectiveFrequency,
       effectivePayDayOfWeek,
-      effectiveBiweeklyAnchorDate
+      effectiveBiweeklyAnchorDate,
+      effectivePayMonth,
+      effectiveAnnualAmountDue
     );
   } else if (payDay === null) {
     await db.scheduledBill.updateMany({

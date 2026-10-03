@@ -1,4 +1,5 @@
 import { Decimal } from "@prisma/client/runtime/library";
+import { annualDueDate } from "@/lib/annual-bill";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -294,6 +295,7 @@ interface ScheduledBillLike {
   frequency?: string;
   payDayOfWeek?: number | null;
   biweeklyAnchorDate?: Date | string | null;
+  payMonth?: number | null;
 }
 
 /**
@@ -320,6 +322,10 @@ export interface AccrualDrawLike {
  * accrued, with draws entered     → real draw-date events (no flat spread)
  * accrued, no draws (or none in window-defining set) → monthly on autopayDay
  *                                     at annualBudget/12 (unchanged fallback)
+ * annual (frequency "annual")     → ONE outflow per year on payMonth/autopayDay
+ *                                     for the full annualBudget (the total due);
+ *                                     the monthly expectedAmount is the set-aside
+ *                                     that accrues in the account until then
  */
 export function generateBillOccurrences(
   bill: ScheduledBillLike,
@@ -343,6 +349,25 @@ export function generateBillOccurrences(
       });
     }
     return events.sort((a, b) => a.date.getTime() - b.date.getTime());
+  }
+
+  if (bill.frequency === "annual" && bill.amountType !== "accrued") {
+    if (bill.annualBudget == null || bill.payMonth == null || bill.autopayDay == null) return [];
+    const total = new Decimal(String(bill.annualBudget));
+    if (total.isZero() || total.isNegative()) return [];
+    const events: ScheduleEvent[] = [];
+    for (let year = from.getUTCFullYear(); year <= to.getUTCFullYear(); year++) {
+      const date = annualDueDate(year, bill.payMonth, bill.autopayDay);
+      if (date < from || date >= to) continue;
+      events.push({
+        date,
+        amount: total.negated(),
+        description: bill.payee,
+        accountId: bill.accountId,
+        type: "bill" as const,
+      });
+    }
+    return events;
   }
 
   let amount: Decimal | null = null;

@@ -74,3 +74,24 @@ describe("scheduleSortKey", () => {
     expect(sorted).toEqual([monthly1, monthlyBlank]);
   });
 });
+
+describe("annual frequency", () => {
+  it("formatSchedule: 'Annual · <Mon> <day>'", () => {
+    expect(formatSchedule(sched({ frequency: "annual", payMonth: 10, payDay: 15 }))).toBe("Annual · Oct 15");
+    expect(formatSchedule(sched({ frequency: "annual", payMonth: 1, payDay: 1 }))).toBe("Annual · Jan 1");
+  });
+
+  it("formatSchedule: annual with a missing month or day shows a dash, not a bad date", () => {
+    expect(formatSchedule(sched({ frequency: "annual", payMonth: null, payDay: 15 }))).toBe("Annual · —");
+    expect(formatSchedule(sched({ frequency: "annual", payMonth: 10, payDay: null }))).toBe("Annual · —");
+  });
+
+  it("scheduleSortKey: annual sorts after monthly, ordered by month then day", () => {
+    const monthly = scheduleSortKey(sched({ frequency: "monthly", payDay: 31 }));
+    const march = scheduleSortKey(sched({ frequency: "annual", payMonth: 3, payDay: 20 }));
+    const october = scheduleSortKey(sched({ frequency: "annual", payMonth: 10, payDay: 1 }));
+    expect(monthly[0]).toBeLessThan(march[0]);
+    expect(march[0]).toBe(october[0]);
+    expect(march[1]).toBeLessThan(october[1]);
+  });
+});
