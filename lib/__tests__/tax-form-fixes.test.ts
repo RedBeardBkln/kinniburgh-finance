@@ -93,6 +93,15 @@ describe("resolveFieldFixes", () => {
     expect(fix.documentsHref).toContain("year=2025");
   });
 
+  it("tells you to upload first when no property tax bill is on file", () => {
+    const fix = resolveFieldFixes("State/local taxes (line 5e)", ctx())[0];
+    if (!fix || fix.kind !== "document") throw new Error("expected a document fix");
+    expect(fix.hint).toMatch(/^Upload the property tax bill, then open/);
+    const withBill = resolveFieldFixes("State/local taxes (line 5e)", ctx({ documents: [doc()] }))[0];
+    if (!withBill || withBill.kind !== "document") throw new Error("expected a document fix");
+    expect(withBill.hint).toMatch(/^Open the bill's review screen/);
+  });
+
   it("only asks for the half of line 12 that is actually missing", () => {
     const onlyTaxMissing = resolveFieldFixes(
       "Standard or itemized (line 12)",

@@ -76,7 +76,7 @@ function questionFixes(ctx: FixContext, keys: readonly string[]): FieldFix[] {
   return keys.filter((k) => !isAnswered(ctx.questions, k)).map((questionKey) => ({ kind: "question", questionKey }));
 }
 
-function documentFix(ctx: FixContext, docType: FixDocType, hint: string): FieldFix[] {
+function documentFix(ctx: FixContext, docType: FixDocType, hint: string, hintWhenNoneOnFile?: string): FieldFix[] {
   if (!ctx.personalEntityId) return [{ kind: "none", reason: "The Personal entity was not found." }];
   const existing: FixExistingDoc[] = ctx.documents
     .filter(
@@ -100,7 +100,7 @@ function documentFix(ctx: FixContext, docType: FixDocType, hint: string): FieldF
       docTypeLabel: DOC_LABELS[docType],
       entityId: ctx.personalEntityId,
       taxYear: ctx.taxYear,
-      hint,
+      hint: existing.length === 0 && hintWhenNoneOnFile ? hintWhenNoneOnFile : hint,
       existing,
       documentsHref: `/documents?bucket=taxes&entityId=${encodeURIComponent(ctx.personalEntityId)}&docType=${encodeURIComponent(
         docType
@@ -118,6 +118,9 @@ const NO_DONATION_LOG =
   "The app has no donation log yet, so nothing here can supply this line. Bring donation receipts / bank records to your CPA.";
 const NO_DEPRECIATION_DATA =
   "The app holds no fixed-asset or purchase-price data for this, so it cannot be entered here. It is a CPA question.";
+
+const PROPERTY_TAX_NONE_ON_FILE_HINT =
+  "Upload the property tax bill, then open its review screen and enter the amount actually PAID in the tax year — the AI never fills that in, because a bill shows what is billed and due, not what was paid.";
 
 const PROPERTY_TAX_HINT =
   "Open the bill's review screen and enter the amount actually PAID in the tax year — the AI never fills it, because a bill shows what is billed and due, not what was paid.";
@@ -156,7 +159,7 @@ export function resolveFieldFixes(line: string, ctx: FixContext): FieldFix[] {
         fixes.push(...documentFix(ctx, "mortgage_interest", `Upload the ${year} Form 1098 (mortgage interest).`));
       }
       if (ctx.lineHasData["State/local taxes (line 5e)"] === false) {
-        fixes.push(...documentFix(ctx, "property_tax", PROPERTY_TAX_HINT));
+        fixes.push(...documentFix(ctx, "property_tax", PROPERTY_TAX_HINT, PROPERTY_TAX_NONE_ON_FILE_HINT));
       }
       return fixes;
     }
@@ -173,7 +176,7 @@ export function resolveFieldFixes(line: string, ctx: FixContext): FieldFix[] {
       return documentFix(ctx, "mortgage_interest", `Upload the ${year} Form 1098 (mortgage interest), or open one on file to fix its reading.`);
     case "State/local taxes (line 5e)":
     case "Property tax credit":
-      return documentFix(ctx, "property_tax", PROPERTY_TAX_HINT);
+      return documentFix(ctx, "property_tax", PROPERTY_TAX_HINT, PROPERTY_TAX_NONE_ON_FILE_HINT);
     case "Gifts to charity (line 11)":
       return [{ kind: "none", reason: NO_DONATION_LOG }];
 
