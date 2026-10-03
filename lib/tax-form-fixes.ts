@@ -247,8 +247,9 @@ export function resolveFieldFixes(line: string, ctx: FixContext): FieldFix[] {
       return donationFixes(ctx);
 
     // Schedule C
-    case "Car and truck expenses (line 9)":
-      return ctx.ekcSlug
+    case "Car and truck expenses (line 9)": {
+      // "No business driving" (planning question business_mileage = no) clears the line with $0 car expenses.
+      const logLink: FieldFix[] = ctx.ekcSlug
         ? [
             {
               kind: "link",
@@ -257,6 +258,8 @@ export function resolveFieldFixes(line: string, ctx: FixContext): FieldFix[] {
             },
           ]
         : [{ kind: "none", reason: "EK Consulting was not found." }];
+      return [...questionFixes(ctx, ["business_mileage"]), ...logLink];
+    }
     case "Home office (line 30)":
       return questionFixes(ctx, ["home_office_ekc"]);
     case "Depreciation (line 13)":

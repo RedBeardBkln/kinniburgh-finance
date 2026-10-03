@@ -568,6 +568,21 @@ describe("computePersonalFormPlanBasis", () => {
     expect(allVerified["Wages (line 1a)"]).toBe("verified");
   });
 
+  it("Car and truck expenses: 'No business driving' (exactly 'no', not skipped) counts as done; other answers do not", () => {
+    const line = "Car and truck expenses (line 9)";
+    const withQ = (answer: unknown, skipped: string | null = null) => ({
+      ...EMPTY_INPUT,
+      questions: [q("business_mileage", answer, skipped)],
+    });
+    expect(lineHas(withQ("no"), line)).toBe(true);
+    expect(lineHas(withQ("yes_not_logged"), line)).toBe(false);
+    expect(lineHas(withQ("yes_logged"), line)).toBe(false);
+    expect(lineHas(withQ("no", "Skipped for now"), line)).toBe(false);
+    expect(lineHas(withQ(null), line)).toBe(false);
+    expect(lineHas({ ...EMPTY_INPUT, ekConsultingMileageCount: 3 }, line)).toBe(true);
+    expect(computePersonalFormPlanBasis(withQ("no"))[line]).toBe("not_document_based");
+  });
+
   it("answers/books/mileage-fed lines are not_document_based, never verified/unverified", () => {
     const basis = computePersonalFormPlanBasis(GOLDEN_INPUT);
     expect(basis["Home office (line 30)"]).toBe("not_document_based");

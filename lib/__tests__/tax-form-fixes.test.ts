@@ -205,8 +205,16 @@ describe("resolveFieldFixes", () => {
       expect.objectContaining({ kind: "link", href: "/transactions?bucket=ek-consulting" }),
     ]);
     expect(resolveFieldFixes("Car and truck expenses (line 9)", ctx())).toEqual([
+      { kind: "question", questionKey: "business_mileage" },
       expect.objectContaining({ kind: "link", href: "/business/ek-consulting/mileage" }),
     ]);
+    // Once "no business driving" is answered, only the log link remains.
+    expect(
+      resolveFieldFixes(
+        "Car and truck expenses (line 9)",
+        ctx({ questions: [{ key: "business_mileage", answer: "no", skippedReason: null }] })
+      )
+    ).toEqual([expect.objectContaining({ kind: "link", href: "/business/ek-consulting/mileage" })]);
     expect(resolveFieldFixes("Taxes (line 16)", ctx({ svSlug: null }))[0]?.kind).toBe("none");
   });
 });

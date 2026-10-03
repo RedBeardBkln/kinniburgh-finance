@@ -168,6 +168,11 @@ function computeLineEvidence(input: PersonalFormPlanInput): Record<string, Evide
     !!suddenValleyPL && suddenValleyPL.expenseLines.some((l) => l.code === "5030");
 
   const mileageLogged = ekConsultingMileageCount > 0;
+  // "No business driving" is a first-class answer: with no trips logged, the owner can state there were none
+  // (planning question business_mileage = "no", not skipped) and the line reads as done with $0 car expenses.
+  const mileageQuestion = questions.find((q) => q.key === "business_mileage");
+  const noBusinessMileageConfirmed =
+    !!mileageQuestion && mileageQuestion.answer === "no" && !mileageQuestion.skippedReason;
 
   const retirementAnswered = isAnswered(questions, "retirement_contributions");
   const homeOfficeAnswered = isAnswered(questions, "home_office_ekc");
@@ -211,7 +216,7 @@ function computeLineEvidence(input: PersonalFormPlanInput): Record<string, Evide
 
     // Schedule C
     "Gross receipts (line 1)": flag(ekcHasIncomeLines),
-    "Car and truck expenses (line 9)": flag(mileageLogged),
+    "Car and truck expenses (line 9)": flag(mileageLogged || noBusinessMileageConfirmed),
     "Home office (line 30)": flag(homeOfficeAnswered),
     "Depreciation (line 13)": flag(
       ekConsultingFixedAssetCount > 0 || isNoneConfirmed(questions, NONE_CONFIRMATION_KEYS.fixedAssetsEkc)
