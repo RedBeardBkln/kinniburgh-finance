@@ -69,6 +69,11 @@ export default async function SettingsPage() {
             description="Automatically removed duplicate transactions (same date, amount, payee, account) — review and undo removals."
             href={"/settings/duplicate-log" as Route}
           />
+          <SettingsCard
+            title="Import Sign Repair"
+            description="Fix CSV-imported checking/savings transactions that were stored as deposits instead of purchases."
+            href={"/settings/import-sign-repair" as Route}
+          />
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">GL Codes</CardTitle>

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { normalizePayee, matchTagRule } from "@/lib/tags";
 import { autoAssignGlCodes } from "@/lib/gl-code-resolver";
+import { negateAmount } from "@/lib/import-sign-repair";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -34,19 +35,32 @@ export interface ParsedRow {
 
 // ── Parse CSV string into rows using column mapping ───────────────────────────
 
+/** Parses a cell like "$1,200.00" into a Decimal; blank → 0; unparseable → null. */
+function cellToDecimal(raw: string | undefined): Prisma.Decimal | null {
+  const cleaned = (raw ?? "").replace(/[$,\s]/g, "");
+  if (cleaned === "") return new Prisma.Decimal(0);
+  try {
+    return new Prisma.Decimal(cleaned);
+  } catch {
+    return null;
+  }
+}
+
 export async function parseImportPreview(opts: {
   csvContent: string;
   mapping: ColumnMapping;
   accountId: string;
-}): Promise<{ rows: ParsedRow[]; headers: string[] }> {
-  const { csvContent, mapping, accountId } = opts;
+  /** The file lists outflows as positive numbers (e.g. a purchases-only export) — flip every amount. */
+  negateAmounts?: boolean;
+}): Promise<{ rows: ParsedRow[]; headers: string[]; unparsedCount: number }> {
+  const { csvContent, mapping, accountId, negateAmounts } = opts;
 
   const lines = csvContent
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
 
-  if (lines.length < 2) return { rows: [], headers: [] };
+  if (lines.length < 2) return { rows: [], headers: [], unparsedCount: 0 };
 
   // Parse headers
   const headers = parseCsvLine(lines[0] ?? "");
@@ -67,6 +81,7 @@ export async function parseImportPreview(opts: {
   const acctIdx = mapping.account ? colIndex(mapping.account) : -1;
 
   const rows: ParsedRow[] = [];
+  let unparsedCount = 0; // rows with a date + payee but no readable amount — surfaced, never silent
 
   for (let i = 1; i < lines.length; i++) {
     const cells = parseCsvLine(lines[i] ?? "");
@@ -79,18 +94,25 @@ export async function parseImportPreview(opts: {
     if (amountIdx >= 0 && cells[amountIdx]) {
       // Single amount column — strip currency symbols, keep sign
       amountStr = (cells[amountIdx] ?? "").replace(/[$,\s]/g, "");
+      if (cellToDecimal(amountStr) === null) {
+        unparsedCount++;
+        continue;
+      }
     } else if (debitIdx >= 0 || creditIdx >= 0) {
       // Split debit/credit columns: debit = outflow (negative), credit = inflow (positive)
-      const debit = parseFloat((cells[debitIdx] ?? "").replace(/[$,\s]/g, "")) || 0;
-      const credit = parseFloat((cells[creditIdx] ?? "").replace(/[$,\s]/g, "")) || 0;
-      const net = credit - debit;
-      amountStr = net.toFixed(2);
+      const debit = cellToDecimal(debitIdx >= 0 ? cells[debitIdx] : "");
+      const credit = cellToDecimal(creditIdx >= 0 ? cells[creditIdx] : "");
+      if (!debit || !credit) {
+        unparsedCount++;
+        continue;
+      }
+      amountStr = credit.minus(debit).toFixed(2);
     } else {
+      unparsedCount++;
       continue; // can't determine amount
     }
 
-    // Validate parseable amount
-    if (isNaN(parseFloat(amountStr))) continue;
+    if (negateAmounts) amountStr = negateAmount(amountStr);
 
     rows.push({
       date: dateStr,
@@ -153,7 +175,7 @@ export async function parseImportPreview(opts: {
     }
   }
 
-  return { rows, headers };
+  return { rows, headers, unparsedCount };
 }
 
 // ── Confirm import ────────────────────────────────────────────────────────────

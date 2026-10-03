@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { parseImportPreview, confirmImport, type ParsedRow } from "@/actions/import";
+import { detectSingleSign } from "@/lib/import-sign-repair";
 
 interface Account {
   id: string;
@@ -46,6 +47,10 @@ function ImportInner() {
   const [colDate, setColDate] = useState("");
   const [colPayee, setColPayee] = useState("");
   const [colAmount, setColAmount] = useState("");
+  const [colDebit, setColDebit] = useState("");
+  const [colCredit, setColCredit] = useState("");
+  const [negateAmounts, setNegateAmounts] = useState(false);
+  const [unparsedCount, setUnparsedCount] = useState(0);
   const [colDescription, setColDescription] = useState("");
   const [colAccount, setColAccount] = useState("");
 
@@ -76,7 +81,15 @@ function ImportInner() {
         hs.find((h) => candidates.some((c) => h.toLowerCase().includes(c))) ?? "";
       setColDate(find(["date", "posted", "transaction date"]));
       setColPayee(find(["description", "payee", "merchant", "name"]));
-      setColAmount(find(["amount", "debit", "credit"]));
+      // Prefer a single signed Amount column; otherwise map Debit and Credit separately.
+      // (Picking just one of them silently drops every row of the other kind.)
+      const amountHeader = find(["amount"]);
+      const debitHeader = find(["debit", "withdraw"]);
+      const creditHeader = find(["credit", "deposit"]);
+      setColAmount(amountHeader || (debitHeader && creditHeader ? "" : debitHeader || creditHeader));
+      setColDebit(amountHeader ? "" : debitHeader && creditHeader ? debitHeader : "");
+      setColCredit(amountHeader ? "" : debitHeader && creditHeader ? creditHeader : "");
+      setNegateAmounts(false);
       setColDescription(find(["memo", "note", "detail"]));
       setColAccount(find(["account", "account name", "account number"]));
       setStep("map");
@@ -84,25 +97,30 @@ function ImportInner() {
     reader.readAsText(file);
   }
 
-  async function handlePreview() {
-    if (!colDate || !colPayee || !colAmount) {
-      setError("Date, payee, and amount columns are required");
+  async function handlePreview(negate: boolean = negateAmounts) {
+    if (!colDate || !colPayee || (!colAmount && !colDebit && !colCredit)) {
+      setError("Date and payee columns are required, plus either an Amount column or Debit/Credit columns");
       return;
     }
     setError("");
     setLoading(true);
     try {
-      const { rows: parsed } = await parseImportPreview({
+      const { rows: parsed, unparsedCount: dropped } = await parseImportPreview({
         csvContent,
         mapping: {
           date: colDate,
           payee: colPayee,
           amount: colAmount,
+          debit: colDebit || undefined,
+          credit: colCredit || undefined,
           description: colDescription || undefined,
           account: colAccount || undefined,
         },
         accountId,
+        negateAmounts: negate,
       });
+      setNegateAmounts(negate);
+      setUnparsedCount(dropped);
       setRows(parsed);
       const dupes = new Set<number>();
       parsed.forEach((r, i) => { if (r.isDuplicate) dupes.add(i); });
@@ -138,6 +156,8 @@ function ImportInner() {
       setLoading(false);
     }
   }
+
+  const singleSign = detectSingleSign(rows.map((r) => r.amount));
 
   function toggleSkip(i: number) {
     setSkippedRows((prev) => {
@@ -197,7 +217,9 @@ function ImportInner() {
               {[
                 { label: "Date column *", value: colDate, setter: setColDate },
                 { label: "Payee / Description column *", value: colPayee, setter: setColPayee },
-                { label: "Amount column *", value: colAmount, setter: setColAmount },
+                { label: "Amount column (signed) *", value: colAmount, setter: setColAmount },
+                { label: "…or Debit column (money out)", value: colDebit, setter: setColDebit },
+                { label: "…and Credit column (money in)", value: colCredit, setter: setColCredit },
                 { label: "Notes / Memo column (optional)", value: colDescription, setter: setColDescription },
                 { label: "Account column (optional — for transfer detection)", value: colAccount, setter: setColAccount },
               ].map(({ label, value, setter }) => (
@@ -212,9 +234,18 @@ function ImportInner() {
                 </div>
               ))}
             </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={negateAmounts}
+                onChange={(e) => setNegateAmounts(e.target.checked)}
+                className="h-4 w-4"
+              />
+              Flip every amount (this file lists purchases as positive numbers)
+            </label>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="flex gap-3">
-              <Button onClick={handlePreview} disabled={loading}>
+              <Button onClick={() => handlePreview()} disabled={loading}>
                 {loading ? "Parsing…" : "Preview Import"}
               </Button>
               <Button variant="outline" onClick={() => { setStep("upload"); setCsvContent(""); setHeaders([]); }}>
@@ -236,6 +267,33 @@ function ImportInner() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
+            {unparsedCount > 0 && (
+              <p className="border-b bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {unparsedCount} row{unparsedCount !== 1 ? "s were" : " was"} left out because no amount could be read.
+                If your bank uses separate Debit and Credit columns, go Back and map both.
+              </p>
+            )}
+            {!negateAmounts && singleSign && (
+              <div className="flex flex-wrap items-center gap-3 border-b bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <span>
+                  Every row in this file is {singleSign === "positive" ? "a deposit (positive)" : "an outflow (negative)"}.
+                  A real statement has both, so the amounts may be mis-signed or a column is missing.
+                </span>
+                {singleSign === "positive" && (
+                  <Button size="sm" variant="outline" disabled={loading} onClick={() => handlePreview(true)}>
+                    Treat all as outflows
+                  </Button>
+                )}
+              </div>
+            )}
+            {negateAmounts && (
+              <p className="border-b bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                All amounts were flipped (purchases now show as negative).{" "}
+                <button className="underline" onClick={() => handlePreview(false)} disabled={loading}>
+                  Undo
+                </button>
+              </p>
+            )}
             <div className="flex gap-4 px-3 py-2 text-xs text-muted-foreground border-b">
               <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />Debit</span>
               <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Credit / Refund</span>
