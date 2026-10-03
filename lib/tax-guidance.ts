@@ -28,11 +28,27 @@ export interface TaxQuestionDef {
   unlocks: string[];
 }
 
+/** Fills the {year} placeholder (the tax year a workspace is for) in question copy. */
+export function withTaxYear(text: string, taxYear: number): string {
+  return text.split("{year}").join(String(taxYear));
+}
+
+/** A copy of a bank question with {year} filled in everywhere it appears in its copy. */
+export function renderTaxQuestion(def: TaxQuestionDef, taxYear: number): TaxQuestionDef {
+  return {
+    ...def,
+    question: withTaxYear(def.question, taxYear),
+    context: withTaxYear(def.context, taxYear),
+    placeholder: def.placeholder === undefined ? undefined : withTaxYear(def.placeholder, taxYear),
+    options: def.options?.map((o) => ({ ...o, label: withTaxYear(o.label, taxYear), note: withTaxYear(o.note, taxYear) })),
+  };
+}
+
 export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
   {
     key: "filing_status",
     category: "filing_status",
-    question: "How will you file your 2025 federal return?",
+    question: "How will you file your {year} federal return?",
     context:
       "Filing status sets your tax brackets, standard deduction, and eligibility for several credits. Married filing jointly is usually — but not always — the lowest-tax option for a two-earner household; filing separately can matter for income-driven student loans or large uncovered medical expenses, but it disqualifies several education credits and usually raises taxes overall.",
     options: [
@@ -97,7 +113,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
   {
     key: "home_office_ekc",
     category: "deductions",
-    question: "Did you use part of your home regularly and exclusively for EK Consulting business in 2025?",
+    question: "Did you use part of your home regularly and exclusively for EK Consulting business in {year}?",
     context:
       "The home office deduction (Schedule C / Form 8829 or the simplified method) is legitimate and valuable for a consulting LLC, but the space must be used regularly and EXCLUSIVELY for business — a guest room that doubles as an office does not qualify. The simplified method (~$5/sq ft up to 300 sq ft) is low-risk; actual-expense method yields more but requires allocation records.",
     options: [
@@ -132,7 +148,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
   {
     key: "retirement_contributions",
     category: "deductions",
-    question: "Did either of you contribute to a traditional IRA, 401(k), HSA, or similar pre-tax account for 2025?",
+    question: "Did either of you contribute to a traditional IRA, 401(k), HSA, or similar pre-tax account for {year}?",
     context:
       "Pre-tax retirement contributions reduce taxable income dollar-for-dollar — the single most reliable way to lower your tax bill. Traditional IRA contributions may even be deductible even when you have a workplace plan, depending on income. HSA contributions are deductible, grow tax-free, and withdrawals for medical care are never taxed — the only triple-tax-advantaged account.",
     placeholder: "e.g. Eric 401(k) $12,000; Eva traditional IRA $3,000; HSA $4,150",
@@ -142,7 +158,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
   {
     key: "retirement_contribution_amount",
     category: "deductions",
-    question: "Total 2025 pre-tax retirement/HSA contributions, as a single dollar figure?",
+    question: "Total {year} pre-tax retirement/HSA contributions, as a single dollar figure?",
     context:
       "A structured follow-up to the question above — a single whole-dollar total (traditional IRA + 401(k) + HSA combined) so the platform can compute an exact deduction instead of just noting that something happened. If you haven't finalized the number yet, skip this and answer once you have it.",
     placeholder: "e.g. 12000 (whole dollars, no $ sign needed)",
@@ -159,7 +175,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
       {
         value: "yes_unclaimed",
         label: "Yes — installed and never claimed",
-        note: "Strong opportunity: 30% of the system cost as a credit. If the credit exceeds your 2025 tax liability, the excess carries forward. Keep the contract, invoices, and the placed-in-service date — the IRS can ask for them.",
+        note: "Strong opportunity: 30% of the system cost as a credit. If the credit exceeds your {year} tax liability, the excess carries forward. Keep the contract, invoices, and the placed-in-service date — the IRS can ask for them.",
       },
       {
         value: "claimed_already",
@@ -177,7 +193,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
   {
     key: "ev_vehicle",
     category: "credits",
-    question: "Did you buy a new or used plug-in EV or hybrid in 2025 (or plan to before filing)?",
+    question: "Did you buy a new or used plug-in EV or hybrid in {year}?",
     context:
       "The Clean Vehicle Credit (up to $7,500 new, up to $4,000 used) applies only to eligible models under the IRA income limits and price caps — the eligible-vehicle list changed repeatedly. It's claimed in the year of purchase and requires the vehicle to be for your own use (not resale).",
     options: [
@@ -197,7 +213,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
   {
     key: "estimated_taxes_2025",
     category: "other",
-    question: "Did you pay federal and state estimated taxes for 2025, or increase W-2 withholding?",
+    question: "Did you pay federal and state estimated taxes for {year}, or increase W-2 withholding?",
     context:
       "Since your 2025 return is on extension, the balance due (if any) has been accruing interest since April 15, 2026 — the extension moves the FILING deadline, not the PAYMENT deadline. Safe-harbor: if you paid at least 100% of last year's tax (110% for high income), there's no underpayment penalty even if you owe more. Getting withholding right going forward avoids both penalties and lending the government money interest-free.",
     placeholder: "e.g. Paid Q1-Q4 estimates totaling $X; or 'none'",
@@ -207,7 +223,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
   {
     key: "estimated_tax_payments_amount",
     category: "other",
-    question: "Total 2025 federal + state estimated tax payments actually made, as a single dollar figure?",
+    question: "Total {year} federal + state estimated tax payments actually made, as a single dollar figure?",
     context:
       "A structured follow-up to the question above — a single whole-dollar total across all quarters and both federal/state, so the platform can compute your actual balance due or refund instead of assuming $0 in estimated payments. Enter 0 if you made none.",
     placeholder: "e.g. 8000 (whole dollars, no $ sign needed)",
@@ -217,10 +233,10 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
   {
     key: "rental_property_use",
     category: "entity",
-    question: "For the Sudden Valley rental (56 Arbor Rd): average days rented vs. personal use in 2025-2026?",
+    question: "For the Sudden Valley rental (56 Arbor Rd): average days rented vs. personal use in {year}?",
     context:
       "Rental property offers deductions for mortgage interest, property taxes, insurance, utilities, repairs, and depreciation — but only proportional to rental use. If personal use exceeded the greater of 14 days or 10% of rental days, the property is a 'residence' and deductions are limited to rental income (no loss). Honest day counts matter: overstating rental use inflates paper losses and is a known audit trigger.",
-    placeholder: "e.g. ~90 rental nights, 0 personal days in 2025",
+    placeholder: "e.g. ~90 rental nights, 0 personal days in {year}",
     options: undefined,
     unlocks: ["rental_depreciation", "short_term_rental_loophole"],
   },
@@ -244,7 +260,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
       {
         value: "no",
         label: "No business driving",
-        note: "No mileage deduction for 2025. If that changes (a client visit, a trip to the rental property for repairs), log it in the app at the time — contemporaneous logs are exactly what the IRS accepts as substantiation.",
+        note: "No mileage deduction for {year}. If that changes (a client visit, a trip to the rental property for repairs), log it in the app at the time — contemporaneous logs are exactly what the IRS accepts as substantiation.",
       },
     ],
     unlocks: ["mileage"],
@@ -495,9 +511,11 @@ export function evaluateAnswers(
   if (homeOffice === "yes_shared") excluded.push("home_office");
   if (homeOffice === "yes_exclusive") actOn.push("home_office");
 
-  if (answers["filing_status"] === "mfs") {
-    excluded.push("retirement_savings_credit"); // Saver's credit disallowed for MFS
-  }
+  // Saver's credit is NOT excluded for married filing separately: the IRS saver's-credit
+  // income table lists MFS under "All other filers" (single / MFS / qualifying widow(er)),
+  // so MFS can qualify, with the lower income limit. Source: IRS, Retirement Savings
+  // Contributions Credit (Saver's Credit), irs.gov/retirement-plans/plan-participant-employee/
+  // retirement-savings-contributions-savers-credit (fetched 2026-10-03).
 
   const solar = answers["solar_credit"];
   if (solar === "claimed_already") excluded.push("solar_credit_25d");

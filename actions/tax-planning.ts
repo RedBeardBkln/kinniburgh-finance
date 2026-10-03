@@ -19,7 +19,12 @@ import { VERIFIED_RETYPE_ERROR } from "@/lib/document-retype";
 import { validateAttribution, type ValidAttribution } from "@/lib/document-attribution";
 import { parseModelJson } from "@/lib/model-json";
 import { buildModelDocLine } from "@/lib/tax-extraction-policy";
-import { TAX_QUESTION_BANK, baseOpportunitiesForHousehold, withoutSuddenValleyItems } from "@/lib/tax-guidance";
+import {
+  TAX_QUESTION_BANK,
+  baseOpportunitiesForHousehold,
+  renderTaxQuestion,
+  withoutSuddenValleyItems,
+} from "@/lib/tax-guidance";
 import { isSuddenValleyActiveForYear } from "@/lib/sudden-valley-year";
 import { NONE_CONFIRMATION_KEY_LIST } from "@/lib/tax-none-confirmation";
 import {
@@ -67,13 +72,16 @@ export async function ensurePersonalWorkspace(taxYear: number) {
     // already-opened workspace (confirmed live: the 2025 workspace already
     // had 9 questions).
     await db.taxQuestion.createMany({
-      data: TAX_QUESTION_BANK.map((q) => ({
-        workspaceId: existing.id,
-        key: q.key,
-        category: q.category,
-        question: `${q.question}\n\n${q.context}`,
-        options: (q.options ?? null) as unknown as never,
-      })),
+      data: TAX_QUESTION_BANK.map((bankQ) => {
+        const q = renderTaxQuestion(bankQ, taxYear); // {year} -> this workspace's tax year
+        return {
+          workspaceId: existing.id,
+          key: q.key,
+          category: q.category,
+          question: `${q.question}\n\n${q.context}`,
+          options: (q.options ?? null) as unknown as never,
+        };
+      }),
       skipDuplicates: true,
     });
     return existing.id;
@@ -98,13 +106,16 @@ export async function ensurePersonalWorkspace(taxYear: number) {
   });
 
   await db.taxQuestion.createMany({
-    data: TAX_QUESTION_BANK.map((q) => ({
-      workspaceId: workspace.id,
-      key: q.key,
-      category: q.category,
-      question: `${q.question}\n\n${q.context}`,
-      options: (q.options ?? null) as unknown as never,
-    })),
+    data: TAX_QUESTION_BANK.map((bankQ) => {
+      const q = renderTaxQuestion(bankQ, taxYear); // {year} -> this workspace's tax year
+      return {
+        workspaceId: workspace.id,
+        key: q.key,
+        category: q.category,
+        question: `${q.question}\n\n${q.context}`,
+        options: (q.options ?? null) as unknown as never,
+      };
+    }),
     skipDuplicates: true,
   });
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
-import { TAX_QUESTION_BANK } from "@/lib/tax-guidance";
+import { TAX_QUESTION_BANK, renderTaxQuestion } from "@/lib/tax-guidance";
 import type { FieldFix } from "@/lib/tax-form-fixes";
 import { answerTaxQuestionByKey } from "@/actions/tax-planning";
 import { uploadTaxFile } from "@/components/tax/tax-document-upload";
@@ -59,7 +59,8 @@ function QuestionDialog({ questionKey, taxYear, onClose }: { questionKey: string
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
-  const def = TAX_QUESTION_BANK.find((q) => q.key === questionKey);
+  const bankDef = TAX_QUESTION_BANK.find((q) => q.key === questionKey);
+  const def = bankDef ? renderTaxQuestion(bankDef, taxYear) : undefined;
 
   if (!def) {
     return (
@@ -326,10 +327,13 @@ function ConfirmNoneChip({ fix }: { fix: ConfirmNoneFix }) {
 
 // ── One missing field ─────────────────────────────────────────────────────────
 
-function fixButtonLabel(fix: FieldFix): string {
+function fixButtonLabel(fix: FieldFix, taxYear: number): string {
   switch (fix.kind) {
     case "question":
-      return `Answer: ${TAX_QUESTION_BANK.find((q) => q.key === fix.questionKey)?.question ?? fix.questionKey}`;
+    {
+      const bankDef = TAX_QUESTION_BANK.find((q) => q.key === fix.questionKey);
+      return `Answer: ${bankDef ? renderTaxQuestion(bankDef, taxYear).question : fix.questionKey}`;
+    }
     case "document":
       return fix.existing.length > 0 ? `Open / upload ${fix.docTypeLabel}` : `Upload ${fix.docTypeLabel}`;
     case "donation":
@@ -376,7 +380,7 @@ export function MissingFieldActions({ fixes, taxYear }: { fixes: FieldFix[]; tax
         return (
           <span key={i}>
             <button type="button" onClick={() => setOpenIndex(i)} className={CHIP}>
-              {fixButtonLabel(fix)}
+              {fixButtonLabel(fix, taxYear)}
             </button>
             {openIndex === i && fix.kind === "question" && (
               <QuestionDialog questionKey={fix.questionKey} taxYear={taxYear} onClose={close} />

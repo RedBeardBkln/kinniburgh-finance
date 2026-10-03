@@ -91,9 +91,9 @@ describe("evaluateAnswers", () => {
     expect(actOn).toContain("home_office");
   });
 
-  it("drops the saver's credit for married filing separately", () => {
+  it("keeps the saver's credit for married filing separately (IRS lists MFS under 'All other filers')", () => {
     const { excluded } = evaluateAnswers({ filing_status: "mfs" });
-    expect(excluded).toContain("retirement_savings_credit");
+    expect(excluded).not.toContain("retirement_savings_credit");
   });
 
   it("keeps saver's credit for joint filers", () => {

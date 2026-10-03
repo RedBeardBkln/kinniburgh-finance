@@ -7,6 +7,8 @@ import { ensurePersonalWorkspace } from "@/actions/tax-planning";
 import { getTaxWorkspace } from "@/actions/tax";
 import {
   baseOpportunitiesForHousehold,
+  renderTaxQuestion,
+  TAX_QUESTION_BANK,
   evaluateAnswers,
   formatOpportunityForDisplay,
   REFUND_OBJECTIVE_STATEMENT,
@@ -161,15 +163,21 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
           taxYear={year}
           status={workspace.status}
           deadline={workspace.deadline?.toISOString() ?? null}
-          questions={questions.map((q) => ({
-            id: q.id,
-            key: q.key,
-            category: q.category,
-            question: q.question,
-            options: q.options as { value: string; label: string; note: string }[] | null,
-            answer: q.answer as string | null,
-            answeredAt: q.answeredAt?.toISOString() ?? null,
-          }))}
+          questions={questions.map((q) => {
+            // Display text comes from the bank rendered for THIS workspace's year: rows created
+            // before {year} existed still carry "2025" in their stored copy.
+            const def = TAX_QUESTION_BANK.find((d) => d.key === q.key);
+            const rendered = def ? renderTaxQuestion(def, year) : null;
+            return {
+              id: q.id,
+              key: q.key,
+              category: q.category,
+              question: rendered ? `${rendered.question}\n\n${rendered.context}` : q.question,
+              options: (rendered?.options ?? q.options) as { value: string; label: string; note: string }[] | null,
+              answer: q.answer as string | null,
+              answeredAt: q.answeredAt?.toISOString() ?? null,
+            };
+          })}
           documents={docs.map((d) => ({
             id: d.id,
             docType: d.docType,

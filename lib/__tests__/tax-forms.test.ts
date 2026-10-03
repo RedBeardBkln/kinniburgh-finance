@@ -247,9 +247,9 @@ describe("Form 5695", () => {
 });
 
 describe("answer-excluded CPA-input forms", () => {
-  it("Form 8880 is not_applicable when filing_status is mfs, else needs_cpa_input", () => {
+  it("Form 8880 stays needs_cpa_input for married filing separately too (IRS lists MFS under 'All other filers')", () => {
     const mfs = find(buildFormsPageData(input({ questions: [question("filing_status", "mfs")] })), "form-8880");
-    expect(mfs.applicability).toBe("not_applicable");
+    expect(mfs.applicability).toBe("needs_cpa_input");
     const mfj = find(buildFormsPageData(input({ questions: [question("filing_status", "mfj")] })), "form-8880");
     expect(mfj.applicability).toBe("needs_cpa_input");
   });
