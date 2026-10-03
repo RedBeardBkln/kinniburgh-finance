@@ -67,6 +67,12 @@ export default async function TaxFormsPage({ params }: PageProps) {
                 {y}
               </Link>
             ))}
+            <Link
+              href={`/tax/forms/${year}/cpa-summary` as Route}
+              className="ml-2 rounded-full border border-primary/40 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10"
+            >
+              CPA summary
+            </Link>
           </div>
         </div>
 

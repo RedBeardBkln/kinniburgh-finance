@@ -8,6 +8,7 @@ import {
   ReadinessBadge,
 } from "@/components/tax/forms/forms-badges";
 import { FormFieldList } from "@/components/tax/forms/form-field-list";
+import { QuestionnaireCardBlock } from "@/components/tax/forms/questionnaire-card-block";
 import type { ExtractionTone } from "@/lib/document-extraction-state";
 
 // Same palette as the Documents list's Extraction badge (kept local: that map
@@ -105,6 +106,8 @@ export function FormCard({ entry, taxYear }: { entry: FormEntry; taxYear: number
           </span>
         </p>
       )}
+
+      {entry.questionnaire && <QuestionnaireCardBlock state={entry.questionnaire} taxYear={taxYear} />}
 
       {showReadiness && (
         <div className="mt-3 space-y-1.5">

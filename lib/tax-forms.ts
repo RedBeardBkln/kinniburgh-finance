@@ -39,6 +39,19 @@ import {
 } from "@/lib/document-attribution";
 import { isEntityActiveForYear } from "@/lib/tax-entities";
 import { resolveFieldFixes, type FieldFix, type FixContext } from "@/lib/tax-form-fixes";
+import {
+  buildCardState,
+  summarizeQuestionnaires,
+  type QuestionnaireCardState,
+  type QuestionnaireContext,
+  type QuestionnaireCounts,
+  type QuestionnaireRowInput,
+} from "@/lib/tax-questionnaire";
+import {
+  ENTITY_CT_QUESTIONNAIRE_ID,
+  ENTITY_FEDERAL_QUESTIONNAIRE_ID,
+  questionnaireById,
+} from "@/lib/tax-questionnaire-content";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -102,6 +115,13 @@ export interface FormsCatalogInput {
   /** Data for computePersonalFormPlan (documents here = Personal entity's docs for the year). */
   formPlanInput: PersonalFormPlanInput;
   taxDraft: TaxDraftSummary;
+  /**
+   * Saved CPA-input questionnaire rows for this tax year (read-only). Optional so
+   * existing callers/tests compile unchanged; absent = nothing answered yet.
+   * A questionnaire NEVER changes applicability, readiness, field counts or the
+   * summary counters - it only adds a status block to the card.
+   */
+  questionnaireRows?: QuestionnaireRowInput[];
 }
 
 export interface FormInputRef {
@@ -179,6 +199,8 @@ export interface FormEntry {
   confirmWithCpa: boolean;
   cpaNote: string | null;
   opportunity: FormOpportunityRef | null;
+  /** Guided CPA-input questionnaire status for this card; null when the card has none. */
+  questionnaire: QuestionnaireCardState | null;
 }
 
 export interface EntityFormsSection {
@@ -208,6 +230,23 @@ export interface FormsPageData {
   unansweredQuestionCount: number;
   /** How this year's tax documents' extractions stand (basis banner). */
   extractionBasis: ExtractionBasisSummary;
+  /** Counts over the cards that have a questionnaire. Separate from `summary`, which it never changes. */
+  questionnaireSummary: QuestionnaireCounts;
+}
+
+/** Every card on the page that has a questionnaire, in page order (federal, CT, needs-CPA, entities). */
+export function listQuestionnaireEntries(
+  data: Pick<FormsPageData, "federal" | "connecticut" | "needsCpaInput" | "entities">
+): { entry: FormEntry; questionnaire: QuestionnaireCardState }[] {
+  const all = [
+    ...data.federal,
+    ...data.connecticut,
+    ...data.needsCpaInput,
+    ...data.entities.flatMap((s) => s.entries),
+  ];
+  const out: { entry: FormEntry; questionnaire: QuestionnaireCardState }[] = [];
+  for (const entry of all) if (entry.questionnaire) out.push({ entry, questionnaire: entry.questionnaire });
+  return out;
 }
 
 /** Counts over this tax year's extractable tax documents (documents with no extraction state are skipped). */
@@ -373,9 +412,14 @@ interface EntrySpec {
   confirmWithCpa?: boolean;
   cpaNote?: string | null;
   opportunity?: FormOpportunityRef | null;
+  /** Which registry questionnaire this card opens, scoped to which entity. */
+  questionnaire?: { id: string; entityId: string };
 }
 
-function makeEntry(spec: EntrySpec): FormEntry {
+function makeEntryBase(
+  spec: EntrySpec,
+  resolveQuestionnaire: (ref: { id: string; entityId: string }) => QuestionnaireCardState | null
+): FormEntry {
   const fields = spec.fields ?? [];
   const r = readinessFromFields(fields);
   return {
@@ -399,6 +443,7 @@ function makeEntry(spec: EntrySpec): FormEntry {
     confirmWithCpa: spec.confirmWithCpa ?? false,
     cpaNote: spec.cpaNote ?? null,
     opportunity: spec.opportunity ?? null,
+    questionnaire: spec.questionnaire ? resolveQuestionnaire(spec.questionnaire) : null,
   };
 }
 
@@ -518,6 +563,30 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
   const sv = entities.find((e) => e.slug === SLUG_SV) ?? null;
   const ekcActive = ekc ? isEntityActiveForYear(ekc, taxYear) : false;
   const svActive = sv ? isEntityActiveForYear(sv, taxYear) : false;
+
+  // Questionnaire status is attached to cards but never feeds applicability,
+  // readiness or the summary counters (honesty invariant, unit-tested).
+  const questionnaireRows = input.questionnaireRows ?? [];
+  const resolveQuestionnaire = (ref: { id: string; entityId: string }): QuestionnaireCardState | null => {
+    const def = questionnaireById(ref.id);
+    if (!def) return null;
+    const entity = entities.find((e) => e.id === ref.entityId) ?? null;
+    const qctx: QuestionnaireContext = {
+      year: taxYear,
+      entityName: def.scope === "entity" ? (entity?.name ?? null) : null,
+      ekcActive,
+      svActive,
+    };
+    const row =
+      questionnaireRows.find(
+        (r) => r.taxYear === taxYear && r.entityId === ref.entityId && r.questionnaireId === ref.id
+      ) ?? null;
+    return buildCardState(def, ref.entityId, qctx, row, questions);
+  };
+  const makeEntry = (spec: EntrySpec): FormEntry => makeEntryBase(spec, resolveQuestionnaire);
+  /** A household questionnaire is scoped to the Personal entity (none exists -> no questionnaire). */
+  const householdQuestionnaire = (id: string) =>
+    personalEntity ? { id, entityId: personalEntity.id } : undefined;
 
   const householdLabel = attributionLabel({ subjectType: "joint", subjectUser: null }, people).label;
   const householdFiler = householdLabel === "Joint" ? "Household" : `Household — ${householdLabel}`;
@@ -674,6 +743,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     reason: seReason,
     source: "specs/09 (Self-employment tax / Schedule SE); lib/tax-compute.ts computeSelfEmploymentTax (TY2025 draft)",
     cpaNote: "Readiness is not assessed — it follows EK Consulting's Schedule C net profit.",
+    questionnaire: seApplicability === "needs_cpa_input" ? householdQuestionnaire("schedule-se") : undefined,
   });
 
   // Schedule E
@@ -789,6 +859,8 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
           : f.reason,
         source: `lib/tax-guidance.ts baseOpportunitiesForHousehold ("${f.opportunityKey}") + evaluateAnswers`,
         opportunity: opportunityRef(f.opportunityKey),
+        // Kept even when ruled out by a planning answer, so the answer can be reopened.
+        questionnaire: householdQuestionnaire(f.id),
       })
     );
   }
@@ -802,6 +874,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       reason:
         "Credits such as the residential clean energy credit are reported through it, but the system does not determine which credits apply.",
       source: "lib/tax-guidance.ts TAX_QUESTION_BANK solar_credit (note references prior-year Schedule 3 / Form 5695)",
+      questionnaire: householdQuestionnaire("schedule-3-federal"),
     }),
     makeEntry({
       id: "qbi-deduction",
@@ -812,6 +885,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       reason:
         "The 2025 draft engine computes a QBI deduction amount, but no form is modelled here. The CPA identifies and prepares the form.",
       source: "lib/tax-compute.ts (qbi in the TY2025 draft); no form is named in any repo source",
+      questionnaire: householdQuestionnaire("qbi-deduction"),
     }),
     makeEntry({
       id: "additional-medicare-tax",
@@ -822,6 +896,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       reason:
         "The 2025 draft engine computes an additional Medicare tax amount, but no form is modelled here. The CPA identifies and prepares the form.",
       source: "lib/tax-compute.ts (additionalMedicareTax in the TY2025 draft); no form is named in any repo source",
+      questionnaire: householdQuestionnaire("additional-medicare-tax"),
     }),
     makeEntry({
       id: "child-dependent-credits",
@@ -833,6 +908,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
         ? "Ruled out by your planning-question answers (no dependents)."
         : "Dependent answers are captured, but no form logic consumes them. The CPA determines the credits and forms.",
       source: "lib/tax-guidance.ts TAX_QUESTION_BANK household_members + evaluateAnswers (child_credits)",
+      questionnaire: householdQuestionnaire("child-dependent-credits"),
     }),
     makeEntry({
       id: "clean-vehicle-credit",
@@ -844,6 +920,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
         ? "Ruled out by your planning-question answers (no EV purchase)."
         : "The EV answer is captured, but no form logic consumes it. The CPA determines eligibility and forms.",
       source: "lib/tax-guidance.ts TAX_QUESTION_BANK ev_vehicle + evaluateAnswers (ev_credit)",
+      questionnaire: householdQuestionnaire("clean-vehicle-credit"),
     })
   );
   const k1Docs = matchDocuments(documents, { taxYear, docTypes: ["k1"] });
@@ -858,6 +935,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
         reason: "K-1 documents are on file for this year, but no form logic consumes K-1s — the CPA handles them.",
         source: "lib/document-attribution.ts TAX_DOC_TYPES (k1); no K-1 handling exists in lib/tax-form-plan.ts / lib/tax-compute.ts",
         inputs: refs(k1Docs),
+        questionnaire: householdQuestionnaire("k1-handling"),
       })
     );
   }
@@ -913,6 +991,8 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
           source: "Entity.taxStatusNotes",
           confirmWithCpa: !disregarded,
           cpaNote: isSv && !disregarded ? "Sudden Valley's classification is unconfirmed — confirm with CPA." : null,
+          // Only the needs-CPA-input state gets a questionnaire; a recorded disregarded entity has nothing to ask.
+          questionnaire: disregarded ? undefined : { id: ENTITY_FEDERAL_QUESTIONNAIRE_ID, entityId: e.id },
         }),
         makeEntry({
           id: `${e.id}-ct-entity-filing`,
@@ -922,6 +1002,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
           applicability: "needs_cpa_input",
           reason: "The system does not determine any Connecticut business-entity filing requirement.",
           source: "No CT business-entity rule exists in the repo (specs/09 covers the individual CT-1040 only)",
+          questionnaire: { id: ENTITY_CT_QUESTIONNAIRE_ID, entityId: e.id },
         })
       );
     }
@@ -981,6 +1062,15 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     if (d.extraction.outdated) extractionBasis.olderFormat += 1;
   }
 
+  const questionnaireSummary = summarizeQuestionnaires(
+    listQuestionnaireEntries({
+      federal,
+      connecticut,
+      needsCpaInput: needsCpa,
+      entities: entitySections,
+    }).map((x) => x.questionnaire)
+  );
+
   return {
     taxYear,
     householdLabel,
@@ -989,6 +1079,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     needsCpaInput: needsCpa,
     entities: entitySections,
     summary,
+    questionnaireSummary,
     attribution,
     draft: taxDraft,
     personalWorkspaceExists: input.personalWorkspaceExists,

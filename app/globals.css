@@ -57,3 +57,39 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Print: the CPA summary page (/tax/forms/[year]/cpa-summary) wraps its content in
+   #cpa-summary. The app shell is a fixed-height, overflow-hidden flex column, which
+   would clip a multi-page print to one screen, so on that page only we un-clamp it,
+   hide the chrome (visibility trick, so AppShell itself stays in the tree and keeps
+   its auth/2FA redirect) and lay the summary out in normal flow from the top-left.
+   Scoped with :has() so no other page's print or screen layout changes. Multi-page
+   output can only be confirmed in a real browser print preview. */
+@media print {
+  html:has(#cpa-summary),
+  body:has(#cpa-summary) {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  body:has(#cpa-summary) * {
+    visibility: hidden;
+  }
+  body:has(#cpa-summary) #cpa-summary,
+  body:has(#cpa-summary) #cpa-summary * {
+    visibility: visible;
+  }
+  body:has(#cpa-summary) #cpa-summary {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  body:has(#cpa-summary) .h-screen {
+    height: auto !important;
+  }
+  body:has(#cpa-summary) .overflow-hidden,
+  body:has(#cpa-summary) .overflow-y-auto {
+    overflow: visible !important;
+  }
+}

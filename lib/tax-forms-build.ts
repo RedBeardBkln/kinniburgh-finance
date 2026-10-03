@@ -13,6 +13,7 @@ import {
   type FormsQuestionInput,
   type TaxDraftSummary,
 } from "@/lib/tax-forms";
+import type { QuestionnaireRowInput } from "@/lib/tax-questionnaire";
 
 // ── Read-only DB assembler for the per-tax-year Forms page ──────────────────
 // Gathers raw data and hands it to the pure lib/tax-forms.ts builder. STRICTLY
@@ -41,6 +42,27 @@ async function resolveTaxDraft(year: number): Promise<TaxDraftSummary> {
     };
   } catch {
     return { status: "unavailable", reason: "the tax computation could not run" };
+  }
+}
+
+/** Read-only. Any failure (e.g. the table does not exist yet) yields [] so the Forms page keeps rendering. */
+async function loadQuestionnaireRowsSafe(year: number): Promise<QuestionnaireRowInput[]> {
+  try {
+    return await db.taxQuestionnaire.findMany({
+      where: { taxYear: year },
+      select: {
+        taxYear: true,
+        entityId: true,
+        questionnaireId: true,
+        definitionVersion: true,
+        answers: true,
+        note: true,
+        noteUpdatedAt: true,
+        noteUpdatedById: true,
+      },
+    });
+  } catch {
+    return [];
   }
 }
 
@@ -188,6 +210,10 @@ export async function loadFormsPageData(year: number): Promise<FormsPageData> {
       : Promise.resolve([]),
   ]);
 
+  // Questionnaire rows are an optional enrichment: if the table is missing (the
+  // migration has not been applied yet) the page must still render without them.
+  const questionnaireRows = await loadQuestionnaireRowsSafe(year);
+
   return buildFormsPageData({
     taxYear: year,
     people,
@@ -220,5 +246,6 @@ export async function loadFormsPageData(year: number): Promise<FormsPageData> {
       suddenValleyBuildingAssetCount: countBuildingAssetsForYear(fixedAssetRows, sv?.id ?? null, year),
     },
     taxDraft,
+    questionnaireRows,
   });
 }

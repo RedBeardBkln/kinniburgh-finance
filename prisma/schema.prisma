@@ -39,6 +39,7 @@ model User {
   documentsConfirmed    Document[]            @relation("DocumentExtractionConfirmer")
   donationsCreated      Donation[]            @relation("DonationCreator")
   fixedAssetsCreated    FixedAsset[]          @relation("FixedAssetCreator")
+  taxQuestionnaireNotes TaxQuestionnaire[]    @relation("TaxQuestionnaireNoteAuthor")
 }
 
 model PasswordResetToken {
@@ -100,6 +101,7 @@ model Entity {
   tagGlCodeMappings  TagGlCodeMapping[]
   donations          Donation[]
   fixedAssets        FixedAsset[]
+  taxQuestionnaires  TaxQuestionnaire[]
 }
 
 model Institution {
@@ -981,6 +983,29 @@ model FixedAsset {
   createdBy       User?     @relation("FixedAssetCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([entityId, placedInServiceDate])
+}
+
+// ─── CPA-input questionnaires (Forms page "Needs CPA input" cards) ───────────
+// Owner-reported FACTS for the CPA only; nothing here is a tax determination and it
+// never changes a form's applicability or readiness. Never hard-deleted: "reset"
+// just empties `answers`/`note` (the audit row keeps the prior answer values).
+model TaxQuestionnaire {
+  id                String    @id @default(uuid())
+  taxYear           Int
+  entityId          String    // Personal entity id for household questionnaires; the business entity id for entity-scoped ones
+  questionnaireId   String    // registry id, e.g. "form-8889" (app-validated, no DB enum)
+  definitionVersion Int       @default(1)
+  answers           Json      @default("{}") // { [nodeId]: { v: string | string[] | number | null, at: ISO string, by: userId | null } }
+  note              String?   // note for the CPA, <= 2000 chars, never written to AuditLog
+  noteUpdatedAt     DateTime?
+  noteUpdatedById   String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  entity        Entity @relation(fields: [entityId], references: [id])
+  noteUpdatedBy User?  @relation("TaxQuestionnaireNoteAuthor", fields: [noteUpdatedById], references: [id], onDelete: SetNull)
+
+  @@unique([taxYear, entityId, questionnaireId])
 }
 
 // ─── Tax deadlines (quarterly estimates + annual filings) ─────────────────────

@@ -31,6 +31,14 @@ export function FormsSummary({ data }: { data: FormsPageData }) {
         <Stat label="Not applicable" value={summary.notApplicable} className="bg-muted text-muted-foreground" />
       </div>
 
+      {data.questionnaireSummary.total > 0 && (
+        <p className="text-xs text-muted-foreground" data-testid="questionnaire-summary">
+          Questionnaires: {data.questionnaireSummary.answered} answered, {data.questionnaireSummary.inProgress} in
+          progress, {data.questionnaireSummary.notStarted} not started. Saving questionnaire answers does not change the
+          counts above; the few answers shared with the Planning screen do, exactly as they do there.
+        </p>
+      )}
+
       {!data.personalWorkspaceExists && (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           No Personal tax workspace exists for {taxYear} yet, so your planning-question answers are not available and
