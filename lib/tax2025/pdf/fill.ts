@@ -1,0 +1,335 @@
+// Fill one blank official form from the effective return view (plan section 6.8).
+//
+//  - The blank bytes come from the registry (sha256-verified); nothing is ignored
+//    silently (an encrypted or malformed file throws).
+//  - /XFA, /Perms and /Extensions are deleted deliberately (otherwise Acrobat ignores
+//    the filled values and/or warns that the signed usage rights were broken).
+//  - The AcroForm is kept and NEVER flattened: the CPA can edit every field.
+//  - Appearance streams are generated for the fields we write (Helvetica, the form's
+//    own /DA size and colour); NeedAppearances is not set; save() does not
+//    regenerate (updateFieldAppearances: false).
+//  - SSN, bank, routing, DOB, signature, PIN fields are only ever claimed by a map's
+//    `blank` list and are never written; text that looks like an SSN is refused.
+
+import {
+  PDFCheckBox,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFString,
+  PDFTextField,
+  StandardFonts,
+  type PDFField,
+} from "pdf-lib";
+import { containsSsnLikeText } from "@/lib/tax-extraction-schema";
+import { collectClaims } from "@/lib/tax2025/pdf/completeness";
+import { formatDollars, splitName } from "@/lib/tax2025/pdf/format";
+import { resolveFieldValue } from "@/lib/tax2025/pdf/policy";
+import { getBlankBytes } from "@/lib/tax2025/pdf/registry";
+import { draftStampText, stampPages } from "@/lib/tax2025/pdf/stamp";
+import type {
+  BlankReason,
+  ContinuationList,
+  FillOptions,
+  FillResult,
+  FormMap,
+  HeaderSource,
+  MapTable,
+  PacketOpenItem,
+  PdfReturnView,
+} from "@/lib/tax2025/pdf/types";
+import { sanitizeWinAnsi } from "@/lib/tax2025/pdf/winansi";
+
+export const OVERFLOW_LABEL = "Other (see statement)";
+const MAX_TOOLTIP = 600;
+
+function tooltipText(note: string, original: string | null): string {
+  const base = sanitizeWinAnsi(note);
+  const combined = original ? `${base} | ${original}` : base;
+  return combined.length > MAX_TOOLTIP ? `${combined.slice(0, MAX_TOOLTIP - 3)}...` : combined;
+}
+
+function setTooltip(field: PDFField, note: string): void {
+  const dict = field.acroField.dict;
+  const existing = dict.lookup(PDFName.of("TU"));
+  const original =
+    existing instanceof PDFString || existing instanceof PDFHexString ? sanitizeWinAnsi(existing.decodeText()) : null;
+  dict.set(PDFName.of("TU"), PDFHexString.fromText(tooltipText(note, original)));
+}
+
+function headerValue(source: HeaderSource, view: PdfReturnView): { text: string | null; split: boolean } {
+  const h = view.header;
+  switch (source) {
+    case "household.names":
+      return { text: h.householdNames, split: false };
+    case "household.taxpayer":
+      return { text: h.taxpayerName, split: false };
+    case "household.spouse":
+      return { text: h.spouseName, split: false };
+    case "household.taxpayerFirst":
+      return { text: h.taxpayerName ? splitName(h.taxpayerName).first : null, split: true };
+    case "household.taxpayerLast":
+      return { text: h.taxpayerName ? splitName(h.taxpayerName).last : null, split: true };
+    case "household.spouseFirst":
+      return { text: h.spouseName ? splitName(h.spouseName).first : null, split: true };
+    case "household.spouseLast":
+      return { text: h.spouseName ? splitName(h.spouseName).last : null, split: true };
+    case "entity.ekcName":
+      return { text: h.ekcName, split: false };
+    case "year":
+      return { text: String(view.taxYear), split: false };
+  }
+}
+
+function sumDollars(values: ReadonlyArray<string | number | null | undefined>): { total: number; bad: number } {
+  let total = 0;
+  let bad = 0;
+  for (const v of values) {
+    if (typeof v === "number" && Number.isSafeInteger(v)) total += v;
+    else if (v !== null && v !== undefined && v !== "") bad += 1;
+  }
+  return { total, bad };
+}
+
+/** Fill `formId` from the view using `map`. Returns the PDF bytes plus every open item raised. */
+export async function fillForm(
+  formId: string,
+  view: PdfReturnView,
+  map: FormMap,
+  opts: FillOptions,
+): Promise<FillResult> {
+  if (map.formId !== formId) throw new Error(`fillForm: map is for ${map.formId}, not ${formId}`);
+
+  const doc = await PDFDocument.load(getBlankBytes(formId), { updateMetadata: false });
+
+  // Strip the signed usage-rights and XFA packet deliberately, then assert they are gone.
+  doc.catalog.delete(PDFName.of("Perms"));
+  doc.catalog.delete(PDFName.of("Extensions"));
+  const acro = doc.catalog.lookupMaybe(PDFName.of("AcroForm"), PDFDict);
+  if (acro) acro.delete(PDFName.of("XFA"));
+  const form = doc.getForm();
+  if (form.acroForm.dict.has(PDFName.of("XFA"))) throw new Error(`fillForm ${formId}: XFA could not be removed`);
+
+  const fieldNames = form.getFields().map((f) => f.getName());
+  const known = new Set(fieldNames);
+
+  // Run-time soundness: a map naming a field the form does not have, or claiming a field twice, is a defect.
+  const seen = new Set<string>();
+  for (const claim of collectClaims(map, fieldNames)) {
+    if (!known.has(claim.field)) throw new Error(`fillForm ${formId}: map references unknown field "${claim.field}"`);
+    if (seen.has(claim.field)) throw new Error(`fillForm ${formId}: field "${claim.field}" is claimed more than once`);
+    seen.add(claim.field);
+  }
+
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const items = new Map<string, PacketOpenItem>();
+  const addItem = (item: PacketOpenItem): void => {
+    if (!items.has(item.id)) items.set(item.id, item);
+  };
+  const filled: string[] = [];
+  const continuations: ContinuationList[] = [];
+
+  const textField = (name: string): PDFTextField => {
+    const f = form.getFieldMaybe(name);
+    if (!(f instanceof PDFTextField)) throw new Error(`fillForm ${formId}: field "${name}" is not a text field`);
+    return f;
+  };
+
+  /** Write sanitized text into a text field, guarding SSN-like text and over-wide values. Returns true if written. */
+  const writeText = (name: string, raw: string, note?: string): boolean => {
+    const text = sanitizeWinAnsi(raw).trim();
+    if (text === "") return false;
+    if (containsSsnLikeText(text)) {
+      addItem({
+        id: `fill:${formId}:ssnlike:${name}`,
+        severity: "blocking",
+        source: "fill",
+        formId,
+        field: name,
+        message: `A value for field ${name} looked like a Social Security Number and was refused; the field is left blank.`,
+      });
+      return false;
+    }
+    const f = textField(name);
+    const max = f.getMaxLength();
+    if (max !== undefined && text.length > max) {
+      addItem({
+        id: `fill:${formId}:toowide:${name}`,
+        severity: "blocking",
+        source: "fill",
+        formId,
+        field: name,
+        message: `A value for field ${name} is ${text.length} characters but the field holds ${max}; left blank - key it manually.`,
+      });
+      return false;
+    }
+    f.setText(text);
+    if (note) setTooltip(f, note);
+    filled.push(name);
+    return true;
+  };
+
+  for (const entry of map.lines) {
+    if (entry.kind === "money") {
+      const decision = resolveFieldValue(formId, view.lines[entry.line], entry);
+      for (const item of decision.items) addItem(item);
+      if (decision.write !== null) writeText(entry.field, decision.write, decision.tooltip);
+      else textField(entry.field); // type-check the target even when blank
+    } else if (entry.kind === "check") {
+      const box = form.getFieldMaybe(entry.field);
+      if (!(box instanceof PDFCheckBox)) throw new Error(`fillForm ${formId}: field "${entry.field}" is not a checkbox`);
+      const answer = view.answers[entry.choice];
+      if (answer === undefined || answer === null) {
+        if (entry.required) {
+          addItem({
+            id: `fill:${formId}:answer:${entry.choice}`,
+            severity: "advisory",
+            source: "fill",
+            formId,
+            field: entry.field,
+            message: `Answer needed: ${entry.label ?? entry.choice}; the box is left unchecked.`,
+          });
+        }
+      } else if (answer === entry.equals) {
+        box.check();
+        filled.push(entry.field);
+      }
+    } else {
+      const answer = view.answers[entry.answer];
+      if (typeof answer === "string") writeText(entry.field, answer);
+      else textField(entry.field);
+    }
+  }
+
+  for (const h of map.header) {
+    const { text, split } = headerValue(h.source, view);
+    if (text === null || text.trim() === "") {
+      textField(h.field);
+      addItem({
+        id: `fill:${formId}:header:${h.source}`,
+        severity: "advisory",
+        source: "fill",
+        formId,
+        field: h.field,
+        message: `Header value "${h.source}" is not available; the field is left blank.`,
+      });
+      continue;
+    }
+    if (writeText(h.field, text) && split) {
+      addItem({
+        id: `fill:${formId}:namesplit`,
+        severity: "advisory",
+        source: "fill",
+        formId,
+        field: h.field,
+        message: "A single full name was split into first and last name fields (last word = last name); verify the split.",
+      });
+    }
+  }
+
+  for (const t of map.tables) fillTable(formId, t, view, writeText, addItem, continuations, textField);
+
+  const blankByDesign: Partial<Record<BlankReason, number>> = {};
+  for (const b of map.blank) {
+    let matched = 0;
+    for (const n of fieldNames) {
+      if ("field" in b) {
+        if (n === b.field) matched += 1;
+      } else {
+        b.match.lastIndex = 0;
+        if (b.match.test(n)) matched += 1;
+      }
+    }
+    blankByDesign[b.reason] = (blankByDesign[b.reason] ?? 0) + matched;
+  }
+
+  form.updateFieldAppearances(font);
+
+  if (opts.alternativeLabel) {
+    stampPages(doc, font, opts.alternativeLabel);
+  } else if (opts.stamp) {
+    stampPages(doc, font, draftStampText(opts.stampDate, opts.fingerprint));
+  }
+
+  const bytes = await doc.save({ updateFieldAppearances: false });
+  return {
+    formId,
+    bytes,
+    openItems: [...items.values()],
+    filledFields: filled,
+    blankByDesign,
+    continuations,
+  };
+}
+
+function fillTable(
+  formId: string,
+  table: MapTable,
+  view: PdfReturnView,
+  writeText: (name: string, raw: string, note?: string) => boolean,
+  addItem: (item: PacketOpenItem) => void,
+  continuations: ContinuationList[],
+  textField: (name: string) => PDFTextField,
+): void {
+  const data = view.tables[table.table] ?? [];
+  const capacity = table.rows.length;
+  const writeRow = (rowIndex: number, cells: Readonly<Record<string, string | number | null>>): void => {
+    const columns = table.rows[rowIndex];
+    if (!columns) return;
+    for (const [col, field] of Object.entries(columns)) {
+      const v = cells[col];
+      if (v === undefined || v === null || v === "") {
+        textField(field);
+        continue;
+      }
+      if (typeof v === "number") {
+        if (!Number.isSafeInteger(v)) {
+          addItem({
+            id: `fill:${formId}:${table.table}:nonint:${rowIndex}`,
+            severity: "blocking",
+            source: "fill",
+            formId,
+            field,
+            message: `Table ${table.table} row ${rowIndex + 1} holds a non-integer amount; left blank.`,
+          });
+          continue;
+        }
+        writeText(field, formatDollars(v));
+      } else {
+        writeText(field, v);
+      }
+    }
+  };
+
+  if (data.length <= capacity) {
+    data.forEach((row, i) => writeRow(i, row.cells));
+    return;
+  }
+
+  // Overflow: rows 1..N-1 as-is; the last row carries "Other (see statement)" and the remainder's sum.
+  for (let i = 0; i < capacity - 1; i++) {
+    const row = data[i];
+    if (row) writeRow(i, row.cells);
+  }
+  const rest = data.slice(capacity - 1);
+  const { total, bad } = sumDollars(rest.map((r) => r.cells[table.amountColumn]));
+  writeRow(capacity - 1, { [table.labelColumn]: OVERFLOW_LABEL, [table.amountColumn]: total });
+  continuations.push({ formId, table: table.table, rows: data.map((r) => ({ ...r.cells })) });
+  addItem({
+    id: `fill:${formId}:${table.table}:overflow`,
+    severity: "advisory",
+    source: "fill",
+    formId,
+    message: `${data.length} rows exceed the ${capacity} rows on ${formId}; the last row holds the total of the remaining ${rest.length} (see the continuation list on the cover page).`,
+  });
+  if (bad > 0) {
+    addItem({
+      id: `fill:${formId}:${table.table}:badamount`,
+      severity: "blocking",
+      source: "fill",
+      formId,
+      message: `${bad} row(s) of ${table.table} have a non-integer or missing amount and were not included in the overflow total.`,
+    });
+  }
+}
