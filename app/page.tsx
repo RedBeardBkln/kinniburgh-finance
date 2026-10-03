@@ -10,11 +10,13 @@ import { computeBudgetSummary } from "@/lib/budget";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
+import type { Route } from "next";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { DashboardClient, type SerializedBudget } from "@/components/dashboard/dashboard-client";
 import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
 
 interface PageProps {
-  searchParams: Promise<{ bucket?: string }>;
+  searchParams: Promise<{ bucket?: string; period?: string }>;
 }
 
 export default async function DashboardPage({ searchParams }: PageProps) {
@@ -27,9 +29,22 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const bucketLabel = entity?.navLabel ?? entity?.name ?? "All Entities";
 
   const now = new Date();
-  const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-  const monthStart = new Date(`${period}-01T00:00:00Z`);
-  const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const currentPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  // ?period=YYYY-MM selects a prior month; invalid or future values fall back to the current month.
+  const requested = params.period;
+  const period =
+    requested && /^\d{4}-(0[1-9]|1[0-2])$/.test(requested) && requested <= currentPeriod
+      ? requested
+      : currentPeriod;
+  const isCurrentPeriod = period === currentPeriod;
+  const periodYear = Number(period.slice(0, 4));
+  const periodMonth = Number(period.slice(5, 7));
+  const monthStart = new Date(Date.UTC(periodYear, periodMonth - 1, 1));
+  const monthEnd = new Date(Date.UTC(periodYear, periodMonth, 1));
+  const prevPeriod = shiftPeriod(periodYear, periodMonth, -1);
+  const nextPeriod = shiftPeriod(periodYear, periodMonth, 1);
+  const periodHref = (p: string) =>
+    (p === currentPeriod ? `/?bucket=${bucket}` : `/?bucket=${bucket}&period=${p}`) as Route;
 
   // All entity-dependent queries run in parallel
   const [budgets, tagSpend, spendAgg, accounts, scheduledTransfers, allTagsResult] = await Promise.all([
@@ -171,11 +186,41 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         period={period}
       >
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold">
-            {bucketLabel} — {formatPeriod(period)}
-          </h1>
-          <p className="text-sm text-muted-foreground">Monthly budget overview</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold">
+              {bucketLabel} — {formatPeriod(period)}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Monthly budget overview{!isCurrentPeriod && " · past month"}
+            </p>
+          </div>
+          <nav aria-label="Month navigation" className="flex items-center gap-2">
+            <Link
+              href={periodHref(prevPeriod)}
+              className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              {formatPeriod(prevPeriod)}
+            </Link>
+            {!isCurrentPeriod && (
+              <>
+                <Link
+                  href={periodHref(nextPeriod)}
+                  className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
+                >
+                  {formatPeriod(nextPeriod)}
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+                <Link
+                  href={periodHref(currentPeriod)}
+                  className="rounded-md px-3 py-1.5 text-sm text-primary hover:underline"
+                >
+                  Current month
+                </Link>
+              </>
+            )}
+          </nav>
         </div>
 
         {/* Summary cards */}
@@ -196,7 +241,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                 <TrendingDown className="h-4 w-4 text-destructive" />
-                Spent This Month
+                {isCurrentPeriod ? "Spent This Month" : `Spent in ${formatPeriod(period)}`}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -363,6 +408,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       </DashboardClient>
     </AppShell>
   );
+}
+
+function shiftPeriod(year: number, month: number, delta: number): string {
+  const d = new Date(Date.UTC(year, month - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 function formatPeriod(period: string): string {
