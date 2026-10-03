@@ -1,5 +1,5 @@
 import { Decimal } from "@prisma/client/runtime/library";
-import { annualDueDate } from "@/lib/annual-bill";
+import { annualDueDate, cycleMonthsFor, dueMonthsFor, isLumpSumFrequency } from "@/lib/annual-bill";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -326,6 +326,8 @@ export interface AccrualDrawLike {
  *                                     for the full annualBudget (the total due);
  *                                     the monthly expectedAmount is the set-aside
  *                                     that accrues in the account until then
+ * semiannual                      → same, but twice a year (payMonth and payMonth
+ *                                     + 6); annualBudget is the amount of EACH payment
  */
 export function generateBillOccurrences(
   bill: ScheduledBillLike,
@@ -351,21 +353,24 @@ export function generateBillOccurrences(
     return events.sort((a, b) => a.date.getTime() - b.date.getTime());
   }
 
-  if (bill.frequency === "annual" && bill.amountType !== "accrued") {
+  if (isLumpSumFrequency(bill.frequency) && bill.amountType !== "accrued") {
     if (bill.annualBudget == null || bill.payMonth == null || bill.autopayDay == null) return [];
     const total = new Decimal(String(bill.annualBudget));
     if (total.isZero() || total.isNegative()) return [];
     const events: ScheduleEvent[] = [];
+    const months = dueMonthsFor(bill.payMonth, cycleMonthsFor(bill.frequency));
     for (let year = from.getUTCFullYear(); year <= to.getUTCFullYear(); year++) {
-      const date = annualDueDate(year, bill.payMonth, bill.autopayDay);
-      if (date < from || date >= to) continue;
-      events.push({
-        date,
-        amount: total.negated(),
-        description: bill.payee,
-        accountId: bill.accountId,
-        type: "bill" as const,
-      });
+      for (const month of months) {
+        const date = annualDueDate(year, month, bill.autopayDay);
+        if (date < from || date >= to) continue;
+        events.push({
+          date,
+          amount: total.negated(),
+          description: bill.payee,
+          accountId: bill.accountId,
+          type: "bill" as const,
+        });
+      }
     }
     return events;
   }

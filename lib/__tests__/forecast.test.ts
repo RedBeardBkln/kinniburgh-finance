@@ -483,6 +483,30 @@ describe("generateBillOccurrences — annual", () => {
     expect(generateBillOccurrences(annualBill({ annualBudget: "0" }), ...w)).toHaveLength(0);
   });
 
+  it("semiannual: TWO outflows a year, each for the full amount due, six months apart", () => {
+    const bill = annualBill({ frequency: "semiannual", payMonth: 6, annualBudget: "2100.00" });
+    const events = generateBillOccurrences(bill, d("2026-01-01"), d("2027-12-31"));
+    expect(events.map((e) => e.date.toISOString().slice(0, 10))).toEqual([
+      "2026-06-15",
+      "2026-12-15",
+      "2027-06-15",
+      "2027-12-15",
+    ]);
+    for (const e of events) expect(e.amount.equals(dec("-2100"))).toBe(true);
+  });
+
+  it("semiannual: payMonth in the second half gives the same two months", () => {
+    const bill = annualBill({ frequency: "semiannual", payMonth: 12, annualBudget: "2100.00" });
+    const events = generateBillOccurrences(bill, d("2026-01-01"), d("2027-01-01"));
+    expect(events.map((e) => e.date.toISOString().slice(0, 10))).toEqual(["2026-06-15", "2026-12-15"]);
+  });
+
+  it("semiannual: window containing only one of the two dates returns just that one", () => {
+    const bill = annualBill({ frequency: "semiannual", payMonth: 6, annualBudget: "2100.00" });
+    const events = generateBillOccurrences(bill, d("2026-07-01"), d("2027-01-01"));
+    expect(events.map((e) => e.date.toISOString().slice(0, 10))).toEqual(["2026-12-15"]);
+  });
+
   it("account forecast: monthly set-aside accrues, then the lump on the due date drains it", () => {
     const from = d("2026-09-01");
     const to = d("2026-11-01");

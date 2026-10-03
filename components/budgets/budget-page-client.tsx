@@ -35,9 +35,9 @@ export interface SerializedBudgetLine {
   payDayOfWeek: number | null;
   biweeklyAnchorDate: string | null;
   payMonth: number | null;
-  /** Total due on the annual due date (annual lines only). */
+  /** Amount due on each due date (annual / semi-annual lines only). */
   annualAmountDue: number | null;
-  /** Funding check for an annual line; null for every other frequency. */
+  /** Funding check for an annual / semi-annual line; null for every other frequency. */
   annualStatus: {
     nextDueDate: string;
     accruedToDate: number;
@@ -61,7 +61,7 @@ export interface AnnualReserveAlert {
   accountName: string;
   balance: number;
   balanceAsOf: string | null;
-  /** What the account's annual bills should have accrued by now. */
+  /** What the account's annual and semi-annual bills should have accrued by now. */
   reserved: number;
   shortfall: number;
 }
@@ -271,12 +271,12 @@ export function BudgetPageClient({
         {/* Annual-bill funding warnings */}
         {(underfundedAnnual.length > 0 || annualReserveAlerts.length > 0) && (
           <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-            <p className="font-medium">⚠ Annual bills that aren&apos;t fully funded</p>
+            <p className="font-medium">⚠ Annual and semi-annual bills that aren&apos;t fully funded</p>
             <ul className="list-disc space-y-1 pl-5">
               {underfundedAnnual.map((b) => (
                 <li key={b.id}>
                   <span className="font-medium">{b.tagName}</span> ({formatSchedule(b)}): {formatUSD(b.budgeted)}/mo
-                  builds to {formatUSD(b.annualStatus!.projectedAtDue)} but {formatUSD(b.annualAmountDue ?? 0)} is due —{" "}
+                  builds to {formatUSD(b.annualStatus!.projectedAtDue)} but {formatUSD(b.annualAmountDue ?? 0)} is due{b.frequency === "semiannual" ? " each time" : ""} —{" "}
                   {formatUSD(b.annualStatus!.shortfall)} short. Set aside at least{" "}
                   {formatUSD(b.annualStatus!.requiredMonthly)}/mo.
                 </li>
@@ -284,7 +284,7 @@ export function BudgetPageClient({
               {annualReserveAlerts.map((a) => (
                 <li key={a.accountName}>
                   <span className="font-medium">{a.accountName}</span> holds {formatUSD(a.balance)}
-                  {a.balanceAsOf ? ` (as of ${a.balanceAsOf})` : ""}, but its annual bills should have accrued{" "}
+                  {a.balanceAsOf ? ` (as of ${a.balanceAsOf})` : ""}, but its annual and semi-annual bills should have accrued{" "}
                   {formatUSD(a.reserved)} by now — {formatUSD(a.shortfall)} short.
                 </li>
               ))}
@@ -395,8 +395,10 @@ export function BudgetPageClient({
                               ) : (
                                 <span className="text-xs">—</span>
                               )}
-                              {b.frequency === "annual" && b.annualAmountDue !== null && (
-                                <span className="block text-xs">{formatUSD(b.annualAmountDue)} due</span>
+                              {(b.frequency === "annual" || b.frequency === "semiannual") && b.annualAmountDue !== null && (
+                                <span className="block text-xs">
+                                  {formatUSD(b.annualAmountDue)} due{b.frequency === "semiannual" ? " each time" : ""}
+                                </span>
                               )}
                               {b.annualStatus?.isUnderfunded && (
                                 <span

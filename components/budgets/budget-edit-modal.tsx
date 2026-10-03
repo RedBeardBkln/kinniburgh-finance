@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createBudget, updateBudget } from "@/actions/budgets";
-import { assessAnnualFunding, isValidAnnualDay } from "@/lib/annual-bill";
+import { assessAnnualFunding, cycleMonthsFor, isLumpSumFrequency, isValidAnnualDay } from "@/lib/annual-bill";
 import { formatUSD } from "@/lib/utils";
 
 interface Account {
@@ -18,12 +18,13 @@ interface Tag {
   shortName: string;
 }
 
-type Frequency = "monthly" | "weekly" | "biweekly" | "annual";
+type Frequency = "monthly" | "weekly" | "biweekly" | "annual" | "semiannual";
 
 const FREQUENCY_OPTIONS: { value: Frequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
   { value: "weekly", label: "Weekly" },
   { value: "biweekly", label: "Biweekly" },
+  { value: "semiannual", label: "Semi-annual (every 6 months)" },
   { value: "annual", label: "Annual" },
 ];
 
@@ -109,8 +110,10 @@ export function BudgetEditModal({
   const payDayOfWeekChanged =
     frequency !== "monthly" && payDayOfWeekStr !== (originalPayDayOfWeek?.toString() ?? "");
   const biweeklyAnchorChanged = frequency === "biweekly" && biweeklyAnchorDate !== originalBiweeklyAnchorDate;
+  const isLumpSum = isLumpSumFrequency(frequency);
+  const isSemiannual = frequency === "semiannual";
   const annualChanged =
-    frequency === "annual" &&
+    isLumpSum &&
     (payMonthStr !== (originalPayMonth?.toString() ?? "1") || annualAmountDueStr !== originalAnnualAmountDue);
   const showApplyTo =
     mode === "edit" &&
@@ -124,7 +127,7 @@ export function BudgetEditModal({
   // Live funding check for an annual line: will the monthly amount, transferred in
   // every month, add up to the total due by the due date?
   const annualInputsReady =
-    frequency === "annual" &&
+    isLumpSum &&
     budgeted !== "" &&
     annualAmountDueStr !== "" &&
     payDayStr !== "" &&
@@ -135,6 +138,7 @@ export function BudgetEditModal({
         totalDueCents: Math.round(parseFloat(annualAmountDueStr) * 100),
         dueMonth: parseInt(payMonthStr, 10),
         dueDay: parseInt(payDayStr, 10),
+        cycleMonths: cycleMonthsFor(frequency),
         today: new Date(),
       })
     : null;
@@ -142,13 +146,13 @@ export function BudgetEditModal({
   function handleSave() {
     setError(null);
     startTransition(async () => {
-      const usesDayOfMonth = frequency === "monthly" || frequency === "annual";
+      const usesDayOfMonth = frequency === "monthly" || isLumpSum;
       const payDay = usesDayOfMonth && payDayStr ? parseInt(payDayStr, 10) : undefined;
       const usesDayOfWeek = frequency === "weekly" || frequency === "biweekly";
       const payDayOfWeek = usesDayOfWeek ? parseInt(payDayOfWeekStr, 10) : null;
       const anchorDate = frequency === "biweekly" ? biweeklyAnchorDate || null : null;
-      const payMonth = frequency === "annual" ? parseInt(payMonthStr, 10) : null;
-      const annualAmountDue = frequency === "annual" ? annualAmountDueStr : null;
+      const payMonth = isLumpSum ? parseInt(payMonthStr, 10) : null;
+      const annualAmountDue = isLumpSum ? annualAmountDueStr : null;
 
       let result: { success: true } | { error: string };
 
@@ -227,7 +231,7 @@ export function BudgetEditModal({
           {/* Budgeted amount */}
           <div className="space-y-1">
             <label className="text-sm font-medium">
-              {frequency === "annual" ? "Monthly Set-Aside" : "Monthly Budget"}
+              {isLumpSum ? "Monthly Set-Aside" : "Monthly Budget"}
             </label>
             <div className="flex items-center gap-1">
               <span className="text-muted-foreground">$</span>
@@ -242,7 +246,7 @@ export function BudgetEditModal({
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              {frequency === "annual"
+              {isLumpSum
                 ? "Transferred into the account each month and held there until the due date"
                 : "Leave blank to auto-sum nested budget lines"}
             </p>
@@ -265,11 +269,11 @@ export function BudgetEditModal({
           </div>
 
           {/* Due date */}
-          {frequency === "annual" ? (
+          {isLumpSum ? (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-sm font-medium">Due Month</label>
+                  <label className="text-sm font-medium">{isSemiannual ? "First Due Month" : "Due Month"}</label>
                   <select
                     value={payMonthStr}
                     onChange={(e) => setPayMonthStr(e.target.value)}
@@ -296,7 +300,7 @@ export function BudgetEditModal({
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-medium">Total Amount Due</label>
+                <label className="text-sm font-medium">{isSemiannual ? "Amount Due Each Time" : "Total Amount Due"}</label>
                 <div className="flex items-center gap-1">
                   <span className="text-muted-foreground">$</span>
                   <input
@@ -310,7 +314,9 @@ export function BudgetEditModal({
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  The full amount paid out on the due date each year.
+                  {isSemiannual
+                    ? `The amount paid out on each due date — ${MONTH_OPTIONS[parseInt(payMonthStr, 10) - 1]?.label ?? "the first month"} and six months later.`
+                    : "The full amount paid out on the due date each year."}
                 </p>
               </div>
               {annualAssessment && (
@@ -325,7 +331,7 @@ export function BudgetEditModal({
                     <p>
                       <span className="font-medium">⚠ Not accruing enough.</span>{" "}
                       {formatUSD(parseFloat(budgeted))}/mo builds to{" "}
-                      {formatUSD(annualAssessment.projectedAtDueCents / 100)} by the due date, which is{" "}
+                      {formatUSD(annualAssessment.projectedAtDueCents / 100)} by {isSemiannual ? "each" : "the"} due date, which is{" "}
                       {formatUSD(annualAssessment.shortfallCents / 100)} short of{" "}
                       {formatUSD(parseFloat(annualAmountDueStr))}. Set aside at least{" "}
                       {formatUSD(annualAssessment.requiredMonthlyCents / 100)}/mo.
@@ -333,7 +339,7 @@ export function BudgetEditModal({
                   ) : (
                     <p>
                       Fully funded: {formatUSD(parseFloat(budgeted))}/mo builds to{" "}
-                      {formatUSD(annualAssessment.projectedAtDueCents / 100)} by the due date.
+                      {formatUSD(annualAssessment.projectedAtDueCents / 100)} by {isSemiannual ? "each" : "the"} due date.
                     </p>
                   )}
                 </div>

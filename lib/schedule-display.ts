@@ -12,12 +12,20 @@ export interface ScheduleLike {
   payDay: number | null;
   payDayOfWeek: number | null;
   biweeklyAnchorDate: string | Date | null;
-  /** 1–12; only used when frequency is "annual". */
+  /** 1–12; only used when frequency is "annual" or "semiannual". */
   payMonth?: number | null;
 }
 
-function normalizeFrequency(f: string | null | undefined): "monthly" | "weekly" | "biweekly" | "annual" {
-  return f === "weekly" || f === "biweekly" || f === "annual" ? f : "monthly";
+function normalizeFrequency(
+  f: string | null | undefined
+): "monthly" | "weekly" | "biweekly" | "annual" | "semiannual" {
+  return f === "weekly" || f === "biweekly" || f === "annual" || f === "semiannual" ? f : "monthly";
+}
+
+/** The two months of a semi-annual bill, ascending (payMonth and payMonth + 6). */
+function semiannualMonths(payMonth: number): [number, number] {
+  const other = ((payMonth - 1 + 6) % 12) + 1;
+  return payMonth < other ? [payMonth, other] : [other, payMonth];
 }
 
 function ordinal(n: number): string {
@@ -28,7 +36,7 @@ function ordinal(n: number): string {
 
 /**
  * Formats a due-date string: "15th" (monthly), "Weekly · Mon", "Biweekly · Mon",
- * "Annual · Oct 15".
+ * "Annual · Oct 15", "Semi-annual · Jun 15 & Dec 15".
  */
 export function formatSchedule(s: ScheduleLike): string {
   const frequency = normalizeFrequency(s.frequency);
@@ -36,6 +44,11 @@ export function formatSchedule(s: ScheduleLike): string {
   if (frequency === "annual") {
     const month = s.payMonth ? MONTH_NAMES[s.payMonth - 1] : undefined;
     return month && s.payDay ? `Annual · ${month} ${s.payDay}` : "Annual · —";
+  }
+  if (frequency === "semiannual") {
+    if (!s.payMonth || !s.payDay) return "Semi-annual · —";
+    const [first, second] = semiannualMonths(s.payMonth);
+    return `Semi-annual · ${MONTH_NAMES[first - 1]} ${s.payDay} & ${MONTH_NAMES[second - 1]} ${s.payDay}`;
   }
   if (frequency === "weekly") {
     const dayName = s.payDayOfWeek !== null ? DAY_NAMES[s.payDayOfWeek] ?? "—" : "—";
@@ -61,6 +74,9 @@ export function scheduleSortKey(s: ScheduleLike): [number, number] {
   }
   if (frequency === "annual") {
     return [2, (s.payMonth ?? 13) * 100 + (s.payDay ?? 99)];
+  }
+  if (frequency === "semiannual") {
+    return [2, (s.payMonth ? semiannualMonths(s.payMonth)[0] : 13) * 100 + (s.payDay ?? 99)];
   }
   return [0, s.payDayOfWeek ?? 99];
 }

@@ -7,7 +7,7 @@ import { computeBudgetSummary } from "@/lib/budget";
 import { decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import { PeriodPicker } from "@/components/period-picker";
-import { assessAnnualFunding, assessAccountReserve } from "@/lib/annual-bill";
+import { assessAnnualFunding, assessAccountReserve, cycleMonthsFor, isLumpSumFrequency } from "@/lib/annual-bill";
 import { exportBudgetCsv } from "@/actions/reports";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import {
@@ -145,7 +145,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
 
     // Annual lines: does the monthly set-aside add up to the total due by the due date?
     const annual =
-      b.frequency === "annual" &&
+      isLumpSumFrequency(b.frequency) &&
       b.payMonth !== null &&
       b.payDay !== null &&
       b.annualAmountDue !== null &&
@@ -155,6 +155,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
             totalDueCents: toCents(new Prisma.Decimal(b.annualAmountDue)),
             dueMonth: b.payMonth,
             dueDay: b.payDay,
+            cycleMonths: cycleMonthsFor(b.frequency),
             today: now,
           })
         : null;

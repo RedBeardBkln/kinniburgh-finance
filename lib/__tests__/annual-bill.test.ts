@@ -5,6 +5,9 @@ import {
   nextAnnualDueDate,
   assessAnnualFunding,
   assessAccountReserve,
+  dueMonthsFor,
+  cycleMonthsFor,
+  isLumpSumFrequency,
 } from "@/lib/annual-bill";
 
 function d(iso: string) {
@@ -123,6 +126,76 @@ describe("assessAnnualFunding", () => {
     expect(iso(a.nextDueDate)).toBe("2027-10-15");
     expect(a.monthsElapsed).toBe(0);
     expect(a.accruedToDateCents).toBe(0);
+  });
+});
+
+describe("lump-sum frequency helpers", () => {
+  it("recognises annual and semiannual only", () => {
+    expect(isLumpSumFrequency("annual")).toBe(true);
+    expect(isLumpSumFrequency("semiannual")).toBe(true);
+    expect(isLumpSumFrequency("monthly")).toBe(false);
+    expect(isLumpSumFrequency(undefined)).toBe(false);
+  });
+
+  it("cycle length: 12 for annual, 6 for semiannual", () => {
+    expect(cycleMonthsFor("annual")).toBe(12);
+    expect(cycleMonthsFor("semiannual")).toBe(6);
+  });
+
+  it("due months: one for annual, the month and month+6 (ascending) for semiannual", () => {
+    expect(dueMonthsFor(10, 12)).toEqual([10]);
+    expect(dueMonthsFor(6, 6)).toEqual([6, 12]);
+    expect(dueMonthsFor(12, 6)).toEqual([6, 12]);
+    expect(dueMonthsFor(1, 6)).toEqual([1, 7]);
+  });
+});
+
+describe("assessAnnualFunding — semi-annual (6-month cycle)", () => {
+  // $2,100 due Jun 15 and Dec 15; $350/mo × 6 = exactly $2,100 each time.
+  const base = { totalDueCents: 210000, dueMonth: 6, dueDay: 15, cycleMonths: 6 };
+
+  it("exactly funded over six months is not underfunded", () => {
+    const a = assessAnnualFunding({ ...base, monthlyCents: 35000, today: d("2026-10-03") });
+    expect(a.projectedAtDueCents).toBe(210000);
+    expect(a.shortfallCents).toBe(0);
+    expect(a.isUnderfunded).toBe(false);
+    expect(a.requiredMonthlyCents).toBe(35000);
+  });
+
+  it("the same $350/mo that fully funds a $4,200 annual bill is HALF what a $2,100 semi-annual needs per half-year — and $175/mo is short", () => {
+    const a = assessAnnualFunding({ ...base, monthlyCents: 17500, today: d("2026-10-03") });
+    expect(a.projectedAtDueCents).toBe(105000);
+    expect(a.shortfallCents).toBe(105000);
+    expect(a.isUnderfunded).toBe(true);
+    expect(a.requiredMonthlyCents).toBe(35000);
+  });
+
+  it("picks the nearer of the two due dates and counts months from the previous one", () => {
+    // 2026-10-03: previous due Jun 15, next due Dec 15 → 3 whole months elapsed
+    const a = assessAnnualFunding({ ...base, monthlyCents: 35000, today: d("2026-10-03") });
+    expect(iso(a.previousDueDate)).toBe("2026-06-15");
+    expect(iso(a.nextDueDate)).toBe("2026-12-15");
+    expect(a.monthsElapsed).toBe(3);
+    expect(a.accruedToDateCents).toBe(3 * 35000);
+  });
+
+  it("wraps across the new year (Dec → Jun)", () => {
+    const a = assessAnnualFunding({ ...base, monthlyCents: 35000, today: d("2027-02-01") });
+    expect(iso(a.previousDueDate)).toBe("2026-12-15");
+    expect(iso(a.nextDueDate)).toBe("2027-06-15");
+    expect(a.monthsElapsed).toBe(1);
+  });
+
+  it("works when the chosen first month is the later one (Dec chosen → still Jun & Dec)", () => {
+    const a = assessAnnualFunding({ ...base, dueMonth: 12, monthlyCents: 35000, today: d("2026-10-03") });
+    expect(iso(a.nextDueDate)).toBe("2026-12-15");
+    expect(iso(a.previousDueDate)).toBe("2026-06-15");
+  });
+
+  it("on a due date a full 6-month cycle has accrued", () => {
+    const a = assessAnnualFunding({ ...base, monthlyCents: 35000, today: d("2026-12-15") });
+    expect(a.monthsElapsed).toBe(6);
+    expect(a.accruedToDateCents).toBe(210000);
   });
 });
 

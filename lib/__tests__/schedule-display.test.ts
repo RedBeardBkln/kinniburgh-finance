@@ -75,6 +75,33 @@ describe("scheduleSortKey", () => {
   });
 });
 
+describe("semi-annual frequency", () => {
+  it("formatSchedule: lists both months, earlier first", () => {
+    expect(formatSchedule(sched({ frequency: "semiannual", payMonth: 6, payDay: 15 }))).toBe(
+      "Semi-annual · Jun 15 & Dec 15"
+    );
+    expect(formatSchedule(sched({ frequency: "semiannual", payMonth: 12, payDay: 15 }))).toBe(
+      "Semi-annual · Jun 15 & Dec 15"
+    );
+    expect(formatSchedule(sched({ frequency: "semiannual", payMonth: 1, payDay: 1 }))).toBe(
+      "Semi-annual · Jan 1 & Jul 1"
+    );
+  });
+
+  it("formatSchedule: missing month or day shows a dash", () => {
+    expect(formatSchedule(sched({ frequency: "semiannual", payMonth: null, payDay: 15 }))).toBe("Semi-annual · —");
+  });
+
+  it("scheduleSortKey: sorts by its earlier month, alongside annual rows", () => {
+    const semi = scheduleSortKey(sched({ frequency: "semiannual", payMonth: 12, payDay: 15 })); // Jun 15 & Dec 15
+    const annualMarch = scheduleSortKey(sched({ frequency: "annual", payMonth: 3, payDay: 1 }));
+    const annualOct = scheduleSortKey(sched({ frequency: "annual", payMonth: 10, payDay: 1 }));
+    expect(semi[0]).toBe(annualMarch[0]);
+    expect(annualMarch[1]).toBeLessThan(semi[1]);
+    expect(semi[1]).toBeLessThan(annualOct[1]);
+  });
+});
+
 describe("annual frequency", () => {
   it("formatSchedule: 'Annual · <Mon> <day>'", () => {
     expect(formatSchedule(sched({ frequency: "annual", payMonth: 10, payDay: 15 }))).toBe("Annual · Oct 15");

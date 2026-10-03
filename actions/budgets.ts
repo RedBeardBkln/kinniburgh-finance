@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
-import { isValidAnnualDay } from "@/lib/annual-bill";
+import { isLumpSumFrequency, isValidAnnualDay } from "@/lib/annual-bill";
 
 async function requireAuth() {
   const session = await auth();
@@ -48,7 +48,7 @@ export async function updateBudgetLine(
 const AMOUNT_DUE_REGEX = /^\d+(\.\d{1,2})?$/;
 
 /**
- * An annual line needs a due month + day, a total due, and a monthly set-aside
+ * An annual or semi-annual line needs a due month + day, the amount due, and a monthly set-aside
  * (the budget amount) — without the set-aside there is nothing accruing to check.
  * Returns an error message, or null when valid. Callers pass the EFFECTIVE values
  * (after merging with what's already stored on an update).
@@ -59,13 +59,13 @@ function annualScheduleError(v: {
   annualAmountDue: string | null | undefined;
   budgeted: string | null | undefined;
 }): string | null {
-  if (v.payMonth == null || v.payDay == null) return "Due month and day are required for an annual budget line";
+  if (v.payMonth == null || v.payDay == null) return "Due month and day are required for an annual or semi-annual budget line";
   if (!isValidAnnualDay(v.payMonth, v.payDay)) return "That day does not exist in the selected month";
   if (!v.annualAmountDue || !AMOUNT_DUE_REGEX.test(v.annualAmountDue) || new Prisma.Decimal(v.annualAmountDue).lte(0)) {
-    return "Total amount due is required for an annual budget line (e.g. 4200.00)";
+    return "Amount due is required for an annual or semi-annual budget line (e.g. 4200.00)";
   }
   if (!v.budgeted || new Prisma.Decimal(v.budgeted).lte(0)) {
-    return "A monthly budget amount is required for an annual line — it is the amount set aside each month";
+    return "A monthly budget amount is required for an annual or semi-annual line — it is the amount set aside each month";
   }
   return null;
 }
@@ -88,10 +88,10 @@ async function upsertBudgetBill(
   if (!tag) return;
 
   const expectedAmount = budgeted ? new Prisma.Decimal(budgeted) : null;
-  const isAnnual = frequency === "annual";
+  const isLumpSum = isLumpSumFrequency(frequency);
   // For an annual bill, expectedAmount stays the MONTHLY set-aside (same
   // convention as every other frequency) and annualBudget holds the total due.
-  const annualBudget = isAnnual && annualAmountDue ? new Prisma.Decimal(annualAmountDue) : undefined;
+  const annualBudget = isLumpSum && annualAmountDue ? new Prisma.Decimal(annualAmountDue) : undefined;
 
   await db.scheduledBill.upsert({
     where: { budgetTagId_budgetEntityId: { budgetTagId: tagId, budgetEntityId: entityId } },
@@ -105,7 +105,7 @@ async function upsertBudgetBill(
       frequency,
       payDayOfWeek,
       biweeklyAnchorDate,
-      payMonth: isAnnual ? payMonth : null,
+      payMonth: isLumpSum ? payMonth : null,
       ...(annualBudget && { annualBudget }),
       budgetTagId: tagId,
       budgetEntityId: entityId,
@@ -118,11 +118,11 @@ async function upsertBudgetBill(
       frequency,
       payDayOfWeek,
       biweeklyAnchorDate,
-      payMonth: isAnnual ? payMonth : null,
+      payMonth: isLumpSum ? payMonth : null,
       ...(annualBudget && { annualBudget }),
-      // An annual bill is paid in one lump on its due date; an accrued-type bill
-      // would ignore the annual schedule, so the line's choice wins.
-      ...(isAnnual && { amountType: "static" }),
+      // An annual/semi-annual bill is paid in one lump on its due date; an accrued-type
+      // bill would ignore that schedule, so the line's choice wins.
+      ...(isLumpSum && { amountType: "static" }),
       active: true,
     },
   });
@@ -147,7 +147,7 @@ const CreateSchema = z.object({
     .regex(/^(\d+(\.\d{1,2})?)?$/, "Must be blank (to auto-sum nested lines) or a positive dollar amount (e.g. 217.00)")
     .optional(),
   payDay: z.number().int().min(1).max(31).optional(),
-  frequency: z.enum(["monthly", "weekly", "biweekly", "annual"]).optional(),
+  frequency: z.enum(["monthly", "weekly", "biweekly", "annual", "semiannual"]).optional(),
   payDayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
   biweeklyAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   payMonth: z.number().int().min(1).max(12).nullable().optional(),
@@ -167,7 +167,7 @@ const CreateSchema = z.object({
     }
   )
   .superRefine((data, ctx) => {
-    if (data.frequency !== "annual") return;
+    if (!isLumpSumFrequency(data.frequency)) return;
     const message = annualScheduleError({
       payMonth: data.payMonth,
       payDay: data.payDay,
@@ -204,9 +204,9 @@ export async function createBudget(
   const effectiveFrequency = frequency ?? "monthly";
   const effectivePayDayOfWeek = payDayOfWeek ?? null;
   const effectiveBiweeklyAnchorDate = biweeklyAnchorDate ? new Date(biweeklyAnchorDate) : null;
-  const isAnnual = effectiveFrequency === "annual";
-  const effectivePayMonth = isAnnual ? payMonth ?? null : null;
-  const effectiveAnnualAmountDue = isAnnual && annualAmountDue ? new Prisma.Decimal(annualAmountDue) : null;
+  const isLumpSum = isLumpSumFrequency(effectiveFrequency);
+  const effectivePayMonth = isLumpSum ? payMonth ?? null : null;
+  const effectiveAnnualAmountDue = isLumpSum && annualAmountDue ? new Prisma.Decimal(annualAmountDue) : null;
 
   // A tag can only be budgeted by one entity per period, household-wide —
   // the UI's Add Budget Line dropdown already hides tags used by ANY entity
@@ -245,7 +245,7 @@ export async function createBudget(
     payDay !== undefined ||
     effectiveFrequency === "weekly" ||
     effectiveFrequency === "biweekly" ||
-    isAnnual
+    isLumpSum
   ) {
     await upsertBudgetBill(
       tagId,
@@ -276,7 +276,7 @@ const UpdateBudgetSchema = z.object({
   payDay: z.number().int().min(1).max(31).nullable().optional(),
   accountId: z.string().uuid().optional(),
   applyToFuture: z.boolean().optional(),
-  frequency: z.enum(["monthly", "weekly", "biweekly", "annual"]).optional(),
+  frequency: z.enum(["monthly", "weekly", "biweekly", "annual", "semiannual"]).optional(),
   payDayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
   biweeklyAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   payMonth: z.number().int().min(1).max(12).nullable().optional(),
@@ -323,11 +323,11 @@ export async function updateBudget(
   if (!current) return { error: "Budget not found" };
 
   const effectiveFrequency = frequency !== undefined ? frequency : current.frequency;
-  const isAnnual = effectiveFrequency === "annual";
+  const isLumpSum = isLumpSumFrequency(effectiveFrequency);
   // Leaving annual clears the annual-only fields; staying annual keeps what's stored
   // unless the caller supplied a new value.
-  const effectivePayMonth = isAnnual ? (payMonth !== undefined ? payMonth : current.payMonth) : null;
-  const effectiveAnnualAmountDue = isAnnual
+  const effectivePayMonth = isLumpSum ? (payMonth !== undefined ? payMonth : current.payMonth) : null;
+  const effectiveAnnualAmountDue = isLumpSum
     ? annualAmountDue !== undefined
       ? annualAmountDue
       : current.annualAmountDue !== null
@@ -341,7 +341,7 @@ export async function updateBudget(
   const newBiweeklyAnchorDate =
     biweeklyAnchorDate !== undefined ? (biweeklyAnchorDate ? new Date(biweeklyAnchorDate) : null) : undefined;
 
-  if (isAnnual) {
+  if (isLumpSum) {
     const message = annualScheduleError({
       payMonth: effectivePayMonth,
       payDay: payDay !== undefined ? payDay : current.payDay,
@@ -419,7 +419,7 @@ export async function updateBudget(
     (effectivePayDay !== null && effectivePayDay !== undefined) ||
     effectiveFrequency === "weekly" ||
     effectiveFrequency === "biweekly" ||
-    isAnnual
+    isLumpSum
   ) {
     await upsertBudgetBill(
       current.tagId,
