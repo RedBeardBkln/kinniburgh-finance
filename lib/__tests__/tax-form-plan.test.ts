@@ -15,6 +15,9 @@ const EMPTY_INPUT: PersonalFormPlanInput = {
   suddenValleyPL: null,
   ekConsultingMileageCount: 0,
   solarLoanOriginalCostCents: null,
+  donationCount: 0,
+  ekConsultingFixedAssetCount: 0,
+  suddenValleyBuildingAssetCount: 0,
 };
 
 /** Every document type present, extraction complete, every relevant numeric field set. */
@@ -76,13 +79,17 @@ const GOLDEN_INPUT: PersonalFormPlanInput = {
   suddenValleyPL: GOLDEN_PL,
   ekConsultingMileageCount: 42,
   solarLoanOriginalCostCents: 11580297,
+  donationCount: 3,
+  ekConsultingFixedAssetCount: 2,
+  suddenValleyBuildingAssetCount: 1,
 };
 
-const ALWAYS_FALSE_LINES = [
-  "Gifts to charity (line 11)",
-  "Depreciation (line 13)",
-  "Depreciation (line 18)",
-];
+// The three lines that read the donation log / fixed-asset registers.
+const LOG_LINES = ["Gifts to charity (line 11)", "Depreciation (line 13)", "Depreciation (line 18)"];
+
+const q = (key: string, answer: unknown, skippedReason: string | null = null) => ({ key, answer, skippedReason });
+const lineHas = (input: PersonalFormPlanInput, line: string) =>
+  flatten(computePersonalFormPlan(input)).find((f) => f.line === line)?.haveData;
 
 function flatten(forms: ReturnType<typeof computePersonalFormPlan>) {
   return forms.flatMap((f) => f.fields.map((field) => ({ ...field, formName: f.formName })));
@@ -104,22 +111,62 @@ describe("computePersonalFormPlan", () => {
     }
   });
 
-  it("golden path: every field true except the 3 permanently-false ones", () => {
+  it("golden path: every one of the 24 fields is true", () => {
     const result = computePersonalFormPlan(GOLDEN_INPUT);
+    expect(flatten(result).length).toBe(24);
     for (const field of flatten(result)) {
-      if (ALWAYS_FALSE_LINES.includes(field.line)) {
-        expect(field.haveData).toBe(false);
-      } else {
-        expect(field.haveData, `expected ${field.line} to be true`).toBe(true);
-      }
+      expect(field.haveData, `expected ${field.line} to be true`).toBe(true);
     }
   });
 
-  it("permanently-false fields stay false even in the maximally-populated fixture", () => {
-    const result = computePersonalFormPlan(GOLDEN_INPUT);
-    const byLine = new Map(flatten(result).map((f) => [f.line, f.haveData]));
-    for (const line of ALWAYS_FALSE_LINES) {
-      expect(byLine.get(line)).toBe(false);
+  it("the three log-fed lines are false with no entries and no confirmation", () => {
+    for (const line of LOG_LINES) expect(lineHas(EMPTY_INPUT, line), line).toBe(false);
+  });
+
+  // ── Donation log / fixed-asset register lines ───────────────────────────────
+
+  it("Gifts to charity (line 11): true with >= 1 donation, or with donations_none = 'none'", () => {
+    expect(lineHas({ ...EMPTY_INPUT, donationCount: 1 }, "Gifts to charity (line 11)")).toBe(true);
+    expect(lineHas({ ...EMPTY_INPUT, questions: [q("donations_none", "none")] }, "Gifts to charity (line 11)")).toBe(true);
+  });
+
+  it("Gifts to charity (line 11): 'some', null, or a skipped 'none' do not satisfy it", () => {
+    for (const questions of [
+      [q("donations_none", "some")],
+      [q("donations_none", null)],
+      [q("donations_none", "none", "skipped")],
+    ]) {
+      expect(lineHas({ ...EMPTY_INPUT, questions }, "Gifts to charity (line 11)")).toBe(false);
+    }
+  });
+
+  it("Depreciation (line 13): EK Consulting assets or fixed_assets_ekc = 'none'; other keys/answers do not", () => {
+    expect(lineHas({ ...EMPTY_INPUT, ekConsultingFixedAssetCount: 1 }, "Depreciation (line 13)")).toBe(true);
+    expect(lineHas({ ...EMPTY_INPUT, questions: [q("fixed_assets_ekc", "none")] }, "Depreciation (line 13)")).toBe(true);
+    expect(lineHas({ ...EMPTY_INPUT, questions: [q("fixed_assets_ekc", "some")] }, "Depreciation (line 13)")).toBe(false);
+    // The Sudden Valley confirmation never satisfies the EK Consulting line (and vice versa).
+    expect(lineHas({ ...EMPTY_INPUT, questions: [q("fixed_assets_sv", "none")] }, "Depreciation (line 13)")).toBe(false);
+    expect(lineHas({ ...EMPTY_INPUT, questions: [q("fixed_assets_ekc", "none")] }, "Depreciation (line 18)")).toBe(false);
+  });
+
+  it("Depreciation (line 18): a Sudden Valley building asset with a land split, or fixed_assets_sv = 'none'", () => {
+    expect(lineHas({ ...EMPTY_INPUT, suddenValleyBuildingAssetCount: 1 }, "Depreciation (line 18)")).toBe(true);
+    expect(lineHas({ ...EMPTY_INPUT, questions: [q("fixed_assets_sv", "none")] }, "Depreciation (line 18)")).toBe(true);
+    expect(lineHas({ ...EMPTY_INPUT, questions: [q("fixed_assets_sv", "some")] }, "Depreciation (line 18)")).toBe(false);
+    // Equipment-only / EK Consulting assets feed other counts, not this one.
+    expect(lineHas({ ...EMPTY_INPUT, ekConsultingFixedAssetCount: 5, donationCount: 5 }, "Depreciation (line 18)")).toBe(false);
+  });
+
+  it("log-fed lines have basis 'not_document_based' when satisfied and 'missing' otherwise; basis !== missing iff haveData", () => {
+    const filled = computePersonalFormPlanBasis(GOLDEN_INPUT);
+    for (const line of LOG_LINES) expect(filled[line], line).toBe("not_document_based");
+    const empty = computePersonalFormPlanBasis(EMPTY_INPUT);
+    for (const line of LOG_LINES) expect(empty[line], line).toBe("missing");
+
+    for (const input of [EMPTY_INPUT, GOLDEN_INPUT, { ...EMPTY_INPUT, donationCount: 1 }]) {
+      const plan = flatten(computePersonalFormPlan(input));
+      const basis = computePersonalFormPlanBasis(input);
+      for (const f of plan) expect(basis[f.line] !== "missing", f.line).toBe(f.haveData);
     }
   });
 
@@ -526,7 +573,8 @@ describe("computePersonalFormPlanBasis", () => {
     expect(basis["Home office (line 30)"]).toBe("not_document_based");
     expect(basis["Business income (Schedule 1)"]).toBe("not_document_based");
     expect(basis["Car and truck expenses (line 9)"]).toBe("not_document_based");
-    expect(basis["Gifts to charity (line 11)"]).toBe("missing");
+    expect(basis["Gifts to charity (line 11)"]).toBe("not_document_based");
+    expect(computePersonalFormPlanBasis(EMPTY_INPUT)["Gifts to charity (line 11)"]).toBe("missing");
   });
 
   it("Payments/withholding falls back to the estimated-payments answer when no W-2 withholding exists", () => {

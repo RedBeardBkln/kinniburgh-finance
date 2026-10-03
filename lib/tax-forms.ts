@@ -467,7 +467,7 @@ export const CPA_INPUT_FORMS: readonly {
     opportunityKey: "rental_depreciation",
     formMarker: "Form 4562",
     reason:
-      "Rental depreciation would be reported here, but no purchase price / land split / placed-in-service data is recorded, so the system cannot tell whether or how it applies.",
+      "Depreciation would be reported here. The fixed-asset register records cost, placed-in-service date, land value and business-use percent as inputs only; the app does not compute depreciation, choose a class, or decide Section 179 / bonus depreciation - that is a CPA decision.",
   },
   {
     id: "form-8582",
@@ -541,6 +541,8 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     personalEntityId: personalEntity?.id ?? null,
     ekcSlug: ekc?.slug ?? null,
     svSlug: sv?.slug ?? null,
+    ekcEntityId: ekc?.id ?? null,
+    svEntityId: sv?.id ?? null,
     questions,
     documents,
     lineHasData,
@@ -588,7 +590,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
 
   // Schedule A
   const propertyTaxNote =
-    "A property-tax line only has data once you enter (or verify) the amount actually paid in the tax year on the bill's review screen — the AI never fills it, because a bill shows what is billed and due, not what was paid. Until then the itemized total can be understated.";
+    "A property-tax line only has data once you enter (or verify) the amount actually paid in the tax year on the bill's review screen — the AI never fills it, because a bill shows what is billed and due, not what was paid. Until then the itemized total can be understated. Charitable gifts logged on the donation log are NOT included in the 2025 draft's itemized total; AGI limits and Form 8283 are your CPA's decisions.";
   let scheduleAApplicability: FormApplicability = "conditional";
   let scheduleAReason =
     "Depends on whether itemized deductions exceed the standard deduction; the draft engine only exists for tax year 2025.";

@@ -19,6 +19,15 @@ describe("TAX_QUESTION_BANK", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
+  it("has the three none-confirmation questions (donations / EKC assets / SV assets) with none+some options", () => {
+    for (const key of ["donations_none", "fixed_assets_ekc", "fixed_assets_sv"]) {
+      const def = TAX_QUESTION_BANK.find((q) => q.key === key);
+      expect(def, key).toBeDefined();
+      expect(def!.category).toBe("deductions");
+      expect(def!.options?.map((o) => o.value)).toEqual(["none", "some"]);
+    }
+  });
+
   it("every question has context explaining why it's asked", () => {
     for (const q of TAX_QUESTION_BANK) {
       expect(q.context.length).toBeGreaterThan(60);
@@ -175,6 +184,9 @@ describe("withoutSuddenValleyItems", () => {
   it("drops the rental question and rental opportunities when Sudden Valley is not active", () => {
     const qs = withoutSuddenValleyItems(TAX_QUESTION_BANK, false).map((q) => q.key);
     expect(qs).not.toContain("rental_property_use");
+    expect(qs).not.toContain("fixed_assets_sv");
+    expect(qs).toContain("fixed_assets_ekc");
+    expect(qs).toContain("donations_none");
     const ops = withoutSuddenValleyItems(baseOpportunitiesForHousehold(), false).map((o) => o.key);
     expect(ops).not.toContain("rental_depreciation");
     expect(ops).not.toContain("short_term_rental_loophole");

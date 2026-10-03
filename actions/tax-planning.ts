@@ -20,6 +20,7 @@ import { parseModelJson } from "@/lib/model-json";
 import { buildModelDocLine } from "@/lib/tax-extraction-policy";
 import { TAX_QUESTION_BANK, baseOpportunitiesForHousehold, withoutSuddenValleyItems } from "@/lib/tax-guidance";
 import { isSuddenValleyActiveForYear } from "@/lib/sudden-valley-year";
+import { NONE_CONFIRMATION_KEY_LIST } from "@/lib/tax-none-confirmation";
 import {
   MAX_SIZE_BYTES,
   buildTaxDocumentFileKey,
@@ -171,6 +172,53 @@ export async function answerTaxQuestionByKey(
   revalidatePath("/tax");
   revalidatePath(`/tax/forms/${taxYear}`);
   revalidatePath(`/tax/personal/${taxYear}`);
+  return { ok: true };
+}
+
+const clearByKeySchema = z.object({
+  taxYear: z.number().int().min(2000).max(2100),
+  key: z.string().min(1).max(100),
+});
+
+/**
+ * Undo a "none this year" confirmation (donations / fixed assets). Deliberately
+ * NOT a general answer-wiper: only the three none-confirmation keys are allowed.
+ * It only touches an existing workspace's question (it never opens a workspace),
+ * and resets answer / answeredAt / skippedReason so the line reads as missing again.
+ */
+export async function clearTaxQuestionAnswerByKey(
+  input: z.input<typeof clearByKeySchema>
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireAuth();
+  const parsed = clearByKeySchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  const { taxYear, key } = parsed.data;
+
+  if (!NONE_CONFIRMATION_KEY_LIST.includes(key)) {
+    return { ok: false, error: "That answer cannot be cleared here" };
+  }
+
+  const entity = await db.entity.findFirst({
+    where: { name: PERSONAL_ENTITY_NAME, type: "personal" },
+    select: { id: true },
+  });
+  if (!entity) return { ok: false, error: "Personal entity not found" };
+  const workspace = await db.taxWorkspace.findUnique({
+    where: { entityId_taxYear: { entityId: entity.id, taxYear } },
+    select: { id: true },
+  });
+  if (!workspace) return { ok: true }; // nothing was ever answered for this year
+
+  await db.taxQuestion.updateMany({
+    where: { workspaceId: workspace.id, key },
+    data: { answer: Prisma.DbNull, answeredAt: null, skippedReason: null },
+  });
+
+  revalidatePath("/tax");
+  revalidatePath(`/tax/forms/${taxYear}`);
+  revalidatePath(`/tax/personal/${taxYear}`);
+  revalidatePath(`/tax/donations/${taxYear}`);
+  revalidatePath(`/tax/fixed-assets/${taxYear}`);
   return { ok: true };
 }
 

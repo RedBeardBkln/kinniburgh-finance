@@ -8,12 +8,15 @@ import { TAX_QUESTION_BANK } from "@/lib/tax-guidance";
 import type { FieldFix } from "@/lib/tax-form-fixes";
 import { answerTaxQuestionByKey } from "@/actions/tax-planning";
 import { uploadTaxFile } from "@/components/tax/tax-document-upload";
+import { DonationForm } from "@/components/donations/donation-form";
+import { FixedAssetForm } from "@/components/fixed-assets/fixed-asset-form";
 
 // Click targets for ONE missing Forms-page field: every way to supply its data.
-// Questions and documents open a dialog (answer / upload / open the document
-// that is already on file); books and mileage jump to the page where the data is
-// entered; lines no part of the app can supply say so plainly. Saving refreshes
-// the page so the field, its form's readiness and the counts all recompute.
+// Questions, documents, donations and fixed assets open a dialog (answer /
+// upload / quick-add); "none this year" confirms in one click; books, mileage and
+// the full donation / fixed-asset pages are links; lines nothing can supply say
+// so plainly. Saving refreshes the page so the field, its form's readiness and the
+// counts all recompute.
 
 const CHIP =
   "rounded-md border border-primary/40 px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10";
@@ -228,16 +231,121 @@ function DocumentDialog({ fix, onClose }: { fix: DocumentFix; onClose: () => voi
   );
 }
 
+// ── Quick-add a donation / a fixed asset ──────────────────────────────────────
+// Reuse the full-page forms without the receipt / invoice picker (that lives on
+// the full page). Saving refreshes the page and closes the dialog.
+
+type DonationFix = Extract<FieldFix, { kind: "donation" }>;
+type FixedAssetFix = Extract<FieldFix, { kind: "fixed_asset" }>;
+
+function DonationDialog({ fix, onClose }: { fix: DonationFix; onClose: () => void }) {
+  const [today] = useState(() => new Date().toISOString().slice(0, 10));
+  const defaultDate = today.startsWith(`${fix.taxYear}-`) ? today : `${fix.taxYear}-12-31`;
+  return (
+    <Shell title={`Add a charitable gift — ${fix.taxYear}`} onClose={onClose}>
+      <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+        Records one gift for the Schedule A line. It is saved to the {fix.taxYear} donation log; nothing here computes a
+        deduction.{" "}
+        <Link href={fix.logHref as Route} className="text-primary hover:underline">
+          Open the full donation log →
+        </Link>
+      </p>
+      <DonationForm
+        defaultDate={defaultDate}
+        year={fix.taxYear}
+        personalEntityId={null}
+        documents={[]}
+        hideReceipt
+        onDone={onClose}
+        onCancel={onClose}
+      />
+    </Shell>
+  );
+}
+
+function FixedAssetDialog({ fix, onClose }: { fix: FixedAssetFix; onClose: () => void }) {
+  return (
+    <Shell title={`Add a ${fix.entityLabel} asset`} onClose={onClose}>
+      <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+        {fix.hint.replace(/\.$/, "")}. Saved to the fixed-asset register for your CPA to review; nothing here computes depreciation.{" "}
+        <Link href={fix.listHref as Route} className="text-primary hover:underline">
+          Open the full register →
+        </Link>
+      </p>
+      <FixedAssetForm
+        entityId={fix.entityId}
+        entityLabel={fix.entityLabel}
+        year={fix.taxYear}
+        defaultRealProperty={fix.realProperty}
+        documents={[]}
+        hideInvoice
+        onDone={onClose}
+        onCancel={onClose}
+      />
+    </Shell>
+  );
+}
+
+// ── "None this year" in one click ─────────────────────────────────────────────
+
+type ConfirmNoneFix = Extract<FieldFix, { kind: "confirm_none" }>;
+
+function ConfirmNoneChip({ fix }: { fix: ConfirmNoneFix }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirmNone() {
+    if (!window.confirm(`${fix.label}? This records "none" for ${fix.taxYear} and marks the line done.`)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await answerTaxQuestionByKey({ taxYear: fix.taxYear, key: fix.questionKey, answer: "none" });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      startTransition(() => router.refresh());
+    } catch {
+      setError("Could not save — try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <span>
+      <button type="button" onClick={confirmNone} disabled={saving || pending} className={`${CHIP} disabled:opacity-60`}>
+        {saving || pending ? "Saving…" : fix.label}
+      </button>
+      {error && <span className="ml-1 text-[11px] text-destructive">{error}</span>}
+    </span>
+  );
+}
+
 // ── One missing field ─────────────────────────────────────────────────────────
 
 function fixButtonLabel(fix: FieldFix): string {
-  if (fix.kind === "question") {
-    return `Answer: ${TAX_QUESTION_BANK.find((q) => q.key === fix.questionKey)?.question ?? fix.questionKey}`;
+  switch (fix.kind) {
+    case "question":
+      return `Answer: ${TAX_QUESTION_BANK.find((q) => q.key === fix.questionKey)?.question ?? fix.questionKey}`;
+    case "document":
+      return fix.existing.length > 0 ? `Open / upload ${fix.docTypeLabel}` : `Upload ${fix.docTypeLabel}`;
+    case "donation":
+      return "Add a donation";
+    case "fixed_asset":
+      return `Add ${fix.entityLabel} asset`;
+    case "confirm_none":
+      return fix.label;
+    case "link":
+    case "none":
+      return "";
+    default: {
+      const unreachable: never = fix;
+      return unreachable;
+    }
   }
-  if (fix.kind === "document") {
-    return fix.existing.length > 0 ? `Open / upload ${fix.docTypeLabel}` : `Upload ${fix.docTypeLabel}`;
-  }
-  return "";
 }
 
 export function MissingFieldActions({ fixes, taxYear }: { fixes: FieldFix[]; taxYear: number }) {
@@ -262,6 +370,9 @@ export function MissingFieldActions({ fixes, taxYear }: { fixes: FieldFix[]; tax
             </Link>
           );
         }
+        if (fix.kind === "confirm_none") {
+          return <ConfirmNoneChip key={i} fix={fix} />;
+        }
         return (
           <span key={i}>
             <button type="button" onClick={() => setOpenIndex(i)} className={CHIP}>
@@ -271,6 +382,8 @@ export function MissingFieldActions({ fixes, taxYear }: { fixes: FieldFix[]; tax
               <QuestionDialog questionKey={fix.questionKey} taxYear={taxYear} onClose={close} />
             )}
             {openIndex === i && fix.kind === "document" && <DocumentDialog fix={fix} onClose={close} />}
+            {openIndex === i && fix.kind === "donation" && <DonationDialog fix={fix} onClose={close} />}
+            {openIndex === i && fix.kind === "fixed_asset" && <FixedAssetDialog fix={fix} onClose={close} />}
           </span>
         );
       })}

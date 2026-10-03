@@ -4,6 +4,8 @@ import { resolveFieldFixes, type FixContext } from "@/lib/tax-form-fixes";
 import type { FormsDocumentInput } from "@/lib/tax-forms";
 
 const PERSONAL = "11111111-1111-1111-1111-111111111111";
+const EKC = "22222222-2222-2222-2222-222222222222";
+const SV = "33333333-3333-3333-3333-333333333333";
 
 function doc(overrides: Partial<FormsDocumentInput> = {}): FormsDocumentInput {
   return {
@@ -28,6 +30,8 @@ function ctx(overrides: Partial<FixContext> = {}): FixContext {
     personalEntityId: PERSONAL,
     ekcSlug: "ek-consulting",
     svSlug: "sudden-valley",
+    ekcEntityId: EKC,
+    svEntityId: SV,
     questions: [],
     documents: [],
     lineHasData: {},
@@ -127,12 +131,73 @@ describe("resolveFieldFixes", () => {
     expect(hasWages).toEqual([]);
   });
 
-  it("is honest that donations and depreciation have no data source in the app", () => {
-    for (const line of ["Gifts to charity (line 11)", "Depreciation (line 13)", "Depreciation (line 18)"]) {
-      const fixes = resolveFieldFixes(line, ctx());
-      expect(fixes).toHaveLength(1);
-      expect(fixes[0]?.kind).toBe("none");
-    }
+  it("donations: quick-add + confirm-none + a link to the full log (never the old 'no data source' text)", () => {
+    const fixes = resolveFieldFixes("Gifts to charity (line 11)", ctx());
+    expect(fixes.map((f) => f.kind)).toEqual(["donation", "confirm_none", "link"]);
+    expect(fixes[0]).toEqual({ kind: "donation", taxYear: 2025, logHref: "/tax/donations/2025" });
+    expect(fixes[1]).toEqual(
+      expect.objectContaining({ kind: "confirm_none", questionKey: "donations_none", taxYear: 2025 })
+    );
+    expect(fixes[2]).toEqual(expect.objectContaining({ kind: "link", href: "/tax/donations/2025" }));
+    expect(JSON.stringify(fixes)).not.toMatch(/no donation log|no data source/i);
+  });
+
+  it("EK Consulting depreciation: quick-add for EKC (not real property) + confirm-none + link", () => {
+    const fixes = resolveFieldFixes("Depreciation (line 13)", ctx({ taxYear: 2026 }));
+    expect(fixes.map((f) => f.kind)).toEqual(["fixed_asset", "confirm_none", "link"]);
+    expect(fixes[0]).toEqual(
+      expect.objectContaining({
+        kind: "fixed_asset",
+        entityId: EKC,
+        entityLabel: "EK Consulting",
+        taxYear: 2026,
+        realProperty: false,
+        listHref: "/tax/fixed-assets/2026",
+      })
+    );
+    expect(fixes[1]).toEqual(expect.objectContaining({ kind: "confirm_none", questionKey: "fixed_assets_ekc" }));
+    expect(fixes[2]).toEqual(expect.objectContaining({ kind: "link", href: "/tax/fixed-assets/2026" }));
+  });
+
+  it("Sudden Valley depreciation: quick-add pre-set to real property with the land hint + confirm-none + link", () => {
+    const fixes = resolveFieldFixes("Depreciation (line 18)", ctx());
+    expect(fixes.map((f) => f.kind)).toEqual(["fixed_asset", "confirm_none", "link"]);
+    const add = fixes[0];
+    if (!add || add.kind !== "fixed_asset") throw new Error("expected a fixed_asset fix");
+    expect(add.entityId).toBe(SV);
+    expect(add.entityLabel).toBe("Sudden Valley");
+    expect(add.realProperty).toBe(true);
+    expect(add.hint).toMatch(/56 Arbor Rd/);
+    expect(add.hint).toMatch(/land value/i);
+    expect(fixes[1]).toEqual(expect.objectContaining({ kind: "confirm_none", questionKey: "fixed_assets_sv" }));
+  });
+
+  it("falls back to an honest 'not found' only when the entity id is missing", () => {
+    expect(resolveFieldFixes("Gifts to charity (line 11)", ctx({ personalEntityId: null }))).toEqual([
+      { kind: "none", reason: "The Personal entity was not found." },
+    ]);
+    expect(resolveFieldFixes("Depreciation (line 13)", ctx({ ekcEntityId: null }))).toEqual([
+      { kind: "none", reason: "EK Consulting was not found." },
+    ]);
+    expect(resolveFieldFixes("Depreciation (line 18)", ctx({ svEntityId: null }))).toEqual([
+      { kind: "none", reason: "Sudden Valley was not found." },
+    ]);
+  });
+
+  it("omits the confirm-none chip when 'none' is already confirmed (guard when called directly)", () => {
+    const done = (key: string) => ({ key, answer: "none", skippedReason: null });
+    expect(
+      resolveFieldFixes("Gifts to charity (line 11)", ctx({ questions: [done("donations_none")] })).map((f) => f.kind)
+    ).toEqual(["donation", "link"]);
+    expect(
+      resolveFieldFixes("Depreciation (line 13)", ctx({ questions: [done("fixed_assets_ekc")] })).map((f) => f.kind)
+    ).toEqual(["fixed_asset", "link"]);
+    // "some" is not a confirmation: the chip stays.
+    expect(
+      resolveFieldFixes("Depreciation (line 18)", ctx({ questions: [{ key: "fixed_assets_sv", answer: "some", skippedReason: null }] })).map(
+        (f) => f.kind
+      )
+    ).toEqual(["fixed_asset", "confirm_none", "link"]);
   });
 
   it("books and mileage lines link to the entity's pages", () => {

@@ -91,6 +91,9 @@ function input(over: Partial<FormsCatalogInput> = {}): FormsCatalogInput {
       suddenValleyPL: null,
       ekConsultingMileageCount: 0,
       solarLoanOriginalCostCents: null,
+      donationCount: 0,
+      ekConsultingFixedAssetCount: 0,
+      suddenValleyBuildingAssetCount: 0,
     },
     taxDraft: { status: "not_computed" },
     ...over,
@@ -529,6 +532,9 @@ describe("readiness", () => {
           suddenValleyPL: null,
           ekConsultingMileageCount: 0,
           solarLoanOriginalCostCents: null,
+          donationCount: 0,
+          ekConsultingFixedAssetCount: 0,
+          suddenValleyBuildingAssetCount: 0,
         },
       })
     );
@@ -557,6 +563,9 @@ describe("readiness", () => {
           suddenValleyPL: null,
           ekConsultingMileageCount: 0,
           solarLoanOriginalCostCents: 2_000_000,
+          donationCount: 0,
+          ekConsultingFixedAssetCount: 0,
+          suddenValleyBuildingAssetCount: 0,
         },
       })
     );
@@ -592,6 +601,60 @@ describe("summary and attribution counts", () => {
   });
 });
 
+// ── Donation log / fixed-asset register tie-in ────────────────────────────────
+
+describe("donation log and fixed-asset lines flow into form readiness", () => {
+  const base = input().formPlanInput;
+  const line = (e: ReturnType<typeof find>, name: string) => e.fields.find((f) => f.line === name);
+
+  it("Schedule C readiness: depreciation line 13 gains data when an EK Consulting asset exists (fieldsReady +1)", () => {
+    const before = find(buildFormsPageData(input({ formPlanInput: base })), "schedule-c");
+    const after = find(buildFormsPageData(input({ formPlanInput: { ...base, ekConsultingFixedAssetCount: 1 } })), "schedule-c");
+    expect(line(before, "Depreciation (line 13)")?.haveData).toBe(false);
+    expect(line(after, "Depreciation (line 13)")?.haveData).toBe(true);
+    expect(line(after, "Depreciation (line 13)")?.basis).toBe("not_document_based");
+    expect(after.fieldsReady).toBe(before.fieldsReady + 1);
+  });
+
+  it("Schedule A: a donation, or a confirmed 'none', gives line 11 data; an empty log does not", () => {
+    const empty = find(buildFormsPageData(input({ formPlanInput: base })), "schedule-a");
+    expect(line(empty, "Gifts to charity (line 11)")?.haveData).toBe(false);
+    expect(line(empty, "Gifts to charity (line 11)")?.fixes?.map((f) => f.kind)).toEqual(["donation", "confirm_none", "link"]);
+
+    const withGift = find(buildFormsPageData(input({ formPlanInput: { ...base, donationCount: 2 } })), "schedule-a");
+    expect(line(withGift, "Gifts to charity (line 11)")?.haveData).toBe(true);
+    expect(line(withGift, "Gifts to charity (line 11)")?.fixes).toBeUndefined();
+
+    const questions = [{ key: "donations_none", answer: "none", skippedReason: null }];
+    const none = find(buildFormsPageData(input({ questions, formPlanInput: { ...base, questions } })), "schedule-a");
+    expect(line(none, "Gifts to charity (line 11)")?.haveData).toBe(true);
+  });
+
+  it("Schedule E line 18 needs a building asset (or 'none'); entity ids reach the fixed-asset fixes", () => {
+    const missing = find(buildFormsPageData(input({ taxYear: 2026, formPlanInput: base })), "schedule-e");
+    const fix = line(missing, "Depreciation (line 18)")?.fixes?.[0];
+    expect(fix?.kind).toBe("fixed_asset");
+    if (fix?.kind === "fixed_asset") expect(fix.entityId).toBe(SV.id);
+    const have = find(
+      buildFormsPageData(input({ taxYear: 2026, formPlanInput: { ...base, suddenValleyBuildingAssetCount: 1 } })),
+      "schedule-e"
+    );
+    expect(line(have, "Depreciation (line 18)")?.haveData).toBe(true);
+  });
+
+  it("Form 4562 copy no longer claims nothing is recorded, and says the CPA decides", () => {
+    const f4562 = find(buildFormsPageData(input({ taxYear: 2026 })), "form-4562");
+    expect(f4562.reason).not.toMatch(/no purchase price/i);
+    expect(f4562.reason).toMatch(/CPA/);
+    expect(f4562.reason).toMatch(/does not compute depreciation/);
+  });
+
+  it("Schedule A note says logged gifts are not in the 2025 draft's itemized total", () => {
+    const a = find(buildFormsPageData(input()), "schedule-a");
+    expect(a.cpaNote).toMatch(/NOT included in the 2025 draft/);
+  });
+});
+
 describe("noteSaysDisregarded", () => {
   it("detects the disregarded wording, case-insensitively", () => {
     expect(noteSaysDisregarded("Single-member LLC, Disregarded entity")).toBe(true);
@@ -613,6 +676,9 @@ describe("extraction basis (verified / unverified AI / missing)", () => {
     suddenValleyPL: null,
     ekConsultingMileageCount: 0,
     solarLoanOriginalCostCents: null,
+    donationCount: 0,
+    ekConsultingFixedAssetCount: 0,
+    suddenValleyBuildingAssetCount: 0,
   });
 
   it("per-field basis and per-form counts: unverified W-2 -> Form 1040 fields counted as unverified AI", () => {

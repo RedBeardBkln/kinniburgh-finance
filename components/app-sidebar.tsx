@@ -233,6 +233,8 @@ function SidebarNavContent({
                   ? [{ label: "Mileage", href: taxMileageHref as Route, exact: false }]
                   : []),
                 { label: "Forms", href: taxFormsHref as Route, exact: false },
+                { label: "Donations", href: "/tax/donations" as Route, exact: false },
+                { label: "Fixed assets", href: "/tax/fixed-assets" as Route, exact: false },
                 { label: "Envelopes", href: "/envelope?bucket=taxes" as Route, exact: false },
               ].map(({ label, href, exact }) => (
                 <li key={href}>

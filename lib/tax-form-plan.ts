@@ -13,6 +13,7 @@
 // (verified document / unverified AI read / answers-or-books / missing).
 
 import { PERSONAL_FORM_PLAN, type FormPlan } from "@/lib/tax-guidance";
+import { NONE_CONFIRMATION_KEYS, isNoneConfirmed } from "@/lib/tax-none-confirmation";
 
 export interface PersonalFormPlanDocumentInput {
   docType: string; // Document.docType raw value, e.g. "w2", "property_tax"
@@ -48,6 +49,15 @@ export interface PersonalFormPlanInput {
   suddenValleyPL: PersonalFormPlanPLInput | null;
   ekConsultingMileageCount: number;
   solarLoanOriginalCostCents: number | null; // DebtDetail.originalBalanceCents for the "Solar loan" Account
+  /** Non-archived Personal donations dated in the tax year (donation log). */
+  donationCount: number;
+  /** Non-archived EK Consulting fixed assets placed in service in or before the tax year. */
+  ekConsultingFixedAssetCount: number;
+  /**
+   * Non-archived Sudden Valley fixed assets that are real property WITH a recorded
+   * land value, placed in service in or before the tax year (Schedule E line 18).
+   */
+  suddenValleyBuildingAssetCount: number;
 }
 
 // ── Helper predicates ────────────────────────────────────────────────────────
@@ -65,8 +75,6 @@ interface Evidence {
   have: boolean;
   docs: PersonalFormPlanDocumentInput[];
 }
-
-const NO_EVIDENCE: Evidence = { have: false, docs: [] };
 
 function dataOf(d: PersonalFormPlanDocumentInput): Record<string, unknown> | undefined {
   return (d.extractionData as { data?: Record<string, unknown> } | null)?.data;
@@ -136,6 +144,9 @@ function computeLineEvidence(input: PersonalFormPlanInput): Record<string, Evide
     suddenValleyPL,
     ekConsultingMileageCount,
     solarLoanOriginalCostCents,
+    donationCount,
+    ekConsultingFixedAssetCount,
+    suddenValleyBuildingAssetCount,
   } = input;
 
   const w2Wages = extractedEvidence(documents, "w2", "wagesCents");
@@ -192,19 +203,28 @@ function computeLineEvidence(input: PersonalFormPlanInput): Record<string, Evide
     // Schedule A
     "Home mortgage interest (line 8a)": mortgageInterestDoc,
     "State/local taxes (line 5e)": propertyTaxPaid,
-    "Gifts to charity (line 11)": NO_EVIDENCE, // no donation-log data source exists
+    // Donation log entries exist for the year, OR the owner confirmed "none". The
+    // basis is "not_document_based": a linked receipt is never extracted/verified.
+    "Gifts to charity (line 11)": flag(
+      donationCount > 0 || isNoneConfirmed(questions, NONE_CONFIRMATION_KEYS.donations)
+    ),
 
     // Schedule C
     "Gross receipts (line 1)": flag(ekcHasIncomeLines),
     "Car and truck expenses (line 9)": flag(mileageLogged),
     "Home office (line 30)": flag(homeOfficeAnswered),
-    "Depreciation (line 13)": NO_EVIDENCE, // no Form-4562/fixed-asset data source exists
+    "Depreciation (line 13)": flag(
+      ekConsultingFixedAssetCount > 0 || isNoneConfirmed(questions, NONE_CONFIRMATION_KEYS.fixedAssetsEkc)
+    ),
 
     // Schedule E
     "Rents received (line 3)": flag(svHasIncomeLines),
     "Taxes (line 16)": flag(svHasPropertyTaxExpense),
     "Insurance (line 15)": flag(svHasInsuranceExpense),
-    "Depreciation (line 18)": NO_EVIDENCE, // no purchase-price/land-split figure recorded anywhere
+    // Needs a real-property asset WITH a land split (the line's source text), or "none".
+    "Depreciation (line 18)": flag(
+      suddenValleyBuildingAssetCount > 0 || isNoneConfirmed(questions, NONE_CONFIRMATION_KEYS.fixedAssetsSv)
+    ),
 
     // Form 5695
     "Qualified solar electric property cost (line 1)": flag(solarCostKnown),

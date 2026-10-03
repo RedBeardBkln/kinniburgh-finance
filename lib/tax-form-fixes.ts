@@ -5,13 +5,16 @@
 //
 // Each line's data comes from exactly one of: a planning-question answer, an
 // uploaded/reviewed document, the books (GL-coded transactions), the mileage
-// log, or the Solar loan account. Two kinds of line have no data source in the
-// app at all (donations, depreciation) — those say so instead of pretending.
+// log, the Solar loan account, the donation log, or the fixed-asset register.
+// The donation / depreciation lines (donation-log-and-fixed-assets) offer a
+// quick-add dialog, a one-click "none this year" confirmation (a planning-question
+// answer) and a link to the full list page.
 //
 // IMPORTANT: keys are the exact `line` text in PERSONAL_FORM_PLAN
 // (lib/tax-guidance.ts). A test pins that every plan line is handled here.
 
 import type { FormsDocumentInput, FormsQuestionInput } from "@/lib/tax-forms";
+import { NONE_CONFIRMATION_KEYS, isNoneConfirmed } from "@/lib/tax-none-confirmation";
 
 /** Document types a missing field can be fixed by uploading / reviewing. */
 export type FixDocType = "w2" | "1099" | "mortgage_interest" | "property_tax";
@@ -46,6 +49,21 @@ export type FieldFix =
     }
   /** Jump to the page where the data is entered. */
   | { kind: "link"; href: string; label: string }
+  /** Quick-add one charitable gift (the server resolves the Personal entity). */
+  | { kind: "donation"; taxYear: number; logHref: string }
+  /** Quick-add one fixed asset to a business entity's register. */
+  | {
+      kind: "fixed_asset";
+      entityId: string;
+      entityLabel: string;
+      taxYear: number;
+      /** Pre-check "building / real property" (Sudden Valley line 18). */
+      realProperty: boolean;
+      hint: string;
+      listHref: string;
+    }
+  /** One-click "nothing to record this year" (answers the matching planning question "none"). */
+  | { kind: "confirm_none"; questionKey: string; label: string; taxYear: number }
   /** Nothing in the app can supply this yet — said honestly, not clickable. */
   | { kind: "none"; reason: string };
 
@@ -54,6 +72,9 @@ export interface FixContext {
   personalEntityId: string | null;
   ekcSlug: string | null;
   svSlug: string | null;
+  /** Entity ids for the fixed-asset quick-add (null when the entity was not found). */
+  ekcEntityId: string | null;
+  svEntityId: string | null;
   questions: readonly FormsQuestionInput[];
   documents: readonly FormsDocumentInput[];
   /** Plan line -> haveData, for lines whose fix depends on another line's state. */
@@ -114,10 +135,55 @@ function booksLink(slug: string | null, entityName: string, label: string): Fiel
   return [{ kind: "link", href: `/transactions?bucket=${encodeURIComponent(slug)}`, label }];
 }
 
-const NO_DONATION_LOG =
-  "The app has no donation log yet, so nothing here can supply this line. Bring donation receipts / bank records to your CPA.";
-const NO_DEPRECIATION_DATA =
-  "The app holds no fixed-asset or purchase-price data for this, so it cannot be entered here. It is a CPA question.";
+/** Quick-add + "none this year" + full-page link for the donation line. */
+function donationFixes(ctx: FixContext): FieldFix[] {
+  if (!ctx.personalEntityId) return [{ kind: "none", reason: "The Personal entity was not found." }];
+  const year = ctx.taxYear;
+  const logHref = `/tax/donations/${year}`;
+  const fixes: FieldFix[] = [{ kind: "donation", taxYear: year, logHref }];
+  if (!isNoneConfirmed(ctx.questions, NONE_CONFIRMATION_KEYS.donations)) {
+    fixes.push({
+      kind: "confirm_none",
+      questionKey: NONE_CONFIRMATION_KEYS.donations,
+      label: `No charitable gifts in ${year} — confirm none`,
+      taxYear: year,
+    });
+  }
+  fixes.push({ kind: "link", href: logHref, label: "Open the donation log" });
+  return fixes;
+}
+
+/** Quick-add + "none this year" + full-page link for a depreciation line. */
+function fixedAssetFixes(
+  ctx: FixContext,
+  opts: {
+    entityId: string | null;
+    entityName: string;
+    realProperty: boolean;
+    hint: string;
+    questionKey: string;
+    noneLabel: string;
+  }
+): FieldFix[] {
+  if (!opts.entityId) return [{ kind: "none", reason: `${opts.entityName} was not found.` }];
+  const listHref = `/tax/fixed-assets/${ctx.taxYear}`;
+  const fixes: FieldFix[] = [
+    {
+      kind: "fixed_asset",
+      entityId: opts.entityId,
+      entityLabel: opts.entityName,
+      taxYear: ctx.taxYear,
+      realProperty: opts.realProperty,
+      hint: opts.hint,
+      listHref,
+    },
+  ];
+  if (!isNoneConfirmed(ctx.questions, opts.questionKey)) {
+    fixes.push({ kind: "confirm_none", questionKey: opts.questionKey, label: opts.noneLabel, taxYear: ctx.taxYear });
+  }
+  fixes.push({ kind: "link", href: listHref, label: "Open the fixed-asset register" });
+  return fixes;
+}
 
 const PROPERTY_TAX_NONE_ON_FILE_HINT =
   "Upload the property tax bill, then open its review screen and enter the amount actually PAID in the tax year — the AI never fills that in, because a bill shows what is billed and due, not what was paid.";
@@ -178,7 +244,7 @@ export function resolveFieldFixes(line: string, ctx: FixContext): FieldFix[] {
     case "Property tax credit":
       return documentFix(ctx, "property_tax", PROPERTY_TAX_HINT, PROPERTY_TAX_NONE_ON_FILE_HINT);
     case "Gifts to charity (line 11)":
-      return [{ kind: "none", reason: NO_DONATION_LOG }];
+      return donationFixes(ctx);
 
     // Schedule C
     case "Car and truck expenses (line 9)":
@@ -194,10 +260,25 @@ export function resolveFieldFixes(line: string, ctx: FixContext): FieldFix[] {
     case "Home office (line 30)":
       return questionFixes(ctx, ["home_office_ekc"]);
     case "Depreciation (line 13)":
-    case "Depreciation (line 18)":
-      return [{ kind: "none", reason: NO_DEPRECIATION_DATA }];
+      return fixedAssetFixes(ctx, {
+        entityId: ctx.ekcEntityId,
+        entityName: "EK Consulting",
+        realProperty: false,
+        hint: "Record each depreciable EK Consulting asset: cost, date placed in service and business-use percent. Your CPA decides depreciation.",
+        questionKey: NONE_CONFIRMATION_KEYS.fixedAssetsEkc,
+        noneLabel: "No depreciable EK Consulting assets — confirm none",
+      });
 
     // Schedule E
+    case "Depreciation (line 18)":
+      return fixedAssetFixes(ctx, {
+        entityId: ctx.svEntityId,
+        entityName: "Sudden Valley",
+        realProperty: true,
+        hint: "Add the 56 Arbor Rd building: purchase price and the land value",
+        questionKey: NONE_CONFIRMATION_KEYS.fixedAssetsSv,
+        noneLabel: "No depreciable Sudden Valley property — confirm none",
+      });
     case "Taxes (line 16)":
       return booksLink(
         ctx.svSlug,

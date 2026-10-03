@@ -21,6 +21,8 @@ const dbMocks = vi.hoisted(() => ({
   workspaceFindMany: vi.fn(),
   mileageCount: vi.fn(),
   accountFindUnique: vi.fn(),
+  donationCount: vi.fn(),
+  fixedAssetFindMany: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -31,6 +33,8 @@ vi.mock("@/lib/db", () => ({
     taxWorkspace: dbMocks.readOnlyModel({ findMany: dbMocks.workspaceFindMany }),
     mileageEntry: dbMocks.readOnlyModel({ count: dbMocks.mileageCount }),
     account: dbMocks.readOnlyModel({ findUnique: dbMocks.accountFindUnique }),
+    donation: dbMocks.readOnlyModel({ count: dbMocks.donationCount }),
+    fixedAsset: dbMocks.readOnlyModel({ findMany: dbMocks.fixedAssetFindMany }),
   },
 }));
 
@@ -96,6 +100,8 @@ beforeEach(() => {
   dbMocks.workspaceFindMany.mockResolvedValue([]);
   dbMocks.mileageCount.mockResolvedValue(0);
   dbMocks.accountFindUnique.mockResolvedValue(null);
+  dbMocks.donationCount.mockResolvedValue(0);
+  dbMocks.fixedAssetFindMany.mockResolvedValue([]);
   computeMocks.computePL.mockResolvedValue({ incomeLines: [], expenseLines: [] });
   computeMocks.buildInput.mockResolvedValue({ error: "should not be called for non-2025" });
 });
@@ -245,6 +251,70 @@ describe("loadFormsPageData (read-only assembler)", () => {
     for (const col of ["extractionCorrections", "extractionConfirmedAt", "extractionError", "updatedAt"]) {
       expect(args.select[col], col).toBe(true);
     }
+  });
+
+  it("donation log and fixed-asset register feed the three previously-unfillable lines (read-only, archived excluded)", async () => {
+    const lineOf = (data: Awaited<ReturnType<typeof loadFormsPageData>>, formId: string, line: string) =>
+      data.federal.find((e) => e.id === formId)?.fields.find((f) => f.line === line);
+
+    // Nothing recorded: all three missing.
+    const none = await loadFormsPageData(2026);
+    expect(lineOf(none, "schedule-a", "Gifts to charity (line 11)")?.haveData).toBe(false);
+    expect(lineOf(none, "schedule-c", "Depreciation (line 13)")?.haveData).toBe(false);
+    expect(lineOf(none, "schedule-e", "Depreciation (line 18)")?.haveData).toBe(false);
+
+    dbMocks.donationCount.mockResolvedValue(2);
+    dbMocks.fixedAssetFindMany.mockResolvedValue([
+      // EKC equipment placed in service in 2025 counts for 2026; a 2027 asset does not.
+      { entityId: "e-ekc", placedInServiceDate: new Date("2025-03-01T12:00:00Z"), isRealProperty: false, landValueCents: null },
+      { entityId: "e-ekc", placedInServiceDate: new Date("2027-01-01T12:00:00Z"), isRealProperty: false, landValueCents: null },
+      // SV real property with a land split counts for line 18; SV equipment alone would not.
+      { entityId: "e-sv", placedInServiceDate: new Date("2026-02-10T12:00:00Z"), isRealProperty: true, landValueCents: 6_000_000 },
+    ]);
+    const have = await loadFormsPageData(2026);
+    expect(lineOf(have, "schedule-a", "Gifts to charity (line 11)")?.haveData).toBe(true);
+    expect(lineOf(have, "schedule-c", "Depreciation (line 13)")?.haveData).toBe(true);
+    expect(lineOf(have, "schedule-e", "Depreciation (line 18)")?.haveData).toBe(true);
+
+    // SV equipment-only leaves line 18 missing.
+    dbMocks.fixedAssetFindMany.mockResolvedValue([
+      { entityId: "e-sv", placedInServiceDate: new Date("2026-02-10T12:00:00Z"), isRealProperty: false, landValueCents: null },
+    ]);
+    const equipOnly = await loadFormsPageData(2026);
+    expect(lineOf(equipOnly, "schedule-e", "Depreciation (line 18)")?.haveData).toBe(false);
+
+    // Queries exclude archived rows; the donation window is half-open [Jan 1, next Jan 1).
+    const donationArgs = dbMocks.donationCount.mock.calls[0]![0] as {
+      where: { entityId: string; archivedAt: unknown; date: { gte: Date; lt: Date } };
+    };
+    expect(donationArgs.where.entityId).toBe("e-personal");
+    expect(donationArgs.where.archivedAt).toBeNull();
+    expect(donationArgs.where.date.gte.toISOString()).toBe("2026-01-01T00:00:00.000Z");
+    expect(donationArgs.where.date.lt.toISOString()).toBe("2027-01-01T00:00:00.000Z");
+    const assetArgs = dbMocks.fixedAssetFindMany.mock.calls[0]![0] as { where: { archivedAt: unknown; entityId: { in: string[] } } };
+    expect(assetArgs.where.archivedAt).toBeNull();
+    expect(assetArgs.where.entityId.in.sort()).toEqual(["e-ekc", "e-sv"]);
+  });
+
+  it("a confirmed 'none' answer satisfies the lines without any rows", async () => {
+    dbMocks.workspaceFindMany.mockResolvedValue([
+      {
+        id: "ws-personal",
+        entityId: "e-personal",
+        checklistItems: [],
+        questions: [
+          { key: "donations_none", answer: "none", skippedReason: null },
+          { key: "fixed_assets_ekc", answer: "none", skippedReason: null },
+          { key: "fixed_assets_sv", answer: "some", skippedReason: null },
+        ],
+      },
+    ]);
+    const data = await loadFormsPageData(2026);
+    const lineOf = (formId: string, line: string) =>
+      data.federal.find((e) => e.id === formId)?.fields.find((f) => f.line === line);
+    expect(lineOf("schedule-a", "Gifts to charity (line 11)")?.haveData).toBe(true);
+    expect(lineOf("schedule-c", "Depreciation (line 13)")?.haveData).toBe(true);
+    expect(lineOf("schedule-e", "Depreciation (line 18)")?.haveData).toBe(false); // "some" is not a confirmation
   });
 
   it("production-shaped entities: Sudden Valley flagged for CPA in 2026, none in 2025; Mezzo only not-applicable", async () => {

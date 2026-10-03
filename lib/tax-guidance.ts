@@ -249,6 +249,71 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
     ],
     unlocks: ["mileage"],
   },
+  // ── "None this year" confirmations (donation-log-and-fixed-assets) ──────────
+  // These three are the explicit "nothing to record" answer for the donation log
+  // and the two fixed-asset registers. Only the exact answer "none" satisfies the
+  // matching Forms-page line (lib/tax-none-confirmation.ts); "some" does not. The
+  // wording says "this tax year" because the text is stored once per workspace.
+  {
+    key: "donations_none",
+    category: "deductions",
+    question: "Did you make any charitable gifts this tax year?",
+    context:
+      "Schedule A line 11 reads the donation log. An empty log is not treated as an answer, so the Forms page keeps the line open until you either log your gifts or confirm there were none. This only records what you tell it - whether charitable gifts help your return depends on itemizing and limits your CPA decides.",
+    options: [
+      {
+        value: "none",
+        label: "No charitable gifts this tax year",
+        note: "Marks the donation line as done with nothing to record. If you later find a gift, add it to the donation log and undo this confirmation so the record stays accurate.",
+      },
+      {
+        value: "some",
+        label: "Yes - I'll enter them in the donation log",
+        note: "The line stays open until at least one gift is logged. Keep the bank record or the charity's written acknowledgment for each gift; gifts of $250 or more need that acknowledgment.",
+      },
+    ],
+    unlocks: [],
+  },
+  {
+    key: "fixed_assets_ekc",
+    category: "deductions",
+    question: "Did EK Consulting place any equipment or other depreciable assets in service (or still hold any) that your CPA should review?",
+    context:
+      "Schedule C line 13 reads the fixed-asset register for EK Consulting. An empty register is not treated as an answer, so the Forms page keeps the line open until you either record an asset or confirm there are none. The app only records cost, date and business-use inputs - it never computes depreciation or chooses a method.",
+    options: [
+      {
+        value: "none",
+        label: "No depreciable EK Consulting assets",
+        note: "Marks the Schedule C depreciation line as done with nothing to record. If an asset turns up later, add it to the fixed-asset register and undo this confirmation.",
+      },
+      {
+        value: "some",
+        label: "Yes - I'll enter them in the fixed-asset register",
+        note: "The line stays open until at least one EK Consulting asset is recorded. Keep the purchase invoice; your CPA decides depreciation, Section 179 and bonus treatment.",
+      },
+    ],
+    unlocks: [],
+  },
+  {
+    key: "fixed_assets_sv",
+    category: "deductions",
+    question: "Did Sudden Valley own a building or other depreciable property this tax year that your CPA should review?",
+    context:
+      "Schedule E line 18 reads the fixed-asset register for Sudden Valley and needs the property's purchase price and land value. An empty register is not treated as an answer, so the Forms page keeps the line open until you record the building or confirm there is none. The app records inputs only - it never computes depreciation.",
+    options: [
+      {
+        value: "none",
+        label: "No depreciable Sudden Valley property",
+        note: "Marks the Schedule E depreciation line as done with nothing to record. If the building or other property is added later, record it in the fixed-asset register and undo this confirmation.",
+      },
+      {
+        value: "some",
+        label: "Yes - I'll enter it in the fixed-asset register",
+        note: "The line stays open until a Sudden Valley building with a recorded land value is entered. Keep the closing statement; your CPA decides the depreciation treatment.",
+      },
+    ],
+    unlocks: [],
+  },
 ];
 
 // ── Opportunity engine ───────────────────────────────────────────────────────
@@ -276,7 +341,7 @@ export interface TaxOpportunity {
 // year. These keys are the planning questions and opportunities that exist ONLY
 // because of that rental; for a year when Sudden Valley is not active they are
 // left out (never deleted - answers already saved are kept untouched).
-export const SUDDEN_VALLEY_ONLY_QUESTION_KEYS: readonly string[] = ["rental_property_use"];
+export const SUDDEN_VALLEY_ONLY_QUESTION_KEYS: readonly string[] = ["rental_property_use", "fixed_assets_sv"];
 export const SUDDEN_VALLEY_ONLY_OPPORTUNITY_KEYS: readonly string[] = [
   "rental_depreciation",
   "short_term_rental_loophole",

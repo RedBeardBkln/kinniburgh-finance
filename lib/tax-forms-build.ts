@@ -4,6 +4,8 @@ import { buildPersonalTaxComputeInput } from "@/lib/tax-compute-build";
 import { computePersonalTaxReturn } from "@/lib/tax-compute";
 import { describeDocumentRow } from "@/lib/document-extraction-state";
 import { resolveTaxDocForCompute } from "@/lib/tax-extraction-policy";
+import { taxYearBoundsUtc } from "@/lib/tax-log-dates";
+import { countBuildingAssetsForYear, countEkcAssetsForYear } from "@/lib/fixed-assets";
 import {
   buildFormsPageData,
   type FormsPageData,
@@ -154,7 +156,10 @@ export async function loadFormsPageData(year: number): Promise<FormsPageData> {
     }
   };
 
-  const [ekcPL, svPL, ekcMileageCount, solarLoanAccount, taxDraft] = await Promise.all([
+  // Half-open [Jan 1, next Jan 1) so a gift dated noon UTC on Dec 31 is in and Jan 1 is out.
+  const bounds = taxYearBoundsUtc(year);
+
+  const [ekcPL, svPL, ekcMileageCount, solarLoanAccount, taxDraft, donationCount, fixedAssetRows] = await Promise.all([
     safePL(ekc?.id ?? null),
     safePL(sv?.id ?? null),
     ekc
@@ -169,6 +174,18 @@ export async function loadFormsPageData(year: number): Promise<FormsPageData> {
         })
       : Promise.resolve(null),
     resolveTaxDraft(year),
+    personal
+      ? db.donation.count({
+          where: { entityId: personal.id, archivedAt: null, date: { gte: bounds.start, lt: bounds.endExclusive } },
+        })
+      : Promise.resolve(0),
+    // The (tiny) non-archived asset set; year inclusion is a unit-tested pure helper, not a Prisma filter.
+    ekc || sv
+      ? db.fixedAsset.findMany({
+          where: { entityId: { in: [ekc?.id, sv?.id].filter((x): x is string => !!x) }, archivedAt: null },
+          select: { entityId: true, placedInServiceDate: true, isRealProperty: true, landValueCents: true },
+        })
+      : Promise.resolve([]),
   ]);
 
   return buildFormsPageData({
@@ -198,6 +215,9 @@ export async function loadFormsPageData(year: number): Promise<FormsPageData> {
       suddenValleyPL: svPL,
       ekConsultingMileageCount: ekcMileageCount,
       solarLoanOriginalCostCents: solarLoanAccount?.debtDetail?.originalBalanceCents ?? null,
+      donationCount,
+      ekConsultingFixedAssetCount: countEkcAssetsForYear(fixedAssetRows, ekc?.id ?? null, year),
+      suddenValleyBuildingAssetCount: countBuildingAssetsForYear(fixedAssetRows, sv?.id ?? null, year),
     },
     taxDraft,
   });

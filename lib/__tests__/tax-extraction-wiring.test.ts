@@ -282,6 +282,9 @@ describe("legacy-shaped documents through the loader boundary (regression: numbe
       suddenValleyPL: null,
       ekConsultingMileageCount: 0,
       solarLoanOriginalCostCents: null,
+      donationCount: 0,
+      ekConsultingFixedAssetCount: 0,
+      suddenValleyBuildingAssetCount: 0,
     };
     const a = computePersonalFormPlan({ ...base, documents: docs }).flatMap((f) => f.fields);
     const b = computePersonalFormPlan({ ...base, documents: oldDocs }).flatMap((f) => f.fields);
@@ -399,6 +402,9 @@ describe("TAX_EXTRACTION_POLICY = verified_only (the one-constant flip)", () => 
       suddenValleyPL: null,
       ekConsultingMileageCount: 0,
       solarLoanOriginalCostCents: null,
+      donationCount: 0,
+      ekConsultingFixedAssetCount: 0,
+      suddenValleyBuildingAssetCount: 0,
     });
     expect(basis["Wages (line 1a)"]).toBe("missing");
   });
@@ -668,6 +674,9 @@ describe("unfinished re-extract (status stuck processing/failed, stored data sti
       suddenValleyPL: null,
       ekConsultingMileageCount: 0,
       solarLoanOriginalCostCents: null,
+      donationCount: 0,
+      ekConsultingFixedAssetCount: 0,
+      suddenValleyBuildingAssetCount: 0,
     };
     const stuck = computePersonalFormPlan({
       ...base,

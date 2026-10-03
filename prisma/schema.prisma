@@ -37,6 +37,8 @@ model User {
   reviewBatchesCreated  ReviewBatch[]         @relation("ReviewBatchCreator")
   documentsAsSubject    Document[]            @relation("DocumentSubject")
   documentsConfirmed    Document[]            @relation("DocumentExtractionConfirmer")
+  donationsCreated      Donation[]            @relation("DonationCreator")
+  fixedAssetsCreated    FixedAsset[]          @relation("FixedAssetCreator")
 }
 
 model PasswordResetToken {
@@ -96,6 +98,8 @@ model Entity {
   projectedRevenues  ProjectedRevenue[]
   bankStatements     BankStatement[]
   tagGlCodeMappings  TagGlCodeMapping[]
+  donations          Donation[]
+  fixedAssets        FixedAsset[]
 }
 
 model Institution {
@@ -560,6 +564,8 @@ model Document {
   insurancePolicy InsurancePolicy?
   solarEntries    SolarEntry[]
   bankStatement   BankStatement?
+  donationReceipts   Donation[]   @relation("DonationReceipt")
+  fixedAssetInvoices FixedAsset[] @relation("FixedAssetInvoice")
 }
 
 // ─── Insurance policies ───────────────────────────────────────────────────────
@@ -921,6 +927,57 @@ model MileageEntry {
   updatedAt   DateTime  @updatedAt
 
   entity Entity @relation(fields: [entityId], references: [id])
+}
+
+// ─── Donation log (Schedule A line 11 data source) ───────────────────────────
+// Tax-related records are NEVER hard-deleted; archivedAt only. Money is integer cents.
+// The tax year is derived from `date` (like MileageEntry) - there is no separate taxYear column to drift.
+model Donation {
+  id                String    @id @default(uuid())
+  entityId          String                       // always the Personal entity (enforced in the action)
+  date              DateTime                     // stored as noon UTC of the gift date
+  recipient         String                       // organization name
+  amountCents       Int                          // cash amount, or the owner-stated fair market value for non-cash; > 0
+  kind              String                       // cash | noncash   (app-validated, no DB enum)
+  substantiation    String    @default("none")   // none | bank_record | written_acknowledgment  (owner-reported evidence type)
+  receiptDocumentId String?                      // optional uploaded receipt / acknowledgement
+  notes             String?
+  archivedAt        DateTime?
+  createdById       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  entity          Entity    @relation(fields: [entityId], references: [id])
+  receiptDocument Document? @relation("DonationReceipt", fields: [receiptDocumentId], references: [id], onDelete: SetNull)
+  createdBy       User?     @relation("DonationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([entityId, date])
+}
+
+// ─── Fixed-asset register (Form 4562 / Schedule C line 13 / Schedule E line 18 INPUTS only) ──
+// The app records what was entered. It never computes depreciation, picks a MACRS class,
+// or decides Section 179 / bonus - that is the CPA's call.
+model FixedAsset {
+  id                  String    @id @default(uuid())
+  entityId            String                      // a business entity (EK Consulting, Sudden Valley); Personal not supported in v1
+  description         String
+  placedInServiceDate DateTime                    // noon UTC of the date as entered
+  costBasisCents      Int                         // > 0, as entered by the owner
+  isRealProperty      Boolean   @default(false)   // true => landValueCents is required
+  landValueCents      Int?                        // required (0 <= land <= cost) when isRealProperty, else null
+  businessUsePercent  Int       @default(100)     // whole percent 1..100
+  invoiceDocumentId   String?                     // optional purchase invoice / closing statement
+  notes               String?
+  archivedAt          DateTime?
+  createdById         String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  entity          Entity    @relation(fields: [entityId], references: [id])
+  invoiceDocument Document? @relation("FixedAssetInvoice", fields: [invoiceDocumentId], references: [id], onDelete: SetNull)
+  createdBy       User?     @relation("FixedAssetCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([entityId, placedInServiceDate])
 }
 
 // ─── Tax deadlines (quarterly estimates + annual filings) ─────────────────────
