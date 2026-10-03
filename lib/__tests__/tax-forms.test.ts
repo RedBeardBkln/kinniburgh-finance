@@ -778,3 +778,36 @@ describe("extraction basis (verified / unverified AI / missing)", () => {
     });
   });
 });
+
+// ── Donation receipts on the Forms page (donation-receipt-document-type) ───────
+
+describe("a donation_receipt document on the Forms page", () => {
+  const receipt = (over: Partial<FormsDocumentInput> = {}) =>
+    doc({ id: "r1", docType: "donation_receipt", documentName: "Donation Receipt", issuerName: "Food Bank", ...over });
+  const line = (e: ReturnType<typeof find>, name: string) => e.fields.find((f) => f.line === name);
+
+  it("counts as one of the year's tax documents (attribution counts)", () => {
+    const data = buildFormsPageData(input({ documents: [receipt()] }));
+    expect(data.attribution).toEqual({ taxDocCount: 1, unassignedPersonCount: 1, missingIssuerCount: 0 });
+  });
+
+  it("is counted in the extraction basis like any other tax document", () => {
+    const extraction = { kind: "extracted_unverified" as const, label: "x", tone: "amber" as const, actions: [], outdated: false, correctionCount: 0 };
+    const data = buildFormsPageData(input({ documents: [receipt({ extraction })] }));
+    expect(data.extractionBasis.documentCount).toBe(1);
+    expect(data.extractionBasis.unverified).toBe(1);
+  });
+
+  it("is listed as a Schedule A source document for its year only", () => {
+    const data = buildFormsPageData(input({ documents: [receipt(), receipt({ id: "r2", taxYear: 2024 })] }));
+    expect(find(data, "schedule-a").inputs.map((i) => i.id)).toEqual(["r1"]);
+  });
+
+  it("never changes whether Schedule A line 11 has data (only the log or a 'none' confirmation does)", () => {
+    const without = find(buildFormsPageData(input()), "schedule-a");
+    const withReceipt = find(buildFormsPageData(input({ documents: [receipt()] })), "schedule-a");
+    expect(line(withReceipt, "Gifts to charity (line 11)")?.haveData).toBe(false);
+    expect(withReceipt.fields.map((f) => f.haveData)).toEqual(without.fields.map((f) => f.haveData));
+    expect(withReceipt.fieldsReady).toBe(without.fieldsReady);
+  });
+});

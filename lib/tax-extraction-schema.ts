@@ -26,7 +26,14 @@
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /** The schema ("shape") a tax document is extracted into. `mortgage_interest` documents use `form_1098`. */
-export type TaxSchemaDocType = "w2" | "1099" | "form_1098" | "property_tax" | "k1" | "tax_return";
+export type TaxSchemaDocType =
+  | "w2"
+  | "1099"
+  | "form_1098"
+  | "property_tax"
+  | "k1"
+  | "tax_return"
+  | "donation_receipt";
 
 export const TAX_SCHEMA_DOC_TYPES: readonly TaxSchemaDocType[] = [
   "w2",
@@ -35,6 +42,7 @@ export const TAX_SCHEMA_DOC_TYPES: readonly TaxSchemaDocType[] = [
   "property_tax",
   "k1",
   "tax_return",
+  "donation_receipt",
 ];
 
 export type ScalarKind =
@@ -80,7 +88,11 @@ export interface FieldDef extends Omit<ScalarFieldSpec, "kind"> {
   formRef: string;
   /** Group id (see TaxSchema.groups) for the review form. */
   group: string;
-  /** Counts toward "this extraction has real data" (money fields the forms read). */
+  /**
+   * Counts toward "this extraction has real data": any non-null value of a signal
+   * field (money fields the forms read; for a donation receipt also its charity
+   * name, gift date and non-cash description). Any field kind may be a signal.
+   */
   signal: boolean;
   /** Kept for older documents/resolvers; NOT asked of the model in the current prompt. */
   legacy: boolean;
@@ -115,10 +127,17 @@ export interface TaxSchema {
 /** Schema version stamped on expanded schemas. A stored extraction without it (or lower) is "older format". */
 export const CURRENT_SCHEMA_VERSION = 2;
 
-const EXPANDED_TYPES: readonly TaxSchemaDocType[] = ["w2", "1099", "form_1098", "property_tax", "k1"];
+const EXPANDED_TYPES: readonly TaxSchemaDocType[] = ["w2", "1099", "form_1098", "property_tax", "k1", "donation_receipt"];
 
 /** Raw Document.docType values whose schema was expanded (older extractions of these are "older format"). */
-export const EXPANDED_RAW_DOC_TYPES: readonly string[] = ["w2", "1099", "mortgage_interest", "property_tax", "k1"];
+export const EXPANDED_RAW_DOC_TYPES: readonly string[] = [
+  "w2",
+  "1099",
+  "mortgage_interest",
+  "property_tax",
+  "k1",
+  "donation_receipt",
+];
 
 export function schemaTypeForDocType(docType: string): TaxSchemaDocType | null {
   switch (docType) {
@@ -135,6 +154,8 @@ export function schemaTypeForDocType(docType: string): TaxSchemaDocType | null {
       return "k1";
     case "tax_return":
       return "tax_return";
+    case "donation_receipt":
+      return "donation_receipt";
     default:
       return null;
   }
@@ -522,6 +543,88 @@ const TAX_RETURN_SCHEMA: TaxSchema = {
   ],
 };
 
+// ── Donation receipt / written acknowledgment (donation-receipt-document-type) ─
+//
+// A charity's receipt or acknowledgment letter is NOT a tax form: it has no tax
+// year (the year derives from the gift date, lib/document-year.ts), and no
+// donor identity is read (no donor name/address key exists on purpose).
+// What the fields capture follows what IRS says a written acknowledgment of a
+// $250+ gift must contain (IRS, Charitable contributions - written
+// acknowledgments, read 2026-10-03): the organization's name; the cash amount,
+// or a DESCRIPTION (not a value) of non-cash property; a statement that no goods
+// or services were provided if that is the case, otherwise a description and
+// good-faith estimate of the value of any goods or services provided; or a
+// statement that they were entirely intangible religious benefits. The app only
+// records what the letter says; it never computes a reduced or deductible
+// amount and never values non-cash property.
+// Receipts feed nothing in the Forms readiness registry (feeds: []).
+
+const DONATION_RECEIPT_SCHEMA: TaxSchema = {
+  docType: "donation_receipt",
+  title: "charity donation receipt or written acknowledgment letter (it is not a tax form)",
+  version: CURRENT_SCHEMA_VERSION,
+  groups: [
+    { id: "organization", label: "Charity" },
+    { id: "gift", label: "The gift" },
+    { id: "acknowledgment", label: "Acknowledgment wording" },
+  ],
+  fields: [
+    field("text", "organizationName", "Charity / organization", "Receipt letterhead", "organization", {
+      signal: true,
+      hint: "The organization that received the gift, as printed.",
+    }),
+    field("ein", "organizationEIN", "Organization EIN (as printed)", "Receipt (organization EIN)", "organization", {
+      hint: "Only if an EIN is printed on the document, formatted NN-NNNNNNN. Null when absent or not in that format. Business EIN only.",
+    }),
+    field("date", "giftDate", "Date of the gift", "Receipt gift date", "gift", {
+      signal: true,
+      hint: "The date the gift was made as the document states it. Null when several gifts are listed, only a year or range is given, or no date appears.",
+    }),
+    money("cashAmountCents", "Cash amount stated", "Receipt amount", "gift", {
+      hint: "Only an amount of money (cash, check, card, transfer) the document states was given in ONE gift. Never total several gifts, never estimate, never convert goods to dollars. Null when no cash amount is stated.",
+    }),
+    field("text", "nonCashDescription", "Non-cash items described", "Receipt description", "gift", {
+      signal: true,
+      maxLen: 500,
+      hint: "What the document says was donated (goods or property), in its own words. Never add a dollar value or estimate; the donor determines value. Null when none.",
+    }),
+    field("bool", "coversMultipleGifts", "Letter lists more than one gift", "Receipt", "gift", {
+      hint: "true only when several separate gifts or dates are listed (for example an annual statement); false when it is one gift; null if unclear.",
+    }),
+    field(
+      "bool",
+      "readsAsWrittenAcknowledgment",
+      "Reads as a written acknowledgment",
+      "Receipt wording",
+      "acknowledgment",
+      {
+        hint: "true when this is a receipt or letter issued by the organization to the donor confirming a gift already made; false for a pledge, appeal or solicitation, invoice, event ticket, bank or card record; null if unsure.",
+      }
+    ),
+    field(
+      "bool",
+      "noGoodsOrServicesStated",
+      "States no goods or services were provided",
+      "Receipt benefit statement",
+      "acknowledgment",
+      {
+        hint: "true ONLY if the document explicitly says no goods or services were provided in exchange (or only intangible religious benefits). false ONLY if it says goods or services WERE provided or states a value received. null when it says nothing either way. Silence is null, never true.",
+      }
+    ),
+    field(
+      "text",
+      "benefitStatement",
+      "Benefit / value statement (verbatim)",
+      "Receipt benefit statement",
+      "acknowledgment",
+      {
+        maxLen: 500,
+        hint: "The document's own words about any goods or services provided and/or their value, copied and shortened. Null when none is stated.",
+      }
+    ),
+  ],
+};
+
 export const TAX_SCHEMAS: Readonly<Record<TaxSchemaDocType, TaxSchema>> = {
   w2: W2_SCHEMA,
   "1099": F1099_SCHEMA,
@@ -529,6 +632,7 @@ export const TAX_SCHEMAS: Readonly<Record<TaxSchemaDocType, TaxSchema>> = {
   property_tax: PROPERTY_TAX_SCHEMA,
   k1: K1_SCHEMA,
   tax_return: TAX_RETURN_SCHEMA,
+  donation_receipt: DONATION_RECEIPT_SCHEMA,
 };
 
 export function getTaxSchema(schemaType: TaxSchemaDocType): TaxSchema {
@@ -546,7 +650,7 @@ export function promptFields(schemaType: TaxSchemaDocType): FieldDef[] {
 
 // ── Usable-signal detection ───────────────────────────────────────────────────
 
-/** Money keys that count as "this extraction has real data" for a tax docType (raw or schema name). */
+/** Signal keys (any kind) that count as "this extraction has real data" for a tax docType (raw or schema name). */
 export function usableSignalKeys(docType: string): string[] {
   const schemaType = schemaTypeForDocType(docType);
   if (!schemaType) return [];
@@ -558,7 +662,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * True when at least one signal money field in `extractionData.data` is
+ * True when at least one signal field in `extractionData.data` is
  * non-null. Types with no signal fields (tax_return) are always "usable" here;
  * the caller still applies the generic hasUsableExtraction check.
  */
@@ -956,6 +1060,30 @@ export function crossFieldWarnings(
       }
     }
   }
+
+  if (schemaType === "donation_receipt") {
+    const text = (key: string): string | null => {
+      const v = data[key];
+      return typeof v === "string" && v.trim() !== "" ? v : null;
+    };
+    const giftDate = text("giftDate");
+    const giftYear = giftDate !== null && isRealDate(giftDate) ? Number(giftDate.slice(0, 4)) : null;
+    if (giftYear !== null && context.documentTaxYear != null && giftYear !== context.documentTaxYear) {
+      out.push(`The letter says the gift was in ${giftYear} but this document is filed under ${context.documentTaxYear}.`);
+    }
+    if (data.coversMultipleGifts === true && (giftDate !== null || num("cashAmountCents") !== null)) {
+      out.push("Several gifts are listed but a single date or amount is filled in - check which gift you mean.");
+    }
+    if (num("cashAmountCents") !== null && text("nonCashDescription") !== null) {
+      out.push("Both a cash amount and non-cash items are listed - log them as separate gifts.");
+    }
+    if (data.noGoodsOrServicesStated === true && text("benefitStatement") !== null) {
+      out.push("The 'no goods or services' answer and the benefit text disagree - check the document.");
+    }
+    if (data.noGoodsOrServicesStated === false && text("benefitStatement") === null) {
+      out.push("The letter is read as saying goods or services were provided, but no description is filled in.");
+    }
+  }
   return out;
 }
 
@@ -1083,6 +1211,14 @@ const TYPE_RULES: Partial<Record<TaxSchemaDocType, string[]>> = {
   k1: [
     "- partnerSharePct is the ownership percentage as a number from 0 to 100. Amounts can be negative (losses).",
     "- Any K-1 box not listed goes in otherBoxes.",
+  ],
+  donation_receipt: [
+    "- This is a charity's receipt or acknowledgment of a gift, not a tax form. Describe only what the document says.",
+    "- Never output a dollar value for non-cash items. If the document itself states a value for donated goods, mention it only inside nonCashDescription, never in cashAmountCents.",
+    "- If more than one gift is listed, set coversMultipleGifts to true and leave giftDate and cashAmountCents null; do not sum amounts.",
+    "- Do not extract the donor's name, address, account number or any donor identification.",
+    "- noGoodsOrServicesStated: silence is null. Do not infer 'no goods or services' from the absence of a statement.",
+    "- Use null for anything not clearly legible. Never guess.",
   ],
 };
 

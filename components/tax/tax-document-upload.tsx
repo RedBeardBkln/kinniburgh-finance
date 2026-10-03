@@ -4,6 +4,7 @@ import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { documentTypeLabel } from "@/lib/doc-naming";
+import { isPlaceholderName } from "@/lib/document-retype";
 import { MAX_BATCH_FILES, summarizeUploadBatch, type UploadBatchResult } from "@/lib/tax-doc-batch";
 import { validateTaxDocumentFile } from "@/lib/tax-document-upload";
 import {
@@ -63,6 +64,7 @@ const DOC_TYPE_OPTIONS = [
   { value: "k1", label: "K-1 (partnership/S-corp)" },
   { value: "mortgage_interest", label: "Form 1098 (mortgage interest)" },
   { value: "property_tax", label: "Property tax bill" },
+  { value: "donation_receipt", label: "Donation receipt / acknowledgment" },
   { value: "tax_return", label: "Prior-year tax return" },
   { value: "extension", label: "Extension confirmation" },
   { value: "bank_statement", label: "Bank/investment statement" },
@@ -76,7 +78,7 @@ const DOC_TYPE_OPTIONS = [
 const BATCH_CONCURRENCY_LIMIT = 4;
 
 export type TaxDocType =
-  | "w2" | "1099" | "k1" | "extension" | "property_tax"
+  | "w2" | "1099" | "k1" | "extension" | "property_tax" | "donation_receipt"
   | "mortgage_interest" | "tax_return" | "bank_statement" | "other";
 
 /** Optional attribution applied to an uploaded file (all null = Unassigned). */
@@ -231,7 +233,7 @@ export function TaxDocumentUpload({ entityId, taxYear, documents, people = [], f
           Upload {taxYear} tax documents
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          W-2s, 1099s, 1098s, property tax bills, prior-year returns. Select multiple files at once to
+          W-2s, 1099s, 1098s, property tax bills, donation receipts, prior-year returns. Select multiple files at once to
           upload them together. Claude parses the fields; originals are stored privately in the
           platform&apos;s tax vault. Never shared outside this system.
         </p>
@@ -376,6 +378,13 @@ function DocumentRowEditable({
   const [swapError, setSwapError] = useState<string | null>(null);
   const swapInputRef = useRef<HTMLInputElement>(null);
 
+  // Changing the type also moves a PLACEHOLDER name (the old type's label or the
+  // generated "Label (year)") to the new type's label; a name the owner typed is kept.
+  function handleTypeChange(next: string) {
+    if (isPlaceholderName(name, docType, taxYear)) setName(documentTypeLabel(next));
+    setDocType(next);
+  }
+
   async function handleSave() {
     if (!name.trim()) {
       setError("Name can't be empty.");
@@ -387,7 +396,7 @@ function DocumentRowEditable({
     const result = await updateTaxDocument({
       documentId: doc.id,
       documentName: name.trim(),
-      docType: docType as "w2" | "1099" | "k1" | "extension" | "property_tax" | "mortgage_interest" | "tax_return" | "bank_statement" | "other",
+      docType: docType as TaxDocType,
     });
     setSaving(false);
     if ("error" in result) {
@@ -569,7 +578,7 @@ function DocumentRowEditable({
         {editing ? (
           <select
             value={docType}
-            onChange={(e) => setDocType(e.target.value)}
+            onChange={(e) => handleTypeChange(e.target.value)}
             className="rounded border bg-background px-2 py-1 text-sm"
           >
             {DOC_TYPE_OPTIONS.map((o) => (

@@ -248,7 +248,7 @@ describe("needsUnknownPersonOption (D3)", () => {
 describe("tax doc types", () => {
   it("contains the household tax docTypes and excludes statements", () => {
     expect([...TAX_DOC_TYPES].sort()).toEqual(
-      ["1099", "extension", "k1", "mortgage_interest", "property_tax", "tax_return", "w2"].sort()
+      ["1099", "donation_receipt", "extension", "k1", "mortgage_interest", "property_tax", "tax_return", "w2"].sort()
     );
     expect(isTaxDocType("w2")).toBe(true);
     expect(isTaxDocType("bank_statement")).toBe(false);

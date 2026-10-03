@@ -13,6 +13,9 @@ import { getEntityBySlug } from "@/lib/entity";
 import { DocumentReviewClient } from "@/components/documents/document-review-client";
 import { TaxReviewClient } from "@/components/documents/tax-review-client";
 import { ExtractionRunner } from "@/components/documents/extraction-runner";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ReceiptToDonation } from "@/components/donations/receipt-to-donation";
+import { loadReceiptGiftForDocument } from "@/lib/donation-receipts-build";
 import Link from "next/link";
 import type { Route } from "next";
 import type { ExtractedDocument } from "@/lib/doc-extract";
@@ -191,6 +194,11 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
 
   const showReview = usable && !staleCreditCard;
 
+  // Donation receipts: the read-only view behind the "Add to donation log" panel
+  // (effective values, corrections win). Pure read; it never creates a donation.
+  const receiptView =
+    showReview && doc.docType === "donation_receipt" ? await loadReceiptGiftForDocument(id) : null;
+
   // Banner: says plainly whether the transactions have reached the ledger.
   // "Extracted" alone is not the same as "imported", and a green check next to
   // "not yet confirmed" read as done when nothing had been imported.
@@ -351,6 +359,21 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
             backHref={backHref}
             backLabel={backLabel}
           />
+        )}
+
+        {receiptView && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Add to donation log</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ReceiptToDonation
+                view={receiptView}
+                personalEntityId={doc.entity.type === "personal" ? doc.entityId : null}
+                entityLabel={doc.entity.name}
+              />
+            </CardContent>
+          </Card>
         )}
 
         {showReview && extraction && !taxSchemaType && (

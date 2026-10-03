@@ -10,7 +10,14 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const mockDb = vi.hoisted(() => ({
   entity: { findFirst: vi.fn() },
   document: { findFirst: vi.fn() },
-  donation: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
+  donation: {
+    create: vi.fn(),
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    deleteMany: vi.fn(),
+  },
   fixedAsset: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
   auditLog: { create: vi.fn() },
 }));
@@ -74,6 +81,7 @@ beforeEach(() => {
   mockDb.document.findFirst.mockResolvedValue({ id: DOC });
   mockDb.donation.create.mockResolvedValue(donationRow);
   mockDb.donation.findFirst.mockResolvedValue(donationRow);
+  mockDb.donation.findMany.mockResolvedValue([]);
   mockDb.donation.update.mockResolvedValue(donationRow);
   mockDb.fixedAsset.create.mockResolvedValue(assetRow);
   mockDb.fixedAsset.findFirst.mockResolvedValue(assetRow);

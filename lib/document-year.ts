@@ -47,6 +47,10 @@ const ANNUAL_TAX_DOC_TYPES: ReadonlySet<string> = new Set([
   "tax_return",
 ]);
 
+// A donation receipt (donation_receipt) prints no tax year: it belongs to the
+// calendar year of its GIFT DATE (`data.giftDate`), and only when it is a single
+// gift (a letter listing several gifts derives null).
+//
 // Everything else (insurance_policy, policy, other, extension, unknown) has no
 // reliable single year and always derives null.
 
@@ -105,6 +109,13 @@ function deriveAnnualTaxYear(data: Record<string, unknown> | null, currentYear: 
   return plausible(y, currentYear);
 }
 
+function deriveDonationReceiptYear(data: Record<string, unknown> | null, currentYear: number): number | null {
+  if (!data) return null;
+  // Several gifts (an annual statement) have no single reliable year.
+  if (data.coversMultipleGifts === true) return null;
+  return plausible(yearOfStrictDate(data.giftDate), currentYear);
+}
+
 /**
  * The calendar year a document refers to, from its (already effective) extraction
  * object, or null when it cannot be told reliably. `docType` is the RAW
@@ -120,6 +131,7 @@ export function deriveDocumentTaxYear(
   const data = isRecord(extractionData.data) ? extractionData.data : null;
   if (STATEMENT_DOC_TYPES.has(docType)) return deriveStatementYear(extractionData, data, currentYear);
   if (ANNUAL_TAX_DOC_TYPES.has(docType)) return deriveAnnualTaxYear(data, currentYear);
+  if (docType === "donation_receipt") return deriveDonationReceiptYear(data, currentYear);
   return null;
 }
 

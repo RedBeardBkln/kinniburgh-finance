@@ -313,7 +313,7 @@ describe("classifyDocType - tax shapes", () => {
     expect(classifyDocType("property_tax", "bill.pdf")).toBe("property_tax");
   });
   it("leaves the other tax types unchanged", () => {
-    for (const t of ["w2", "1099", "k1", "tax_return"]) expect(classifyDocType(t)).toBe(t);
+    for (const t of ["w2", "1099", "k1", "tax_return", "donation_receipt"]) expect(classifyDocType(t)).toBe(t);
   });
 });
 
@@ -372,6 +372,7 @@ describe("extractDocumentOrThrow - tax documents are normalized", () => {
       ["w2", 4096],
       ["form_1098", 4096],
       ["tax_return", 4096],
+      ["donation_receipt", 4096],
     ] as const) {
       mockCreate.mockClear();
       reply({ docType: type, summary: "", data: {} });

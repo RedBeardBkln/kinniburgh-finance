@@ -14,6 +14,8 @@ import {
 } from "@/lib/donations";
 import { flagsForDonation } from "@/lib/donation-substantiation";
 import { parseDollarsToCents } from "@/lib/money-input";
+import { formatCentsDisplay } from "@/lib/tax-extraction-schema";
+import type { DonationConflict } from "@/lib/donations";
 import type { DocumentOption } from "@/lib/donations-build";
 
 // One form for adding AND editing a charitable gift. Amounts are plain text and
@@ -37,6 +39,31 @@ export interface DonationFormInitial {
   notes: string;
 }
 
+/**
+ * Create-mode starting values taken from a donation_receipt's reading
+ * (lib/donation-receipt.ts buildDonationPrefill). Nothing is saved until the
+ * owner presses the form's submit button; every field stays editable.
+ */
+export interface DonationFormPrefill {
+  date: string;
+  recipient: string;
+  amount: string;
+  kind: DonationKind;
+  substantiation: DonationSubstantiation;
+  notes: string;
+  receiptDocumentId: string;
+  /** Shown instead of the receipt picker/upload. */
+  receiptLabel: string;
+  /** The owner explicitly chose "Add another gift from this letter": pre-tick the shared-receipt confirmation. */
+  initialConfirmShared?: boolean;
+}
+
+interface ConflictState {
+  code: "duplicate" | "receipt_already_linked";
+  message: string;
+  conflicts: DonationConflict[];
+}
+
 interface DonationFormProps {
   /** Default date for a new gift (YYYY-MM-DD), inside the viewed tax year. */
   defaultDate: string;
@@ -45,6 +72,8 @@ interface DonationFormProps {
   personalEntityId: string | null;
   documents: DocumentOption[];
   initial?: DonationFormInitial;
+  /** Create mode only: start from a receipt's reading (the receipt is attached, not picked). */
+  prefill?: DonationFormPrefill;
   /** Quick-add dialog: no receipt picker/upload (that lives on the full page). */
   hideReceipt?: boolean;
   onDone?: () => void;
@@ -57,6 +86,7 @@ export function DonationForm({
   personalEntityId,
   documents,
   initial,
+  prefill,
   hideReceipt = false,
   onDone,
   onCancel,
@@ -65,13 +95,23 @@ export function DonationForm({
   const [isPending, startTransition] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [date, setDate] = useState(initial?.dateIso ?? defaultDate);
-  const [recipient, setRecipient] = useState(initial?.recipient ?? "");
-  const [amount, setAmount] = useState(initial?.amount ?? "");
-  const [kind, setKind] = useState<DonationKind>(initial?.kind ?? "cash");
-  const [substantiation, setSubstantiation] = useState<DonationSubstantiation>(initial?.substantiation ?? "none");
-  const [receiptDocumentId, setReceiptDocumentId] = useState<string>(initial?.receiptDocumentId ?? "");
-  const [notes, setNotes] = useState(initial?.notes ?? "");
+  const seed = initial ? null : (prefill ?? null);
+  // A prefilled date that the receipt did not give stays blank (never today).
+  const [date, setDate] = useState(initial?.dateIso ?? (seed ? seed.date : defaultDate));
+  const [recipient, setRecipient] = useState(initial?.recipient ?? seed?.recipient ?? "");
+  const [amount, setAmount] = useState(initial?.amount ?? seed?.amount ?? "");
+  const [kind, setKind] = useState<DonationKind>(initial?.kind ?? seed?.kind ?? "cash");
+  const [substantiation, setSubstantiation] = useState<DonationSubstantiation>(
+    initial?.substantiation ?? seed?.substantiation ?? "none"
+  );
+  const [receiptDocumentId, setReceiptDocumentId] = useState<string>(
+    initial?.receiptDocumentId ?? seed?.receiptDocumentId ?? ""
+  );
+  const [notes, setNotes] = useState(initial?.notes ?? seed?.notes ?? "");
+  // Warn-and-confirm guards (server-enforced): the owner must tick the matching box to resubmit.
+  const [conflict, setConflict] = useState<ConflictState | null>(null);
+  const [confirmShared, setConfirmShared] = useState(seed?.initialConfirmShared === true);
+  const [acknowledgeDuplicate, setAcknowledgeDuplicate] = useState(false);
   const [docOptions, setDocOptions] = useState<DocumentOption[]>(documents);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -131,12 +171,22 @@ export function DonationForm({
         substantiation,
         receiptDocumentId: receiptDocumentId === "" ? null : receiptDocumentId,
         notes: notes.trim() === "" ? null : notes,
+        confirmSharedReceipt: confirmShared,
+        acknowledgeDuplicate,
       };
       const result = initial ? await updateDonation(initial.id, payload) : await createDonation(payload);
       if (!result.ok) {
-        setError(result.error);
+        if (result.code) {
+          setConflict({ code: result.code, message: result.error, conflicts: result.conflicts ?? [] });
+        } else {
+          setConflict(null);
+          setError(result.error);
+        }
         return;
       }
+      setConflict(null);
+      setConfirmShared(false);
+      setAcknowledgeDuplicate(false);
       if (!initial) {
         setRecipient("");
         setAmount("");
@@ -150,6 +200,10 @@ export function DonationForm({
   }
 
   const busy = isPending || uploading;
+  const showSharedBox = conflict?.code === "receipt_already_linked" || seed?.initialConfirmShared === true;
+  const needsConfirmation =
+    (conflict?.code === "receipt_already_linked" && !confirmShared) ||
+    (conflict?.code === "duplicate" && !acknowledgeDuplicate);
   return (
     <form onSubmit={submit} className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
@@ -222,7 +276,15 @@ export function DonationForm({
         </ul>
       )}
 
-      {hideReceipt ? (
+      {seed ? (
+        <p className="rounded-md border p-2 text-xs">
+          <span className="font-medium">Receipt: </span>
+          {seed.receiptLabel}
+          <span className="block text-[11px] text-muted-foreground">
+            This receipt is attached to the gift when you save it. Nothing is saved until you press the button below.
+          </span>
+        </p>
+      ) : hideReceipt ? (
         <p className="text-[11px] text-muted-foreground">
           To attach the receipt or acknowledgment, edit this gift on the full donation log page after saving.
         </p>
@@ -279,13 +341,55 @@ export function DonationForm({
         />
       </div>
 
+      {conflict && (
+        <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+          <p>{conflict.message}</p>
+          {conflict.conflicts.length > 0 && (
+            <ul className="list-disc pl-4">
+              {conflict.conflicts.map((c) => (
+                <li key={c.id}>
+                  {c.dateIso} - {c.recipient} - {formatCentsDisplay(c.amountCents)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {(showSharedBox || conflict?.code === "duplicate") && (
+        <div className="space-y-1 text-xs">
+          {showSharedBox && (
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={confirmShared}
+                onChange={(e) => setConfirmShared(e.target.checked)}
+                disabled={busy}
+                className="mt-0.5"
+              />
+              <span>This receipt also documents this gift</span>
+            </label>
+          )}
+          {conflict?.code === "duplicate" && (
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={acknowledgeDuplicate}
+                onChange={(e) => setAcknowledgeDuplicate(e.target.checked)}
+                disabled={busy}
+                className="mt-0.5"
+              />
+              <span>This is a different gift</span>
+            </label>
+          )}
+        </div>
+      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
       {message && <p className="text-xs text-green-700">{message}</p>}
 
       <div className="flex items-center gap-2">
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || needsConfirmation}
           className="rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
         >
           {isPending ? "Saving…" : initial ? "Save changes" : "Add donation"}

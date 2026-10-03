@@ -81,6 +81,7 @@ export const EXTRACTABLE_DOC_TYPES = [
   "mortgage_interest",
   "property_tax",
   "tax_return",
+  "donation_receipt",
   "bank_statement",
   "statement",
   "mortgage_statement",

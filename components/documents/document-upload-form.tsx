@@ -28,6 +28,7 @@ const DOC_TYPES = [
   { value: "k1", label: "K-1" },
   { value: "extension", label: "Extension" },
   { value: "property_tax", label: "Property Tax" },
+  { value: "donation_receipt", label: "Donation receipt / acknowledgment (AI extraction)" },
   { value: "mortgage_interest", label: "Mortgage Interest (1098)" },
   { value: "policy", label: "Insurance Policy (manual)" },
   { value: "statement", label: "Bank/Account Statement (manual)" },

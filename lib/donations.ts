@@ -34,6 +34,12 @@ export const donationInputSchema = z.object({
   substantiation: z.enum(DONATION_SUBSTANTIATION, { errorMap: () => ({ message: "Choose a record type" }) }),
   receiptDocumentId: z.string().uuid("Invalid receipt document").nullable().optional(),
   notes: z.string().trim().max(2000, "Notes are too long (2000 characters max)").nullable().optional(),
+  // Owner confirmations for the two warn-and-confirm guards in actions/donations.ts.
+  // They are NOT persisted and never written to the audit log.
+  /** "This receipt also documents this gift": allow a receipt that is already attached to another gift. */
+  confirmSharedReceipt: z.boolean().optional(),
+  /** "This is a different gift": allow a gift that matches one already logged. */
+  acknowledgeDuplicate: z.boolean().optional(),
 });
 
 export type DonationInput = z.input<typeof donationInputSchema>;
@@ -46,7 +52,27 @@ export interface NormalizedDonation {
   substantiation: DonationSubstantiation;
   receiptDocumentId: string | null;
   notes: string | null;
+  confirmSharedReceipt: boolean;
+  acknowledgeDuplicate: boolean;
 }
+
+/** A gift already in the log that a guard found in conflict with the one being saved. */
+export interface DonationConflict {
+  id: string;
+  /** "YYYY-MM-DD" */
+  dateIso: string;
+  recipient: string;
+  amountCents: number;
+}
+
+/**
+ * Result of createDonation / updateDonation. `code` is set only for the two
+ * warn-and-confirm guards (the owner can resubmit with the matching
+ * confirmation); every other failure carries just `error`.
+ */
+export type DonationActionResult =
+  | { ok: true; id: string }
+  | { ok: false; error: string; code?: "duplicate" | "receipt_already_linked"; conflicts?: DonationConflict[] };
 
 export type NormalizeDonationResult = { ok: true; value: NormalizedDonation } | { ok: false; error: string };
 
@@ -79,6 +105,8 @@ export function normalizeDonationInput(raw: unknown): NormalizeDonationResult {
       substantiation: v.substantiation,
       receiptDocumentId: v.receiptDocumentId ?? null,
       notes: v.notes && v.notes !== "" ? v.notes : null,
+      confirmSharedReceipt: v.confirmSharedReceipt === true,
+      acknowledgeDuplicate: v.acknowledgeDuplicate === true,
     },
   };
 }

@@ -232,6 +232,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   k1: "K-1",
   mortgage_interest: "Mortgage interest (1098)",
   property_tax: "Property tax bill",
+  donation_receipt: "Donation receipt",
   tax_return: "Prior-year return",
   extension: "Extension",
   bank_statement: "Bank statement",
@@ -617,7 +618,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     source: "lib/tax-guidance.ts PERSONAL_FORM_PLAN (Schedule A); lib/tax-compute.ts selectDeductionMethod (TY2025 draft)",
     planFormName: PLAN_FORM.scheduleA,
     fields: planFields(plan, PLAN_FORM.scheduleA, basisByLine, fixCtx),
-    inputs: [...refs(personalDocs(["mortgage_interest", "property_tax"])), ...priorReturnRefs],
+    inputs: [...refs(personalDocs(["mortgage_interest", "property_tax", "donation_receipt"])), ...priorReturnRefs],
     confirmWithCpa: scheduleAConfirm,
     cpaNote: propertyTaxNote,
   });

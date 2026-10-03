@@ -110,16 +110,19 @@ describe("guards (nothing is written)", () => {
     }
   );
 
-  it.each(["w2", "1099", "k1", "mortgage_interest", "property_tax", "tax_return"])(
+  it.each(["w2", "1099", "k1", "mortgage_interest", "property_tax", "tax_return", "donation_receipt"])(
     "accepts the tax document type %s (bank statements never become Verified here)",
     async (docType) => {
       mockDb.document.findFirst.mockResolvedValue(
         docRow({
           docType,
-          extractionData: { docType, summary: "", data: { taxYear: 2025, wagesCents: 1, interestCents: 1, amountCents: 1, ordinaryIncomeCents: 1, totalTaxBilledCents: 1 } },
+          extractionData: { docType, summary: "", data: { taxYear: 2025, organizationName: "Food Bank", wagesCents: 1, interestCents: 1, amountCents: 1, ordinaryIncomeCents: 1, totalTaxBilledCents: 1 } },
         })
       );
-      const r = await confirmDocumentExtraction(input({ taxYear: 2024 }));
+      // A donation receipt has no taxYear field (its year comes from the gift date).
+      const r = await confirmDocumentExtraction(
+        input(docType === "donation_receipt" ? { organizationName: "Food Bank Inc" } : { taxYear: 2024 })
+      );
       expect(r).toEqual({ ok: true });
     }
   );

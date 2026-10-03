@@ -28,7 +28,15 @@ const SSN_ANYWHERE = /\b\d{3}-?\d{2}-?\d{4}\b/;
 
 describe("registry shape", () => {
   it("has every tax schema type and maps raw docTypes to it (mortgage_interest -> form_1098)", () => {
-    expect([...TAX_SCHEMA_DOC_TYPES].sort()).toEqual(["1099", "form_1098", "k1", "property_tax", "tax_return", "w2"]);
+    expect([...TAX_SCHEMA_DOC_TYPES].sort()).toEqual([
+      "1099",
+      "donation_receipt",
+      "form_1098",
+      "k1",
+      "property_tax",
+      "tax_return",
+      "w2",
+    ]);
     expect(schemaTypeForDocType("mortgage_interest")).toBe("form_1098");
     expect(schemaTypeForDocType("form_1098")).toBe("form_1098");
     expect(schemaTypeForDocType("w2")).toBe("w2");
@@ -40,9 +48,18 @@ describe("registry shape", () => {
 
   it("expanded schemas are version 2; tax_return keeps its unchanged version 1", () => {
     expect(CURRENT_SCHEMA_VERSION).toBe(2);
-    for (const t of ["w2", "1099", "form_1098", "property_tax", "k1"] as const) expect(schemaVersionFor(t)).toBe(2);
+    for (const t of ["w2", "1099", "form_1098", "property_tax", "k1", "donation_receipt"] as const) {
+      expect(schemaVersionFor(t)).toBe(2);
+    }
     expect(schemaVersionFor("tax_return")).toBe(1);
-    expect([...EXPANDED_RAW_DOC_TYPES].sort()).toEqual(["1099", "k1", "mortgage_interest", "property_tax", "w2"]);
+    expect([...EXPANDED_RAW_DOC_TYPES].sort()).toEqual([
+      "1099",
+      "donation_receipt",
+      "k1",
+      "mortgage_interest",
+      "property_tax",
+      "w2",
+    ]);
   });
 
   it("has unique keys per schema and every field belongs to a declared group", () => {

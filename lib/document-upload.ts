@@ -28,6 +28,29 @@ export function extensionForMimeType(fileType: string): string | null {
   return fileType.split("/")[1] ?? null;
 }
 
+/**
+ * The media type to send to the extraction model for a stored file, derived
+ * from the extension of its fileKey (upload keys use the MIME subtype as the
+ * extension: pdf / jpeg / png / webp, see extensionForMimeType). Anything else
+ * keeps the previous default of image/jpeg, exactly as before. Without this a
+ * PNG/WebP upload was sent labelled image/jpeg and the extraction failed.
+ */
+export function mimeTypeForFileKey(fileKey: string): AllowedMimeType {
+  const dot = fileKey.lastIndexOf(".");
+  const ext = dot === -1 ? "" : fileKey.slice(dot + 1).toLowerCase();
+  switch (ext) {
+    case "pdf":
+      return "application/pdf";
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    default:
+      // jpeg / jpg and everything unrecognised: the pre-existing default.
+      return "image/jpeg";
+  }
+}
+
 export type DocumentFileValidation = { ok: true } | { ok: false; error: string };
 
 /**

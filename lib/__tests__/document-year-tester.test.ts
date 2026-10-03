@@ -224,7 +224,7 @@ describe("deriveDocumentTaxYear - fuzz: never throws; result is null or an in-ra
   ];
   const types = [
     "bank_statement", "statement", "credit_card_statement", "mortgage_statement", "utility_bill",
-    "w2", "1099", "k1", "mortgage_interest", "form_1098", "property_tax", "tax_return",
+    "w2", "1099", "k1", "mortgage_interest", "form_1098", "property_tax", "tax_return", "donation_receipt",
     "insurance_policy", "policy", "other", "extension", "", "__proto__", "constructor", "toString",
   ];
 

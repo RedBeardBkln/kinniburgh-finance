@@ -118,7 +118,14 @@ describe("isCurrentSchema (legacy / older-format detection)", () => {
     }
   });
   it("the expanded set is derived from the schema registry", () => {
-    expect([...EXPANDED_SCHEMA_DOC_TYPES].sort()).toEqual(["1099", "k1", "mortgage_interest", "property_tax", "w2"]);
+    expect([...EXPANDED_SCHEMA_DOC_TYPES].sort()).toEqual([
+      "1099",
+      "donation_receipt",
+      "k1",
+      "mortgage_interest",
+      "property_tax",
+      "w2",
+    ]);
     expect(CURRENT_SCHEMA_VERSION).toBe(2);
   });
   it("tax_return keeps its unchanged schema and non-tax types are never outdated", () => {

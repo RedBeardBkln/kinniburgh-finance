@@ -12,6 +12,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   k1: "K-1",
   extension: "Extension",
   property_tax: "Property Tax Bill",
+  donation_receipt: "Donation Receipt",
   mortgage_interest: "1098",
   mortgage_statement: "Mortgage Statement",
   tax_return: "Tax Return",
@@ -38,12 +39,21 @@ export function generateDocumentName(
 ): string {
   const typeLabel = documentTypeLabel(docType);
   const data = (extraction?.data ?? {}) as Record<string, unknown>;
-  const year =
+  let year =
     (typeof data["taxYear"] === "number" ? data["taxYear"] : null) ?? taxYear;
 
   // Per-type source names
   let source: string | null = null;
-  if (docType === "w2") {
+  if (docType === "donation_receipt") {
+    // A receipt prints no tax year: use the year the document is filed under,
+    // else the calendar year of the gift date (strict YYYY-MM-DD only).
+    source = typeof data["organizationName"] === "string" ? data["organizationName"] : null;
+    if (year === null) {
+      const giftDate = data["giftDate"];
+      const m = typeof giftDate === "string" ? /^(\d{4})-\d{2}-\d{2}$/.exec(giftDate) : null;
+      year = m ? Number(m[1]) : null;
+    }
+  } else if (docType === "w2") {
     source = typeof data["employerName"] === "string" ? data["employerName"] : null;
   } else if (docType === "1099") {
     const payer = typeof data["payerName"] === "string" ? data["payerName"] : null;

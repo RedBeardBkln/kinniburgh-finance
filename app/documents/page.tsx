@@ -11,6 +11,7 @@ import { ResizableTable, type ResizableColumn } from "@/components/documents/res
 import { isTaxDocType, suggestIssuerFromExtraction } from "@/lib/document-attribution";
 import { buildExtractionOverview } from "@/lib/document-extraction-state";
 import { ExtractionCell } from "@/components/documents/extraction-cell";
+import { DocumentTypeCell } from "@/components/documents/document-type-cell";
 import { ExtractionBulkBar } from "@/components/documents/extraction-bulk-bar";
 import { FillMissingYearsBar } from "@/components/documents/fill-missing-years-bar";
 import { planYearFill } from "@/lib/document-year";
@@ -54,6 +55,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   k1: "K-1",
   extension: "Extension",
   property_tax: "Property Tax",
+  donation_receipt: "Donation Receipt",
   mortgage_interest: "Mortgage Interest",
   policy: "Policy",
   statement: "Statement",
@@ -66,6 +68,7 @@ const DOC_TYPE_COLORS: Record<string, string> = {
   k1: "bg-indigo-50 text-indigo-700 border-indigo-200",
   extension: "bg-amber-50 text-amber-700 border-amber-200",
   property_tax: "bg-orange-50 text-orange-700 border-orange-200",
+  donation_receipt: "bg-rose-50 text-rose-700 border-rose-200",
   mortgage_interest: "bg-cyan-50 text-cyan-700 border-cyan-200",
   policy: "bg-teal-50 text-teal-700 border-teal-200",
   statement: "bg-gray-50 text-gray-700 border-gray-200",
@@ -160,6 +163,11 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
             active={sp.docType === "tax_return"}
             label="Prior-year returns"
           />
+          <FilterLink
+            href={chipHref({ docType: "donation_receipt" })}
+            active={sp.docType === "donation_receipt"}
+            label="Donation receipts"
+          />
           {entities.map((e) => (
             <FilterLink
               key={e.id}
@@ -207,9 +215,13 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                   return (
                     <tr key={doc.id} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="px-4 py-2">
-                        <span className={`inline-block rounded border px-2 py-0.5 text-xs font-medium ${DOC_TYPE_COLORS[doc.docType] ?? DOC_TYPE_COLORS.other}`}>
-                          {DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
-                        </span>
+                        <DocumentTypeCell
+                          documentId={doc.id}
+                          docType={doc.docType}
+                          label={DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
+                          badgeClass={DOC_TYPE_COLORS[doc.docType] ?? DOC_TYPE_COLORS.other!}
+                          extractionKind={extraction?.kind ?? null}
+                        />
                       </td>
                       {/* Falls back to the legacy upload note for documents that
                           have no generated name, so nothing previously visible is lost. */}

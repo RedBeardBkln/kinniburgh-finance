@@ -304,7 +304,7 @@ describe("confirmDocExtraction (non-tax owner confirmation)", () => {
     expect(mockDb.document.update).not.toHaveBeenCalled();
   });
 
-  it.each(["w2", "1099", "k1", "mortgage_interest", "property_tax", "tax_return"])(
+  it.each(["w2", "1099", "k1", "mortgage_interest", "property_tax", "tax_return", "donation_receipt"])(
     "rejects the tax document type %s",
     async (docType) => {
       mockDb.document.findFirst.mockResolvedValue({ id: DOC, docType });

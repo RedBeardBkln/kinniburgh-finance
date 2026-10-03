@@ -15,6 +15,7 @@ import {
 import { extractDocumentOrThrow, classifyDocType, type ExtractedDocument } from "@/lib/doc-extract";
 import { sanitizeExtractionError } from "@/lib/document-extraction-state";
 import { generateDocumentName } from "@/lib/doc-naming";
+import { VERIFIED_RETYPE_ERROR } from "@/lib/document-retype";
 import { validateAttribution, type ValidAttribution } from "@/lib/document-attribution";
 import { parseModelJson } from "@/lib/model-json";
 import { buildModelDocLine } from "@/lib/tax-extraction-policy";
@@ -253,6 +254,7 @@ const TAX_DOC_TYPES = [
   "extension",
   "property_tax",
   "mortgage_interest",
+  "donation_receipt",
   "tax_return",
   "bank_statement",
   "other",
@@ -311,7 +313,7 @@ async function uploadTaxDocumentCore(input: {
   const extractable =
     docType === "w2" || docType === "1099" || docType === "k1" ||
     docType === "mortgage_interest" || docType === "tax_return" ||
-    docType === "property_tax";
+    docType === "property_tax" || docType === "donation_receipt";
 
   if (extractable) {
     try {
@@ -520,7 +522,7 @@ export async function updateTaxDocument(
   // retype would silently orphan that verification, so make the owner
   // un-verify first.
   if (doc.extractionConfirmedAt && doc.docType !== parsed.data.docType) {
-    return { error: "This document is verified. Un-verify it before changing its type." };
+    return { error: VERIFIED_RETYPE_ERROR };
   }
 
   await db.document.update({

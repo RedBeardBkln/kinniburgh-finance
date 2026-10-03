@@ -10,6 +10,7 @@ import { formatCentsDisplay } from "@/lib/tax-extraction-schema";
 import { MAX_LOG_YEAR, MIN_LOG_YEAR } from "@/lib/tax-log-dates";
 import { DonationForm } from "@/components/donations/donation-form";
 import { DonationTable } from "@/components/donations/donation-table";
+import { UnlinkedReceipts } from "@/components/donations/unlinked-receipts";
 import { NoneConfirmation } from "@/components/tax/none-confirmation";
 
 interface PageProps {
@@ -119,6 +120,27 @@ export default async function TaxDonationsPage({ params }: PageProps) {
                 />
               </CardContent>
             </Card>
+
+            {view.unlinkedReceipts.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">
+                    Receipts waiting to be logged ({view.unlinkedReceipts.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <p className="px-4 pb-2 text-xs text-muted-foreground">
+                    Donation receipts you filed that have no gift logged yet. Adding one opens the form filled in from
+                    the saved reading (your corrections win); nothing is saved until you press save.
+                  </p>
+                  <UnlinkedReceipts
+                    receipts={view.unlinkedReceipts}
+                    year={year}
+                    personalEntityId={view.personalEntityId}
+                  />
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader className="pb-2">

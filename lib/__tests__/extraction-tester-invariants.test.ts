@@ -217,7 +217,7 @@ describe("bulk plan vs server-side expect guard (full state sweep)", () => {
 describe("SSN-shaped text is removed from every text slot of every tax schema", () => {
   const SSN_FORMS = ["123-45-6789", "123456789", "SSN 123-45-6789 on file", "123-45-6789."];
 
-  for (const schemaType of ["w2", "1099", "form_1098", "property_tax", "k1", "tax_return"] as const) {
+  for (const schemaType of ["w2", "1099", "form_1098", "property_tax", "k1", "tax_return", "donation_receipt"] as const) {
     it(`${schemaType}: top-level text fields, list-row text columns and summary`, () => {
       const schema = getTaxSchema(schemaType);
       for (const ssn of SSN_FORMS) {
@@ -240,7 +240,7 @@ describe("SSN-shaped text is removed from every text slot of every tax schema", 
   }
 
   it("a registry key whose name suggests an SSN/ITIN/last-4 does not exist in any schema", () => {
-    for (const schemaType of ["w2", "1099", "form_1098", "property_tax", "k1", "tax_return"] as const) {
+    for (const schemaType of ["w2", "1099", "form_1098", "property_tax", "k1", "tax_return", "donation_receipt"] as const) {
       for (const def of getTaxSchema(schemaType).fields) {
         expect(def.key).not.toMatch(/ssn|itin|socialSecurityNumber|taxpayerId|last4|tin$/i);
         for (const item of def.itemFields ?? []) expect(item.key).not.toMatch(/ssn|itin|socialSecurityNumber|last4|tin$/i);

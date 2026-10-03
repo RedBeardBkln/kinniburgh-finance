@@ -18,6 +18,7 @@ export type DocType =
   | "form_1098"
   | "property_tax"
   | "tax_return"
+  | "donation_receipt"
   | "other";
 
 export interface TransactionRow {
@@ -159,6 +160,7 @@ Rules: amountDueCents and gridCreditCents in integer cents. usageKwh as decimal.
   property_tax: buildTaxExtractionPrompt("property_tax"),
   k1: buildTaxExtractionPrompt("k1"),
   tax_return: buildTaxExtractionPrompt("tax_return"),
+  donation_receipt: buildTaxExtractionPrompt("donation_receipt"),
 
   other: `Summarize this document and return ONLY valid JSON:
 {
@@ -198,6 +200,9 @@ export function classifyDocType(docType: string, fileName?: string): DocType {
     mortgage_interest: "form_1098",
     form_1098: "form_1098",
     property_tax: "property_tax",
+    // No TYPE_KEYWORDS entry on purpose: a file name is never enough to guess a
+    // donation receipt; the owner picks the type.
+    donation_receipt: "donation_receipt",
   };
 
   if (mapped[docType]) return mapped[docType]!;

@@ -1,5 +1,9 @@
 import { db } from "@/lib/db";
 import { flagsForDonation, flagsForYear, loggedTotals, type DonationFlag } from "@/lib/donation-substantiation";
+import { loadUnlinkedReceipts } from "@/lib/donation-receipts-build";
+import { readDonationReceipt, receiptFlags, type ReceiptFlag, type ReceiptGiftView } from "@/lib/donation-receipt";
+import { isUsableExtraction } from "@/lib/document-extraction-state";
+import { resolveTaxDocForCompute } from "@/lib/tax-extraction-policy";
 import { formatDateEt, taxYearBoundsUtc, toIsoDateInput } from "@/lib/tax-log-dates";
 import { NONE_CONFIRMATION_KEYS, isNoneConfirmed } from "@/lib/tax-none-confirmation";
 
@@ -21,7 +25,8 @@ export interface DonationRowView {
   receiptDocumentId: string | null;
   receiptName: string | null;
   notes: string | null;
-  flags: DonationFlag[];
+  /** The gift's own substantiation flags, plus (for a linked donation_receipt) the receipt-derived ones. */
+  flags: Array<DonationFlag | ReceiptFlag>;
 }
 
 export interface DocumentOption {
@@ -37,11 +42,40 @@ export interface DonationsPageView {
   yearFlags: DonationFlag[];
   totals: { cashCents: number; noncashCents: number };
   documents: DocumentOption[];
+  /** Personal donation_receipt documents with no gift logged yet (year match or no year on file). */
+  unlinkedReceipts: ReceiptGiftView[];
   years: number[];
 }
 
 function docLabel(d: { documentName: string | null; docType: string }): string {
   return d.documentName && d.documentName.trim() !== "" ? d.documentName : d.docType;
+}
+
+interface LinkedReceiptDoc {
+  docType: string;
+  extractionStatus: string | null;
+  extractionData: unknown;
+  extractionCorrections: unknown;
+  extractionConfirmedAt: Date | null;
+}
+
+/**
+ * Flags from a LINKED donation_receipt's effective reading (the owner's
+ * corrections win), so the CPA "goods or services were provided" flag stays
+ * visible on the saved gift. Reads only through resolveTaxDocForCompute; empty
+ * for any other kind of linked document or when the policy withholds the values.
+ */
+function savedReceiptFlags(doc: LinkedReceiptDoc | null): ReceiptFlag[] {
+  if (!doc || doc.docType !== "donation_receipt") return [];
+  // Nothing readable yet: no flags (an empty reading would only say "not stated").
+  if (!isUsableExtraction("donation_receipt", doc.extractionData)) return [];
+  const resolved = resolveTaxDocForCompute(doc);
+  if (resolved.excludedByPolicy) return [];
+  const effective = resolved.extractionData;
+  const data =
+    typeof effective === "object" && effective !== null ? (effective as { data?: unknown }).data : null;
+  if (typeof data !== "object" || data === null) return [];
+  return receiptFlags(readDonationReceipt(data), { mode: "saved" });
 }
 
 export async function loadDonationsPage(year: number): Promise<DonationsPageView> {
@@ -64,6 +98,7 @@ export async function loadDonationsPage(year: number): Promise<DonationsPageView
       yearFlags: [],
       totals: { cashCents: 0, noncashCents: 0 },
       documents: [],
+      unlinkedReceipts: [],
       years,
     };
   }
@@ -73,7 +108,18 @@ export async function loadDonationsPage(year: number): Promise<DonationsPageView
     db.donation.findMany({
       where: { entityId: personal.id, archivedAt: null, date: { gte: bounds.start, lt: bounds.endExclusive } },
       orderBy: [{ date: "asc" }, { createdAt: "asc" }],
-      include: { receiptDocument: { select: { documentName: true, docType: true } } },
+      include: {
+        receiptDocument: {
+          select: {
+            documentName: true,
+            docType: true,
+            extractionStatus: true,
+            extractionData: true,
+            extractionCorrections: true,
+            extractionConfirmedAt: true,
+          },
+        },
+      },
     }),
     db.taxWorkspace.findUnique({
       where: { entityId_taxYear: { entityId: personal.id, taxYear: year } },
@@ -94,6 +140,8 @@ export async function loadDonationsPage(year: number): Promise<DonationsPageView
     orderBy: { createdAt: "desc" },
   });
 
+  const unlinkedReceipts = await loadUnlinkedReceipts(personal.id, year);
+
   const rows: DonationRowView[] = donations.map((d) => ({
     id: d.id,
     dateIso: toIsoDateInput(d.date),
@@ -105,7 +153,7 @@ export async function loadDonationsPage(year: number): Promise<DonationsPageView
     receiptDocumentId: d.receiptDocumentId,
     receiptName: d.receiptDocument ? docLabel(d.receiptDocument) : null,
     notes: d.notes,
-    flags: flagsForDonation(d),
+    flags: [...flagsForDonation(d), ...savedReceiptFlags(d.receiptDocument)],
   }));
 
   return {
@@ -116,6 +164,7 @@ export async function loadDonationsPage(year: number): Promise<DonationsPageView
     yearFlags: flagsForYear(donations),
     totals: loggedTotals(donations),
     documents: docRows.map((d) => ({ id: d.id, label: docLabel(d) })),
+    unlinkedReceipts,
     years,
   };
 }

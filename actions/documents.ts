@@ -38,12 +38,16 @@ import { Prisma } from "@prisma/client";
 import {
   MAX_SIZE_BYTES,
   buildDocumentFileKey,
+  mimeTypeForFileKey,
   validateDocumentFile,
 } from "@/lib/document-upload";
 import { getEntityBySlug } from "@/lib/entity";
 import { normalizePayee } from "@/lib/tags";
 import { isTaxDocType, validateAttribution } from "@/lib/document-attribution";
 import { deriveEffectiveDocumentTaxYear, planYearFill } from "@/lib/document-year";
+import { resolveEffectiveExtraction } from "@/lib/extraction-effective";
+import { generateDocumentName } from "@/lib/doc-naming";
+import { RETYPE_TARGETS, isPlaceholderName, retypeBlockReason } from "@/lib/document-retype";
 
 async function requireAuth() {
   const session = await auth();
@@ -58,6 +62,7 @@ const DOC_TYPES = [
   "extension",
   "property_tax",
   "mortgage_interest",
+  "donation_receipt",
   "policy",
   "statement",
   "bank_statement",
@@ -448,7 +453,9 @@ async function runExtraction(
 
   try {
     const buffer = await downloadDocumentFile(doc.fileKey);
-    const mimeType = doc.fileKey.endsWith(".pdf") ? "application/pdf" : "image/jpeg";
+    // pdf / jpeg / png / webp from the fileKey extension; anything else keeps the
+    // previous image/jpeg default (a PNG/WebP used to be sent mislabelled).
+    const mimeType = mimeTypeForFileKey(doc.fileKey);
     // Document.docType stays the literal "bank_statement" for every
     // BankStatement-linked document regardless of the account's real type
     // (deliberate — avoids adding a new docType value). Derive the actual
@@ -527,6 +534,40 @@ async function runExtraction(
       // best effort — see comment above.
     }
 
+    // Donation receipts only: refresh a PLACEHOLDER name ("Donation Receipt" or
+    // empty, e.g. right after a retype from "Other") from what was just read
+    // (charity + year). A name the owner typed is never touched. Same
+    // best-effort rules as the year fill above: its own try/catch (must never
+    // flip a good "complete" to "failed"), and a guarded updateMany that
+    // silently no-ops if the name changed while the 20-60 s extraction ran.
+    if (doc.docType === "donation_receipt") {
+      try {
+        if (isPlaceholderName(doc.documentName, doc.docType, doc.taxYear)) {
+          const effectiveInput = {
+            docType: doc.docType,
+            extractionData: result,
+            extractionCorrections: doc.extractionCorrections,
+            extractionConfirmedAt: discarding ? null : doc.extractionConfirmedAt,
+          };
+          const effective = resolveEffectiveExtraction(effectiveInput);
+          const year = doc.taxYear ?? deriveEffectiveDocumentTaxYear(effectiveInput);
+          const newName = generateDocumentName(
+            "donation_receipt",
+            year,
+            effective.extractionData as Pick<ExtractedDocument, "docType" | "data">
+          );
+          if (newName !== doc.documentName) {
+            await db.document.updateMany({
+              where: { id: documentId, archivedAt: null, documentName: doc.documentName },
+              data: { documentName: newName },
+            });
+          }
+        }
+      } catch {
+        // best effort — see comment above.
+      }
+    }
+
     // Best-effort only, deliberately outside the try/catch that decides
     // success vs failure: the extraction already succeeded and was persisted
     // above, so a revalidation failure must never flip it to "failed".
@@ -583,6 +624,75 @@ export async function runDocumentExtraction(
   };
   const run = await runExtraction(documentId, safeOptions, user.id);
   return run.result ? { ok: true } : { ok: false, error: run.error ?? "Extraction failed" };
+}
+
+// ── Change a document's type (the /documents "Change type" control) ──────────
+
+const changeDocumentTypeSchema = z.object({
+  documentId: z.string().uuid(),
+  docType: z.string().refine((value) => RETYPE_TARGETS.includes(value), "That document type cannot be chosen here."),
+});
+
+/**
+ * Switches a document among the retypable (tax-ish) types. It does NOT call the
+ * AI: it reports `extract: true` when the new type has an extraction schema and
+ * the client then runs `runDocumentExtraction(id, { force: true })` (the same
+ * two-step pattern as the tax workspace's "Rename / retype"). A VERIFIED
+ * document is refused ("un-verify first", the same rule updateTaxDocument
+ * enforces) and the write itself is guarded against a verification landing
+ * between the read and the write. Stale extraction data/corrections from the
+ * old type are left in place (never deleted): they are inert for the new
+ * schema and the row reads "not usable / retry" until it is re-read.
+ */
+export async function changeDocumentType(input: {
+  documentId: string;
+  docType: string;
+}): Promise<{ ok: true; changed: boolean; extract: boolean } | { ok: false; error: string }> {
+  await requireAuth();
+
+  const parsed = changeDocumentTypeSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  }
+  const { documentId, docType: nextDocType } = parsed.data;
+
+  const doc = await db.document.findFirst({
+    where: { id: documentId, archivedAt: null },
+    select: { docType: true, extractionConfirmedAt: true, documentName: true, taxYear: true },
+  });
+  if (!doc) return { ok: false, error: "Document not found" };
+
+  const blocked = retypeBlockReason({
+    currentDocType: doc.docType,
+    nextDocType,
+    verified: doc.extractionConfirmedAt !== null,
+  });
+  if (blocked) return { ok: false, error: blocked };
+  if (doc.docType === nextDocType) return { ok: true, changed: false, extract: false };
+
+  // A placeholder name follows the type; a name the owner typed is kept.
+  const refreshName = isPlaceholderName(doc.documentName, doc.docType, doc.taxYear);
+  const written = await db.document.updateMany({
+    where: { id: documentId, archivedAt: null, docType: doc.docType, extractionConfirmedAt: null },
+    data: {
+      docType: nextDocType,
+      ...(refreshName ? { documentName: generateDocumentName(nextDocType, doc.taxYear, null) } : {}),
+    },
+  });
+  if (written.count === 0) {
+    return { ok: false, error: "The document changed while you were editing - reload and try again." };
+  }
+
+  // Best-effort, outside the success/failure decision (revalidatePath can throw
+  // outside a request context).
+  try {
+    revalidatePath("/documents");
+    revalidatePath("/tax");
+    revalidatePath(`/documents/${documentId}/review`);
+  } catch {
+    // ignore
+  }
+  return { ok: true, changed: true, extract: isExtractableDocType(nextDocType) };
 }
 
 /**
