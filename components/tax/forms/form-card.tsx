@@ -74,7 +74,7 @@ function InputRow({ input }: { input: FormInputRef }) {
   );
 }
 
-export function FormCard({ entry }: { entry: FormEntry }) {
+export function FormCard({ entry, taxYear }: { entry: FormEntry; taxYear: number }) {
   const muted = entry.applicability === "not_applicable";
   const showReadiness = !muted && entry.readiness !== "not_assessed";
   const pct = entry.fieldsTotal > 0 ? Math.round((entry.fieldsReady / entry.fieldsTotal) * 100) : 0;
@@ -134,7 +134,7 @@ export function FormCard({ entry }: { entry: FormEntry }) {
               {entry.missing.length > 0 ? `Show ${entry.missing.length} missing field(s) and all fields` : "Show fields"}
             </summary>
             <div className="mt-2">
-              <FormFieldList fields={entry.fields} />
+              <FormFieldList fields={entry.fields} taxYear={taxYear} />
             </div>
           </details>
         </div>

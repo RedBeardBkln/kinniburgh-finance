@@ -56,7 +56,7 @@ export function EntityFormsSectionView({ section, taxYear }: { section: EntityFo
 
       <div className="grid gap-3 md:grid-cols-2">
         {section.entries.map((entry) => (
-          <FormCard key={entry.id} entry={entry} />
+          <FormCard key={entry.id} entry={entry} taxYear={taxYear} />
         ))}
       </div>
     </section>

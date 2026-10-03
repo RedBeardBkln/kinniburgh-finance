@@ -13,8 +13,10 @@ interface PageProps {
   params: Promise<{ year: string }>;
 }
 
-// READ-ONLY by design: this page must never create or modify anything. It does
-// not call ensurePersonalWorkspace / ensureTaxWorkspace — see lib/tax-forms-build.ts.
+// Rendering is READ-ONLY: this page never creates or modifies anything while it
+// loads (it does not call ensurePersonalWorkspace / ensureTaxWorkspace — see
+// lib/tax-forms-build.ts). Writes happen only when the owner clicks a missing
+// field's fix (answer / upload dialogs), via their own server actions.
 export default async function TaxFormsPage({ params }: PageProps) {
   const session = await auth();
   if (!session?.user) redirect("/login");
@@ -74,7 +76,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
           <h2 className="text-lg font-semibold">Federal — {data.householdLabel}</h2>
           <div className="grid gap-3 lg:grid-cols-2">
             {data.federal.map((entry) => (
-              <FormCard key={entry.id} entry={entry} />
+              <FormCard key={entry.id} entry={entry} taxYear={year} />
             ))}
           </div>
         </section>
@@ -83,7 +85,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
           <h2 className="text-lg font-semibold">Connecticut — household</h2>
           <div className="grid gap-3 lg:grid-cols-2">
             {data.connecticut.map((entry) => (
-              <FormCard key={entry.id} entry={entry} />
+              <FormCard key={entry.id} entry={entry} taxYear={year} />
             ))}
           </div>
         </section>
@@ -98,7 +100,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
             {data.needsCpaInput.map((entry) => (
-              <FormCard key={entry.id} entry={entry} />
+              <FormCard key={entry.id} entry={entry} taxYear={year} />
             ))}
           </div>
         </section>

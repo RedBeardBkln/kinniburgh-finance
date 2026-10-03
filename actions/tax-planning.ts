@@ -135,6 +135,45 @@ export async function answerTaxQuestion(input: z.input<typeof answerSchema>) {
   return { success: true };
 }
 
+const answerByKeySchema = z.object({
+  taxYear: z.number().int().min(2000).max(2100),
+  key: z.string().min(1).max(100),
+  answer: z.string().trim().min(1).max(4000),
+});
+
+/**
+ * Answers one planning question by its bank key for a tax year — used by the
+ * Forms page's "fix a missing field" dialog, which has no question ids. Opens
+ * (creates, if needed) that year's Personal workspace first, exactly as visiting
+ * the workspace page would. A choice question only accepts one of its options.
+ */
+export async function answerTaxQuestionByKey(
+  input: z.input<typeof answerByKeySchema>
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireAuth();
+  const parsed = answerByKeySchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  const { taxYear, key, answer } = parsed.data;
+
+  const def = TAX_QUESTION_BANK.find((q) => q.key === key);
+  if (!def) return { ok: false, error: "Unknown question" };
+  if (def.options && !def.options.some((o) => o.value === answer)) {
+    return { ok: false, error: "Pick one of the listed answers" };
+  }
+
+  const workspaceId = await ensurePersonalWorkspace(taxYear);
+  const result = await db.taxQuestion.updateMany({
+    where: { workspaceId, key },
+    data: { answer: answer as unknown as never, answeredAt: new Date(), skippedReason: null },
+  });
+  if (result.count === 0) return { ok: false, error: "That question is not part of this workspace" };
+
+  revalidatePath("/tax");
+  revalidatePath(`/tax/forms/${taxYear}`);
+  revalidatePath(`/tax/personal/${taxYear}`);
+  return { ok: true };
+}
+
 export async function getWorkspaceQuestions(workspaceId: string) {
   await requireAuth();
   return db.taxQuestion.findMany({

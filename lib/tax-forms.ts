@@ -38,6 +38,7 @@ import {
   type PersonRef,
 } from "@/lib/document-attribution";
 import { isEntityActiveForYear } from "@/lib/tax-entities";
+import { resolveFieldFixes, type FieldFix, type FixContext } from "@/lib/tax-form-fixes";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -136,6 +137,12 @@ export interface FormFieldStatus {
    * entries that do not read form-plan lines. `haveData` is true unless "missing".
    */
   basis?: FieldBasis;
+  /**
+   * For a MISSING line: the ways to supply the data (answer a question, upload /
+   * review a document, jump to the books or mileage log). Absent when the line
+   * has data, or for entries that do not read form-plan lines.
+   */
+  fixes?: FieldFix[];
 }
 
 export interface FormOpportunityRef {
@@ -411,7 +418,8 @@ export function noteSaysDisregarded(notes: string | null): boolean {
 function planFields(
   plan: readonly FormPlan[],
   planFormName: string,
-  basisByLine: Record<string, FieldBasis>
+  basisByLine: Record<string, FieldBasis>,
+  fixCtx: FixContext
 ): FormFieldStatus[] {
   const form = plan.find((f) => f.formName === planFormName);
   return form
@@ -420,6 +428,7 @@ function planFields(
         source: f.source,
         haveData: f.haveData,
         basis: basisByLine[f.line] ?? (f.haveData ? "not_document_based" : "missing"),
+        ...(f.haveData ? {} : { fixes: resolveFieldFixes(f.line, fixCtx) }),
       }))
     : [];
 }
@@ -525,6 +534,17 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
 
   const plan = computePersonalFormPlan(input.formPlanInput);
   const basisByLine = computePersonalFormPlanBasis(input.formPlanInput);
+  const lineHasData: Record<string, boolean> = {};
+  for (const form of plan) for (const field of form.fields) lineHasData[field.line] = field.haveData;
+  const fixCtx: FixContext = {
+    taxYear,
+    personalEntityId: personalEntity?.id ?? null,
+    ekcSlug: ekc?.slug ?? null,
+    svSlug: sv?.slug ?? null,
+    questions,
+    documents,
+    lineHasData,
+  };
   const answerMap: Record<string, unknown> = {};
   for (const q of questions) answerMap[q.key] = q.answer;
   const { excluded } = evaluateAnswers(answerMap);
@@ -539,7 +559,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     reason: "The core federal return for the household; every other federal schedule attaches to it.",
     source: "lib/tax-guidance.ts PERSONAL_FORM_PLAN (Form 1040); specs/09 (married filing jointly)",
     planFormName: PLAN_FORM.f1040,
-    fields: planFields(plan, PLAN_FORM.f1040, basisByLine).filter((f) => svActive || !SV_ONLY_PLAN_LINES.has(f.line)),
+    fields: planFields(plan, PLAN_FORM.f1040, basisByLine, fixCtx).filter((f) => svActive || !SV_ONLY_PLAN_LINES.has(f.line)),
     inputs: [
       ...refs(personalDocs(["w2", "1099", "extension"])),
       ...priorReturnRefs,
@@ -561,7 +581,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
         : "Business income (EK Consulting Schedule C) flows to Form 1040 through Schedule 1."
       : "Would be needed for business/rental income or above-the-line adjustments; none of those entities apply this year.",
     source: "lib/tax-guidance.ts PERSONAL_FORM_PLAN (Form 1040 lines tagged \"Schedule 1\")",
-    fields: planFields(plan, PLAN_FORM.f1040, basisByLine)
+    fields: planFields(plan, PLAN_FORM.f1040, basisByLine, fixCtx)
       .filter((f) => (SCHEDULE_1_LINES as readonly string[]).includes(f.line))
       .filter((f) => svActive || !SV_ONLY_PLAN_LINES.has(f.line)),
   });
@@ -594,7 +614,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     reason: scheduleAReason,
     source: "lib/tax-guidance.ts PERSONAL_FORM_PLAN (Schedule A); lib/tax-compute.ts selectDeductionMethod (TY2025 draft)",
     planFormName: PLAN_FORM.scheduleA,
-    fields: planFields(plan, PLAN_FORM.scheduleA, basisByLine),
+    fields: planFields(plan, PLAN_FORM.scheduleA, basisByLine, fixCtx),
     inputs: [...refs(personalDocs(["mortgage_interest", "property_tax"])), ...priorReturnRefs],
     confirmWithCpa: scheduleAConfirm,
     cpaNote: propertyTaxNote,
@@ -612,7 +632,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       : "EK Consulting has no filing for this tax year (entity not active for the year).",
     source: "specs/03 + specs/07 item 7; Entity.taxStatusNotes (EK Consulting); lib/tax-guidance.ts PERSONAL_FORM_PLAN (Schedule C)",
     planFormName: PLAN_FORM.scheduleC,
-    fields: planFields(plan, PLAN_FORM.scheduleC, basisByLine),
+    fields: planFields(plan, PLAN_FORM.scheduleC, basisByLine, fixCtx),
     inputs: ekcActive
       ? [
           ...refs(matchDocuments(documents, { taxYear, docTypes: ["1099", "bank_statement"], entityIds: ekcIds })),
@@ -668,7 +688,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       : "Sudden Valley was formed in 2026; there is no rental activity for this tax year.",
     source: "specs/09 + specs/03 (Sudden Valley formed Feb 2026); prisma/seed.ts + lib/tax-checklist.ts RENTAL_CHECKLIST (Schedule E); lib/tax-guidance.ts PERSONAL_FORM_PLAN",
     planFormName: PLAN_FORM.scheduleE,
-    fields: planFields(plan, PLAN_FORM.scheduleE, basisByLine),
+    fields: planFields(plan, PLAN_FORM.scheduleE, basisByLine, fixCtx),
     inputs: svActive
       ? [
           ...refs(
@@ -714,7 +734,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     reason: f5695Reason,
     source: "lib/tax-guidance.ts TAX_QUESTION_BANK solar_credit + evaluateAnswers; PERSONAL_FORM_PLAN (Form 5695)",
     planFormName: PLAN_FORM.f5695,
-    fields: planFields(plan, PLAN_FORM.f5695, basisByLine),
+    fields: planFields(plan, PLAN_FORM.f5695, basisByLine, fixCtx),
     inputs: priorReturnRefs,
   });
 
@@ -728,12 +748,12 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     reason: "The household is a Connecticut resident filer.",
     source: "specs/09 (CT tables A–E); lib/tax-guidance.ts PERSONAL_FORM_PLAN (CT-1040)",
     planFormName: PLAN_FORM.ct1040,
-    fields: planFields(plan, PLAN_FORM.ct1040, basisByLine),
+    fields: planFields(plan, PLAN_FORM.ct1040, basisByLine, fixCtx),
     inputs: [...refs(personalDocs(["w2"])), ...priorReturnRefs],
     cpaNote: "W-2 box 17 (CT withholding) feeds this return.",
   });
 
-  const propertyTaxCreditField = planFields(plan, PLAN_FORM.ct1040, basisByLine).filter((f) => f.line === "Property tax credit");
+  const propertyTaxCreditField = planFields(plan, PLAN_FORM.ct1040, basisByLine, fixCtx).filter((f) => f.line === "Property tax credit");
   const ctSchedule3 = makeEntry({
     id: "ct-schedule-3",
     formName: "CT-1040 Schedule 3 (Property Tax Credit)",
