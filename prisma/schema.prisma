@@ -40,6 +40,8 @@ model User {
   donationsCreated      Donation[]            @relation("DonationCreator")
   fixedAssetsCreated    FixedAsset[]          @relation("FixedAssetCreator")
   taxQuestionnaireNotes TaxQuestionnaire[]    @relation("TaxQuestionnaireNoteAuthor")
+  taxReturnOverridesSet      TaxReturnOverride[] @relation("TaxReturnOverrideSetter")
+  taxReturnOverridesArchived TaxReturnOverride[] @relation("TaxReturnOverrideArchiver")
 }
 
 model PasswordResetToken {
@@ -102,6 +104,7 @@ model Entity {
   donations          Donation[]
   fixedAssets        FixedAsset[]
   taxQuestionnaires  TaxQuestionnaire[]
+  taxReturnOverrides TaxReturnOverride[]
 }
 
 model Institution {
@@ -1006,6 +1009,42 @@ model TaxQuestionnaire {
   noteUpdatedBy User?  @relation("TaxQuestionnaireNoteAuthor", fields: [noteUpdatedById], references: [id], onDelete: SetNull)
 
   @@unique([taxYear, entityId, questionnaireId])
+}
+
+// ─── TY2025 return overrides (CPA / owner pins layered over the computed return) ─
+// Append-only: a change creates version + 1 and archives the previous active row
+// ("superseded"); clearing only sets archivedAt ("cleared"). NO delete path (tax
+// records are never hard-deleted). `reason` / `archiveReason` are tax records but
+// are NEVER written to AuditLog. Active = archivedAt IS NULL.
+model TaxReturnOverride {
+  id               String    @id @default(uuid())
+  taxYear          Int
+  entityId         String    // Personal entity id (household return), same convention as TaxQuestionnaire
+  targetKind       String    // "line" | "decision" | "rule_ack" (app-validated, no DB enum)
+  targetKey        String    // LineKey | decision id (keyof Ty2025Decisions) | rule id
+  version          Int       // 1, 2, 3 ... per (taxYear, entityId, targetKind, targetKey)
+  valueKind        String    // "money_cents" | "choice" | "ack"
+  valueCents       Int?      // line overrides: whole dollars expressed in cents
+  valueText        String?   // decision choice id (<= 40 chars, validated against the typed registry)
+  computedSnapshot Json      // { status, cents | null, engineVersion? } of the BASE line (rule status for acks) WHEN set; server-computed
+  authority        String    @default("cpa") // "cpa" | "owner" (who instructed it)
+  reason           String    // REQUIRED, 3..500 chars; never written to AuditLog
+  setById          String?
+  setByName        String    // display-name snapshot so who-set survives a SET NULL
+  setAt            DateTime  @default(now())
+  archivedAt       DateTime? // set when superseded or cleared; NULL = active
+  archivedById     String?
+  archiveKind      String?   // "superseded" | "cleared"
+  archiveReason    String?   // required when cleared; <= 500; never audited
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  entity     Entity @relation(fields: [entityId], references: [id])
+  setBy      User?  @relation("TaxReturnOverrideSetter", fields: [setById], references: [id], onDelete: SetNull)
+  archivedBy User?  @relation("TaxReturnOverrideArchiver", fields: [archivedById], references: [id], onDelete: SetNull)
+
+  @@unique([taxYear, entityId, targetKind, targetKey, version])
+  @@index([taxYear, entityId, archivedAt])
 }
 
 // ─── Tax deadlines (quarterly estimates + annual filings) ─────────────────────
