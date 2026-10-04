@@ -254,7 +254,7 @@ function ctInput(over: Partial<CtTaxInput> = {}): CtTaxInput {
     additions: D(0),
     subtractions: D(0),
     federalAmt: D(0),
-    otherStateWithholdingPresent: false,
+    otherJurisdictionCredit: D(0),
     ...over,
   };
 }
@@ -321,8 +321,27 @@ describe("computeCtTax", () => {
     expect(st(computeCtTax(ctInput({ federalAmt: D(100) })), "ct1040.9")).toBe("needs_cpa_rule_unverified");
   });
 
-  it("non-CT state withholding on a W-2 -> line 10 needs_cpa_judgment", () => {
-    expect(st(computeCtTax(ctInput({ otherStateWithholdingPresent: true })), "ct1040.10")).toBe("needs_cpa_judgment");
+  it("line 3 = federal AGI + additions (not CT AGI); line 8 = line 6 - line 7, never below 0; line 10 = line 8 + line 9", () => {
+    const r = computeCtTax(ctInput({ additions: D(5000), subtractions: D(2000), otherJurisdictionCredit: D(1000) }));
+    expect(amt(r, "ct1040.3")).toBe("155000");
+    expect(amt(r, "ct1040.ctAgi")).toBe("153000");
+    const tax = Number(amt(r, "ct1040.6"));
+    expect(amt(r, "ct1040.8")).toBe(String(tax - 1000));
+    expect(amt(r, "ct1040.10")).toBe(String(tax - 1000));
+    const big = computeCtTax(ctInput({ otherJurisdictionCredit: D(99999) }));
+    expect(amt(big, "ct1040.8")).toBe("0");
+    expect(amt(big, "ct1040.10")).toBe("0");
+  });
+
+  it("line 7 not final blocks lines 8 and 10 with line 7's status and reason", () => {
+    const r = computeCtTax(ctInput({ otherJurisdictionCredit: null, otherJurisdictionBlock: { status: "needs_cpa_judgment", reason: "Line 7 waits for the CPA." } }));
+    expect(st(r, "ct1040.8")).toBe("needs_cpa_judgment");
+    expect(st(r, "ct1040.10")).toBe("needs_cpa_judgment");
+    expect(amt(r, "ct1040.8")).toBeNull();
+    expect(amt(r, "ct1040.6")).not.toBeNull();
+    expect(r.status).toBe("needs_cpa_judgment");
+    const dflt = computeCtTax(ctInput({ otherJurisdictionCredit: null }));
+    expect(st(dflt, "ct1040.8")).toBe("missing_input");
   });
 
   it("federal AGI missing -> missing_input", () => {
@@ -332,24 +351,31 @@ describe("computeCtTax", () => {
   });
 });
 
-describe("computeCtBalance", () => {
-  it("tax 7,250 - credit 0 + use tax 0 - payments 6,900 = 350 owed; penalty and interest flagged unverified", () => {
-    const r = computeCtBalance({ taxBeforeCredits: D(7250), propertyTaxCredit: D(0), useTax: D(0), totalPayments: D(6900) });
-    expect(amt(r, "ct1040.balance")).toBe("350");
+describe("computeCtBalance (line 15 use tax and Schedule 4 line 69b only)", () => {
+  it("use tax 0 -> line 15 is a computed 0 and 69b a not_applicable 0", () => {
+    const r = computeCtBalance({ useTax: D(0) });
     expect(amt(r, "ct1040.15")).toBe("0");
-    expect(st(r, "ct1040.27")).toBe("needs_cpa_rule_unverified");
-    expect(st(r, "ct1040.28")).toBe("needs_cpa_rule_unverified");
-    expect(amt(r, "ct1040.27")).toBeNull();
+    expect(st(r, "ct1040.s4.69b")).toBe("not_applicable");
+    expect(r.lines.map((l) => l.key).sort()).toEqual(["ct1040.15", "ct1040.s4.69b"]);
   });
 
-  it("use tax not answered -> line 15 missing_input (must enter 0 or an amount) and no balance", () => {
-    const r = computeCtBalance({ taxBeforeCredits: D(7250), propertyTaxCredit: D(0), useTax: null, totalPayments: D(6900) });
+  it("use tax from the rule is all line 69b; a stated total has no breakdown (informational)", () => {
+    const rule = computeCtBalance({ useTax: D(63.5), useTaxFromRule: true, useTaxReason: "rule" });
+    expect(amt(rule, "ct1040.15")).toBe("64");
+    expect(amt(rule, "ct1040.s4.69b")).toBe("64");
+    const stated = computeCtBalance({ useTax: D(120) });
+    expect(amt(stated, "ct1040.15")).toBe("120");
+    const l = stated.lines.find((x) => x.key === "ct1040.s4.69b");
+    expect(l?.status).toBe("not_yet_computed");
+    expect(l?.informational).toBe(true);
+    expect(stated.status).toBe("computed");
+  });
+
+  it("use tax not answered -> lines 15 and 69b missing_input (must enter 0 or an amount)", () => {
+    const r = computeCtBalance({ useTax: null });
     expect(st(r, "ct1040.15")).toBe("missing_input");
-    expect(amt(r, "ct1040.balance")).toBeNull();
-  });
-
-  it("an overpayment is negative", () => {
-    const r = computeCtBalance({ taxBeforeCredits: D(1000), propertyTaxCredit: D(100), useTax: D(0), totalPayments: D(1500) });
-    expect(amt(r, "ct1040.balance")).toBe("-600");
+    expect(st(r, "ct1040.s4.69b")).toBe("missing_input");
+    const unsure = computeCtBalance({ useTax: null, useTaxBlock: { status: "needs_cpa_judgment", reason: "unsure" } });
+    expect(st(unsure, "ct1040.15")).toBe("needs_cpa_judgment");
   });
 });

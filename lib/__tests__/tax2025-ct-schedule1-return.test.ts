@@ -20,8 +20,8 @@ function s1Facts(): Ty2025Facts {
 }
 
 describe("engine version", () => {
-  it("is ty2025-1b.3 (rule, constants and catalog changed)", () => {
-    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.3");
+  it("is ty2025-1b.4 (CT-1040 derived lines, credits gates, Schedule 3 / 4 detail: rules and catalog changed)", () => {
+    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.4");
   });
 });
 

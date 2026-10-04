@@ -1,14 +1,16 @@
 // Connecticut Form CT-1040 pieces for TY2025, MFJ: CT AGI, CT income tax (TCS
 // Tables A-E via lib/tax-compute.ts, Table C corrected, defect D7), the CT AMT
-// trigger, the property tax credit, use tax, late-payment items and the balance.
+// trigger, the property tax credit (line 11 / Schedule 3), use tax (line 15 / Schedule 4).
 //
 // What is NOT guessed (specs/09 "Not verified"):
 //   - CT AGI up to $102,000: the instructions send the filer to the printed CT tax
 //     table, which is not transcribed; the TCS figure is shown in the reason only
 //     -> needs_cpa_rule_unverified. CT AGI of $24,000 or less (MFJ): no tax (verified).
 //   - CT-6251 (CT AMT) when there is a federal AMT -> needs_cpa_rule_unverified.
-//   - The CT late-payment minimum and month-counting rules -> informational,
-//     needs_cpa_rule_unverified (the 10% and 1%/month rates are verified).
+//   - The CT late-payment minimum and month-counting rules, CT-2210 interest and the refund line 25
+//     live in rules/ct-settlement.ts (informational, needs_cpa_rule_unverified).
+//   - Lines 7 / 13 / 20a-20d (credits the engine does not compute) come from rules/ct-credits.ts; line 7 enters
+//     computeCtTax as an input. The pure arithmetic lines 12, 14, 16, 17, 21, 22 and 26 are derived in return.ts.
 //   - The CT Schedule 1 modifications themselves are built by rules/ct-schedule1.ts (line by
 //     line); this file only receives the two totals (line 38 additions, line 50 subtractions).
 //     When either total is not final the rule's blocking status and reason (`modificationsBlock`)
@@ -21,7 +23,7 @@ import { computeConnecticutTax } from "@/lib/tax-compute";
 import { K } from "@/lib/tax2025/constants";
 import type { PropertyBillKind } from "@/lib/tax2025/facts";
 import { D, ZERO, amountLine, blockedLine, fmt, maxD, minD, roundLine, sumThenRound } from "@/lib/tax2025/money";
-import { aggregateStatus, type LineKey, type RuleLine, type RuleResult } from "@/lib/tax2025/types";
+import { aggregateStatus, type LineKey, type RuleLine, type RuleResult, type RuleStatus } from "@/lib/tax2025/types";
 
 // ── Property tax credit (CT-1040 Schedule 3 / line 11) ───────────────────────
 
@@ -61,30 +63,48 @@ const CREDIT_CITATIONS = [
   "CT_PROPERTY_TAX_CREDIT_PHASEOUT_MFJ",
 ];
 
+const S3_63 = { key: "ct1040.s3.63", formLine: "Sch 3 line 63", label: "Property tax credit: total property tax paid (lines 60 through 62)" } as const;
+const S3_65 = { key: "ct1040.s3.65", formLine: "Sch 3 line 65", label: "Property tax credit: lesser of line 63 or line 64" } as const;
+const S3_67 = { key: "ct1040.s3.67", formLine: "Sch 3 line 67", label: "Property tax credit: line 65 times the line 66 decimal" } as const;
+const S3_LINES = [S3_63, S3_65, S3_67] as const satisfies readonly { key: LineKey; formLine: string; label: string }[];
+
+/**
+ * CT-1040 line 11 and Schedule 3 lines 63 / 65 / 67 (line 68 is line 11). Form order, whole-dollar rows:
+ *   63 = 60 + 61 + 62 (the printed rows: the home as one row, each vehicle one row, each rounded to whole dollars)
+ *   64 = $300 (pre-printed), 65 = the lesser of 63 and 64
+ *   66 = the decimal for CT AGI, 67 = 65 x 66 (rounded), 68 = 65 - 67 = line 11 (not more than line 10).
+ * Fully phased out (decimal 1.00) or line 10 = 0: the schedule has nothing to claim, lines 63 / 65 / 67 are not_applicable 0
+ * and the PDF adapter leaves Schedule 3 blank.
+ */
 export function computeCtPropertyTaxCredit(input: CtPropertyTaxCreditInput): RuleResult {
   const base = { ruleId: "ct-property-tax-credit", form: "CT-1040 Schedule 3", citations: CREDIT_CITATIONS, inputsUsed: [] };
   const label = "Property tax credit";
+  const blockAll = (reason: string, inputsMissing: string[], reasons: string[] = [reason]): RuleResult => ({
+    ...base,
+    status: "missing_input",
+    lines: [
+      blockedLine("ct1040.11", label, "11", "missing_input", reason),
+      ...S3_LINES.map((l) => blockedLine(l.key, l.label, l.formLine, "missing_input", reason)),
+    ],
+    reasons,
+    inputsMissing,
+  });
+  const notApplicable = (reason: string): RuleLine[] =>
+    S3_LINES.map((l): RuleLine => ({ key: l.key, label: l.label, formLine: l.formLine, amount: ZERO, exact: ZERO, status: "not_applicable", reason }));
+
   if (input.ctAgi === null) {
-    const reason = "CT AGI is not available, so the property tax credit phase-out cannot be applied.";
-    return {
-      ...base,
-      status: "missing_input",
-      lines: [blockedLine("ct1040.11", label, "11", "missing_input", reason)],
-      reasons: [reason],
-      inputsMissing: ["CT AGI"],
-    };
+    return blockAll("CT AGI is not available, so the property tax credit phase-out cannot be applied.", ["CT AGI"]);
   }
   const ctAgi = roundLine(input.ctAgi);
   const decimal = ctPropertyTaxPhaseOutDecimal(ctAgi);
   if (decimal.greaterThanOrEqualTo(1)) {
+    const reason = `No property tax credit: CT AGI ${fmt(ctAgi)} is above ${fmt(D(fullyPhasedOutAbove()))}, where the credit is fully phased out (decimal 1.00).`;
     return {
       ...base,
       status: "computed",
       conclusion: "ineligible",
-      lines: [amountLine("ct1040.11", label, "11", ZERO)],
-      reasons: [
-        `No property tax credit: CT AGI ${fmt(ctAgi)} is above ${fmt(D(fullyPhasedOutAbove()))}, where the credit is fully phased out (decimal 1.00).`,
-      ],
+      lines: [amountLine("ct1040.11", label, "11", ZERO), ...notApplicable(`${reason} Schedule 3 is left blank.`)],
+      reasons: [reason],
       inputsMissing: [],
     };
   }
@@ -96,56 +116,66 @@ export function computeCtPropertyTaxCredit(input: CtPropertyTaxCreditInput): Rul
     const parts: string[] = [];
     if (unclassified.length > 0) parts.push(`classify ${unclassified.map((b) => b.label).join(", ")}`);
     if (unpaid.length > 0) parts.push(`enter the amount paid in 2025 on ${unpaid.map((b) => b.label).join(", ")}`);
-    const reason = `The property tax credit cannot be figured until you ${parts.join(" and ")}.`;
-    return {
-      ...base,
-      status: "missing_input",
-      lines: [blockedLine("ct1040.11", label, "11", "missing_input", reason)],
-      reasons: [reason],
-      inputsMissing: ["property tax bill classification / paid amounts"],
-    };
+    return blockAll(`The property tax credit cannot be figured until you ${parts.join(" and ")}.`, ["property tax bill classification / paid amounts"]);
   }
+  // Schedule 3 rows (the PDF prints the same ones): the home is one row (all its bills added, rounded once);
+  // each vehicle is one row (the largest N); every row is a whole-dollar amount and line 63 adds the printed rows.
   const primary = input.bills.filter((b) => b.kind === "primary_residence").map((b) => b.paid ?? ZERO);
-  const vehicles = input.bills
+  const homeRow = primary.length > 0 ? [sumThenRound(primary)] : [];
+  const vehicleRows = input.bills
     .filter((b) => b.kind === "motor_vehicle")
-    .map((b) => b.paid ?? ZERO)
+    .map((b) => roundLine(b.paid ?? ZERO))
     .sort((a, b) => b.comparedTo(a))
     .slice(0, K.CT_PROPERTY_TAX_CREDIT_MAX_VEHICLES_MFJ.value);
   const excluded = input.bills.filter((b) => b.kind === "other_real_estate" || b.kind === "other_personal_property");
-  const qualifying = sumThenRound([...primary, ...vehicles]);
-  const tentative = minD(qualifying, D(K.CT_PROPERTY_TAX_CREDIT_MAX.value));
-  let credit = roundLine(tentative.times(D(1).minus(decimal)));
+  const line63 = [...homeRow, ...vehicleRows].reduce((acc, r) => acc.plus(r), ZERO);
+  const line65 = minD(line63, D(K.CT_PROPERTY_TAX_CREDIT_MAX.value));
+  const line67 = roundLine(line65.times(decimal));
+  let credit = line65.minus(line67);
   const reasons: string[] = [
-    `Qualifying property tax paid in 2025 ${fmt(qualifying)} (primary residence + up to ${K.CT_PROPERTY_TAX_CREDIT_MAX_VEHICLES_MFJ.value} motor vehicles); tentative credit ${fmt(tentative)}; CT AGI ${fmt(ctAgi)} phase-out decimal ${decimal.toString()}.`,
+    `Schedule 3: qualifying property tax paid in 2025 ${fmt(line63)} (primary residence + up to ${K.CT_PROPERTY_TAX_CREDIT_MAX_VEHICLES_MFJ.value} motor vehicles, each row in whole dollars); line 65 (not more than ${fmt(D(K.CT_PROPERTY_TAX_CREDIT_MAX.value))}) ${fmt(line65)}; CT AGI ${fmt(ctAgi)} phase-out decimal ${decimal.toString()} (line 66); line 67 ${fmt(line67)}; line 68 ${fmt(credit)}.`,
   ];
   if (excluded.length > 0) {
     reasons.push(`Excluded from the credit (not a primary residence or motor vehicle): ${excluded.map((b) => b.label).join(", ")}.`);
   }
   if (input.ctTaxBeforeCredits === null) {
     const reason = "The credit cannot exceed the CT income tax (line 10), which is not available yet.";
+    return blockAll(reason, ["CT income tax (line 10)"], [...reasons, reason]);
+  }
+  const line10 = roundLine(input.ctTaxBeforeCredits);
+  if (line10.lessThanOrEqualTo(0)) {
+    const reason = `CT-1040 line 10 is ${fmt(line10)}: the form says to skip lines 11 and 12 when line 10 is zero, so there is no property tax credit to take.`;
     return {
       ...base,
-      status: "missing_input",
-      lines: [blockedLine("ct1040.11", label, "11", "missing_input", reason)],
-      reasons: [...reasons, reason],
-      inputsMissing: ["CT income tax (line 10)"],
+      status: "computed",
+      conclusion: "ineligible",
+      lines: [amountLine("ct1040.11", label, "11", ZERO, "computed", reason), ...notApplicable(`${reason} Schedule 3 is left blank.`)],
+      reasons: [reason, ...reasons],
+      inputsMissing: [],
     };
   }
-  if (credit.greaterThan(input.ctTaxBeforeCredits)) {
-    credit = maxD(ZERO, roundLine(input.ctTaxBeforeCredits));
+  if (credit.greaterThan(line10)) {
+    credit = line10;
     reasons.push(`Limited to the CT income tax of ${fmt(credit)} (the credit is not refundable).`);
   }
+  const s3 = (m: (typeof S3_LINES)[number], n: string, v: Decimal, extra = ""): RuleLine =>
+    amountLine(m.key, m.label, m.formLine, v, "computed", `Schedule 3 line ${n}: ${fmt(v)}${extra}.`);
   return {
     ...base,
     status: "computed",
     conclusion: credit.isZero() ? "ineligible" : decimal.isZero() ? "eligible" : "partial",
-    lines: [amountLine("ct1040.11", label, "11", credit)],
+    lines: [
+      amountLine("ct1040.11", label, "11", credit),
+      s3(S3_63, "63", line63),
+      s3(S3_65, "65", line65),
+      s3(S3_67, "67", line67, ` (line 65 x ${decimal.toString()})`),
+    ],
     reasons,
     inputsMissing: [],
   };
 }
 
-// ── CT AGI, tax, AMT trigger, balance ────────────────────────────────────────
+// ── CT AGI, tax, AMT trigger, line 8 / 10 ────────────────────────────────────
 
 export interface CtTaxInput {
   /** Federal 1040 line 11a; null = missing. */
@@ -160,8 +190,13 @@ export interface CtTaxInput {
   };
   /** Federal AMT (Schedule 2 AMT line); null = missing / not computed. */
   federalAmt: Decimal | null;
-  /** A W-2 shows withholding for a state other than CT (credit for taxes paid to other jurisdictions would be needed). */
-  otherStateWithholdingPresent: boolean;
+  /** CT-1040 line 7 (credit for taxes paid to other jurisdictions, from rules/ct-credits.ts); null = not final. */
+  otherJurisdictionCredit: Decimal | null;
+  /** Status and reason when `otherJurisdictionCredit` is null; default missing_input. */
+  otherJurisdictionBlock?: {
+    status: Exclude<RuleStatus, "computed" | "not_applicable">;
+    reason: string;
+  };
 }
 
 const CT_TAX_CITATIONS = ["CT_TAX_TABLE_AGI_LIMIT", "CT_ZERO_TAX_AGI_MFJ", "CT_TABLE_C"];
@@ -173,13 +208,17 @@ export function computeCtTax(input: CtTaxInput): RuleResult {
   const missing: string[] = [];
   const miss = (key: LineKey, lbl: string, formLine: string, reason: string) =>
     blockedLine(key, lbl, formLine, "missing_input", reason);
+  const L3 = "Federal AGI plus Schedule 1 additions (lines 1 and 2)";
+  const L8 = "Connecticut income tax after the credit for taxes paid to other jurisdictions (line 6 less line 7)";
 
   if (input.federalAgi === null) {
     const reason = "Federal AGI is not available.";
     lines.push(
       miss("ct1040.1", "Federal adjusted gross income (1040 line 11a)", "1", reason),
+      miss("ct1040.3", L3, "3", reason),
       miss("ct1040.ctAgi", "Connecticut adjusted gross income", "CT AGI", reason),
       miss("ct1040.6", "Connecticut income tax", "6", reason),
+      miss("ct1040.8", L8, "8", reason),
       miss("ct1040.9", "Connecticut alternative minimum tax", "9", reason),
       miss("ct1040.10", "Connecticut income tax before credits", "10", reason)
     );
@@ -202,8 +241,12 @@ export function computeCtTax(input: CtTaxInput): RuleResult {
       input.subtractions === null
         ? blockedLine("ct1040.subtractions", "CT Schedule 1 subtractions", "Sch 1", status, reason)
         : amountLine("ct1040.subtractions", "CT Schedule 1 subtractions", "Sch 1", roundLine(input.subtractions)),
+      input.additions === null
+        ? blockedLine("ct1040.3", L3, "3", status, reason)
+        : amountLine("ct1040.3", L3, "3", fedAgi.plus(roundLine(input.additions))),
       blockedLine("ct1040.ctAgi", "Connecticut adjusted gross income", "CT AGI", status, reason),
       blockedLine("ct1040.6", "Connecticut income tax", "6", status, "CT AGI is not final until the Schedule 1 modifications are computed."),
+      blockedLine("ct1040.8", L8, "8", status, "CT AGI is not final."),
       blockedLine("ct1040.9", "Connecticut alternative minimum tax", "9", status, "CT AGI is not final."),
       blockedLine("ct1040.10", "Connecticut income tax before credits", "10", status, "CT AGI is not final.")
     );
@@ -211,10 +254,12 @@ export function computeCtTax(input: CtTaxInput): RuleResult {
   }
   const additions = roundLine(input.additions!);
   const subtractions = roundLine(input.subtractions!);
-  const ctAgi = fedAgi.plus(additions).minus(subtractions);
+  const line3 = fedAgi.plus(additions);
+  const ctAgi = line3.minus(subtractions);
   lines.push(
     amountLine("ct1040.additions", "CT Schedule 1 additions", "Sch 1", additions),
     amountLine("ct1040.subtractions", "CT Schedule 1 subtractions", "Sch 1", subtractions),
+    amountLine("ct1040.3", L3, "3", line3),
     amountLine("ct1040.ctAgi", "Connecticut adjusted gross income", "CT AGI", ctAgi)
   );
 
@@ -243,6 +288,38 @@ export function computeCtTax(input: CtTaxInput): RuleResult {
       `Tax Calculation Schedule at CT AGI ${fmt(ctAgi)}: exemption ${fmt(tcs.personalExemption)}, initial tax ${fmt(roundLine(tcs.initialTax))}, Table C add-back ${fmt(tcs.phaseOutAddback)}, recapture ${fmt(tcs.recapture.amount ?? ZERO)}, personal credit decimal ${tcs.personalCredit.decimal?.toString() ?? "n/a"} = ${fmt(tax)}.`
     );
   }
+  const line6Status = lines.find((l) => l.key === "ct1040.6")?.status;
+
+  // Line 8 = line 6 - line 7 ("If Line 7 is greater than Line 6, enter 0")
+  let line8: Decimal | null = null;
+  if (tax === null) {
+    lines.push(
+      blockedLine("ct1040.8", L8, "8", line6Status === "needs_cpa_rule_unverified" ? "needs_cpa_rule_unverified" : "missing_input", "Line 6 is not computed.")
+    );
+  } else if (input.otherJurisdictionCredit === null) {
+    lines.push(
+      blockedLine(
+        "ct1040.8",
+        L8,
+        "8",
+        input.otherJurisdictionBlock?.status ?? "missing_input",
+        input.otherJurisdictionBlock?.reason ?? "Line 7 (credit for income taxes paid to other jurisdictions) is not final."
+      )
+    );
+  } else {
+    const line7 = roundLine(input.otherJurisdictionCredit);
+    line8 = maxD(ZERO, tax.minus(line7));
+    lines.push(
+      amountLine(
+        "ct1040.8",
+        L8,
+        "8",
+        line8,
+        "computed",
+        line7.greaterThan(tax) ? `Line 7 ${fmt(line7)} is greater than line 6 ${fmt(tax)}: line 8 is 0.` : `Line 6 ${fmt(tax)} less line 7 ${fmt(line7)}.`
+      )
+    );
+  }
 
   // CT AMT (line 9)
   let amtLine: Decimal | null = null;
@@ -266,91 +343,85 @@ export function computeCtTax(input: CtTaxInput): RuleResult {
     );
   }
 
-  // Line 10
-  if (input.otherStateWithholdingPresent) {
+  // Line 10 = line 8 + line 9
+  if (line8 !== null && amtLine !== null) {
+    lines.push(amountLine("ct1040.10", "Connecticut income tax before credits", "10", line8.plus(amtLine)));
+  } else {
+    const line8Line = lines.find((l) => l.key === "ct1040.8");
+    // A line 8 held back by line 7 passes line 7's status on; otherwise the old rule (line 6 unverified, else missing).
+    const status =
+      tax !== null && line8Line?.status !== undefined && line8Line.status !== "computed" && line8Line.status !== "not_applicable"
+        ? line8Line.status
+        : tax === null && line6Status === "needs_cpa_rule_unverified"
+          ? "needs_cpa_rule_unverified"
+          : "missing_input";
     lines.push(
       blockedLine(
         "ct1040.10",
         "Connecticut income tax before credits",
         "10",
-        "needs_cpa_judgment",
-        "A W-2 shows withholding for a state other than Connecticut: a credit for taxes paid to another jurisdiction may apply and is not modeled."
+        status,
+        tax !== null && line8 === null ? "Line 8 is not computed (line 7 is not final)." : "Line 6 or line 9 is not computed."
       )
     );
-  } else if (tax !== null && amtLine !== null) {
-    lines.push(amountLine("ct1040.10", "Connecticut income tax before credits", "10", tax.plus(amtLine)));
-  } else {
-    const line6Status = lines.find((l) => l.key === "ct1040.6")?.status;
-    const status = tax === null && line6Status === "needs_cpa_rule_unverified" ? "needs_cpa_rule_unverified" : "missing_input";
-    lines.push(blockedLine("ct1040.10", "Connecticut income tax before credits", "10", status, "Line 6 or line 9 is not computed."));
   }
 
   return { ...base, status: aggregateStatus(lines), lines, reasons, inputsMissing: missing };
 }
 
+// ── Use tax (line 15, Schedule 4 line 69b) ───────────────────────────────────
+
 export interface CtBalanceInput {
-  /** CT-1040 line 10; null = not computed. */
-  taxBeforeCredits: Decimal | null;
-  /** CT-1040 line 11 credit; null = not computed. */
-  propertyTaxCredit: Decimal | null;
   /** CT-1040 line 15 use tax; null = not answered. */
   useTax: Decimal | null;
   /** Plain-language "why" printed on line 15 when it has an amount (the rule or statement it came from). */
   useTaxReason?: string;
   /** When useTax is null: why (a "not sure" or an uncomputed rate is needs_cpa_judgment, not missing_input). */
   useTaxBlock?: { status: "missing_input" | "needs_cpa_judgment"; reason: string };
-  /** Lines 18 + 19 + 20; null = not computed. */
-  totalPayments: Decimal | null;
+  /**
+   * The amount came from the use tax rule (rules/ct-use-tax.ts), which only figures the 6.35% general rate, so all of it is
+   * Schedule 4 line 69b. A stated total (owner / CPA) has no breakdown and leaves 69a-69d blank (advisory).
+   */
+  useTaxFromRule?: boolean;
 }
 
 export function computeCtBalance(input: CtBalanceInput): RuleResult {
-  const base = { ruleId: "ct-balance", form: "CT-1040", citations: ["CT_LATE_PAYMENT_PENALTY_RATE", "CT_INTEREST_RATE_PER_MONTH"], inputsUsed: [] };
+  const base = { ruleId: "ct-balance", form: "CT-1040", citations: ["CT_USE_TAX_RATE_GENERAL"], inputsUsed: [] };
   const lines: RuleLine[] = [];
+  const reasons: string[] = [];
   const missing: string[] = [];
+  const L69B = "Use tax at the 6.35% general rate";
 
   if (input.useTax === null) {
+    const status = input.useTaxBlock?.status ?? "missing_input";
+    const reason = input.useTaxBlock?.reason ?? "Line 15 must be answered with 0 or an amount: say whether any 2025 out-of-state purchases were made without Connecticut sales tax.";
     lines.push(
-      blockedLine(
-        "ct1040.15",
-        "Use tax (out-of-state purchases)",
-        "15",
-        input.useTaxBlock?.status ?? "missing_input",
-        input.useTaxBlock?.reason ?? "Line 15 must be answered with 0 or an amount: say whether any 2025 out-of-state purchases were made without Connecticut sales tax."
-      )
+      blockedLine("ct1040.15", "Use tax (out-of-state purchases)", "15", status, reason),
+      blockedLine("ct1040.s4.69b", L69B, "Sch 4 line 69b", status, reason)
     );
+    reasons.push(reason);
     missing.push("CT use tax answer");
   } else {
-    lines.push(amountLine("ct1040.15", "Use tax (out-of-state purchases)", "15", roundLine(input.useTax), "computed", input.useTaxReason ?? "Stated by the owner / CPA."));
+    const amount = roundLine(input.useTax);
+    lines.push(amountLine("ct1040.15", "Use tax (out-of-state purchases)", "15", amount, "computed", input.useTaxReason ?? "Stated by the owner / CPA."));
+    if (amount.isZero()) {
+      lines.push(amountLine("ct1040.s4.69b", L69B, "Sch 4 line 69b", ZERO, "not_applicable", "No use tax is due, so Schedule 4 has no amount to break down."));
+    } else if (input.useTaxFromRule === true) {
+      lines.push(
+        amountLine("ct1040.s4.69b", L69B, "Sch 4 line 69b", amount, "computed", `The rule figures only the general 6.35% rate (CT-1040 instructions, use tax worksheet Section B), so all of line 69 is line 69b. ${input.useTaxReason ?? ""}`.trim())
+      );
+    } else {
+      lines.push({
+        ...blockedLine(
+          "ct1040.s4.69b",
+          L69B,
+          "Sch 4 line 69b",
+          "not_yet_computed",
+          `Use tax of ${fmt(amount)} was stated without a breakdown by rate: line 69 prints without its 69a-69d detail, so the CPA keys the breakdown.`
+        ),
+        informational: true,
+      });
+    }
   }
-  const informational =
-    "Informational: the late-payment penalty rate (10%) and interest (1% per month) are verified, but the minimum penalty, the months to count and how the extension payment is treated are not, so no amount is estimated.";
-  lines.push(
-    { ...blockedLine("ct1040.27", "Late payment penalty", "27", "needs_cpa_rule_unverified", informational), informational: true },
-    { ...blockedLine("ct1040.28", "Interest", "28", "needs_cpa_rule_unverified", informational), informational: true }
-  );
-
-  if (input.taxBeforeCredits !== null && input.propertyTaxCredit !== null && input.useTax !== null && input.totalPayments !== null) {
-    const net = input.taxBeforeCredits.minus(input.propertyTaxCredit).plus(roundLine(input.useTax));
-    const balance = net.minus(input.totalPayments);
-    lines.push(
-      amountLine(
-        "ct1040.balance",
-        "Connecticut balance due (positive) or overpayment (negative), before any penalty and interest",
-        "balance",
-        balance
-      )
-    );
-    return {
-      ...base,
-      status: aggregateStatus(lines),
-      lines,
-      reasons: [
-        `CT tax before credits ${fmt(input.taxBeforeCredits)} - property tax credit ${fmt(input.propertyTaxCredit)} + use tax ${fmt(roundLine(input.useTax))} - payments ${fmt(input.totalPayments)} = ${fmt(balance)} (positive = balance due), before penalty and interest.`,
-      ],
-      inputsMissing: missing,
-    };
-  }
-  const notFinal = "A CT tax, credit, use tax or payment line is not computed (see the CT AGI / Schedule 1, property tax credit, use tax and payment items).";
-  lines.push(blockedLine("ct1040.balance", "Connecticut balance due or overpayment", "balance", "missing_input", notFinal));
-  return { ...base, status: aggregateStatus(lines), lines, reasons: [notFinal], inputsMissing: missing };
+  return { ...base, status: aggregateStatus(lines), lines, reasons, inputsMissing: missing };
 }

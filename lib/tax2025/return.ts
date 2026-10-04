@@ -43,6 +43,8 @@ import { LINE_CATALOG, NONE_GROUP_TEXT, lineMeta, type NoneGroupId } from "@/lib
 import { D, ZERO, centsToDollars, fmt, maxD, roundLine, sumThenRound } from "@/lib/tax2025/money";
 import { computeCtPayments, computeExcessSocialSecurity, computeFederalPayments } from "@/lib/tax2025/rules/payments";
 import { computeCtBalance, computeCtPropertyTaxCredit, computeCtTax } from "@/lib/tax2025/rules/ct";
+import { CT_CREDIT_LINES, computeCtOtherCredits } from "@/lib/tax2025/rules/ct-credits";
+import { computeCtSettlement } from "@/lib/tax2025/rules/ct-settlement";
 import {
   CT_SCH1_ADDITION_KEYS,
   CT_SCH1_GROUPS,
@@ -95,7 +97,7 @@ import {
 } from "@/lib/tax2025/types";
 
 /** Bumped whenever a rule, the constants or the line catalog changes (stale-output detection for stored overrides / PDFs). */
-export const TY2025_ENGINE_VERSION = "ty2025-1b.3";
+export const TY2025_ENGINE_VERSION = "ty2025-1b.4";
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
 
@@ -959,6 +961,18 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   const ctAdd = sumCtLines(CT_SCH1_ADDITION_KEYS);
   const ctSub = sumCtLines(CT_SCH1_SUBTRACTION_KEYS);
   const ctOpen = [...ctAdd.open, ...ctSub.open];
+  // Lines 7, 13 and 20a-20d: credits this engine does not compute; the owner's "none" statements decide (rules/ct-credits.ts)
+  const statedBool = (g: NoneGroupId): boolean | undefined => facts.statedNone[g]?.value ?? undefined;
+  A.register(
+    computeCtOtherCredits({
+      otherStateTax: statedBool("ct_other_state_tax"),
+      otherCredits: statedBool("ct_other_credits"),
+      nonCtStateWithholdingPresent: w2.nonCtStateWithholdingPresent,
+      refs: { otherStateTax: facts.statedNone.ct_other_state_tax?.refs ?? [], otherCredits: facts.statedNone.ct_other_credits?.refs ?? [] },
+    }),
+    { refs: w2Refs, owns: CT_CREDIT_LINES }
+  );
+  const line7 = A.lines.get("ct1040.7");
   const ctTax = computeCtTax({
     federalAgi: A.num("f1040.11a"),
     additions: ctAdd.total,
@@ -972,15 +986,18 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
         }
       : {}),
     federalAmt: A.num("sch2.2"),
-    otherStateWithholdingPresent: w2.nonCtStateWithholdingPresent,
+    otherJurisdictionCredit: A.num("ct1040.7"),
+    ...(line7 !== undefined && !hasAmount(line7.status)
+      ? { otherJurisdictionBlock: { status: worstBlocked([line7.status]) ?? ("missing_input" as const), reason: line7.reason ?? "Line 7 is not final." } }
+      : {}),
   });
-  A.register(ctTax, { refs: w2Refs, owns: ["ct1040.1", "ct1040.additions", "ct1040.subtractions", "ct1040.ctAgi", "ct1040.6", "ct1040.9", "ct1040.10"] });
+  A.register(ctTax, { refs: w2Refs, owns: ["ct1040.1", "ct1040.additions", "ct1040.subtractions", "ct1040.3", "ct1040.ctAgi", "ct1040.6", "ct1040.8", "ct1040.9", "ct1040.10"] });
   const credit = computeCtPropertyTaxCredit({
     ctAgi: A.num("ct1040.ctAgi"),
     bills: bills.map((b) => ({ docId: b.docId, label: b.label, kind: b.kind, paid: b.paid })),
     ctTaxBeforeCredits: A.num("ct1040.10"),
   });
-  A.register(credit, { refs: facts.deductions.propertyTaxBills.flatMap((b) => b.refs), owns: ["ct1040.11"] });
+  A.register(credit, { refs: facts.deductions.propertyTaxBills.flatMap((b) => b.refs), owns: ["ct1040.11", "ct1040.s3.63", "ct1040.s3.65", "ct1040.s3.67"] });
   const ctPay = computeCtPayments({
     withholding: ctWithholding,
     hasW2: w2.hasW2 || fill,
@@ -989,8 +1006,6 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     extensionPayment: A.assume(leafDollars(facts.payments.ctExtensionPayment), ZERO, "CT-1040 EXT payment, assumed $0"),
   });
   A.register(ctPay, { refs: w2Refs });
-  const ctPayTotalDeps: LineKey[] = ["ct1040.18", "ct1040.19", "ct1040.20"];
-  const ctPaymentsKnown = ctPayTotalDeps.every((k) => A.num(k) !== null);
   const useTaxStated = dollarsOrNull(facts.ct.useTax);
   const useTaxRule =
     useTaxStated !== null
@@ -1004,14 +1019,37 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
         });
   const useTaxValue = useTaxStated ?? (useTaxRule !== null && useTaxRule.ok ? useTaxRule.amount : null);
   const ctBalance = computeCtBalance({
-    taxBeforeCredits: A.num("ct1040.10"),
-    propertyTaxCredit: A.num("ct1040.11"),
     useTax: A.assume(useTaxValue, ZERO, "CT use tax, assumed $0"),
     ...(useTaxStated !== null ? { useTaxReason: "Stated by the owner / CPA." } : useTaxRule !== null && useTaxRule.ok ? { useTaxReason: useTaxRule.reason } : {}),
     ...(useTaxRule !== null && !useTaxRule.ok ? { useTaxBlock: { status: useTaxRule.status === "needs_cpa_judgment" ? ("needs_cpa_judgment" as const) : ("missing_input" as const), reason: useTaxRule.reason } } : {}),
-    totalPayments: ctPaymentsKnown ? sumThenRound(ctPayTotalDeps.map((k) => A.num(k) ?? ZERO)) : null,
+    useTaxFromRule: useTaxStated === null && useTaxRule !== null && useTaxRule.ok,
   });
-  A.register(ctBalance, { owns: ["ct1040.15", "ct1040.balance"], refs: refsFrom(ra.useTax.choice, ra.useTax.generalRatePurchasesCents, ra.useTax.otherRateItems, ra.useTax.taxPaidToOtherStateCents, facts.ct.useTax) });
+  A.register(ctBalance, { owns: ["ct1040.15", "ct1040.s4.69b"], refs: refsFrom(ra.useTax.choice, ra.useTax.generalRatePurchasesCents, ra.useTax.otherRateItems, ra.useTax.taxPaidToOtherStateCents, facts.ct.useTax) });
+
+  // 11b. The CT-1040 arithmetic spine (each line is the form's own instruction over the rounded printed lines):
+  //   12 = 10 - 11 (not below 0), 14 = 12 - 13 (not below 0), 16 = 14 + 15, 17 = 16, 21 = 18 + 19 + 20 + 20a-20d,
+  //   22 = 21 - 17 when more, 26 = 17 - 21 when more; `balance` is the signed headline (positive = due) = 17 - 21.
+  const notBelowZero = (v: Decimal[]): Decimal => maxD(ZERO, (v[0] ?? ZERO).minus(v[1] ?? ZERO));
+  A.derive("ct1040.12", ["ct1040.10", "ct1040.11"], notBelowZero);
+  A.derive("ct1040.14", ["ct1040.12", "ct1040.13"], notBelowZero);
+  A.sum("ct1040.16", ["ct1040.14", "ct1040.15"]);
+  A.copy("ct1040.17", "ct1040.16");
+  A.sum("ct1040.21", ["ct1040.18", "ct1040.19", "ct1040.20", "ct1040.20a", "ct1040.20b", "ct1040.20c", "ct1040.20d"]);
+  A.derive("ct1040.22", ["ct1040.21", "ct1040.17"], notBelowZero);
+  A.derive("ct1040.26", ["ct1040.17", "ct1040.21"], notBelowZero);
+  A.derive("ct1040.balance", ["ct1040.17", "ct1040.21"], (v) => (v[0] ?? ZERO).minus(v[1] ?? ZERO));
+  // Lines 25, 27, 28, 29, 30 (rules/ct-settlement.ts): only when every input is known
+  const settleDeps: LineKey[] = ["ct1040.14", "ct1040.18", "ct1040.20c", "ct1040.22", "ct1040.26"];
+  const settleVals = settleDeps.map((k) => A.num(k));
+  if (settleVals.every((v) => v !== null)) {
+    A.register(computeCtSettlement({ line14: settleVals[0] ?? ZERO, line18: settleVals[1] ?? ZERO, line20c: settleVals[2] ?? ZERO, line22: settleVals[3] ?? ZERO, line26: settleVals[4] ?? ZERO }));
+  } else {
+    const open = settleDeps.filter((_, i) => settleVals[i] === null);
+    const status = worstBlocked(open.map((k) => A.statusOf(k))) ?? "missing_input";
+    for (const key of ["ct1040.25", "ct1040.27", "ct1040.28", "ct1040.29", "ct1040.30"] as const) {
+      A.blocked(key, status, `Depends on lines not computed yet: ${open.map((k) => `${lineMeta(k).form} ${lineMeta(k).formLine}`).join(", ")}.`, "derive");
+    }
+  }
 
   // 12. Anything in the catalog that nothing filled: explicit, never 0
   for (const meta of LINE_CATALOG) {

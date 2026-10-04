@@ -58,6 +58,11 @@ export const NONE_GROUP_TEXT = {
     "No bonus depreciation or Section 179 amount was added back on a Connecticut return in the four years before 2025 (CT-1040 Schedule 1 lines 48a and 49).",
   ct_other_additions: "No other Connecticut additions to federal income (CT-1040 Schedule 1 line 37).",
   ct_other_subtractions: "No other Connecticut subtractions from federal income (CT-1040 Schedule 1 lines 48c and 49).",
+  // CT-1040 lines 7, 13 and 20a-20d (rules/ct-credits.ts reads these; no catalog line names them as its `group`).
+  ct_other_state_tax:
+    "No income earned in or connected with another state or qualifying jurisdiction that was taxed by it, so no credit for income taxes paid to another jurisdiction (CT-1040 line 7, Schedule 2).",
+  ct_other_credits:
+    "No Connecticut credit other than the property tax credit: none from Schedule CT-IT Credit (youth development, ABLE, stillborn child, employer CHET, angel investor, real estate conveyance, theater, UConn, workforce housing, CT-8801), no Connecticut earned income credit, claim of right credit, pass-through entity tax credit or historic home credit (CT-1040 lines 13, 20a, 20b, 20c, 20d).",
 } as const;
 
 export type NoneGroupId = keyof typeof NONE_GROUP_TEXT;
@@ -572,6 +577,7 @@ const EXTRA = [
   ["ct1040.s1.36a", "CT-1040", "Sch 1 line 36a", "80% of Section 179 federal deduction"],
   ["ct1040.s1.37", "CT-1040", "Sch 1 line 37", "Other additions"],
   ["ct1040.additions", "CT-1040", "Sch 1", "CT Schedule 1 additions"],
+  ["ct1040.3", "CT-1040", "3", "Federal AGI plus Schedule 1 additions (lines 1 and 2)"],
   ["ct1040.s1.39", "CT-1040", "Sch 1 line 39", "Interest on U.S. government obligations"],
   ["ct1040.s1.40", "CT-1040", "Sch 1 line 40", "Exempt dividends from qualifying mutual funds derived from U.S. government obligations"],
   ["ct1040.s1.41", "CT-1040", "Sch 1 line 41", "Social Security benefit adjustment"],
@@ -590,15 +596,36 @@ const EXTRA = [
   ["ct1040.subtractions", "CT-1040", "Sch 1", "CT Schedule 1 subtractions"],
   ["ct1040.ctAgi", "CT-1040", "CT AGI", "Connecticut adjusted gross income"],
   ["ct1040.6", "CT-1040", "6", "Connecticut income tax"],
+  ["ct1040.7", "CT-1040", "7", "Credit for income taxes paid to qualifying jurisdictions (Schedule 2 line 59)"],
+  ["ct1040.8", "CT-1040", "8", "Connecticut income tax after the credit for taxes paid to other jurisdictions (line 6 less line 7)"],
   ["ct1040.9", "CT-1040", "9", "Connecticut alternative minimum tax"],
   ["ct1040.10", "CT-1040", "10", "Connecticut income tax before credits"],
   ["ct1040.11", "CT-1040", "11", "Property tax credit"],
+  ["ct1040.12", "CT-1040", "12", "Connecticut income tax after the property tax credit (line 10 less line 11)"],
+  ["ct1040.13", "CT-1040", "13", "Allowable credits (Schedule CT-IT Credit, Part 1 line 10)"],
+  ["ct1040.14", "CT-1040", "14", "Connecticut income tax (line 12 less line 13)"],
   ["ct1040.15", "CT-1040", "15", "Use tax (out-of-state purchases)"],
+  ["ct1040.16", "CT-1040", "16", "Connecticut income tax and use tax (lines 14 and 15)"],
+  ["ct1040.17", "CT-1040", "17", "Total tax (amount from line 16)"],
   ["ct1040.18", "CT-1040", "18", "Connecticut income tax withheld"],
   ["ct1040.19", "CT-1040", "19", "2025 estimated payments and 2024 overpayment applied"],
   ["ct1040.20", "CT-1040", "20", "Payment made with Form CT-1040 EXT"],
+  ["ct1040.20a", "CT-1040", "20a", "Connecticut earned income tax credit (Schedule CT-EITC line 16)"],
+  ["ct1040.20b", "CT-1040", "20b", "Claim of right credit (Form CT-1040 CRC line 6)"],
+  ["ct1040.20c", "CT-1040", "20c", "Pass-through entity tax credit (Schedule CT-PE line 1)"],
+  ["ct1040.20d", "CT-1040", "20d", "Historic home credit"],
+  ["ct1040.21", "CT-1040", "21", "Total payments and refundable credits (lines 18 through 20d)"],
+  ["ct1040.22", "CT-1040", "22", "Overpayment (line 21 more than line 17)"],
+  ["ct1040.25", "CT-1040", "25", "Refund (line 22 less lines 23, 24 and 24a)"],
+  ["ct1040.26", "CT-1040", "26", "Tax due (line 17 more than line 21)"],
   ["ct1040.27", "CT-1040", "27", "Late payment penalty"],
   ["ct1040.28", "CT-1040", "28", "Interest"],
+  ["ct1040.29", "CT-1040", "29", "Interest on underpayment of estimated tax (Form CT-2210)"],
+  ["ct1040.30", "CT-1040", "30", "Total amount due (lines 26 through 29)"],
+  ["ct1040.s3.63", "CT-1040", "Sch 3 line 63", "Property tax credit: total property tax paid (lines 60 through 62)"],
+  ["ct1040.s3.65", "CT-1040", "Sch 3 line 65", "Property tax credit: lesser of line 63 or line 64"],
+  ["ct1040.s3.67", "CT-1040", "Sch 3 line 67", "Property tax credit: line 65 times the line 66 decimal"],
+  ["ct1040.s4.69b", "CT-1040", "Sch 4 line 69b", "Use tax at the 6.35% general rate"],
   ["ct1040.balance", "CT-1040", "balance", "Connecticut balance due or overpayment"],
 ] as const satisfies readonly ExtraRow[];
 

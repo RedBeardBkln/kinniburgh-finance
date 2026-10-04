@@ -1379,6 +1379,11 @@ const RC_GROUP_PROMPTS: Readonly<Record<RcNoneGroupId, string>> = {
     "an addition the Connecticut return requires that is not covered above: Connecticut income tax you deducted somewhere other than Schedule A, expenses or bond premium you deducted that relate to tax-exempt income, interest on money borrowed to buy tax-exempt bonds, a payout from a Connecticut Manufacturing Reinvestment Account, pay from a foreign nonqualified plan taxed under Section 457A, interest from certain U.S. agency bonds that is exempt from federal tax but not Connecticut tax, or a loss or deduction of an enrolled member of the Mashantucket Pequot or Mohegan Tribe living on tribal land",
   ct_other_subtractions:
     "a Connecticut subtraction not covered above: interest on a Connecticut individual development account; interest on a Connecticut bond that is included in your federal income (for example a Build America Bond); earnings on a Connecticut Homecare Option account; contributions to a Manufacturing Reinvestment Account; help with repairing a crumbling (pyrrhotite) foundation that you included in income; costs of donating an organ or bone marrow; Bioscience Venture Capital; payments from the Fallen Hero Fund; payments from the Connecticut Student Loan Reimbursement Program; stock received under a Connecticut share plan; business expenses of a Connecticut cannabis or medical-marijuana licensee (Chapters 420f or 420h); or income earned as an enrolled member of the Mashantucket Pequot or Mohegan Tribe living on tribal land",
+  // Connecticut CT-1040 lines 7, 13 and 20a-20d (rules/ct-credits.ts): credits the app does not calculate, so a Yes goes to the CPA.
+  ct_other_state_tax:
+    "income that another state (or a city or county in another state) also taxed, for example wages for work you did in another state, or rent or business income from outside Connecticut, which can earn a credit on the Connecticut return for the tax paid to that state",
+  ct_other_credits:
+    "a Connecticut credit other than the property tax credit, for example the Connecticut earned income tax credit, the credit for tax paid on income you later had to give back (claim of right), the credit for Connecticut pass-through entity tax paid by a partnership or S corporation you own, the historic home credit, or a credit listed on Schedule CT-IT Credit (such as the angel investor, employer CHET contribution or real estate conveyance tax credit)",
 };
 
 /** Group id -> a short plain-language name used in the follow-up amount question. */
@@ -1405,6 +1410,8 @@ const RC_GROUP_LABELS: Readonly<Record<RcNoneGroupId, string>> = {
   ct_prior_addbacks: "earlier Connecticut depreciation add-backs",
   ct_other_additions: "other Connecticut additions",
   ct_other_subtractions: "other Connecticut subtractions",
+  ct_other_state_tax: "income taxed by another state",
+  ct_other_credits: "other Connecticut credits",
 };
 
 /** Every "stated none" group this flow asks about: NONE_GROUP_IDS plus the capital-gain groups (no duplicates). */
