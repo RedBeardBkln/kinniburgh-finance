@@ -1637,6 +1637,14 @@ function rcPersonNodes(): QNode[] {
       sources: ["2210"],
     })
   );
+  // G2. Form 1099-DIV boxes the extraction does not read
+  out.push(
+    single(
+      "div2b",
+      "If you have no Form 1099-DIV for {year}, answer Yes. Otherwise: do your Form 1099-DIV statements show zero (0.00) in box 2b (unrecaptured section 1250 gain), box 2c (section 1202 gain) and box 2d (collectibles 28% gain)?",
+      [o("yes", "Yes - all three are zero"), o("no", "No - at least one is not zero"), UNSURE]
+    )
+  );
   // H. Header attestations
   out.push(
     single("digital", "At any time in 2025, did either of you receive digital assets such as cryptocurrency (as a reward, award or payment for property or services) or sell, exchange or otherwise dispose of a digital asset or any financial interest in one?", YES_NO, {

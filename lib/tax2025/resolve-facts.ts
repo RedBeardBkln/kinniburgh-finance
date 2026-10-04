@@ -560,7 +560,10 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       severity: "blocking",
       message:
         "1099-DIV boxes 2b, 2c and 2d (unrecaptured section 1250 gain, section 1202 gain, collectibles gain) are not read by the extraction. The tax computation uses the Qualified Dividends and Capital Gain Tax Worksheet, which is only valid when all three are zero.",
-      action: "Check the 1099-DIV and confirm boxes 2b, 2c and 2d are zero (or tell the CPA so the Schedule D Tax Worksheet is used).",
+      action:
+        answers.dividendBoxes2b2dConfirmedZero === false
+          ? "The owner reports that at least one of boxes 2b, 2c, 2d is not zero: give the 1099-DIV to the CPA, who uses the Schedule D Tax Worksheet."
+          : "Check the 1099-DIV and confirm boxes 2b, 2c and 2d are zero in the Return completeness questionnaire (or tell the CPA so the Schedule D Tax Worksheet is used).",
       lineKeys: ["f1040.16", "qdcg.25"],
       refs: dividends.flatMap((d) => d.refs),
     });

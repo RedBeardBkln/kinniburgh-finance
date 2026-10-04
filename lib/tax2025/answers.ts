@@ -47,6 +47,8 @@ export interface CompletenessParse {
   seHealthInsuranceCents?: number;
   /** Schedule 1 line 16 input (SEP / SIMPLE / solo 401(k) for the owner), same mapping. */
   seRetirementCents?: number;
+  /** Form 1099-DIV boxes 2b-2d: Yes -> true, No -> false, Not sure / unanswered -> absent. */
+  dividendBoxes2b2dConfirmedZero?: boolean;
   statedNone: Partial<Record<NoneGroupId, boolean>>;
   returnAnswers: ReturnAnswers;
 }
@@ -290,6 +292,9 @@ export function parseCompletenessAnswers(
   if (fov !== undefined) out.federalOverpaymentAppliedCents = fov;
   const cov = stated("cov", "covamt");
   if (cov !== undefined) out.ctOverpaymentAppliedCents = cov;
+  const div2b = choice("div2b");
+  if (div2b === "yes") out.dividendBoxes2b2dConfirmedZero = true;
+  else if (div2b === "no") out.dividendBoxes2b2dConfirmedZero = false;
   const sehi = yesNoAmount("sehi", "sehiamt");
   if (sehi !== undefined) out.seHealthInsuranceCents = sehi;
   const serp = yesNoAmount("serp", "serpamt");
