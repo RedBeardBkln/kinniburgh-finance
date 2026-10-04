@@ -856,7 +856,6 @@ describe("forms required and the NIIT screen", () => {
       schA9: lead(0),
       itemizing: false,
       itemizingStatus: undefined,
-      statedNoOtherIncome: true,
       statedNoCapitalOther: true,
       niitOther: true,
       otherInvestmentIncomePresent: false,

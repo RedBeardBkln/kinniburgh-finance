@@ -31,7 +31,6 @@ function input(over: Partial<Form8960Input> = {}): Form8960Input {
     schA9: lead(0),
     itemizing: false,
     itemizingStatus: undefined,
-    statedNoOtherIncome: true,
     statedNoCapitalOther: true,
     niitOther: true,
     otherInvestmentIncomePresent: false,
@@ -246,6 +245,10 @@ describe("Form 8960: Part I classification", () => {
     }
   });
 
+  it("Schedule 1 line 5 not zero also sends line 5c (a sold partnership interest or S corporation stock) to the CPA", () => {
+    expect(st(computeForm8960(input({ sch1Line5: lead(7000) })), "f8960.5c")).toBe("needs_cpa_judgment");
+  });
+
   it("pensions or annuities on Form 1040 line 5b: line 3 goes to the CPA; not computed -> blocked with that status", () => {
     expect(st(computeForm8960(input({ pensions: lead(12000) })), "f8960.3")).toBe("needs_cpa_judgment");
     expect(st(computeForm8960(input({ pensions: lead(null, "not_yet_computed") })), "f8960.3")).toBe("not_yet_computed");
@@ -255,7 +258,9 @@ describe("Form 8960: Part I classification", () => {
     expect(st(computeForm8960(input({ sch1Line4: lead(800) })), "f8960.5b")).toBe("needs_cpa_judgment");
     expect(st(computeForm8960(input({ statedNoCapitalOther: undefined })), "f8960.5b")).toBe("missing_input");
     expect(st(computeForm8960(input({ statedNoCapitalOther: false })), "f8960.5c")).toBe("needs_cpa_judgment");
-    expect(st(computeForm8960(input({ statedNoOtherIncome: undefined })), "f8960.5c")).toBe("missing_input");
+    expect(st(computeForm8960(input({ statedNoCapitalOther: undefined })), "f8960.5c")).toBe("missing_input");
+    // line 5c needs no "other income" statement: a Yes there for something else (a state tax refund) never reaches Form 8960
+    expect(st(computeForm8960(input()), "f8960.5c")).toBe("not_applicable");
   });
 
   it("interest or dividends not computed: the line and everything that adds it is blocked with that status", () => {

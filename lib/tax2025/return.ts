@@ -808,7 +808,6 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     schA9: leadOf("scha.9"),
     itemizing,
     itemizingStatus: A.statusOf("scha.17"),
-    statedNoOtherIncome: facts.statedNone.other_income?.value ?? undefined,
     statedNoCapitalOther: facts.statedNone.capital_gain_other?.value ?? undefined,
     niitOther: fill ? (niitOtherStated ?? true) : niitOtherStated,
     otherInvestmentIncomePresent: inv.hasOtherIncomeBoxes || scheduleDUnmodeledInvestmentIncome(facts, inv),

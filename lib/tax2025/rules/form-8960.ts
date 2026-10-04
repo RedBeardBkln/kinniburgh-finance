@@ -67,7 +67,6 @@ export interface Form8960Input {
   itemizing: boolean | null;
   itemizingStatus: RuleStatus | undefined;
   /** Owner statements: true = "none", false = answered Yes, undefined = not answered. */
-  statedNoOtherIncome: boolean | undefined;
   statedNoCapitalOther: boolean | undefined;
   niitOther: boolean | undefined;
   /** True when the return has investment income this engine does not compute (Section 1256 / 1099-DA / unread 1099-B, other 1099 boxes, K-1). */
@@ -185,14 +184,19 @@ export function computeForm8960(input: Form8960Input): RuleResult {
     if (unanswered.length > 0) return h.blk(key, block("missing_input", `Needs an owner statement: ${unanswered.join("; ")}.`, unanswered.join("; ")));
     return h.na(key, zeroReason);
   };
-  const OTHER_INCOME = "no rental, partnership, other-gain or other income (Return completeness: other income)";
   const CAPITAL_OTHER = "no installment sale, casualty loss, Section 1256 contract, like-kind exchange or Schedule K-1 capital gain (Return completeness: other capital gain and loss items)";
   const l5b: Val = !s4.ok
     ? h.blk("f8960.5b", s4)
     : !s4.v.isZero()
       ? h.blk("f8960.5b", block("needs_cpa_judgment", `Schedule 1 line 4 shows ${fmt(s4.v)}: the part from property held in a non-passive trade or business is not net investment income, so the CPA splits it.`, "Form 8960 line 5b"))
       : statement("f8960.5b", [[CAPITAL_OTHER, input.statedNoCapitalOther]], "No gain or loss from property that is not subject to net investment income tax (the owner states no other gains or capital items).");
-  const l5c: Val = statement("f8960.5c", [[OTHER_INCOME, input.statedNoOtherIncome], [CAPITAL_OTHER, input.statedNoCapitalOther]], "No partnership interest or S corporation stock was sold (the owner states no partnership, S corporation or other capital items).");
+  // 5c: a partnership interest or S corporation stock sold. The Schedule 1 line 5 amount (partnership / S corporation income) must be 0 and the
+  // owner must state no Schedule K-1 capital items; an "other income: Yes" for something else (a state tax refund) is not a reason to ask the CPA.
+  const l5c: Val = !s5.ok
+    ? h.blk("f8960.5c", s5)
+    : !s5.v.isZero()
+      ? h.blk("f8960.5c", block("needs_cpa_judgment", `Schedule 1 line 5 shows ${fmt(s5.v)} of rental, partnership, S corporation or trust income: whether an interest or stock was also sold (Form 8960 line 5c) is the CPA's call.`, "Form 8960 line 5c"))
+      : statement("f8960.5c", [[CAPITAL_OTHER, input.statedNoCapitalOther]], "No partnership interest or S corporation stock was sold (Schedule 1 line 5 is 0 and the owner states no Schedule K-1 capital items).");
   const l5d = h.calc("f8960.5d", [l5a, l5b, l5c], (v) => v.reduce((a, b) => a.plus(b), ZERO), "Lines 5a through 5c.");
 
   /** Lines 6, 7 and 10: foreign corporations, trust distributions, net operating loss, recoveries, trading expenses. */
