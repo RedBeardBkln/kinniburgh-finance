@@ -83,7 +83,15 @@ export function addressVariants(address: string): string[] {
 
 export type Scrubber = (text: string) => string;
 
+const STATES = "CT|NY|MA|RI|NJ|PA|VT|NH|ME|FL|DE|MD|CA|TX|VA|NC|SC|GA|OH|IL|Connecticut";
+// "<Town words>, CT 06375" written after a street address that was just replaced by a label
+const TOWN_STATE_ZIP = `(?:,?\\s+[A-Za-z][A-Za-z.'-]*(?:\\s+[A-Za-z][A-Za-z.'-]*){0,2},?\\s+(?:${STATES})\\b\\.?\\s*\\d{5}(?:-\\d{4})?)`;
+// a state and zip left on their own ("CT 06375")
+const STATE_ZIP = new RegExp(`,?\\s*\\b(?:${STATES})\\b\\.?\\s+\\d{5}(?:-\\d{4})?\\b`, "gi");
+
 export function buildScrubber(config: ScrubConfig): Scrubber {
+  const labels = [...new Set([GENERIC_ADDRESS_LABEL, ...config.addresses.map((a) => a.label)])];
+  const tails = labels.map((l) => new RegExp(`(${escapeRegExp(l)})${TOWN_STATE_ZIP}`, "gi"));
   const entityRules = config.entities
     .flatMap((e) => entityVariants(e).map((v) => ({ re: wordRegex(v), label: e.label, len: v.length })))
     .sort((a, b) => b.len - a.len);
@@ -95,7 +103,9 @@ export function buildScrubber(config: ScrubConfig): Scrubber {
     for (const r of entityRules) out = out.replace(r.re, r.label);
     for (const r of addressRules) out = out.replace(r.re, r.label);
     out = out.replace(STREET_ADDRESS, GENERIC_ADDRESS_LABEL);
-    return out;
+    // whatever town / state / zip followed the street goes with it, then any state and zip left alone
+    for (const t of tails) out = out.replace(t, "$1");
+    return out.replace(STATE_ZIP, "");
   };
 }
 

@@ -95,7 +95,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "income",
     kind: "findings",
     title: "Income completeness: documents vs income lines",
-    maxTokens: 4000,
+    maxTokens: 8000,
     categories: ["missing_document", "duplicate_income", "misrouted_income", "wrong_amount", "unreported_income_type", "other"],
     instruction: prompt(
       "Task a1 (income completeness). Compare the document inventory and the income rows with the income lines of the return.",
@@ -108,7 +108,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "income",
     kind: "findings",
     title: "Income completeness: interest, dividends, sales, other income",
-    maxTokens: 4000,
+    maxTokens: 8000,
     categories: ["missing_document", "duplicate_income", "misrouted_income", "wrong_amount", "unreported_income_type", "other"],
     instruction: prompt(
       "Task a2 (income completeness, investment income). Review Schedule B, Schedule D, Form 8949 routing and the other income boxes.",
@@ -121,7 +121,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "deductions",
     kind: "findings",
     title: "Deductions: Schedule A and itemizing",
-    maxTokens: 4000,
+    maxTokens: 8000,
     categories: ["eligibility", "limit_or_phaseout", "wrong_amount", "missing_deduction", "documentation", "election", "other"],
     instruction: prompt(
       "Task b1 (deductions). Review Schedule A and the choice between the standard and the itemized deduction.",
@@ -134,7 +134,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "deductions",
     kind: "findings",
     title: "Credits and special deductions: Schedule 1-A, QBI, credits",
-    maxTokens: 4000,
+    maxTokens: 8000,
     categories: ["eligibility", "limit_or_phaseout", "wrong_amount", "missing_deduction", "documentation", "election", "other"],
     instruction: prompt(
       "Task b2 (deductions and credits). Review Schedule 1-A (tips, overtime, car loan interest, seniors), the qualified business income deduction and the credits.",
@@ -147,7 +147,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "deductions",
     kind: "findings",
     title: "Payments, penalty, Forms 8959 and 8960",
-    maxTokens: 4000,
+    maxTokens: 8000,
     categories: ["eligibility", "limit_or_phaseout", "wrong_amount", "documentation", "election", "other"],
     instruction: prompt(
       "Task b3 (payments and additional taxes). Review the payments, the estimated-tax penalty position, the Additional Medicare Tax (Form 8959) and the Net Investment Income Tax (Form 8960).",
@@ -160,7 +160,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "forms",
     kind: "findings",
     title: "Form text: Form 1040 and Schedules 1, 2, 3",
-    maxTokens: 3500,
+    maxTokens: 6000,
     categories: ["inconsistent_value", "implausible_entry", "label_mismatch", "missing_entry", "other"],
     instruction: prompt(
       "Task c1 (form-by-form review). You are given the printed text of the filled forms: for each form the lines that have a printed value, as [printed line, label, printed value], plus the engine's value for each line.",
@@ -173,7 +173,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "forms",
     kind: "findings",
     title: "Form text: Schedules A, B, C, D, SE, Form 8949",
-    maxTokens: 3500,
+    maxTokens: 6000,
     categories: ["inconsistent_value", "implausible_entry", "label_mismatch", "missing_entry", "other"],
     instruction: prompt(
       "Task c2 (form-by-form review). You are given the printed text of the filled Schedules A, B, C, D, SE and Form 8949 and the engine's value for each line.",
@@ -186,7 +186,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "forms",
     kind: "findings",
     title: "Form text: Schedule 1-A, Forms 8959, 8960, 8995",
-    maxTokens: 3500,
+    maxTokens: 6000,
     categories: ["inconsistent_value", "implausible_entry", "label_mismatch", "missing_entry", "other"],
     instruction: prompt(
       "Task c3 (form-by-form review). You are given the printed text of the filled Schedule 1-A and Forms 8959, 8960 and 8995 and the engine's value for each line.",
@@ -199,7 +199,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "ct",
     kind: "findings",
     title: "Connecticut: CT-1040 and Schedule 1",
-    maxTokens: 4000,
+    maxTokens: 8000,
     categories: ["ct_agi_bridge", "ct_modification", "ct_credit", "ct_payment", "other"],
     instruction: prompt(
       "Task d1 (Connecticut). Review the CT-1040 from the federal figures: the federal-to-Connecticut bridge, Schedule 1 additions and subtractions, the tax, and the printed form text.",
@@ -212,7 +212,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "ct",
     kind: "findings",
     title: "Connecticut: credits, payments, property tax",
-    maxTokens: 4000,
+    maxTokens: 8000,
     categories: ["ct_agi_bridge", "ct_modification", "ct_credit", "ct_payment", "other"],
     instruction: prompt(
       "Task d2 (Connecticut). Review the Connecticut credits and payments: the property tax credit, credits for tax paid to other states, use tax, estimated payments, withholding and any balance due or refund.",
@@ -225,7 +225,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "risk",
     kind: "findings",
     title: "Risk: audit flags",
-    maxTokens: 4000,
+    maxTokens: 8000,
     categories: ["audit_flag", "large_deduction", "unusual_ratio", "documentation", "other"],
     instruction: prompt(
       "Task e1 (risk). List what in this return is likely to draw questions or needs documentation on file, and what the owner should keep to support it.",
@@ -238,7 +238,7 @@ export const TASKS: readonly TaskDef[] = [
     pass: "risk",
     kind: "register",
     title: "Judgments register: wording",
-    maxTokens: 6000,
+    maxTokens: 12000,
     categories: [],
     instruction: `Task e2 (judgments register). The data contains "register": the decisions this return still needs from the owner, each with an id. For EACH entry write, in plain language for the owner: recommendedPosition (what the conservative or best-supported position is and why, in one to three sentences), alternative (the other realistic position, or null), rationale (the reason the law or the data points that way, or null) and sources (a constant id from the data, or a source-pack id with a quote copied word for word, at least 30 characters, from the sources text; an empty list when you cannot quote).
 Use only the entries given: you cannot add, remove or re-price an entry, and you must not state a dollar figure that is not in the data. Do not decide for the owner and do not say the position is correct: say what the sources support and what is left to him. Return one object per entry id, exactly the ids given.`,
@@ -249,7 +249,7 @@ Use only the entries given: you cannot add, remove or re-price an entry, and you
     pass: "adversarial",
     kind: "adversarial",
     title: "Adversarial pass over the other passes",
-    maxTokens: 5000,
+    maxTokens: 10000,
     categories: ["missed_issue", "wrong_conclusion", "other"],
     instruction: `Task f1 (adversarial pass). You are shown the return summary and every finding the other review passes produced ("priorFindings", each with its key), plus the deterministic checks' findings ("l1"). Your job is to look for what they MISSED or got WRONG.
 Return: (1) "findings": new findings the others did not raise, in the same format as before (category from the list); (2) "challenges": for any earlier finding you believe is wrong, overstated or based on a misreading, the finding's key and a short note saying why. A challenge is only a note shown beside the finding: it does not close, accept or change that finding, so do not use it to dismiss real concerns. Raise a challenge only when you can say specifically what is wrong with the finding.`,

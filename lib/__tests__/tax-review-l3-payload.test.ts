@@ -35,6 +35,18 @@ describe("scrubber", () => {
     expect(scrub("1200 N. Main Street Apt 4B and 5 Elm Ave.")).toBe(`${GENERIC_ADDRESS_LABEL} and ${GENERIC_ADDRESS_LABEL}`);
     expect(scrub("14 PINE HILL ROAD")).toBe(GENERIC_ADDRESS_LABEL);
   });
+  it("removes the town, state and zip that follow a replaced street address, however the address was written", () => {
+    const known = buildScrubber({ entities: [], addresses: [{ address: "27 Old Barry Rd", label: "the primary residence" }] });
+    expect(known("primary residence (27 old barry rd quaker hill ct 06375)")).toBe("primary residence (the primary residence)");
+    expect(known("at 27 Old Barry Rd, Quaker Hill, CT 06375 for 2025")).toBe("at the primary residence for 2025");
+    expect(known("27 Old Barry Rd Quaker Hill Connecticut 06375.")).toBe("the primary residence.");
+    // an unknown street gets the generic label and loses its town / state / zip too
+    expect(known("sold 99 Maple Ave, Springfield, MA 01103")).toBe(`sold ${GENERIC_ADDRESS_LABEL}`);
+    // a state and zip that stand alone are removed as well
+    expect(known("mailing address CT 06375 on file")).toBe("mailing address on file");
+    // two-letter words that are not followed by a zip are untouched
+    expect(known("the ct1040 line 4 and CT-1040 instructions")).toBe("the ct1040 line 4 and CT-1040 instructions");
+  });
   it("leaves ordinary return text alone", () => {
     for (const t of ["Schedule A line 5a State and local income taxes", "Form 1040 line 25a federal income tax withheld", "2025 estimated tax payments 4 of 4", "Total of lines 1a through 1h", "1099-B box A short-term, basis reported", "Form 8949 Part I box 1 row 3 (see attached statement)"]) expect(scrub(t)).toBe(t);
   });
