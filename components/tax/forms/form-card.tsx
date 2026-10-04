@@ -10,6 +10,7 @@ import {
 import { FormFieldList } from "@/components/tax/forms/form-field-list";
 import { QuestionnaireCardBlock } from "@/components/tax/forms/questionnaire-card-block";
 import type { ExtractionTone } from "@/lib/document-extraction-state";
+import type { CardConclusion } from "@/lib/tax2025-sheet-conclusions";
 
 // Same palette as the Documents list's Extraction badge (kept local: that map
 // lives in a "use client" module, which a server component must not import values from).
@@ -75,7 +76,22 @@ function InputRow({ input }: { input: FormInputRef }) {
   );
 }
 
-export function FormCard({ entry, taxYear }: { entry: FormEntry; taxYear: number }) {
+const CONCLUSION_CLASS: Record<CardConclusion["tone"], string> = {
+  computed: "border-green-200 bg-green-50 text-green-900",
+  not_required: "border-border bg-muted text-foreground",
+  blocked: "border-amber-300 bg-amber-50 text-amber-900",
+};
+
+export function FormCard({
+  entry,
+  taxYear,
+  conclusion,
+}: {
+  entry: FormEntry;
+  taxYear: number;
+  /** The TY2025 engine's one-sentence conclusion for this card (2025 only); does not touch any counter. */
+  conclusion?: CardConclusion;
+}) {
   const muted = entry.applicability === "not_applicable";
   const showReadiness = !muted && entry.readiness !== "not_assessed";
   const pct = entry.fieldsTotal > 0 ? Math.round((entry.fieldsReady / entry.fieldsTotal) * 100) : 0;
@@ -97,6 +113,19 @@ export function FormCard({ entry, taxYear }: { entry: FormEntry; taxYear: number
       <p className="mt-2 text-sm">{entry.reason}</p>
       {entry.cpaNote && <p className="mt-1 text-xs text-muted-foreground">{entry.cpaNote}</p>}
       <p className="mt-1 text-[11px] text-muted-foreground">Source: {entry.source}</p>
+
+      {conclusion && (
+        <p
+          className={`mt-2 rounded-md border px-2 py-1.5 text-xs ${CONCLUSION_CLASS[conclusion.tone]}`}
+          data-testid="engine-conclusion"
+        >
+          <span className="font-semibold">Engine conclusion (DRAFT, for the CPA): </span>
+          {conclusion.text}{" "}
+          <Link href={`/tax/forms/${taxYear}/return` as Route} className="underline print:hidden">
+            See the review sheet
+          </Link>
+        </p>
+      )}
 
       {entry.opportunity && (
         <p className="mt-2 text-xs">

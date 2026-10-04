@@ -93,3 +93,75 @@
     overflow: visible !important;
   }
 }
+
+/* Print: the TY2025 CPA review sheet (/tax/forms/[year]/return) wraps its content in
+   #return-sheet. Same approach as #cpa-summary above (un-clamp the fixed-height app
+   shell, hide the chrome with the visibility trick so AppShell keeps its auth/2FA
+   redirect, lay the sheet out from the top-left), scoped with :has(#return-sheet) so no
+   other page's print or screen layout changes. Each of the six parts (.sheet-part)
+   starts a new page; tables stay readable (the wide line tables lose their screen
+   min-width and shrink the type); rows and decision cards never split across pages.
+   Multi-page output can only be confirmed in a real browser print preview. */
+@media print {
+  html:has(#return-sheet),
+  body:has(#return-sheet) {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  body:has(#return-sheet) * {
+    visibility: hidden;
+  }
+  body:has(#return-sheet) #return-sheet,
+  body:has(#return-sheet) #return-sheet * {
+    visibility: visible;
+  }
+  body:has(#return-sheet) #return-sheet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    font-size: 10px;
+    /* room for the fixed DRAFT header that repeats on every printed page */
+    padding-top: 16px;
+  }
+  body:has(#return-sheet) .h-screen {
+    height: auto !important;
+  }
+  body:has(#return-sheet) .overflow-hidden,
+  body:has(#return-sheet) .overflow-y-auto,
+  body:has(#return-sheet) #return-sheet .overflow-x-auto {
+    overflow: visible !important;
+  }
+  body:has(#return-sheet) #return-sheet .sheet-part {
+    break-before: page;
+    page-break-before: always;
+  }
+  body:has(#return-sheet) #return-sheet .sheet-part:first-of-type,
+  body:has(#return-sheet) #return-sheet #part-1 {
+    break-before: auto;
+    page-break-before: auto;
+  }
+  body:has(#return-sheet) #return-sheet table {
+    min-width: 0 !important;
+    width: 100% !important;
+    table-layout: auto;
+  }
+  body:has(#return-sheet) #return-sheet tr,
+  body:has(#return-sheet) #return-sheet [data-decision] {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body:has(#return-sheet) #return-sheet thead {
+    display: table-header-group;
+  }
+  body:has(#return-sheet) #return-sheet h2,
+  body:has(#return-sheet) #return-sheet h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  body:has(#return-sheet) #return-sheet a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
