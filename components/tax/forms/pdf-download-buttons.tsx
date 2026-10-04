@@ -10,6 +10,7 @@ import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 const FORM_LABELS: Readonly<Record<string, string>> = {
   f1040: "Form 1040",
   f1040s1: "Schedule 1",
+  f1040s1a: "Schedule 1-A",
   f1040s2: "Schedule 2",
   f1040s3: "Schedule 3",
   f1040sa: "Schedule A",
@@ -19,6 +20,7 @@ const FORM_LABELS: Readonly<Record<string, string>> = {
   f8949: "Form 8949",
   f1040sse: "Schedule SE",
   f8959: "Form 8959",
+  f8960: "Form 8960",
   f8995: "Form 8995",
   ct1040: "CT-1040",
 };
@@ -54,9 +56,12 @@ export function PdfDownloadButtons({ year, overrideCount = 0 }: { year: number; 
         <a href={base} download className={linkClass}>
           Download filing packet (zip)
         </a>
+        <Link href={`/tax/forms/${year}/final-review` as Route} className={linkClass} data-testid="pdf-final-review-link">
+          Final review and approval
+        </Link>
       </div>
       <p className="text-xs text-muted-foreground">
-        Every page carries a DRAFT footer. A clean copy without it is available only after you approve the return.
+        Every page carries a DRAFT footer. The clean copies and the final package are released only after you approve the return in the Final review.
       </p>
       {overrideCount > 0 ? (
         <p className="text-xs font-medium text-violet-900" data-testid="pdf-overrides-note">

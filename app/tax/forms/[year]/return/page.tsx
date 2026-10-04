@@ -48,6 +48,13 @@ export default async function TaxReturnSheetPage({ params }: PageProps) {
           </div>
           {loaded?.kind === "ok" ? (
             <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href={`/tax/forms/${year}/final-review` as Route}
+                className="inline-flex min-h-11 items-center rounded-md border border-primary/40 px-4 text-sm font-medium text-primary hover:bg-primary/10"
+                data-testid="sheet-final-review-link"
+              >
+                Final review and approval
+              </Link>
               <ReturnCsvButton year={year} />
               <PrintButton />
             </div>

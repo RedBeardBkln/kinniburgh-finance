@@ -12,12 +12,13 @@
 //
 // PURE: no DB, no network, no clock (timestamps arrive as data).
 
+import { REASON_MAX, REASON_MIN, TYPED_PHRASE } from "@/lib/tax-review/limits";
 import { sha256Hex, isGatingSeverity, type Finding, type ReviewLayer, type Severity } from "@/lib/tax-review/types";
+
+export { REASON_MAX, REASON_MIN, TYPED_PHRASE };
 
 // ── Dispositions ──────────────────────────────────────────────────────────────
 
-export const REASON_MIN = 3;
-export const REASON_MAX = 500;
 
 export interface DispositionRow {
   findingKey: string;
@@ -219,7 +220,6 @@ export const ATTESTATION_VERSION = "v1";
 export const ATTESTATION_V1_TEXT =
   "I, Eric Kinniburgh, prepared this 2025 federal and Connecticut income tax return myself. I have reviewed every figure and every decision recorded in the Final review, I understand the AI review is an automated aid and not a professional opinion, and I take full responsibility for the return as its preparer.";
 
-export const TYPED_PHRASE = "I PREPARED THIS RETURN";
 
 export function attestationTextHash(text: string = ATTESTATION_V1_TEXT): string {
   return sha256Hex(text);

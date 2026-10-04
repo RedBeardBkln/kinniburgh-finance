@@ -87,6 +87,15 @@ export default async function TaxFormsPage({ params }: PageProps) {
             >
               Questions and answers summary
             </Link>
+            {year === PDF_SUPPORTED_YEAR ? (
+              <Link
+                href={`/tax/forms/${year}/final-review` as Route}
+                className="rounded-full border border-primary bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                data-testid="forms-final-review-link"
+              >
+                Final review and approval
+              </Link>
+            ) : null}
           </div>
         </div>
 
