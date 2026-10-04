@@ -40,7 +40,7 @@ import {
   sumCentsStrict,
 } from "@/lib/tax2025/inputs";
 import { LINE_CATALOG, NONE_GROUP_TEXT, lineMeta, type NoneGroupId } from "@/lib/tax2025/line-catalog";
-import { D, ZERO, centsToDollars, fmt, maxD, roundLine, sumThenRound } from "@/lib/tax2025/money";
+import { D, ZERO, centsToDollars, fmt, maxD, roundLine } from "@/lib/tax2025/money";
 import { computeCtPayments, computeExcessSocialSecurity, computeFederalPayments } from "@/lib/tax2025/rules/payments";
 import { computeCtBalance, computeCtPropertyTaxCredit, computeCtTax } from "@/lib/tax2025/rules/ct";
 import { CT_CREDIT_LINES, computeCtOtherCredits } from "@/lib/tax2025/rules/ct-credits";

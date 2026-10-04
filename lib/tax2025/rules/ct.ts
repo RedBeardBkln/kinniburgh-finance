@@ -366,7 +366,11 @@ export function computeCtTax(input: CtTaxInput): RuleResult {
     );
   }
 
-  return { ...base, status: aggregateStatus(lines), lines, reasons, inputsMissing: missing };
+  // Lines 8 and 10 held back only by line 7 (owned by rules/ct-credits.ts, which raises that item) do not make THIS rule
+  // blocked: otherwise the CT tax rule would add a second blocking item whose text is about the tax calculation.
+  const heldBackByLine7 = tax !== null && input.otherJurisdictionCredit === null;
+  const ownLines = heldBackByLine7 ? lines.filter((l) => l.key !== "ct1040.8" && l.key !== "ct1040.10") : lines;
+  return { ...base, status: aggregateStatus(ownLines), lines, reasons, inputsMissing: missing };
 }
 
 // ── Use tax (line 15, Schedule 4 line 69b) ───────────────────────────────────

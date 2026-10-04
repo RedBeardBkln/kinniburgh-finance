@@ -409,6 +409,8 @@ describe("CT-1040 footing (plan 8.1)", () => {
     expect(b.ret.lines["ct1040.10"]?.status).toBe("missing_input");
     expect(itemSeverity(b.ret, "rule:ct-credits")).toBe("blocking");
     expect(b.ret.openItems.find((i) => i.id === "rule:ct-credits")?.message).toContain("needs an owner / CPA statement");
+    // the only blocking CT item is the credits one: the tax rule does not add a second item about the same gap
+    expect(b.ret.openItems.filter((i) => i.severity === "blocking" && i.id.startsWith("rule:ct-")).map((i) => i.id)).toEqual(["rule:ct-credits"]);
     expect(b.ret.headline.complete).toBe(false);
     expect(b.ret.headline.connecticut.balance.amount).toBeNull();
     for (const f of ["l7", "l8", "l12", "l14", "l17", "l21", "l22", "l26"]) expect(printedNumber(b.fields, f), f).toBeNull();

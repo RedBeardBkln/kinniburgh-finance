@@ -339,7 +339,8 @@ describe("computeCtTax", () => {
     expect(st(r, "ct1040.10")).toBe("needs_cpa_judgment");
     expect(amt(r, "ct1040.8")).toBeNull();
     expect(amt(r, "ct1040.6")).not.toBeNull();
-    expect(r.status).toBe("needs_cpa_judgment");
+    // the blocking item belongs to line 7's own rule (ct-credits): this rule stays computed, so there is no second item
+    expect(r.status).toBe("computed");
     const dflt = computeCtTax(ctInput({ otherJurisdictionCredit: null }));
     expect(st(dflt, "ct1040.8")).toBe("missing_input");
   });
