@@ -776,42 +776,73 @@ describe("Tester: no silent zero / never throws", () => {
 });
 
 // ── Purity: transitive import graph of lib/tax2025 ──────────────────────────────
+//
+// Scope decision (T9): the purity guarantee is about the RULES: the engine that computes the return must
+// stay free of db / fs / network / server modules and must never depend on the PDF layer. The PDF layer
+// (lib/tax2025/pdf/**) is a separate, one-way consumer of the engine: it legitimately imports pdf-lib and
+// fflate and, in exactly two files, node:fs / node:path / node:crypto (blank-form registry + fingerprint).
+// So there are two walks with two allowlists. The rules walk is NOT weakened: it starts from every
+// lib/tax2025 file outside pdf/, may not enter lib/tax2025/pdf/** at all, and its external set is still
+// exactly {@prisma/client/runtime/library, zod}. The PDF walk keeps the db / network / server bans and
+// pins the node built-ins to the files that need them.
 
 describe("Tester: lib/tax2025 transitive import graph is free of db / fs / network / server modules", () => {
   const ROOT = path.resolve(__dirname, "..", "..");
   const FORBIDDEN = [/^@\/lib\/db$/, /^@prisma\/client$/, /^next(\/|$)/, /^node:/, /^(fs|path|http|https|net|child_process|crypto)$/, /^@supabase\//, /^@anthropic-ai\//, /^plaid/, /^axios$/, /^@\/lib\/(reports|entity|auth|supabase|plaid|encrypt|tax-compute-build|tax-extraction-policy|fixed-assets)/];
+  const PDF_DIR = path.join(ROOT, "lib", "tax2025", "pdf") + path.sep;
   function resolveImport(from: string, spec: string): string | null {
-    if (spec.startsWith("@/")) return path.join(ROOT, spec.slice(2) + ".ts");
-    if (spec.startsWith(".")) return path.resolve(path.dirname(from), spec + ".ts");
-    return null;
+    const base = spec.startsWith("@/") ? path.join(ROOT, spec.slice(2)) : spec.startsWith(".") ? path.resolve(path.dirname(from), spec) : null;
+    if (base === null) return null;
+    if (spec.endsWith(".json")) return base;
+    // a directory import resolves to its index.ts (e.g. "@/lib/tax2025/pdf/maps")
+    return fs.existsSync(`${base}.ts`) || !fs.existsSync(path.join(base, "index.ts")) ? `${base}.ts` : path.join(base, "index.ts");
   }
-  it("walks every import (static, dynamic, require) reachable from lib/tax2025/**", () => {
+  function listTs(d: string, skip: (p: string) => boolean): string[] {
+    const out: string[] = [];
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (skip(p)) continue;
+      if (e.isDirectory()) out.push(...listTs(p, skip));
+      else if (e.name.endsWith(".ts")) out.push(p);
+    }
+    return out;
+  }
+  function stripComments(src: string): string {
+    return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
+  }
+  /** Every file reachable from `roots` (static, dynamic, require), plus the external specifiers met on the way. */
+  function walkImports(roots: string[]): { seen: Set<string>; external: Set<string>; edges: Map<string, string[]> } {
     const seen = new Set<string>();
     const external = new Set<string>();
-    const dir = path.join(ROOT, "lib", "tax2025");
-    const stack: string[] = [];
-    const walk = (d: string) => {
-      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-        const p = path.join(d, e.name);
-        if (e.isDirectory()) walk(p);
-        else if (e.name.endsWith(".ts")) stack.push(p);
-      }
-    };
-    walk(dir);
+    const edges = new Map<string, string[]>();
+    const stack = [...roots];
     while (stack.length > 0) {
       const f = stack.pop()!;
       if (seen.has(f)) continue;
       seen.add(f);
-      const src = fs.readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
+      if (f.endsWith(".json")) continue;
+      const src = stripComments(fs.readFileSync(f, "utf8"));
       const specs = [...src.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)["']([^"']+)["']/g)].map((m) => m[1]!);
       for (const s of specs) {
         const r = resolveImport(f, s);
         if (r !== null) {
           if (!fs.existsSync(r)) throw new Error(`unresolvable import ${s} in ${f}`);
+          const list = edges.get(f) ?? [];
+          list.push(r);
+          edges.set(f, list);
           stack.push(r);
         } else external.add(s);
       }
     }
+    return { seen, external, edges };
+  }
+
+  it("rules: walks every import (static, dynamic, require) reachable from lib/tax2025/** outside pdf/**", () => {
+    const roots = listTs(path.join(ROOT, "lib", "tax2025"), (p) => (p + path.sep).startsWith(PDF_DIR));
+    expect(roots.length).toBeGreaterThan(10);
+    const { seen, external } = walkImports(roots);
+    // One-way dependency: the rules never reach the PDF layer.
+    for (const f of seen) expect(f.startsWith(PDF_DIR), `rules reach the PDF layer: ${f}`).toBe(false);
     for (const e of external) for (const re of FORBIDDEN) expect(re.test(e), `forbidden external import ${e}`).toBe(false);
     for (const f of seen) {
       const rel = path.relative(ROOT, f).replace(/\\/g, "/");
@@ -821,8 +852,35 @@ describe("Tester: lib/tax2025 transitive import graph is free of db / fs / netwo
     // no floating-point money idioms anywhere in the engine
     for (const f of seen.values()) {
       if (!f.includes(`${path.sep}tax2025${path.sep}`)) continue;
-      const src = fs.readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
+      const src = stripComments(fs.readFileSync(f, "utf8"));
       expect(/parseFloat\s*\(|Number\s*\(\s*["'`]|Math\.(round|floor|ceil|trunc)\s*\(/.test(src), `float idiom in ${path.basename(f)}`).toBe(false);
+    }
+  });
+
+  it("pdf layer: no db / network / server modules; node built-ins only in the two files that need them", () => {
+    const roots = listTs(PDF_DIR, () => false);
+    expect(roots.length).toBeGreaterThan(10);
+    const { seen, external } = walkImports(roots);
+    for (const f of seen) {
+      const rel = path.relative(ROOT, f).replace(/\\/g, "/");
+      expect(/lib\/(db|reports|entity|auth|tax-compute-build|tax-extraction-policy)\.ts$/.test(rel), `pdf layer reaches ${rel}`).toBe(false);
+      expect(rel.startsWith("lib/tax2025-pdf-"), `pdf layer reaches the DB wiring ${rel}`).toBe(false);
+    }
+    const NODE_BUILTIN = /^(node:|fs$|path$|crypto$)/;
+    const NETWORK_OR_SERVER = [/^@\/lib\/db$/, /^@prisma\/client$/, /^next(\/|$)/, /^(http|https|net|child_process)$/, /^node:(http|https|net|child_process|dns|tls)$/, /^@supabase\//, /^@anthropic-ai\//, /^plaid/, /^axios$/, /^@\/lib\/(reports|entity|auth|supabase|plaid|encrypt|tax-compute-build|tax-extraction-policy|fixed-assets)/];
+    for (const e of external) for (const re of NETWORK_OR_SERVER) expect(re.test(e), `forbidden external import ${e} in the PDF layer`).toBe(false);
+    expect([...external].filter((e) => !NODE_BUILTIN.test(e)).sort()).toEqual(["@prisma/client/runtime/library", "fflate", "pdf-lib", "zod"]);
+    // node:fs / node:path / node:crypto are pinned to the files that need them.
+    const allowedBuiltins: Record<string, string[]> = {
+      "lib/tax2025/pdf/registry.ts": ["node:crypto", "node:fs", "node:path"],
+      "lib/tax2025/pdf/format.ts": ["node:crypto"],
+    };
+    for (const f of seen) {
+      if (f.endsWith(".json")) continue;
+      const rel = path.relative(ROOT, f).replace(/\\/g, "/");
+      const src = stripComments(fs.readFileSync(f, "utf8"));
+      const specs = [...src.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)["']([^"']+)["']/g)].map((m) => m[1]!).filter((s) => NODE_BUILTIN.test(s));
+      expect(specs.sort(), `node built-ins in ${rel}`).toEqual((allowedBuiltins[rel] ?? []).slice().sort());
     }
   });
 });
