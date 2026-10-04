@@ -1384,7 +1384,7 @@ const RC_GROUP_PROMPTS: Readonly<Record<RcNoneGroupId, string>> = {
     "income that another state (or a city or county in another state) also taxed, for example wages for work you did in another state, or rent or business income from outside Connecticut, which can earn a credit on the Connecticut return for the tax paid to that state",
   ct_other_credits:
     "a Connecticut credit other than the property tax credit, for example the Connecticut earned income tax credit, the credit for tax paid on income you later had to give back (claim of right), the credit for Connecticut pass-through entity tax paid by a partnership or S corporation you own, the historic home credit, or a credit listed on Schedule CT-IT Credit (such as the angel investor, employer CHET contribution or real estate conveyance tax credit)",
-  // Federal Form 8960 (net investment income tax) lines 6, 7 and 10: items the app cannot read from any document, so a Yes goes to the CPA.
+  // Federal Form 8960 (net investment income tax) lines 6, 7 and 10: items the app cannot read from any document, so a Yes means you work them out.
   niit_other:
     "stock in a company based outside the United States that the IRS treats as a controlled foreign corporation or a passive foreign investment company, a payout from an estate or a trust (Schedule K-1 from Form 1041, box 14 code H), a net operating loss (a business loss carried over from another year) that applies to investment income, a deduction from an earlier year that you got back and that was counted against investment income, or a business that mainly trades stocks, bonds or commodities",
 };
@@ -1657,7 +1657,7 @@ function rcPersonNodes(): QNode[] {
           UNSURE,
         ],
         {
-          help: "The IRS says qualified overtime is the amount above the regular rate that the FLSA requires (generally the 'half' in time-and-a-half); employers may show it in W-2 box 14; if a statement shows the total pay for the overtime hours (premium plus regular wages), the instructions let you divide that total by three, which is right only when the employer pays time-and-a-half (for double time or any other rate, answer Not sure so the CPA works it out); you can rely on an amount your employer provides.",
+          help: "The IRS says qualified overtime is the amount above the regular rate that the FLSA requires (generally the 'half' in time-and-a-half); employers may show it in W-2 box 14; if a statement shows the total pay for the overtime hours (premium plus regular wages), the instructions let you divide that total by three, which is right only when the employer pays time-and-a-half (for double time or any other rate, answer Not sure so you can work it out); you can rely on an amount your employer provides.",
           sources: ["1040GI"],
         }
       ),

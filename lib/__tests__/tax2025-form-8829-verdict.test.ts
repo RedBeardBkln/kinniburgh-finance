@@ -86,7 +86,7 @@ describe("the cover and Form 8829", () => {
     expect(list.map((m) => m.formId)).toContain("f8829");
     const t = text(model.blocks);
     expect(t).toContain("Form 8829");
-    expect(t).toContain("The CPA chose the actual home-office method");
+    expect(t).toContain("You chose the actual home-office method"); // the cover renders the engine reason through the owner wording layer
   });
 
   it("the 'Defaults in force' bullet on the cover says no Form 8829 is filed", () => {

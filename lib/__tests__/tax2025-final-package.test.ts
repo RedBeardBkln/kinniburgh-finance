@@ -64,7 +64,7 @@ describe("buildFinalPackage on the golden return", () => {
     expect(names[0]).toBe(FINAL_INDEX_FILE_NAME);
     expect(names).not.toContain("00-cover.pdf");
     expect(names.filter((n) => n !== FINAL_INDEX_FILE_NAME).every((n) => n.startsWith("forms/") || n.startsWith("attachments/"))).toBe(true);
-    expect(names.slice(1, 4)).toEqual(["forms/01-f1040.pdf", "forms/02-f1040s1.pdf", "forms/03-f1040s2.pdf"]);
+    expect(names.slice(1, 4)).toEqual(["forms/01-f1040.pdf", "forms/02-f1040s1.pdf", "forms/03-f1040s1a.pdf"]); // Schedule 1-A follows Schedule 1 (PACKET_ORDER)
     expect(names).toContain("forms/ct/ct1040.pdf");
     expect(names).toContain("attachments/01-ct1040-withholding.pdf"); // the CT withholding list is a real statement now
     expect(result.forms).toContain("f1040");
