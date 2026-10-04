@@ -219,3 +219,19 @@ describe("single-form route", () => {
     expect(doc.getSubject()).toContain("DRAFT");
   });
 });
+
+describe("single-form ?final=1 follows the final package's rules (tester Y D2)", () => {
+  it("is 409 for a blocked return even with an approval, and runs the same neutral-properties scan on the form it serves", async () => {
+    const view = makeView(emptyFacts());
+    expect(view.openItems.some((i) => i.severity === "blocking")).toBe(true);
+    const { deps, audits } = harness({ view, approval: approvalFor(view.fingerprint) });
+    const res = await handleFormRequest({ year: "2025", form: "f1040", stamp: null, final: "1", user: USER }, deps);
+    expect(res.status).toBe(409);
+    expect(audits).toEqual([]);
+    // the scan is the one buildFinalPackage runs (formPropertyProblems), applied before the form is served and the audit row written
+    const src = read("lib/tax2025-pdf-route.ts");
+    const form = src.slice(src.indexOf("export async function handleFormRequest"));
+    expect(form).toContain("formPropertyProblems(");
+    expect(form.indexOf("formPropertyProblems(")).toBeLessThan(form.indexOf("await deps.recordExport"));
+  });
+});

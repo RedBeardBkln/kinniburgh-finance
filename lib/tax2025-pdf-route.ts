@@ -17,7 +17,7 @@ import { zipSync, type Zippable } from "fflate";
 import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 import { fillFormCopies } from "@/lib/tax2025/pdf/copies";
 import { formatNewYorkDate, shortFingerprint } from "@/lib/tax2025/pdf/format";
-import { buildFinalPackage } from "@/lib/tax2025/pdf/final-package";
+import { buildFinalPackage, formPropertyProblems } from "@/lib/tax2025/pdf/final-package";
 import { buildPacket } from "@/lib/tax2025/pdf/packet";
 import { SUPPORTED_YEAR, isKnownFormId, sha256Hex } from "@/lib/tax2025/pdf/registry";
 import type { FormMap, PdfReturnView } from "@/lib/tax2025/pdf/types";
@@ -114,6 +114,9 @@ export function servableFormIds(maps: readonly FormMap[]): string[] {
 
 const NO_STORE = "private, no-store";
 
+/** 409 body for a final package or final form requested while a blocking item remains. */
+const FINAL_BLOCKED_MESSAGE = "The final package is not built while blocking items remain.";
+
 function jsonError(status: number, error: string): Response {
   return new Response(JSON.stringify({ error }), {
     status,
@@ -194,7 +197,7 @@ export async function handlePacketRequest(req: PacketRequest, deps: PdfRouteDeps
 async function handleFinalPackage(view: PdfReturnView, req: PacketRequest, deps: PdfRouteDeps): Promise<Response> {
   // Defence in depth: an approval is bound to a return with no blocking item, so a blocking item here means the approval is not for this state.
   if (view.openItems.some((i) => i.severity === "blocking")) {
-    return jsonError(409, "The final package is not built while blocking items remain.");
+    return jsonError(409, FINAL_BLOCKED_MESSAGE);
   }
   const result = await buildFinalPackage(view, { maps: deps.maps ?? FORM_MAPS, approvedAt: await approvedAtOf(deps, view.fingerprint) });
   if (!result.ok) return jsonError(409, `The final package could not be built: ${result.reason}`);
@@ -232,6 +235,9 @@ export async function handleFormRequest(req: FormRequest, deps: PdfRouteDeps): P
     if ("error" in built) return jsonError(500, built.error);
     const { view } = built;
     if ((!stamp || final) && !(await isApproved(deps, view.fingerprint))) return jsonError(403, CLEAN_COPY_REFUSED);
+    // A final form follows the same rule as the final package: never for a return with a blocking item (an approval is bound to a
+    // return with none, so this is defence in depth), and only with neutral document properties (checked below, after filling).
+    if (final && view.openItems.some((i) => i.severity === "blocking")) return jsonError(409, FINAL_BLOCKED_MESSAGE);
     const fp12 = shortFingerprint(view.fingerprint);
     // An explicitly requested form is filled even when the packet's inclusion rule would omit it.
     // A form filed in several copies (Form 8949) comes back as a zip with one PDF per copy.
@@ -241,6 +247,12 @@ export async function handleFormRequest(req: FormRequest, deps: PdfRouteDeps): P
       stampDate: formatNewYorkDate(view.generatedAt),
       ...(final ? { final: true } : {}),
     });
+    if (final) {
+      // the same neutrality test the final package runs on every form (Title = the IRS form title; no Subject, Keywords or Author)
+      const problems: string[] = [];
+      for (const [i, s] of sheets.entries()) problems.push(...(await formPropertyProblems(`${map.formId}-${s.copy?.suffix ?? String(i + 1)}.pdf`, map.formId, s.result.bytes)));
+      if (problems.length > 0) return jsonError(409, `The final form could not be built: ${problems.join("; ")}.`);
+    }
     await deps.recordExport({
       userId: req.user.id,
       taxYear: year.year,

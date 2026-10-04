@@ -198,7 +198,11 @@ export function buildAttachments(view: PdfReturnView, continuations: readonly Co
 
 // ── Package index ─────────────────────────────────────────────────────────────
 
-const BY_HAND: readonly string[] = [
+/**
+ * The "enter by hand before filing" list (the package index prints it; the Final review page shows the same list). Besides what the
+ * app never stores, it names the lines that are left blank because they are the owner's choice, so a blank is never mistaken for a zero.
+ */
+export const BY_HAND: readonly string[] = [
   "Social security numbers of both spouses",
   "Employer identification numbers, where a form asks for them",
   "Dates of birth",
@@ -206,6 +210,9 @@ const BY_HAND: readonly string[] = [
   "Identity protection PINs and any other PINs",
   "Signatures and signing dates of both spouses (this is a joint return)",
   "Occupations, phone numbers and addresses",
+  "Form 1040 lines 35a and 36: how much of an overpayment is refunded to you and how much is applied to your 2026 tax payments (your choice; left blank)",
+  "Form 1040 line 7b: left blank; read the form's instructions for that line",
+  "CT-1040 lines 23, 24 and 24a: what to do with a Connecticut overpayment (your choice; left blank), and then check line 25, the refund, against them",
 ];
 
 export interface IndexInput {
@@ -262,7 +269,8 @@ export function buildIndexLines(input: IndexInput): Line[] {
     l.push(
       chrome({
         kind: "bullet",
-        text: "Your broker's Form 1099-B detail pages: the Form 8949 rows say \"see attached statement\" (see the Form 8949 instructions).",
+        text:
+          "Your broker's Form 1099-B detail pages, with the dates acquired and sold: the Form 8949 rows say \"see attached statement\". The Form 8949 statement in this package is a summary only and does not satisfy the Form 8949 instructions (Exception 2) by itself.",
       }),
     );
   }
