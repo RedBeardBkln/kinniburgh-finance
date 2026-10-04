@@ -16,7 +16,8 @@ import { assembleL1Context } from "@/lib/tax-review/l1/assemble";
 import type { LineLabelTable } from "@/lib/tax-review/l1/context";
 import { engineGateState } from "@/lib/tax-review/l1/engine-state";
 import { L1_VERSION, runL1, type L1Result } from "@/lib/tax-review/l1/run-l1";
-import { runL2, type L2Result } from "@/lib/tax-review/l2";
+import { l2SummaryOf, L2_VERSION, runL2, type L2Result } from "@/lib/tax-review/l2";
+import type { Finding } from "@/lib/tax-review/types";
 import type { GateEngineState } from "@/lib/tax-review/gate";
 
 // ── DB-aware loader and runner of the AI Return Reviewer's deterministic layers ──────────────────────────────
@@ -138,7 +139,10 @@ export interface ReviewRunResult {
   fingerprint: ReturnFingerprint;
   engineVersion: string;
   l1: L1Result;
+  /** The independent recalculation (Phase C): "not_run" (with the reason) when the return is not complete or it could not run. */
   l2: L2Result;
+  /** Every finding of the deterministic layers (L1 and L2): what a run stores. */
+  findings: Finding[];
   /** For the gate (counts only). */
   engine: GateEngineState;
   /** Stored on the run row: versions and digests only (no value). */
@@ -147,7 +151,7 @@ export interface ReviewRunResult {
   l2Summary: unknown;
 }
 
-/** Builds the packet in-process (as the download does) and runs L1; L2 is the not-run stub until the oracle exists. Read-only. */
+/** Builds the packet in-process (as the download does), runs L1 and the independent recalculation (L2). Read-only. */
 export async function runReviewForYear(year: 2025, generatedBy: string, mode: "draft" | "final" = "draft", deps: ReviewBuildDeps = {}): Promise<ReviewRunResult | { error: string }> {
   const inputs = await loadReviewInputs(year, generatedBy, deps);
   if ("error" in inputs) return inputs;
@@ -171,16 +175,17 @@ export async function runReviewForYear(year: 2025, generatedBy: string, mode: "d
     includeFinalPackage: mode === "draft",
   });
   const l1 = await runL1(ctx);
-  const l2 = runL2();
+  const l2 = runL2({ ret: inputs.built.ret, effective: inputs.built.effective, facts: inputs.built.facts });
   return {
     entityId: inputs.entityId,
     fingerprint: inputs.fingerprint,
     engineVersion: inputs.engineVersion,
     l1,
     l2,
+    findings: [...l1.findings, ...l2.findings],
     engine: engineGateState(ctx),
-    config: { fingerprintVersion: FINGERPRINT_VERSION, fingerprintParts: inputs.fingerprint.parts, l1Version: L1_VERSION, l2Version: 0, mode },
+    config: { fingerprintVersion: FINGERPRINT_VERSION, fingerprintParts: inputs.fingerprint.parts, l1Version: L1_VERSION, l2Version: L2_VERSION, mode },
     l1Summary: { ...l1.summary, status: l1.status },
-    l2Summary: { status: l2.status, coverage: l2.coverage },
+    l2Summary: l2SummaryOf(l2),
   };
 }
