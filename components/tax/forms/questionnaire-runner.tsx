@@ -5,9 +5,14 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
 import { resetQuestionnaire, saveQuestionnaireAnswer, saveQuestionnaireNote } from "@/actions/tax-questionnaires";
+import { acceptPrefillSuggestions } from "@/actions/tax-questionnaire-prefill";
+import { PrefillPanel } from "@/components/tax/forms/prefill-panel";
+import { NO_PREFILL, combineContributions, ruleForNode, type PrefillAnswer, type PrefillSuggestion, type QuestionnairePrefill } from "@/lib/tax-prefill";
 import {
   UNSURE_ID,
+  answerLabel,
   buildSummary,
+  describeAnswerSource,
   centsToDollarString,
   isUnsureValue,
   nodeOptions,
@@ -57,6 +62,8 @@ export interface QuestionnaireRunnerProps {
   ctx: QuestionnaireContext;
   effective: EffectiveAnswers;
   bound: Record<string, BoundNodeInfo>;
+  /** Suggestions from the household's documents (absent / empty = none: the runner behaves exactly as before). */
+  prefill?: QuestionnairePrefill;
   note: string | null;
   noteMeta: { at: string; byName: string | null } | null;
   stale: boolean;
@@ -88,6 +95,7 @@ function draftFromValue(node: NumberNode, a: EffectiveAnswer | undefined): strin
 
 export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
   const { year, def, entityId, ctx, bound, userNames, meId } = props;
+  const prefill = props.prefill ?? NO_PREFILL;
   const router = useRouter();
   const [, startTransition] = useTransition();
 
@@ -241,9 +249,75 @@ export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
     }
   }
 
+  /** Accept one suggestion (optionally from a chosen subset of documents) or, with `bulk`, every strong one. The server recomputes the value; only ids are sent. */
+  async function acceptPrefill(items: { nodeId: string; documentIds?: string[] }[], mode: "items" | "bulk") {
+    if (year !== 2025) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await acceptPrefillSuggestions({ taxYear: 2025, questionnaireId: def.id, entityId, mode, items });
+      if (res.ok) startTransition(() => router.refresh());
+      else setError(res.error);
+    } catch {
+      setError("Could not save. Check the connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** "Keep my answer": re-saves the same value(s) through the normal save, which stores them with no document link. */
+  async function keepMine(nodeId: string) {
+    const rule = ruleForNode(def.id, nodeId);
+    if (!rule) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const targets = Object.entries(effective).filter(([id, a]) => {
+        const r = ruleForNode(def.id, id);
+        return a.src !== undefined && r !== null && r.ruleId === rule.ruleId && r.person === rule.person;
+      });
+      for (const [id, a] of targets) {
+        const res = await saveQuestionnaireAnswer({ taxYear: year, questionnaireId: def.id, entityId, nodeId: id, value: a.value });
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+      }
+      startTransition(() => router.refresh());
+    } catch {
+      setError("Could not save. Check the connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function answerText(answers: readonly PrefillAnswer[]): string {
+    return answers
+      .map((x) => {
+        const n = def.nodes.find((q) => q.id === x.nodeId);
+        return n ? answerLabel(n, x.value, ctx) : String(x.value);
+      })
+      .join(", ");
+  }
+
+  function savedTextFor(s: PrefillSuggestion | null, nodeId: string): string | null {
+    const ids = s ? s.nodeIds : [nodeId];
+    const parts = ids
+      .filter((id) => effective[id] !== undefined)
+      .map((id) => {
+        const n = def.nodes.find((q) => q.id === id);
+        const v = effective[id]!.value;
+        return n ? answerLabel(n, v, ctx) : String(v);
+      });
+    return parts.length > 0 ? parts.join(", ") : null;
+  }
+
   function provenance(a: EffectiveAnswer): string {
     if (a.source === "planning" && !a.by) return `Answered on the Planning screen${a.at ? ` ${formatEt(a.at)}` : ""}`;
     const name = a.by ? userNames[a.by] : undefined;
+    if (a.src) {
+      return `Accepted${name ? ` by ${name}` : ""}${a.at ? ` on ${formatEt(a.at)}` : ""} - ${describeAnswerSource(a.src)}`;
+    }
     return `Answered${name ? ` by ${name}` : ""}${a.at ? ` on ${formatEt(a.at)}` : ""}`;
   }
 
@@ -282,12 +356,46 @@ export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
           </p>
         )}
 
+        {(prefill.bulkCount > 0 || prefill.weakCount > 0) && (
+          <section
+            data-prefill-banner="true"
+            aria-label="Answers from your documents"
+            className="space-y-2 rounded-md border-2 border-dashed border-primary/60 bg-primary/5 p-3 text-sm"
+          >
+            {prefill.bulkCount > 0 && (
+              <>
+                <p className="font-medium">
+                  {prefill.bulkCount} {prefill.bulkCount === 1 ? "answer can" : "answers can"} be filled from your documents
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  These come from verified documents. Nothing is saved until you accept; you can still change any answer.
+                </p>
+                <button type="button" disabled={busy} onClick={() => void acceptPrefill([], "bulk")} className={BTN_PRIMARY}>
+                  {`Accept ${prefill.bulkCount} ${prefill.bulkCount === 1 ? "suggestion" : "suggestions"}`}
+                </button>
+              </>
+            )}
+            {prefill.weakCount > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {prefill.weakCount} more {prefill.weakCount === 1 ? "answer needs" : "answers need"} a look: they are marked below and are
+                accepted one at a time.
+              </p>
+            )}
+          </section>
+        )}
+
         <ol className="space-y-3">
           {visible.map((node, index) => {
             const a = effective[node.id];
             const info = bound[node.id];
             const nodeSources = sourcesFor(node);
             const confirmHere = pending && pending.nodeId === node.id ? pending : null;
+            const pst = prefill.states[node.id];
+            const psug = pst && pst.suggestionKey ? (prefill.suggestions.find((x) => x.key === pst.suggestionKey) ?? null) : null;
+            const suggestedValue =
+              psug && pst && (pst.state === "suggested" || pst.state === "differs") && !psug.needsPick
+                ? psug.answers.find((x) => x.nodeId === node.id)?.value
+                : undefined;
             return (
               <li
                 key={node.id}
@@ -312,10 +420,34 @@ export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
                   </p>
                 )}
 
+                {pst && (
+                  <PrefillPanel
+                    key={`${node.id}:${pst.state}:${pst.staleReason ?? ""}:${a?.src?.docIds.join(",") ?? ""}`}
+                    suggestion={psug}
+                    state={pst}
+                    savedText={savedTextFor(psug, node.id)}
+                    answerText={answerText}
+                    acceptedChip={psug && a?.src ? (combineContributions(psug, psug.kind === "planning" ? [] : a.src.docIds)?.chip ?? null) : null}
+                    acceptedLine={
+                      a?.src
+                        ? `accepted${a.by && userNames[a.by] ? ` by ${userNames[a.by]}` : ""}${a.at ? ` on ${formatEt(a.at)}` : ""}`
+                        : null
+                    }
+                    acceptedDocIds={a?.src?.docIds ?? []}
+                    busy={busy}
+                    onAccept={(documentIds) => void acceptPrefill([{ nodeId: node.id, ...(documentIds ? { documentIds } : {}) }], "items")}
+                    onKeepMine={() => void keepMine(node.id)}
+                  />
+                )}
+
                 {isChoice(node) ? (
                   <div className="mt-3 grid gap-2" role={node.kind === "single" ? "radiogroup" : "group"}>
                     {nodeOptions(node, ctx).map((o) => {
                       const selected = isSelected(a, o.id);
+                      const suggestedOption =
+                        !selected &&
+                        suggestedValue !== undefined &&
+                        (Array.isArray(suggestedValue) ? suggestedValue.includes(o.id) : suggestedValue === o.id);
                       return (
                         <button
                           key={o.id}
@@ -326,12 +458,15 @@ export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
                           className={`min-h-12 w-full rounded-md border px-4 py-3 text-left text-base disabled:opacity-60 ${
                             selected
                               ? "border-primary bg-primary text-primary-foreground"
-                              : "bg-background hover:bg-accent"
+                              : suggestedOption
+                                ? "border-dashed border-primary bg-primary/5 hover:bg-accent"
+                                : "bg-background hover:bg-accent"
                           }`}
                         >
                           <span className="block">
                             {node.kind === "multi" && <span aria-hidden="true">{selected ? "[x] " : "[ ] "}</span>}
                             {renderCopy(o.label, ctx)}
+                            {suggestedOption && <span className="ml-2 text-xs font-medium"> (suggested, not saved)</span>}
                           </span>
                           {o.warning && <span className="mt-1 block text-xs opacity-90">{o.warning}</span>}
                         </button>
@@ -477,6 +612,12 @@ export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
                 <span className="text-muted-foreground">{f.prompt}</span>
                 <br />
                 <span className={f.unsure ? "font-medium text-amber-800" : "font-medium"}>{f.answerLabel}</span>
+                {f.sourceNote && (
+                  <>
+                    <br />
+                    <span className="text-xs text-muted-foreground">{f.sourceNote}</span>
+                  </>
+                )}
               </li>
             ))}
           </ul>

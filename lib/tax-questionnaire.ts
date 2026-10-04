@@ -107,14 +107,43 @@ export interface QuestionnaireDef {
 
 export type AnswerValue = string | string[] | number;
 
+/**
+ * Provenance of an answer that was ACCEPTED from a document (or a Planning answer)
+ * through the prefill flow (lib/tax-prefill.ts). Optional everywhere: an answer the
+ * owner typed has none, and every answer saved before this existed has none. It holds
+ * ids / stable codes / numbers only - never a name, EIN or label (labels are resolved
+ * from the live document at render time).
+ */
+export interface AnswerSource {
+  kind: "document" | "planning";
+  /** Stable code, e.g. "w2.box12.deferrals". */
+  field: string;
+  /** Document ids the owner accepted / selected (empty for kind "planning"); at most 12. */
+  docIds: string[];
+  /** What the source was at accept time (audit only; the live label is always recomputed). */
+  basis: "doc_verified" | "doc_unverified" | "planning";
+  /** What the source said when it was accepted (used to detect that it changed later). */
+  docValue: string | number | string[];
+}
+
+/** One stored answer. `src` is present only when the value was accepted from a document / Planning answer. */
+export interface StoredAnswerEntry {
+  v: AnswerValue | null;
+  at: string;
+  by: string | null;
+  src?: AnswerSource;
+}
+
 /** What is persisted per node in TaxQuestionnaire.answers. `v: null` = bound node, value lives in the planning answer. */
-export type StoredAnswers = Record<string, { v: AnswerValue | null; at: string; by: string | null }>;
+export type StoredAnswers = Record<string, StoredAnswerEntry>;
 
 export interface EffectiveAnswer {
   value: AnswerValue;
   source: "planning" | "questionnaire";
   at: string | null;
   by: string | null;
+  /** Only for a stored (unbound or local-only) answer accepted from a document / Planning answer. */
+  src?: AnswerSource;
 }
 export type EffectiveAnswers = Record<string, EffectiveAnswer>;
 
@@ -180,7 +209,40 @@ export function isPlanningAnswered(row: { answer: unknown; skippedReason: string
   return row.answer !== null && row.answer !== undefined && !row.skippedReason;
 }
 
-/** Defensive parse of the stored JSON column (anything malformed is dropped). */
+const SOURCE_FIELD_RE = /^[a-z0-9_.]{1,60}$/;
+const SOURCE_DOC_ID_MAX = 64;
+const SOURCE_MAX_DOCS = 12;
+
+/** Defensive parse of a stored `src`: anything malformed returns undefined (the answer itself is kept by the caller). */
+export function parseAnswerSource(raw: unknown): AnswerSource | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+  const s = raw as Record<string, unknown>;
+  if (s.kind !== "document" && s.kind !== "planning") return undefined;
+  if (typeof s.field !== "string" || !SOURCE_FIELD_RE.test(s.field)) return undefined;
+  if (
+    !Array.isArray(s.docIds) ||
+    s.docIds.length > SOURCE_MAX_DOCS ||
+    !s.docIds.every((d) => typeof d === "string" && d.length > 0 && d.length <= SOURCE_DOC_ID_MAX)
+  ) {
+    return undefined;
+  }
+  if (s.basis !== "doc_verified" && s.basis !== "doc_unverified" && s.basis !== "planning") return undefined;
+  const dv = s.docValue;
+  const okDocValue =
+    (typeof dv === "string" && dv.length <= 80) ||
+    (typeof dv === "number" && Number.isFinite(dv)) ||
+    (Array.isArray(dv) && dv.length <= 12 && dv.every((x) => typeof x === "string" && x.length <= 80));
+  if (!okDocValue) return undefined;
+  return {
+    kind: s.kind,
+    field: s.field,
+    docIds: [...(s.docIds as string[])],
+    basis: s.basis,
+    docValue: Array.isArray(dv) ? [...(dv as string[])] : (dv as string | number),
+  };
+}
+
+/** Defensive parse of the stored JSON column (anything malformed is dropped; a malformed `src` drops only the `src`). */
 export function parseStoredAnswers(raw: unknown): StoredAnswers {
   const out: StoredAnswers = {};
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return out;
@@ -194,7 +256,8 @@ export function parseStoredAnswers(raw: unknown): StoredAnswers {
       (typeof v === "number" && Number.isFinite(v)) ||
       (Array.isArray(v) && v.every((x) => typeof x === "string"));
     if (!okValue || typeof e.at !== "string") continue;
-    out[nodeId] = { v: v as AnswerValue | null, at: e.at, by: typeof e.by === "string" ? e.by : null };
+    const src = parseAnswerSource(e.src);
+    out[nodeId] = { v: v as AnswerValue | null, at: e.at, by: typeof e.by === "string" ? e.by : null, ...(src ? { src } : {}) };
   }
   return out;
 }
@@ -406,13 +469,13 @@ export function effectiveAnswers(
         }
       }
       if (s && storedValue !== undefined && isLocalOnlyValue(node, storedValue)) {
-        out[node.id] = { value: storedValue, source: "questionnaire", at: s.at, by: s.by };
+        out[node.id] = { value: storedValue, source: "questionnaire", at: s.at, by: s.by, ...(s.src ? { src: s.src } : {}) };
       }
       continue;
     }
 
     if (s && storedValue !== undefined) {
-      out[node.id] = { value: storedValue, source: "questionnaire", at: s.at, by: s.by };
+      out[node.id] = { value: storedValue, source: "questionnaire", at: s.at, by: s.by, ...(s.src ? { src: s.src } : {}) };
     }
   }
   return out;
@@ -533,6 +596,26 @@ export interface SummaryFact {
   /** User id; the view maps it to a name. Null when the answer came from the Planning screen. */
   by: string | null;
   source: "planning" | "questionnaire";
+  /** Plain label such as "Filled from a W-2 (box 12 deferral codes), verified"; present only for an answer accepted from a document / Planning answer. */
+  sourceNote?: string;
+}
+
+/** Fixed text for each stable `field` code a prefill rule can write (no document names, EINs or amounts). */
+const SOURCE_FIELD_TEXT: Readonly<Record<string, string>> = {
+  "w2.box12.deferrals": "a W-2 (box 12 deferral codes)",
+  "w2.box13.plan": "a W-2 (box 13 retirement plan box)",
+  "w2.box2.withheld": "a W-2 (box 2 federal withholding)",
+  "return2024.filingStatus": "the 2024 federal return (filing status)",
+  "return2024.totalTax": "the 2024 federal return (total tax)",
+  "planning.solar_credit": "your Planning answer about the solar credit",
+};
+
+/** The one-line, name-free description of where an accepted answer came from. */
+export function describeAnswerSource(src: AnswerSource): string {
+  const what = SOURCE_FIELD_TEXT[src.field] ?? "a document";
+  // The stored basis is what the document was when accepted; the live runner chip recomputes it.
+  const basis = src.basis === "doc_verified" ? ", verified when accepted" : src.basis === "doc_unverified" ? ", unverified AI read when accepted" : "";
+  return `Filled from ${what}${basis}`;
 }
 
 export interface QuestionnaireSummary {
@@ -588,6 +671,7 @@ export function buildSummary(
       answeredAt: a.at,
       by: a.by,
       source: a.source,
+      ...(a.src ? { sourceNote: describeAnswerSource(a.src) } : {}),
     });
     if (unsure) openQuestions.push(prompt);
   }

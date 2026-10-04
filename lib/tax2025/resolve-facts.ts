@@ -998,6 +998,28 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
     }
   }
 
+  // 2024 return joint? The owner answer (Return completeness `pyjoint`) is the engine's input; the 2024 return document
+  // is the cross-check. Nothing else compares the two, so a disagreement is surfaced here, never resolved silently.
+  {
+    const ownerJoint = returnAnswers.priorYear.filedJoint;
+    const docStatus = priorFilingStatus.value;
+    if (ownerJoint.value !== null && docStatus !== null) {
+      const docJoint = docStatus === "mfj";
+      if (ownerJoint.value !== docJoint) {
+        conflicts.push({
+          factKey: "returnAnswers.priorYear.joint",
+          candidates: [
+            { basis: "answer_owner", label: "Owner answer: the 2024 return was joint", value: ownerJoint.value ? "yes" : "no", refs: ownerJoint.refs },
+            { basis: priorFilingStatus.basis ?? "doc_unverified", label: "2024 federal return: filing status", value: docStatus, refs: priorFilingStatus.refs },
+          ],
+          chosen: "Owner answer: the 2024 return was joint",
+          reason:
+            "The owner's answer about whether the 2024 return was joint differs from the filing status read from the 2024 return document; the Form 2210 safe harbor uses the owner answer. Confirm which is right.",
+        });
+      }
+    }
+  }
+
   // ── Document provenance advisories ─────────────────────────────────────────
   const contributing = [
     ...w2s.map((w) => ({ id: w.docId, label: `W-2 ${w.employer ?? ""}`.trim(), basis: w.basis, legacy: w.legacyFormat })),
