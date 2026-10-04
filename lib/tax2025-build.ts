@@ -223,6 +223,14 @@ export async function buildTy2025Return(
 ): Promise<Ty2025Build | { error: string }> {
   const raw = await loadTy2025RawInputs(taxYear);
   if ("error" in raw) return raw;
+  return buildTy2025FromRaw(raw, decisions);
+}
+
+/**
+ * The pure tail of buildTy2025Return: resolve + compute from raw inputs that were ALREADY loaded. Exposed so the return review
+ * (lib/tax-review-build.ts) can keep the very same raw inputs it computed the return from (one read, no race between two loads).
+ */
+export function buildTy2025FromRaw(raw: RawTy2025Inputs, decisions: Ty2025Decisions = {}): Ty2025Build {
   const resolved = resolveFacts(raw);
   const ret = computeTy2025Return(resolved.facts, decisions, { conflicts: resolved.conflicts, openItems: resolved.openItems });
   const safeRaw: SafeRawSummary = {

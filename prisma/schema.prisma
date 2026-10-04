@@ -42,6 +42,9 @@ model User {
   taxQuestionnaireNotes TaxQuestionnaire[]    @relation("TaxQuestionnaireNoteAuthor")
   taxReturnOverridesSet      TaxReturnOverride[] @relation("TaxReturnOverrideSetter")
   taxReturnOverridesArchived TaxReturnOverride[] @relation("TaxReturnOverrideArchiver")
+  taxReviewRunsStarted       TaxReviewRun[]      @relation("TaxReviewRunStarter")
+  taxReviewDispositions      TaxReviewFindingDisposition[] @relation("TaxReviewDispositionAuthor")
+  taxReturnApprovalsGiven    TaxReturnApproval[] @relation("TaxReturnApprovalApprover")
 }
 
 model PasswordResetToken {
@@ -105,6 +108,9 @@ model Entity {
   fixedAssets        FixedAsset[]
   taxQuestionnaires  TaxQuestionnaire[]
   taxReturnOverrides TaxReturnOverride[]
+  taxReviewRuns      TaxReviewRun[]
+  taxReviewDispositions TaxReviewFindingDisposition[]
+  taxReturnApprovals TaxReturnApproval[]
 }
 
 model Institution {
@@ -1045,6 +1051,116 @@ model TaxReturnOverride {
 
   @@unique([taxYear, entityId, targetKind, targetKey, version])
   @@index([taxYear, entityId, archivedAt])
+}
+
+// ─── TY2025 return review (AI Return Reviewer) and owner approval ─────────────
+// ALL FOUR tables below are INSERT-ONLY: the app never updates or deletes a row (a source-reading test pins it;
+// tax records are never hard-deleted). State is derived at read time: a finding is open / accepted / fixed from
+// the dispositions and from later runs; "stale" is a fingerprint comparison; the verdict is computed by
+// lib/tax-review/gate.ts. Nothing here ever stores an SSN, a bank number or a document's raw extraction: findings
+// and reasons pass containsSsnLikeText before insert. `reason` / `typed*` values are tax records and are never
+// written to AuditLog (ids, fingerprints and counts only).
+
+// One execution of the deterministic checks (L1; L2 / L3 results are added in later phases) for one return state.
+model TaxReviewRun {
+  id             String   @id @default(uuid())
+  taxYear        Int
+  entityId       String   // Personal entity id (household return), same convention as TaxReturnOverride
+  fingerprint    String   // 64 hex: return fingerprint v2 (lib/tax-review/fingerprint.ts) this run is bound to
+  engineVersion  String
+  startedById    String?
+  startedByName  String   // display-name snapshot so who-started survives a SET NULL
+  startedAt      DateTime @default(now())
+  config         Json     // { fingerprintVersion, fingerprintParts (digests only), l1Version, l2Version, mode, ... }
+  l1Summary      Json     // counts per severity / check, coverage lists; never values
+  l2Summary      Json     // { status: "not_run" | ..., coverage: [] }
+  createdAt      DateTime @default(now())
+
+  entity    Entity             @relation(fields: [entityId], references: [id])
+  startedBy User?              @relation("TaxReviewRunStarter", fields: [startedById], references: [id], onDelete: SetNull)
+  findings  TaxReviewFinding[]
+  approvals TaxReturnApproval[]
+
+  @@index([taxYear, entityId, startedAt])
+}
+
+// One finding of one run. Immutable: closing a finding is a TaxReviewFindingDisposition row or a later run that no
+// longer emits the same `key`.
+model TaxReviewFinding {
+  id                String   @id @default(uuid())
+  runId             String
+  key               String   // stable: sha256(layer|check|formKey|lineKey|ruleTag).slice(0,16)
+  layer             String   // "L1" | "L2" | "L3"
+  check             String   // e.g. "L1.F1.f1040.9"
+  severity          String   // "blocker" | "high" | "medium" | "low" | "info"
+  area              String   // "income" | "adjustments" | "deductions" | "credits" | "payments" | "tax" | "state" | "forms" | "process" | "packaging" | "privacy"
+  formKey           String?
+  lineKey           String?
+  message           String
+  evidence          Json     // [{ lineKey, amount, status }]
+  citation          Json     // { sources: [...], sourceStatus }
+  recommendedAction String
+  acceptable        Boolean  // false = a broken invariant: fix the return, it cannot be accepted
+  origin            String   // "deterministic" | "llm"
+  pass              String?
+  downgradedFrom    String?
+  challenge         String?
+  rejectedReason    String?
+  evidenceHash      String   // sha256(canonical evidence).slice(0,16): an acceptance applies only while it is unchanged
+  createdAt         DateTime @default(now())
+
+  run TaxReviewRun @relation(fields: [runId], references: [id])
+
+  @@index([runId])
+  @@index([runId, key])
+}
+
+// "accepted" / "reopened" for a finding key + evidence hash, with the owner's written reason. The latest row for a
+// (findingKey, evidenceHash) wins. There is NO waiver record: a review layer that has not run keeps the gate red.
+model TaxReviewFindingDisposition {
+  id           String   @id @default(uuid())
+  taxYear      Int
+  entityId     String
+  findingKey   String
+  evidenceHash String
+  action       String   // "accepted" | "reopened"
+  reason       String   // 3..500 chars, required for "accepted"; never written to AuditLog
+  byId         String?
+  byName       String
+  at           DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  entity Entity @relation(fields: [entityId], references: [id])
+  by     User?  @relation("TaxReviewDispositionAuthor", fields: [byId], references: [id], onDelete: SetNull)
+
+  @@index([taxYear, entityId, findingKey])
+}
+
+// The owner's approval of a return state ("approved") or its withdrawal ("withdrawn"). "Current approval" = the latest
+// row for (taxYear, entityId) that is "approved", is not followed by a "withdrawn", and whose fingerprint equals the
+// CURRENT return fingerprint.
+model TaxReturnApproval {
+  id                    String   @id @default(uuid())
+  taxYear               Int
+  entityId              String
+  kind                  String   // "approved" | "withdrawn"
+  runId                 String
+  fingerprint           String   // 64 hex
+  verdictSnapshot       Json     // the gate result as computed server-side at that moment (counts, item states)
+  attestationVersion    String?  // e.g. "v1" (approved rows)
+  attestationTextHash   String?  // sha256 of the attestation text shown
+  typedConfirmationHash String?  // sha256 of the typed phrase + name
+  reason                String?  // withdrawn rows: 3..500 chars; never written to AuditLog
+  approvedById          String?
+  approvedByName        String
+  at                    DateTime @default(now())
+  createdAt             DateTime @default(now())
+
+  entity     Entity       @relation(fields: [entityId], references: [id])
+  run        TaxReviewRun @relation(fields: [runId], references: [id])
+  approvedBy User?        @relation("TaxReturnApprovalApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([taxYear, entityId, at])
 }
 
 // ─── Tax deadlines (quarterly estimates + annual filings) ─────────────────────
