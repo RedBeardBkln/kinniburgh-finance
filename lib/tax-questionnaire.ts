@@ -3,9 +3,13 @@
 // branching is computed with exactly the same code as the server).
 //
 // Honesty rules (CLAUDE.md ground rules 1 and 8):
-//   * A questionnaire only GATHERS owner-reported facts for the CPA. It never
-//     computes a tax amount, credit, limit or eligibility conclusion, and the
-//     "outcome" it derives is only ever phrased "Owner reports ...".
+//   * A questionnaire GATHERS owner-reported facts. The engine in this file computes
+//     no tax amount, credit, limit or eligibility conclusion, and the "outcome" it
+//     derives for a card is only ever phrased "Owner reports ...". Since Phase 1b the
+//     same answers also feed the computed draft return (lib/tax2025, via
+//     lib/tax2025/answers.ts), where cited, tested rules compute amounts, credits and
+//     eligibility with provenance; that computation is NOT done here and the facts
+//     display below is unchanged.
 //   * Questionnaire rows never change a form's applicability, readiness, field
 //     counts or the summary counters on the Forms page. The few BOUND answers
 //     (below) are the same planning answers the Planning screen writes, so they
@@ -815,6 +819,61 @@ export function enumerateAnswerPaths(
   return { paths, truncated };
 }
 
+/**
+ * A SMALL set of complete answer paths that together realise every selectable value
+ * of every question that can be shown. For a long flow made of mostly independent
+ * sections (the "Return completeness" questionnaire) the full cartesian product that
+ * enumerateAnswerPaths walks is astronomically large, so tests and reachability
+ * checks use this covering walk instead. Each walk answers every VISIBLE question
+ * with the value chosen least often so far (ties: the first); it stops when a walk
+ * realises nothing new (or after `maxWalks`). Because gating questions rotate through
+ * their options, a follow-up shown only after one option is reached by some walk, and
+ * "all none" / "all some" combinations occur for symmetric groups of questions.
+ */
+export function coveringAnswerPaths(def: QuestionnaireDef, ctx: QuestionnaireContext, maxWalks = 400): EffectiveAnswers[] {
+  const keyOf = (v: AnswerValue): string => (Array.isArray(v) ? v.join("+") : String(v));
+  const options = (node: QNode): AnswerValue[] => {
+    if (isChoiceNode(node)) {
+      const opts = nodeOptions(node, ctx);
+      const plain = opts.filter((o) => !isExclusiveOption(o));
+      if (node.kind === "single") return opts.map((o) => o.id);
+      const reps: AnswerValue[] = plain.map((o) => [o.id]);
+      if (plain.length > 1) reps.push(plain.map((o) => o.id));
+      for (const o of opts) if (isExclusiveOption(o)) reps.push([o.id]);
+      return reps;
+    }
+    return [node.kind === "dollars" ? node.min * 100 : node.min, UNSURE_ID];
+  };
+  const counts = new Map<string, number>();
+  const paths: EffectiveAnswers[] = [];
+  for (let walk = 0; walk < maxWalks; walk++) {
+    const answers: EffectiveAnswers = {};
+    const visibleIds = new Set<string>();
+    let realisedNew = false;
+    for (const node of def.nodes) {
+      if (!flagOn(node.context, ctx)) continue;
+      if (node.showWhen !== null && !evalCond(node.showWhen, answers, visibleIds)) continue;
+      let best: AnswerValue | undefined;
+      let bestCount = Infinity;
+      for (const v of options(node)) {
+        const c = counts.get(`${node.id}:${keyOf(v)}`) ?? 0;
+        if (c < bestCount) {
+          best = v;
+          bestCount = c;
+        }
+      }
+      if (best === undefined) continue;
+      if (bestCount === 0) realisedNew = true;
+      counts.set(`${node.id}:${keyOf(best)}`, bestCount + 1);
+      visibleIds.add(node.id);
+      answers[node.id] = { value: best, source: "questionnaire", at: null, by: null };
+    }
+    if (!realisedNew) break;
+    paths.push(answers);
+  }
+  return paths;
+}
+
 // ── Definition integrity ──────────────────────────────────────────────────────
 
 const MONEY_IN_COPY = /\$\d/;
@@ -943,9 +1002,9 @@ export function validateDefinition(def: QuestionnaireDef, sourceIds?: ReadonlySe
   // Reachability: every node is visible on at least one complete path (all context flags on).
   if (problems.length === 0) {
     const full: QuestionnaireContext = { year: 2025, entityName: "Entity", ekcActive: true, svActive: true };
-    const { paths } = enumerateAnswerPaths(def, full);
+    const { paths, truncated } = enumerateAnswerPaths(def, full);
     const seen = new Set<string>();
-    for (const p of paths) for (const id of Object.keys(p)) seen.add(id);
+    for (const p of truncated ? [...paths, ...coveringAnswerPaths(def, full)] : paths) for (const id of Object.keys(p)) seen.add(id);
     for (const n of def.nodes) if (!seen.has(n.id)) problems.push(`${def.id}.${n.id}: unreachable`);
   }
   return problems;

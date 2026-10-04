@@ -9,9 +9,12 @@
 //   - a rare-situation line (other income types, other credits ...) is
 //     not_applicable 0 only when the owner/CPA stated "none" for its group, otherwise
 //     not_yet_computed (see line-catalog.ts);
-//   - the 1b-owned lines (Schedule 1-A, HSA, IRA, saver's credit, foreign tax credit,
-//     Form 2210) are not_yet_computed / needs_cpa_rule_unverified unless a stated
-//     amount is supplied, in which case that amount is used and cited.
+//   - the Phase 1b lines (Schedule 1-A, HSA, IRA, saver's credit, foreign tax credit,
+//     the Form 2210 estimate, CT use tax) are COMPUTED by their rules from the owner's
+//     "Return completeness" answers (facts.returnAnswers) and the documents; an
+//     unanswered input gives missing_input, "not sure" gives needs_cpa_judgment. A
+//     stated amount on facts.adjustments / facts.credits still overrides the rule
+//     (a CPA / owner override path) and is cited as stated.
 //
 // Amounts: every line is a whole-dollar integer (roundLine); lines that add several
 // items sum the cents first inside their rule, lines that add other LINES use the
@@ -22,6 +25,7 @@
 // presenting them as computed.
 
 import { Decimal } from "@prisma/client/runtime/library";
+import { ans, mapAns, type Ans } from "@/lib/tax2025/answer-state";
 import { K } from "@/lib/tax2025/constants";
 import type { Ty2025Facts } from "@/lib/tax2025/facts";
 import {
@@ -31,13 +35,23 @@ import {
   estimatesPaidInYear,
   leafDollars,
   scheduleAInputs,
+  sumCentsStrict,
 } from "@/lib/tax2025/inputs";
 import { LINE_CATALOG, NONE_GROUP_TEXT, lineMeta, type NoneGroupId } from "@/lib/tax2025/line-catalog";
 import { D, ZERO, centsToDollars, maxD, roundLine, sumThenRound } from "@/lib/tax2025/money";
 import { computeCtPayments, computeExcessSocialSecurity, computeFederalPayments } from "@/lib/tax2025/rules/payments";
 import { computeCtBalance, computeCtPropertyTaxCredit, computeCtTax } from "@/lib/tax2025/rules/ct";
+import { computeCtUseTax } from "@/lib/tax2025/rules/ct-use-tax";
+import { computeForeignTaxCredit } from "@/lib/tax2025/rules/foreign-tax";
+import { computeHsa8889, type HsaPersonInput } from "@/lib/tax2025/rules/hsa-8889";
+import { computeIraDeduction, type IraPersonInput } from "@/lib/tax2025/rules/ira-deduction";
+import { computePenalty2210 } from "@/lib/tax2025/rules/penalty-2210";
 import { computeQbi8995 } from "@/lib/tax2025/rules/qbi-8995";
 import { computeScheduleA } from "@/lib/tax2025/rules/schedule-a";
+import { computeSaversCredit } from "@/lib/tax2025/rules/saver-8880";
+import { computeStandardDeduction } from "@/lib/tax2025/rules/standard-deduction";
+import { computeSchedule1a } from "@/lib/tax2025/rules/schedule-1a";
+import { computeSchedule3Summary } from "@/lib/tax2025/rules/schedule-3";
 import { computeScheduleC } from "@/lib/tax2025/rules/schedule-c";
 import { computeForm8959, computeScheduleSe } from "@/lib/tax2025/rules/se-medicare";
 import { computeAmtScreen, computeNiitScreen } from "@/lib/tax2025/rules/screens";
@@ -47,6 +61,7 @@ import {
   hasAmount,
   worstBlocked,
   type FactConflict,
+  type AttestationAnswer,
   type FormId,
   type FormRequirement,
   type Headline,
@@ -67,7 +82,7 @@ import {
 } from "@/lib/tax2025/types";
 
 /** Bumped whenever a rule, the constants or the line catalog changes (stale-output detection for stored overrides / PDFs). */
-export const TY2025_ENGINE_VERSION = "ty2025-1a.1";
+export const TY2025_ENGINE_VERSION = "ty2025-1b.1";
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
 
@@ -83,8 +98,8 @@ const GATES: Readonly<Record<string, readonly Gate[]>> = {
   "schedule-a": [
     { groups: ["sch_a_other"], lines: ["scha.14"] },
     { groups: ["medical_expenses", "sch_a_other"], lines: ["scha.17"] },
-    // B2 (interim): 12e = max(itemized, standard); the standard deduction is $1,600 higher per spouse who is 65+ or blind (not modeled until 1b)
-    { groups: ["medical_expenses", "sch_a_other", "age_blind_standard_deduction"], lines: ["f1040.12e"] },
+    // 12e = max(itemized, standard); the standard deduction itself (+$1,600 per age 65+ / blind box) comes from standard-deduction.ts
+    { groups: ["medical_expenses", "sch_a_other"], lines: ["f1040.12e"] },
   ],
   "qbi-8995": [{ groups: ["qbi_carryforwards"], lines: "all" }],
   "schedule-c": [{ groups: ["sch_c_other_lines"], lines: ["schc.28", "schc.29", "schc.31"] }],
@@ -118,6 +133,11 @@ class Assembly {
 
   statusOf(key: LineKey): RuleStatus | undefined {
     return this.lines.get(key)?.status;
+  }
+
+  /** A line's amount WITHOUT the provisional fill (informational reads must not pollute the assumed-zero list). */
+  peek(key: LineKey): Decimal | null {
+    return this.amountOf(key);
   }
 
   /** A line's whole-dollar amount; null when blocked. In the provisional pass a blocked line reads as 0 and is recorded. */
@@ -343,7 +363,6 @@ function dollarsOrNull(leaf: Sourced<number>): Decimal | null {
 
 function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean): Assembly {
   const A = new Assembly(facts, fill);
-  const std = D(K.STANDARD_DEDUCTION_MFJ.value);
   const sc = facts.income.scheduleC;
   const w2 = aggregateW2s(facts);
   const inv = aggregateInvestments(facts);
@@ -351,6 +370,31 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   const interestRefs = facts.income.interest.flatMap((i) => i.refs);
   const dividendRefs = facts.income.dividends.flatMap((d) => d.refs);
   const bookRefs: Ref[] = sc.glLines.map((g) => ({ kind: "gl", id: g.code, label: g.name }));
+  const ra = facts.returnAnswers;
+  const dollarsAns = (leaf: Sourced<number>): Ans<Decimal> => mapAns(ans(leaf), centsToDollars);
+  const refsFrom = (...leaves: Sourced<unknown>[]): Ref[] => {
+    const seen = new Set<string>();
+    const out: Ref[] = [];
+    for (const l of leaves) {
+      for (const r of l.refs) {
+        const id = `${r.kind}:${r.id}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        out.push(r);
+      }
+    }
+    return out;
+  };
+  const personRefs = (p: (typeof ra.people)[number]): Ref[] =>
+    refsFrom(p.bornBefore1961, p.blind, p.validSsn, p.coveredByWorkplacePlan, p.deferralsCents, p.traditionalIraCents, p.rothIraCents, p.age50Plus, p.age55Plus, p.hsaCoverage, p.hsaMonthsEligible, p.hsaEligibleDec1, p.hsaMedicareOrDependent, p.hsaDirectContributionsCents, p.hsaEmployerOtherYear, p.hsaDistributions, p.tipsChoice, p.tipsCents, p.overtimeChoice, p.overtimeCents);
+  const w2sOf = (userId: string | null) => (userId === null ? [] : facts.income.w2s.filter((w) => w.personUserId === userId));
+  /** W-2 box 12 code W (employer HSA contributions) for a person; null when unknowable (no person match or an older-format W-2). */
+  const employerHsa = (userId: string | null): Decimal | null => {
+    if (userId === null) return null;
+    const mine = w2sOf(userId);
+    if (mine.some((w) => w.legacyFormat)) return null;
+    return mine.reduce((acc, w) => acc.plus(centsToDollars(w.box12.filter((e) => e.code === "W").reduce((a, e) => a + e.amountCents, 0))), ZERO);
+  };
 
   // 0. "none" group lines (statement-driven; overridden when an uncomputed document box says otherwise)
   for (const meta of LINE_CATALOG) {
@@ -462,21 +506,85 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   A.sum("sch1.9", ["sch1.8a", "sch1.8b", "sch1.8c", "sch1.8d", "sch1.8e", "sch1.8f", "sch1.8g", "sch1.8h", "sch1.8i", "sch1.8j", "sch1.8k", "sch1.8l", "sch1.8m", "sch1.8n", "sch1.8o", "sch1.8p", "sch1.8q", "sch1.8r", "sch1.8s", "sch1.8t", "sch1.8u", "sch1.8v", "sch1.8z"]);
   A.sum("sch1.10", ["sch1.1", "sch1.2a", "sch1.3", "sch1.4", "sch1.5", "sch1.6", "sch1.7", "sch1.9"]);
   A.copy("f1040.8", "sch1.10");
-  A.stated("sch1.13", facts.adjustments.hsa, { status: "not_yet_computed", reason: "HSA deduction (Form 8889) is computed in Phase 1b; state the amount (0 if none) to use it now." });
+  if (facts.adjustments.hsa.value !== null) {
+    A.stated("sch1.13", facts.adjustments.hsa, { status: "missing_input", reason: "HSA deduction." });
+  } else {
+    const hsa = computeHsa8889({
+      people: ra.people.map(
+        (p): HsaPersonInput => ({
+          slot: p.slot,
+          name: p.name,
+          coverage: ans(p.hsaCoverage),
+          monthsEligible: ans(p.hsaMonthsEligible),
+          eligibleDec1: ans(p.hsaEligibleDec1),
+          medicareOrDependent: ans(p.hsaMedicareOrDependent),
+          age55Plus: ans(p.age55Plus),
+          directContributions: dollarsAns(p.hsaDirectContributionsCents),
+          employerOtherYear: ans(p.hsaEmployerOtherYear),
+          distributions: ans(p.hsaDistributions),
+          employerContributionsW2: employerHsa(p.userId),
+        })
+      ),
+    });
+    A.register(hsa, { refs: [...ra.people.flatMap(personRefs), ...facts.income.w2s.flatMap((w) => w.refs)] });
+  }
   const unverifiedAdj = "Eligibility and plan-establishment rules for this self-employed deduction are not verified (specs/09); state the amount (0 if none) or the CPA decides.";
   A.stated("sch1.16", facts.adjustments.seRetirement, { status: "needs_cpa_rule_unverified", reason: unverifiedAdj });
   A.stated("sch1.17", facts.adjustments.seHealthInsurance, { status: "needs_cpa_rule_unverified", reason: unverifiedAdj });
-  A.stated("sch1.20", facts.adjustments.ira, { status: "not_yet_computed", reason: "IRA deduction is computed in Phase 1b; state the amount (0 if none) to use it now." });
   A.sum("sch1.25", ["sch1.24a", "sch1.24b", "sch1.24c", "sch1.24d", "sch1.24e", "sch1.24f", "sch1.24g", "sch1.24h", "sch1.24i", "sch1.24j", "sch1.24k", "sch1.24z"]);
+  A.sum("f1040.9", ["f1040.1z", "f1040.2b", "f1040.3b", "f1040.4b", "f1040.5b", "f1040.6b", "f1040.7a", "f1040.8"]);
+  if (facts.adjustments.ira.value !== null) {
+    A.stated("sch1.20", facts.adjustments.ira, { status: "missing_input", reason: "IRA deduction." });
+  } else {
+    // Pub. 590-A Worksheet 1-1 / the 1040 IRA worksheet: Form 1040 line 9 minus Schedule 1 lines 11 through 19a, 23 and 25.
+    const total = A.num("f1040.9");
+    const parts = (["sch1.11", "sch1.12", "sch1.13", "sch1.14", "sch1.15", "sch1.16", "sch1.17", "sch1.18", "sch1.19a", "sch1.23", "sch1.25"] as const).map((k) => A.num(k));
+    const iraMagi = total !== null && parts.every((x) => x !== null) ? total.minus(parts.reduce<Decimal>((acc, x) => acc.plus(x as Decimal), ZERO)) : null;
+    /** Compensation for the IRA limit: the person's W-2 box 1 wages plus, for the Schedule C owner, net profit less Schedule 1 lines 15 and 16. */
+    const compensation = (userId: string | null): Decimal | null => {
+      if (userId === null || w2.unattributedW2Count > 0) return null;
+      const wages = sumCentsStrict(w2sOf(userId).map((w) => w.wagesCents));
+      if (wages === null) return null;
+      if (sc.ownerUserId.value !== userId) return wages;
+      const profit = A.num("schc.31");
+      const half = A.num("sch1.15");
+      const retirement = A.num("sch1.16");
+      if (profit !== null && half !== null && retirement !== null) return wages.plus(maxD(ZERO, profit.minus(half).minus(retirement)));
+      // The self-employment part is not known: wages alone are enough only when they already reach the highest IRA limit.
+      return wages.greaterThanOrEqualTo(K.IRA_LIMIT_AGE_50.value) ? wages : null;
+    };
+    const ira = computeIraDeduction({
+      people: ra.people.map(
+        (p): IraPersonInput => ({
+          slot: p.slot,
+          name: p.name,
+          traditional: dollarsAns(p.traditionalIraCents),
+          roth: dollarsAns(p.rothIraCents),
+          age50Plus: ans(p.age50Plus),
+          covered: ans(p.coveredByWorkplacePlan),
+          compensation: compensation(p.userId),
+        })
+      ),
+      magi: iraMagi,
+      noSocialSecurityBenefits: facts.statedNone.retirement_ss_income?.value ?? null,
+    });
+    A.register(ira, { refs: [...ra.people.flatMap(personRefs), ...facts.income.w2s.flatMap((w) => w.refs)] });
+  }
   A.sum("sch1.26", ["sch1.11", "sch1.12", "sch1.13", "sch1.14", "sch1.15", "sch1.16", "sch1.17", "sch1.18", "sch1.19a", "sch1.20", "sch1.21", "sch1.23", "sch1.25"]);
   A.copy("f1040.10", "sch1.26");
 
-  A.sum("f1040.9", ["f1040.1z", "f1040.2b", "f1040.3b", "f1040.4b", "f1040.5b", "f1040.6b", "f1040.7a", "f1040.8"]);
   A.derive("f1040.11a", ["f1040.9", "f1040.10"], (v) => v[0]!.minus(v[1]!));
   A.copy("f1040.11b", "f1040.11a");
   A.copy("scha.2", "f1040.11b");
 
-  // 5. Schedule A and the standard-vs-itemized choice
+  // 5. Standard deduction (line 12d boxes), Schedule A and the standard-vs-itemized choice
+  const stdRule = computeStandardDeduction({
+    people: ra.people.map((p) => ({ name: p.name, bornBefore1961: ans(p.bornBefore1961), blind: ans(p.blind) })),
+  });
+  A.register(stdRule, { refs: ra.people.flatMap(personRefs) });
+  const stdAmount = A.peek("std.total");
+  const std: Decimal | null = stdAmount ?? (fill ? D(K.STANDARD_DEDUCTION_MFJ.value) : null);
+  if (fill && stdAmount === null) A.assumedFacts.push("No additional standard deduction (age 65 / blind boxes not answered)");
   const agi = A.num("f1040.11a");
   // Paystub withholding is NOT added: the W-2 is the year-end source and adding both double counts (resolver flags any paystub amount).
   const ctWithholding = A.assume(w2.ctWithholding, ZERO, "CT income tax withheld (W-2 box 17), assumed $0");
@@ -498,9 +606,6 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   const propertyNone = facts.deductions.noPropertyTaxConfirmed.value === true || (fill && bills.length === 0);
   if (fill && sa.donations.length === 0 && facts.deductions.noDonationsConfirmed.value !== true) A.assumedFacts.push("No charitable gifts (not confirmed)");
   if (fill && bills.length === 0 && facts.deductions.noPropertyTaxConfirmed.value !== true) A.assumedFacts.push("No property tax paid (not confirmed)");
-  if (fill && facts.statedNone.age_blind_standard_deduction?.value !== true) {
-    A.assumedFacts.push("Neither spouse is 65+ or blind (no additional standard deduction; not stated)");
-  }
   const schedA = computeScheduleA({
     agi,
     ctWithholding,
@@ -512,6 +617,8 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     donations: sa.donations,
     donationsNoneConfirmed: donationsNone,
     ...(decisions.arborRoadPropertyTax ? { arborDecision: decisions.arborRoadPropertyTax } : {}),
+    standardDeduction: std,
+    ...(stdRule.status === "needs_cpa_judgment" ? { standardDeductionStatus: "needs_cpa_judgment" as const } : {}),
   });
   const schedARefs = [...facts.deductions.mortgages.flatMap((m) => m.refs), ...facts.deductions.propertyTaxBills.flatMap((b) => b.refs), ...w2Refs];
   A.register(schedA, { refs: schedARefs });
@@ -520,7 +627,32 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   A.sum("scha.10", ["scha.8e", "scha.9"]);
 
   // 6. Schedule 1-A (stated), QBI deduction, taxable income
-  A.stated("f1040.13b", facts.adjustments.sch1a, { status: "not_yet_computed", reason: "Schedule 1-A (tips, overtime, car-loan interest, seniors) is computed in Phase 1b; state the amount (0 if none) to use it now." });
+  if (facts.adjustments.sch1a.value !== null) {
+    A.stated("f1040.13b", facts.adjustments.sch1a, { status: "missing_input", reason: "Schedule 1-A total." });
+  } else {
+    const s1a = computeSchedule1a({
+      magi: A.num("f1040.11b"),
+      magiExclusionsNone: ans(ra.magiExclusionsNone),
+      people: ra.people.map((p) => ({
+        name: p.name,
+        bornBefore1961: ans(p.bornBefore1961),
+        validSsn: ans(p.validSsn),
+        tips: ans(p.tipsChoice),
+        tipsAmount: dollarsAns(p.tipsCents),
+        overtime: ans(p.overtimeChoice),
+        overtimeAmount: dollarsAns(p.overtimeCents),
+      })),
+      carLoan: {
+        choice: ans(ra.carLoan.choice),
+        qualifies: ans(ra.carLoan.qualifies),
+        interestPaid: dollarsAns(ra.carLoan.interestPaidCents),
+        deductedElsewhere: dollarsAns(ra.carLoan.deductedElsewhereCents),
+      },
+    });
+    const s1aRefs = [...ra.people.flatMap(personRefs), ...refsFrom(ra.magiExclusionsNone, ra.carLoan.choice, ra.carLoan.qualifies, ra.carLoan.interestPaidCents, ra.carLoan.deductedElsewhereCents)];
+    A.register(s1a, { refs: s1aRefs });
+    A.copy("f1040.13b", "sch1a.38", s1aRefs);
+  }
   const ded12 = A.num("f1040.12e");
   const sch1a = A.num("f1040.13b");
   const agi2 = A.num("f1040.11b");
@@ -557,7 +689,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   // 8. AMT and NIIT screens, Schedule 2
   const itemizing = (() => {
     const l17 = A.lines.get("scha.17");
-    return l17 !== undefined && hasAmount(l17.status) && l17.amount !== null ? new Decimal(l17.amount).greaterThan(std) : null;
+    return l17 !== undefined && hasAmount(l17.status) && l17.amount !== null && std !== null ? new Decimal(l17.amount).greaterThan(std) : null;
   })();
   const amtScreen = computeAmtScreen({
     taxableIncome: A.num("f1040.15"),
@@ -584,8 +716,39 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   A.sum("sch2.21", ["sch2.4", "sch2.7", "sch2.8", "sch2.9", "sch2.11", "sch2.12", "sch2.13", "sch2.14", "sch2.15", "sch2.16", "sch2.18", "sch2.19"]);
 
   // 9. Schedule 3 nonrefundable credits, child credit, tax lines
-  A.stated("sch3.1", facts.credits.foreignTax, { status: "not_yet_computed", reason: "Foreign tax credit is computed in Phase 1b; state the amount (0 if none) to use it now." });
-  A.stated("sch3.4", facts.credits.savers, { status: "not_yet_computed", reason: "The saver's credit (Form 8880) is computed in Phase 1b; state the amount (0 if none) to use it now." });
+  if (facts.credits.foreignTax.value !== null) {
+    A.stated("sch3.1", facts.credits.foreignTax, { status: "missing_input", reason: "Foreign tax credit." });
+  } else {
+    const ftc = computeForeignTaxCredit({ foreignTaxPaid: A.assume(inv.foreignTaxPaid, ZERO, "Foreign tax paid on 1099s, assumed $0") });
+    A.register(ftc, { refs: [...interestRefs, ...dividendRefs] });
+  }
+  A.copy("f1040.17", "sch2.3");
+  A.sum("f1040.18", ["f1040.16", "f1040.17"]);
+  if (facts.credits.savers.value !== null) {
+    A.stated("sch3.4", facts.credits.savers, { status: "missing_input", reason: "Saver's credit." });
+  } else {
+    const otherKeys = ["sch3.1", "sch3.2", "sch3.3", "sch3.6d", "sch3.6l"] as const;
+    const others = otherKeys.map((k) => A.num(k));
+    const saver = computeSaversCredit({
+      agi: A.num("f1040.11a"),
+      people: ra.people.map((p) => ({
+        name: p.name,
+        iraContributions: (() => {
+          const t = dollarsAns(p.traditionalIraCents);
+          const r = dollarsAns(p.rothIraCents);
+          if (t.state !== "answered") return t;
+          if (r.state !== "answered") return r;
+          return { state: "answered", value: t.value.plus(r.value) } as const;
+        })(),
+        deferrals: dollarsAns(p.deferralsCents),
+      })),
+      distributionsSince2022: ans(ra.retirementDistributionSince2022),
+      studentOrDependent: ans(ra.studentOrDependent),
+      taxBeforeCredits: A.num("f1040.18"),
+      otherCredits: others.every((x) => x !== null) ? others.reduce<Decimal>((acc, x) => acc.plus(x as Decimal), ZERO) : null,
+    });
+    A.register(saver, { refs: [...ra.people.flatMap(personRefs), ...refsFrom(ra.retirementDistributionSince2022, ra.studentOrDependent)] });
+  }
   A.sum("sch3.7", ["sch3.6a", "sch3.6b", "sch3.6c", "sch3.6d", "sch3.6f", "sch3.6g", "sch3.6h", "sch3.6i", "sch3.6j", "sch3.6k", "sch3.6l", "sch3.6m", "sch3.6z"]);
   A.sum("sch3.8", ["sch3.1", "sch3.2", "sch3.3", "sch3.4", "sch3.5a", "sch3.5b", "sch3.7"]);
   A.sum("sch3.14", ["sch3.13a", "sch3.13b", "sch3.13c", "sch3.13d", "sch3.13z"]);
@@ -598,8 +761,6 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   } else {
     A.blocked("f1040.19", "missing_input", "Whether the household has dependents is not recorded (Planning answer household_members).", "dependents");
   }
-  A.copy("f1040.17", "sch2.3");
-  A.sum("f1040.18", ["f1040.16", "f1040.17"]);
   A.copy("f1040.20", "sch3.8");
   A.sum("f1040.21", ["f1040.19", "f1040.20"]);
   A.derive("f1040.22", ["f1040.18", "f1040.21"], (v) => maxD(ZERO, v[0]!.minus(v[1]!)));
@@ -627,7 +788,54 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   A.derive("f1040.37", ["f1040.24", "f1040.33"], (v) => maxD(ZERO, v[0]!.minus(v[1]!)));
   A.blocked("f1040.35a", "not_yet_computed", "How much of an overpayment to refund or apply to 2026 is a choice for the owner / CPA.", "election", true);
   A.blocked("f1040.36", "not_yet_computed", "How much of an overpayment to apply to 2026 estimated tax is a choice for the owner / CPA.", "election", true);
-  A.blocked("f1040.38", "not_yet_computed", "The Form 2210 underpayment penalty estimate is computed in Phase 1b (the IRS will also figure it).", "election", true);
+  {
+    const sumKeys = (keys: LineKey[]): Decimal | null => {
+      let t = ZERO;
+      for (const k of keys) {
+        const v = A.peek(k);
+        if (v === null) return null;
+        t = t.plus(v);
+      }
+      return t;
+    };
+    const w25d = A.peek("f1040.25d");
+    const e11 = A.peek("sch3.11");
+    const pen = computePenalty2210({
+      line1: A.peek("f1040.22"),
+      line2: sumKeys(K.FORM_2210_LINE2_SCH2_LINES.value.map((id) => `sch2.${id}` as LineKey)),
+      line3: sumKeys(K.FORM_2210_LINE3_LINES.value as LineKey[]),
+      line6: w25d !== null && e11 !== null ? w25d.plus(e11) : null,
+      prior: {
+        totalTax: leafDollars(facts.priorYear.totalTaxCents),
+        agi: leafDollars(facts.priorYear.agiCents),
+        filingStatus: facts.priorYear.filingStatus.value,
+        filedJoint: ans(ra.priorYear.filedJoint),
+        hadExcludedTaxOrRefundable: ans(ra.priorYear.hadExcludedTaxOrRefundable),
+      },
+      estimates:
+        facts.payments.federalEstimates.value === null
+          ? null
+          : facts.payments.federalEstimates.value.filter((e) => e.appliesToTaxYear === 2025).map((e) => ({ paidOn: e.paidOn, amount: centsToDollars(e.amountCents) })),
+      priorYearOverpaymentApplied: leafDollars(facts.payments.federalPriorYearOverpaymentApplied),
+    });
+    const penRefs = [...facts.priorYear.totalTaxCents.refs, ...facts.payments.federalEstimates.refs, ...refsFrom(ra.priorYear.filedJoint, ra.priorYear.hadExcludedTaxOrRefundable)];
+    A.register(pen, { refs: penRefs });
+    // Line 38 is informational: the estimate when it can be computed, otherwise an explicit "not estimated" (the IRS figures it)
+    if (A.peek("f2210.19") !== null) A.copy("f1040.38", "f2210.19", penRefs);
+    else A.blocked("f1040.38", "not_yet_computed", `The Form 2210 estimate is not available (${A.lines.get("f2210.19")?.reason ?? "inputs missing"}); the IRS figures any underpayment penalty itself.`, "election", true);
+    A.register(
+      computeSchedule3Summary({
+        foreignTax: A.peek("sch3.1"),
+        savers: A.peek("sch3.4"),
+        total8: A.peek("sch3.8"),
+        extensionPayment: A.peek("sch3.10"),
+        excessSocialSecurity: A.peek("sch3.11"),
+        total15: A.peek("sch3.15"),
+        total8Status: A.statusOf("sch3.8"),
+        total15Status: A.statusOf("sch3.15"),
+      })
+    );
+  }
 
   // 11. Connecticut
   const ctTax = computeCtTax({
@@ -654,13 +862,26 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   A.register(ctPay, { refs: w2Refs });
   const ctPayTotalDeps: LineKey[] = ["ct1040.18", "ct1040.19", "ct1040.20"];
   const ctPaymentsKnown = ctPayTotalDeps.every((k) => A.num(k) !== null);
+  const useTaxStated = dollarsOrNull(facts.ct.useTax);
+  const useTaxRule =
+    useTaxStated !== null
+      ? null
+      : computeCtUseTax({
+          choice: ans(ra.useTax.choice),
+          generalRatePurchases: dollarsAns(ra.useTax.generalRatePurchasesCents),
+          otherRateItems: ans(ra.useTax.otherRateItems),
+          taxPaidToOtherState: dollarsAns(ra.useTax.taxPaidToOtherStateCents),
+        });
+  const useTaxValue = useTaxStated ?? (useTaxRule !== null && useTaxRule.ok ? useTaxRule.amount : null);
   const ctBalance = computeCtBalance({
     taxBeforeCredits: A.num("ct1040.10"),
     propertyTaxCredit: A.num("ct1040.11"),
-    useTax: A.assume(dollarsOrNull(facts.ct.useTax), ZERO, "CT use tax, assumed $0"),
+    useTax: A.assume(useTaxValue, ZERO, "CT use tax, assumed $0"),
+    ...(useTaxStated !== null ? { useTaxReason: "Stated by the owner / CPA." } : useTaxRule !== null && useTaxRule.ok ? { useTaxReason: useTaxRule.reason } : {}),
+    ...(useTaxRule !== null && !useTaxRule.ok ? { useTaxBlock: { status: useTaxRule.status === "needs_cpa_judgment" ? ("needs_cpa_judgment" as const) : ("missing_input" as const), reason: useTaxRule.reason } } : {}),
     totalPayments: ctPaymentsKnown ? sumThenRound(ctPayTotalDeps.map((k) => A.num(k) ?? ZERO)) : null,
   });
-  A.register(ctBalance, { owns: ["ct1040.15", "ct1040.balance"] });
+  A.register(ctBalance, { owns: ["ct1040.15", "ct1040.balance"], refs: refsFrom(ra.useTax.choice, ra.useTax.generalRatePurchasesCents, ra.useTax.otherRateItems, ra.useTax.taxPaidToOtherStateCents, facts.ct.useTax) });
 
   // 12. Anything in the catalog that nothing filled: explicit, never 0
   for (const meta of LINE_CATALOG) {
@@ -773,7 +994,7 @@ function ruleOpenItems(A: Assembly): OpenItem[] {
     });
     out.push({
       id: `rule:${r.ruleId}`,
-      severity: "blocking",
+      severity: r.informational === true ? "advisory" : "blocking",
       message: r.reasons[0] ?? `${r.form}: ${r.status.replace(/_/g, " ")}.`,
       action:
         r.status === "missing_input"
@@ -812,20 +1033,6 @@ function noneGroupOpenItems(A: Assembly): OpenItem[] {
     if (!meta.group) continue;
     const l = A.lines.get(meta.key);
     if (l !== undefined && !hasAmount(l.status)) byGroup.set(meta.group, [...(byGroup.get(meta.group) ?? []), meta.key]);
-  }
-  // Gate-only groups (no catalog line): one item while unstated.
-  const gateOnly: { group: NoneGroupId; lineKeys: LineKey[] }[] = [{ group: "age_blind_standard_deduction", lineKeys: ["f1040.12e"] }];
-  for (const g of gateOnly) {
-    if (A.facts.statedNone[g.group]?.value !== true) {
-      out.push({
-        id: `none:${g.group}`,
-        severity: "blocking",
-        message: `Needs an owner/CPA statement: ${NONE_GROUP_TEXT[g.group]}`,
-        action: "State whether either spouse is 65 or older (born before Jan 2, 1961) or blind; Phase 1b replaces this with per-person answers and adds $1,600 per qualifying spouse.",
-        lineKeys: g.lineKeys,
-        refs: [],
-      });
-    }
   }
   for (const [group, keys] of byGroup) {
     out.push({
@@ -903,10 +1110,11 @@ export function computeFormsRequired(ret: Pick<Ty2025Return, "lines" | "results"
   out.sch3 = decide(["sch3.8", "sch3.15"], "There are Schedule 3 credits or payments.", "No Schedule 3 amounts.");
   const l17 = amount("scha.17");
   const l12 = amount("f1040.12e");
+  const stdTotal = amount("std.total");
   out.scha =
-    l17 === null || l12 === null
-      ? { required: "blocking", reason: "Standard versus itemized is not decided until Schedule A is computed." }
-      : l17 > K.STANDARD_DEDUCTION_MFJ.value
+    l17 === null || l12 === null || stdTotal === null
+      ? { required: "blocking", reason: "Standard versus itemized is not decided until Schedule A and the standard deduction (age 65 / blind boxes) are computed." }
+      : l17 > stdTotal
         ? { required: true, reason: "Itemized deductions exceed the standard deduction." }
         : { required: false, reason: "The standard deduction is larger." };
   const interest = amount("schb.2");
@@ -940,12 +1148,38 @@ export function computeFormsRequired(ret: Pick<Ty2025Return, "lines" | "results"
     niitAmt === null ? { required: "blocking", reason: "The NIIT screen is not computed yet." } : niitAmt > 0 ? { required: true, reason: "Net investment income tax applies." } : { required: false, reason: "No net investment income tax." };
   const noncash = facts.deductions.donations.filter((d) => d.kind === "noncash").reduce((s, d) => s + d.amountCents, 0);
   out.f8283 = noncash > K.FORM_8283_NONCASH_THRESHOLD.value * 100 ? { required: true, reason: "Noncash gifts are over $500." } : { required: false, reason: "Noncash gifts are not over $500." };
-  // Forms this engine does not compute: listed so the packet never silently omits them (the CPA decides).
+  const s1a = amount("sch1a.38");
+  out.sch1a =
+    s1a !== null && s1a > 0
+      ? { required: true, reason: "A Schedule 1-A deduction (tips, overtime, car-loan interest or seniors) is claimed." }
+      : blockedStatus("sch1a.38")
+        ? { required: "blocking", reason: "Schedule 1-A is not final until its inputs are answered." }
+        : { required: false, reason: "No Schedule 1-A deduction." };
+  const hsaAmounts = (["f8889a.2", "f8889a.9", "f8889a.13", "f8889b.2", "f8889b.9", "f8889b.13"] as LineKey[]).map((k) => amount(k));
   const hasW = facts.income.w2s.some((w) => w.box12.some((e) => e.code === "W"));
-  out.f8889 = hasW
-    ? { required: "blocking", reason: "A W-2 shows box 12 code W (HSA contributions): Form 8889 is required and is not computed yet (Phase 1b)." }
-    : { required: "blocking", reason: "HSA coverage and contributions are not collected yet (Phase 1b): Form 8889 cannot be ruled out." };
-  out.f8880 = { required: "blocking", reason: "The saver's credit (Form 8880) is computed in Phase 1b; eligibility depends on AGI and per-person retirement contributions." };
+  // A stated sch1.13 override (facts.adjustments.hsa) rules the form in or out by itself; otherwise the Form 8889 lines decide.
+  const hsaKeys: LineKey[] = facts.adjustments.hsa.value !== null ? ["sch1.13"] : ["f8889a.13", "f8889b.13", "sch1.13"];
+  out.f8889 = hsaAmounts.some((v) => v !== null && v > 0)
+    ? { required: true, reason: "HSA contributions or employer HSA contributions are reported (one Form 8889 per spouse)." }
+    : hsaKeys.some((k) => blockedStatus(k))
+      ? { required: "blocking", reason: hasW ? "A W-2 shows box 12 code W (HSA contributions): Form 8889 cannot be ruled out until the HSA questions are answered." : "Cannot tell until the HSA questions are answered." }
+      : { required: false, reason: "No HSA activity." };
+  const saver = amount("f8880.12");
+  out.f8880 =
+    saver !== null && saver > 0
+      ? { required: true, reason: "A saver's credit is claimed." }
+      : blockedStatus("sch3.4")
+        ? { required: "blocking", reason: "The saver's credit is not decided until its inputs are answered." }
+        : { required: false, reason: "No saver's credit (ineligible or no qualified contributions)." };
+  const pen = amount("f2210.19");
+  out.f2210 = {
+    required: false,
+    reason:
+      pen !== null && pen > 0
+        ? `The IRS figures any underpayment penalty itself; the regular-method estimate is $${pen}. Form 2210 is attached only to request a waiver or another method.`
+        : "The IRS figures any underpayment penalty itself; Form 2210 is attached only to request a waiver or another method.",
+  };
+  // Forms this engine does not compute: listed so the packet never silently omits them (the CPA decides).
   out.f5695 = facts.statedNone.solar_credit?.value === true
     ? { required: false, reason: "The owner states there is no 2025 residential clean energy credit (any carryforward is read from the 2024 return)." }
     : { required: "blocking", reason: "Whether a Form 5695 credit or carryforward applies is not stated." };
@@ -958,7 +1192,35 @@ export function computeFormsRequired(ret: Pick<Ty2025Return, "lines" | "results"
   out.schd = facts.income.otherIncomeBoxes.some((b) => b.variant === "1099-B")
     ? { required: "blocking", reason: "A 1099-B was read: Schedule D / Form 8949 are not computed by this engine." }
     : { required: false, reason: "No 1099-B sales on file (capital gain distributions go directly on 1040 line 7a)." };
-  out.f2210 = { required: false, reason: "The IRS figures any underpayment penalty itself; the estimate arrives in Phase 1b and Form 2210 is attached only to request a waiver or another method." };
+  return out;
+}
+
+// ── Header attestations ───────────────────────────────────────────────────────
+
+function attestationOf(leaf: Sourced<boolean>, where: string): AttestationAnswer {
+  return { value: leaf.value, status: leaf.value !== null ? "answered" : leaf.basis === null ? "missing" : "unsure", where, refs: leaf.refs };
+}
+
+function attestationsOf(facts: Ty2025Facts): Ty2025Return["attestations"] {
+  return {
+    digitalAssets: attestationOf(facts.returnAnswers.attestations.digitalAssets, "Form 1040 page 1, digital assets question"),
+    foreignAccounts: attestationOf(facts.returnAnswers.attestations.foreignAccounts, "Schedule B Part III, foreign accounts and trusts"),
+  };
+}
+
+function attestationOpenItems(att: Ty2025Return["attestations"]): OpenItem[] {
+  const out: OpenItem[] = [];
+  const item = (id: string, a: AttestationAnswer, yes: string): void => {
+    if (a.status === "missing") {
+      out.push({ id: `attest:${id}`, severity: "blocking", message: `The question "${a.where}" has not been answered.`, action: "Answer it in the Return completeness questionnaire.", lineKeys: [], refs: [] });
+    } else if (a.status === "unsure") {
+      out.push({ id: `attest:${id}`, severity: "blocking", message: `The owner is not sure how to answer "${a.where}".`, action: "The CPA decides the answer.", lineKeys: [], refs: a.refs });
+    } else if (a.value === true) {
+      out.push({ id: `attest:${id}`, severity: "blocking", message: yes, action: "Give the details to the CPA; this engine does not prepare it.", lineKeys: [], refs: a.refs });
+    }
+  };
+  item("digital", att.digitalAssets, "The owner answers Yes to the digital assets question, so gain or loss goes on Form 8949 / Schedule D, which this engine does not compute.");
+  item("foreign", att.foreignAccounts, "The owner answers Yes to the foreign account / foreign trust question: Schedule B Part III, FinCEN Form 114 and Form 8938 are the CPA's.");
   return out;
 }
 
@@ -1005,6 +1267,7 @@ function blockedWholeReturn(facts: Ty2025Facts, status: string): Ty2025Return {
     citations: [],
     scheduleC: null,
     formsRequired: {},
+    attestations: attestationsOf(facts),
   };
 }
 
@@ -1030,9 +1293,11 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
     const l = A.lines.get(key);
     if (l !== undefined) lines[key] = l;
   }
+  const attestations = attestationsOf(facts);
   const openItems: OpenItem[] = [
     ...(extras.openItems ?? []),
     ...ruleOpenItems(A),
+    ...attestationOpenItems(attestations),
     ...informationalOpenItems(A),
     ...noneGroupOpenItems(A),
     ...decisionOpenItems(A.decisions),
@@ -1055,6 +1320,7 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
     citations: [...A.citations].sort(),
     scheduleC: A.scheduleC,
     formsRequired: {},
+    attestations,
   };
   ret.formsRequired = computeFormsRequired(ret, facts);
   return ret;

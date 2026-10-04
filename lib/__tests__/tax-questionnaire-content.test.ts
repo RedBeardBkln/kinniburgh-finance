@@ -9,6 +9,7 @@ import {
   computeOutcome,
   computeStatus,
   effectiveAnswers,
+  coveringAnswerPaths,
   enumerateAnswerPaths,
   renderCopy,
   resolveBoundWrite,
@@ -45,6 +46,14 @@ const EXPECTED_IDS = [
   "entity-ct-filing",
 ];
 
+/**
+ * Long, mostly independent flows are exempt from the "4-10 questions" / "1-12 shown" norms of the
+ * short per-form questionnaires and are walked with the covering enumeration instead of the full
+ * cartesian product (which is astronomically large). Everything else is checked identically.
+ */
+const LARGE_FLOW_IDS = ["return-completeness"];
+const ALL_IDS = [...EXPECTED_IDS, ...LARGE_FLOW_IDS];
+
 function isChoice(n: QNode): n is ChoiceNode {
   return n.kind === "single" || n.kind === "multi";
 }
@@ -73,16 +82,16 @@ function copyOf(def: QuestionnaireDef): { where: string; text: string; help: boo
 }
 
 describe("registry", () => {
-  it("has the 16 questionnaires with unique ids", () => {
-    expect(QUESTIONNAIRES.map((q) => q.id)).toEqual(EXPECTED_IDS);
-    expect(new Set(QUESTIONNAIRES.map((q) => q.id)).size).toBe(16);
-    for (const id of EXPECTED_IDS) expect(questionnaireById(id)?.id).toBe(id);
+  it("has the 16 form questionnaires plus the Return completeness flow, with unique ids", () => {
+    expect(QUESTIONNAIRES.map((q) => q.id)).toEqual(ALL_IDS);
+    expect(new Set(QUESTIONNAIRES.map((q) => q.id)).size).toBe(17);
+    for (const id of ALL_IDS) expect(questionnaireById(id)?.id).toBe(id);
     expect(questionnaireById("nope")).toBeNull();
   });
 
   it("every household id maps to the Forms-page entry id it is attached to (CPA_INPUT_FORMS ids + fixed extras)", () => {
     const household = QUESTIONNAIRES.filter((q) => q.scope === "household").map((q) => q.id);
-    expect(household).toHaveLength(14);
+    expect(household).toHaveLength(15);
     expect(QUESTIONNAIRES.filter((q) => q.scope === "entity").map((q) => q.id)).toEqual([
       "entity-federal-return",
       "entity-ct-filing",
@@ -91,8 +100,45 @@ describe("registry", () => {
 });
 
 describe("tree integrity (all definitions)", () => {
-  it.each(EXPECTED_IDS)("%s: validateDefinition returns no problems", (id) => {
+  it.each(ALL_IDS)("%s: validateDefinition returns no problems", (id) => {
     expect(validateDefinition(questionnaireById(id)!, SOURCE_IDS)).toEqual([]);
+  });
+
+  it.each(LARGE_FLOW_IDS)("%s (large flow): unique node ids, one unsure option per choice, numbers allow Not sure", (id) => {
+    const def = questionnaireById(id)!;
+    expect(new Set(def.nodes.map((n) => n.id)).size).toBe(def.nodes.length);
+    for (const n of def.nodes) {
+      if (isChoice(n)) {
+        expect(n.options.filter((o) => o.unsure), `${id}.${n.id}`).toHaveLength(1);
+        expect(n.options.find((o) => o.unsure)?.id).toBe("unsure");
+      } else {
+        expect(validateAnswerValue(n, "unsure").ok, `${id}.${n.id}`).toBe(true);
+      }
+    }
+  });
+
+  it.each(LARGE_FLOW_IDS)("%s (large flow): covering paths terminate, resolve an outcome and show every node and option at least once", (id) => {
+    const def = questionnaireById(id)!;
+    const paths = coveringAnswerPaths(def, FULL);
+    expect(paths.length).toBeGreaterThan(1);
+    const seenNodes = new Set<string>();
+    const seenValues = new Set<string>();
+    for (const p of paths) {
+      expect(computeStatus(def, FULL, p).kind).toBe("answered");
+      expect(["applies", "not_applies", "unsure"]).toContain(computeOutcome(def, FULL, p));
+      for (const [nid, a] of Object.entries(p)) {
+        seenNodes.add(nid);
+        for (const v of Array.isArray(a.value) ? a.value : [a.value]) seenValues.add(`${nid}:${v}`);
+      }
+    }
+    for (const n of def.nodes) {
+      expect(seenNodes.has(n.id), `${id}.${n.id} never shown`).toBe(true);
+      if (isChoice(n)) for (const o of n.options) expect(seenValues.has(`${n.id}:${o.id}`), `${id}.${n.id}:${o.id} never chosen`).toBe(true);
+    }
+    // every "stated none" group can be answered none or some, and the outcome follows
+    const outcomes = new Set(paths.map((p) => computeOutcome(def, FULL, p)));
+    expect(outcomes.has("applies")).toBe(true);
+    expect(outcomes.has("not_applies")).toBe(true);
   });
 
   it.each(EXPECTED_IDS)("%s: 4-10 questions, unique node ids, one unsure option per choice, numbers allow Not sure", (id) => {

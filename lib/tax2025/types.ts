@@ -189,6 +189,12 @@ export interface RuleResult {
   inputsMissing: string[];
   alternatives?: RuleAlternative[];
   decision?: RuleDecision;
+  /**
+   * The result does not feed a figure on the return (for example the Form 2210
+   * penalty ESTIMATE, which the IRS also computes itself): when it is not
+   * `computed`, its open item is advisory, not blocking.
+   */
+  informational?: boolean;
 }
 
 const STATUS_PRIORITY: readonly RuleStatus[] = [
@@ -399,6 +405,7 @@ export type FormId =
   | "f8960"
   | "f8283"
   | "f2210"
+  | "sch1a"
   | "f8889"
   | "f8880"
   | "f5695"
@@ -412,6 +419,16 @@ export interface FormRequirement {
   /** true = include; false = not needed; "blocking" = cannot tell until a blocking item is resolved. */
   required: boolean | "blocking";
   reason: string;
+}
+
+/** A yes / no answer printed on the return (not a money line): Form 1040 page 1 and Schedule B Part III. */
+export interface AttestationAnswer {
+  /** true = Yes, false = No, null = not answered / not sure. */
+  value: boolean | null;
+  status: "answered" | "unsure" | "missing";
+  /** Where it is printed, e.g. "Form 1040 page 1, digital assets question". */
+  where: string;
+  refs: Ref[];
 }
 
 export interface Ty2025Return {
@@ -431,4 +448,6 @@ export interface Ty2025Return {
   scheduleC: ScheduleCDetail | null;
   /** Which forms the packet needs (C7). */
   formsRequired: Partial<Record<FormId, FormRequirement>>;
+  /** Header yes / no questions answered by the owner (Phase 1b). */
+  attestations: { digitalAssets: AttestationAnswer; foreignAccounts: AttestationAnswer };
 }

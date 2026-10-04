@@ -216,28 +216,28 @@ describe("S5: signed GL sums", () => {
   });
 });
 
-describe("B2 (interim): age 65+ / blind statement gates 1040 line 12e", () => {
-  it("unstated: 12e, taxable income and the headline are blocked with a blocking item; stated none: the golden return is unchanged", () => {
+describe("B2 (resolved by Phase 1b): the per-person age 65+ / blind answers are the ONE source of the standard deduction", () => {
+  it("unanswered: 12e, taxable income and the headline are blocked with ONE blocking item (no separate none-group item); answered no: the golden return is unchanged", () => {
     const f = fullFacts();
-    delete f.statedNone.age_blind_standard_deduction;
+    f.returnAnswers.people[0]!.blind = missingLeaf();
     const ret = computeTy2025Return(f);
-    expect(ret.lines["f1040.12e"]?.status).toBe("not_yet_computed");
-    expect(ret.lines["f1040.12e"]?.reason).toContain("65 or older");
+    expect(ret.lines["f1040.12e"]?.status).toBe("missing_input");
     expect(ret.lines["f1040.14"]?.status).not.toBe("computed");
     expect(ret.lines["f1040.15"]?.status).not.toBe("computed");
     expect(ret.headline.complete).toBe(false);
-    const item = ret.openItems.find((o) => o.id === "none:age_blind_standard_deduction");
-    expect(item?.severity).toBe("blocking");
-    expect(item?.lineKeys).toContain("f1040.12e");
+    const items = ret.openItems.filter((o) => o.severity === "blocking" && (o.id === "rule:standard-deduction" || o.id.includes("age_blind")));
+    expect(items.map((o) => o.id)).toEqual(["rule:standard-deduction"]);
     // the provisional pass lists the assumption and still gives numbers
-    expect(ret.headline.provisional?.assumedFacts.join(" ")).toContain("65+ or blind");
+    expect(ret.headline.provisional?.assumedFacts.join(" ")).toContain("age 65 / blind");
     expect(ret.headline.provisional?.taxableIncome).toBe(137174);
     expect(computeTy2025Return(fullFacts()).headline.federal.taxableIncome.amount).toBe(137174);
   });
 
-  it("stating that a spouse IS 65+ or blind is needs_cpa_judgment (the +$1,600 each is Phase 1b), never the base standard deduction", () => {
+  it("a spouse who IS 65+ or blind adds 1,600 per box to the standard deduction (never the base amount); 'not sure' is needs_cpa_judgment", () => {
     const f = fullFacts();
-    f.statedNone.age_blind_standard_deduction = owner(false);
+    f.returnAnswers.people[0]!.bornBefore1961 = owner(true);
+    expect(computeTy2025Return(f).lines["std.total"]?.amount).toBe(33100);
+    f.returnAnswers.people[1]!.blind = { value: null, basis: "answer_owner", refs: [] };
     const ret = computeTy2025Return(f);
     expect(ret.lines["f1040.12e"]?.status).toBe("needs_cpa_judgment");
     expect(ret.lines["f1040.15"]?.status).not.toBe("computed");
@@ -387,19 +387,23 @@ describe("S6: the public build result carries no document extraction data", () =
 describe("N4: forms the engine does not compute are listed for the CPA", () => {
   it("8889 / 8880 / 5695 / 4562 / 8829 / Schedule D are explicit entries (blocking when they cannot be ruled out)", () => {
     const ret = computeTy2025Return(fullFacts());
-    expect(ret.formsRequired.f8889?.required).toBe("blocking");
-    expect(ret.formsRequired.f8880?.required).toBe("blocking");
+    // Phase 1b: the stated HSA / saver's amounts of fullFacts() (0) rule both forms out; with nothing stated the rules decide (below)
+    expect(ret.formsRequired.f8889?.required).toBe(false);
+    expect(ret.formsRequired.f8880?.required).toBe(false);
     expect(ret.formsRequired.f5695?.required).toBe(false); // solar_credit stated none
     expect(ret.formsRequired.f4562?.required).toBe(false);
     expect(ret.formsRequired.f8829?.required).toBe(false);
     expect(ret.formsRequired.schd?.required).toBe(false);
     const f = fullFacts();
     f.statedNone.solar_credit = missingLeaf();
+    f.adjustments.hsa = missingLeaf();
+    f.credits.savers = missingLeaf();
     f.income.otherIncomeBoxes = [{ docId: "b", payer: "Broker", basis: "doc_verified", variant: "1099-B", box: "1d", label: "Proceeds", amountCents: 1 }];
     f.income.w2s[0]!.box12 = [{ code: "W", amountCents: 100_000 }];
     const r2 = computeTy2025Return(f);
     expect(r2.formsRequired.f5695?.required).toBe("blocking");
     expect(r2.formsRequired.schd?.required).toBe("blocking");
     expect(r2.formsRequired.f8889?.reason).toContain("code W");
+    expect(r2.formsRequired.f8880?.required).toBe("blocking"); // AGI is blocked here (HSA unanswered), so the saver's credit cannot be decided
   });
 });

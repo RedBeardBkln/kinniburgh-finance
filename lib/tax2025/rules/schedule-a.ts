@@ -97,6 +97,14 @@ export interface ScheduleAInput {
   donationsNoneConfirmed: boolean;
   /** X5 decision (56 Arbor Rd and other non-primary real estate). */
   arborDecision?: Decided<"schedule_a" | "capitalize">;
+  /**
+   * The standard deduction for this filer including the line 12d additions (standard-deduction.ts).
+   * Omitted = the base MFJ amount (Phase 1a behaviour); null = the age / blindness boxes are not answered,
+   * so the standard-versus-itemized comparison is blocked (never silently the base amount).
+   */
+  standardDeduction?: Decimal | null;
+  /** Status to report on line 12e when `standardDeduction` is null (needs_cpa_judgment for a "not sure" box); default missing_input. */
+  standardDeductionStatus?: "missing_input" | "needs_cpa_judgment";
 }
 
 const CITATIONS = [
@@ -366,11 +374,22 @@ export function computeScheduleA(input: ScheduleAInput): RuleResult {
   const hasOtherRealEstate = input.propertyBills.some((b) => b.kind === "other_real_estate");
   const treatmentInForce: Treatment = input.arborDecision?.chosen ?? "schedule_a";
   const main = evaluate(input, treatmentInForce);
-  const standard = D(K.STANDARD_DEDUCTION_MFJ.value);
+  const standard: Decimal | null = input.standardDeduction === undefined ? D(K.STANDARD_DEDUCTION_MFJ.value) : input.standardDeduction;
 
   const lines = [...main.lines];
   const reasons = [...main.reasons];
-  if (main.itemizedTotal !== null) {
+  if (main.itemizedTotal !== null && standard === null) {
+    lines.push(
+      blockedLine(
+        "f1040.12e",
+        "Standard or itemized deduction",
+        "12",
+        input.standardDeductionStatus ?? "missing_input",
+        "The standard deduction is not known yet (the age 65 / blind boxes on Form 1040 line 12d are not answered), so the comparison with the itemized total cannot be made."
+      )
+    );
+    main.missing.push("standard deduction (age 65 / blind boxes)");
+  } else if (main.itemizedTotal !== null && standard !== null) {
     const itemizes = main.itemizedTotal.greaterThan(standard);
     const used = itemizes ? main.itemizedTotal : standard;
     lines.push(
@@ -428,7 +447,7 @@ export function computeScheduleA(input: ScheduleAInput): RuleResult {
         effect:
           ev.itemizedTotal === null
             ? null
-            : { amount: ev.itemizedTotal, note: `Itemized total ${fmt(ev.itemizedTotal)} under this treatment (standard deduction ${fmt(standard)}).` },
+            : { amount: ev.itemizedTotal, note: `Itemized total ${fmt(ev.itemizedTotal)} under this treatment (standard deduction ${standard === null ? "not known yet" : fmt(standard)}).` },
         reasons: [],
       };
     };

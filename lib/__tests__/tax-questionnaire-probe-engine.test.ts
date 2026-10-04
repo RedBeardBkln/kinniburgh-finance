@@ -10,6 +10,7 @@ import {
   computeOutcome,
   computeStatus,
   effectiveAnswers,
+  coveringAnswerPaths,
   enumerateAnswerPaths,
   isUnsureValue,
   nodeOptions,
@@ -184,7 +185,10 @@ describe("content graph (own walker)", () => {
         for (const ref of refs) for (const v of ref.values ?? []) wanted.push(`${ref.node}:${v}`);
       }
       for (const ctx of CTXS) {
-        const { paths, truncated } = enumerateAnswerPaths(def, ctx, 50000);
+        // The Return completeness flow is a long chain of independent sections: its full cartesian product is
+        // astronomically large, so its paths are the engine's covering walks (every option of every shown node).
+        const large = def.id === "return-completeness";
+        const { paths, truncated } = large ? { paths: coveringAnswerPaths(def, ctx), truncated: false } : enumerateAnswerPaths(def, ctx, 50000);
         expect(truncated, `${def.id} truncated`).toBe(false);
         expect(paths.length).toBeGreaterThan(0);
         for (const p of paths) {

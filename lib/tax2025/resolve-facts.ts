@@ -14,19 +14,22 @@
 // defaulted: null stays null and the rule says missing_input.
 
 import { sumCtWithholding } from "@/lib/tax-extraction-schema";
-import type {
-  DividendFact,
-  DonationFact,
-  EstimatedPayment,
-  FixedAssetFact,
-  GlLineFact,
-  InterestFact,
-  MortgageFact,
-  OtherIncomeBox,
-  PropertyBillKind,
-  PropertyTaxBill,
-  Ty2025Facts,
-  W2Fact,
+import { RC_PERSONS } from "@/lib/tax-questionnaire-content";
+import {
+  emptyReturnAnswers,
+  type DividendFact,
+  type DonationFact,
+  type EstimatedPayment,
+  type FixedAssetFact,
+  type GlLineFact,
+  type InterestFact,
+  type MortgageFact,
+  type OtherIncomeBox,
+  type PropertyBillKind,
+  type PropertyTaxBill,
+  type ReturnAnswers,
+  type Ty2025Facts,
+  type W2Fact,
 } from "@/lib/tax2025/facts";
 import { findGlMapEntry } from "@/lib/tax2025/gl-schedule-c-map";
 import { NONE_GROUP_IDS, type NoneGroupId } from "@/lib/tax2025/line-catalog";
@@ -77,7 +80,7 @@ export interface RawPlanning {
 }
 
 /**
- * Typed answers that the Phase 1b questionnaires will supply. All optional: absent =
+ * Typed answers supplied by the "Return completeness" questionnaire (lib/tax2025/answers.ts). All optional: absent =
  * not answered (a MISSING leaf, never 0). The 1a loader leaves these undefined.
  */
 export interface RawAnswers {
@@ -106,6 +109,8 @@ export interface RawAnswers {
   statedNone?: Partial<Record<NoneGroupId, boolean>>;
   /** Owner classification per property tax bill document id. */
   billClassifications?: Record<string, PropertyBillKind>;
+  /** The "Return completeness" answers (lib/tax2025/answers.ts); absent = the questionnaire was not read. */
+  returnAnswers?: ReturnAnswers;
 }
 
 export interface RawTy2025Inputs {
@@ -117,6 +122,8 @@ export interface RawTy2025Inputs {
   documents: RawDocument[];
   planning: RawPlanning;
   answers?: RawAnswers;
+  /** The saved "Return completeness" row was written against an older version of the questions. */
+  returnCompletenessStale?: boolean;
   /** Address of the primary residence and how it was determined (a derived value must say so). */
   primaryResidence: { address: string; basis: Basis; note?: string } | null;
   paystubs: { federalWithheldCents: number; ctWithheldCents: number };
@@ -571,8 +578,8 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
     addItem({
       id: "foreign-tax-paid",
       severity: "advisory",
-      message: `Foreign tax paid of $${(foreignTax / 100).toFixed(2)} is reported (1099-INT box 6 / 1099-DIV box 7). The direct credit on Schedule 3 line 1 is a Phase 1b rule; until then only a stated credit is used.`,
-      action: "Phase 1b computes the credit (direct credit if $600 MFJ or less).",
+      message: `Foreign tax paid of $${(foreignTax / 100).toFixed(2)} is reported (1099-INT box 6 / 1099-DIV box 7). The direct credit on Schedule 3 line 1 is computed by the foreign tax credit rule (a stated credit overrides it).`,
+      action: "The foreign tax credit rule computes the direct credit if the total is $600 (MFJ) or less; above that it is a CPA matter (Form 1116).",
     });
   }
 
@@ -737,7 +744,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       ],
       chosen: null,
       reason:
-        "The owner's total is lower than the contributions printed on the W-2s. No 1a line uses either figure (they feed Phase 1b IRA / HSA / saver's credit rules); both are kept for that phase.",
+        "The owner's total is lower than the contributions printed on the W-2s. The IRA, HSA and saver's credit rules use the per-person Return completeness answers; both figures are kept here for the cross-check.",
     });
   }
 
@@ -832,6 +839,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
   );
   let priorTotalTax: Sourced<number> = missingLeaf();
   let priorAgi: Sourced<number> = missingLeaf();
+  let priorFilingStatus: Sourced<string> = missingLeaf();
   if (priorReturns.length === 1) {
     const doc = priorReturns[0]!;
     const data = dataOf(doc);
@@ -841,6 +849,8 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
     const agi = intOrNull(data.agiCents);
     if (tax !== null) priorTotalTax = sourced(tax, basis, [ref]);
     if (agi !== null) priorAgi = sourced(agi, basis, [ref]);
+    const fs = strOrNull(data.filingStatus);
+    if (fs !== null) priorFilingStatus = sourced(fs, basis, [ref]);
   } else {
     addItem({
       id: "prior-year-return",
@@ -861,6 +871,130 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
   }
   if (p.solarCredit === "claimed_already") {
     statedNone.solar_credit = sourced(true, "answer_owner", [planningRef("solar_credit", "Solar credit already claimed")]);
+  }
+
+  // ── Return completeness answers (Phase 1b) and their cross-checks ──────────
+  const returnAnswers: ReturnAnswers =
+    answers.returnAnswers ??
+    emptyReturnAnswers(
+      RC_PERSONS.map((P) => ({
+        slot: P.slot,
+        userId: raw.people.find((u) => u.name.trim().toLowerCase().startsWith(P.key))?.userId ?? null,
+        name: P.name,
+      }))
+    );
+  if (answers.returnAnswers === undefined) {
+    addItem({
+      id: "return-completeness-not-started",
+      // advisory: every line that needs an answer is already missing_input (and blocking) on its own
+      severity: "advisory",
+      message: "The Return completeness questionnaire has not been answered: retirement and HSA answers, tips, overtime, estimated payments and the \"none\" statements are all unknown.",
+      action: "Answer the Return completeness questionnaire (Forms page, Form 1040 card).",
+    });
+  } else if (raw.returnCompletenessStale === true) {
+    addItem({
+      id: "return-completeness-stale",
+      severity: "advisory",
+      message: "The Return completeness answers were saved against an older version of the questions; open the questionnaire and confirm them.",
+      action: "Re-open the Return completeness questionnaire and confirm every answer.",
+    });
+  }
+  const DEFERRAL_CODES = new Set(["D", "E", "F", "G", "H", "S", "AA", "BB"]);
+  for (const pa of returnAnswers.people) {
+    if (pa.userId === null) {
+      if (raw.people.length > 0) {
+        addItem({
+          id: `rc-person-unmatched:${pa.slot}`,
+          severity: "advisory",
+          message: `The Return completeness questions about ${pa.name} could not be matched to a household member by name, so W-2 cross-checks and ${pa.name}'s compensation for the IRA limit are not available.`,
+          action: "Check the household member names (the questions match on the first name).",
+        });
+      }
+      continue;
+    }
+    const mine = w2s.filter((w) => w.personUserId === pa.userId);
+    if (mine.length === 0) continue;
+    const refs = mine.flatMap((w) => w.refs);
+    const docBasisOfMine: Basis = mine.every((w) => w.basis === "doc_verified") ? "doc_verified" : "doc_unverified";
+    const owner = (label: string, value: string | number | null, leafRefs: Ref[]) => ({ basis: "answer_owner" as const, label, value, refs: leafRefs });
+    // elective deferrals versus W-2 box 12
+    const box12Deferrals = mine.reduce((sum, w) => sum + w.box12.filter((e) => DEFERRAL_CODES.has(e.code)).reduce((a, e) => a + e.amountCents, 0), 0);
+    if (pa.deferralsCents.value !== null && pa.deferralsCents.value !== box12Deferrals) {
+      conflicts.push({
+        factKey: `returnAnswers.${pa.slot}.deferrals`,
+        candidates: [
+          owner(`${pa.name}: owner answer (elective deferrals)`, pa.deferralsCents.value, pa.deferralsCents.refs),
+          { basis: docBasisOfMine, label: `${pa.name}: W-2 box 12 deferral codes (D E F G H S AA BB)`, value: box12Deferrals, refs },
+        ],
+        chosen: `${pa.name}: owner answer (elective deferrals)`,
+        reason: "The owner's elective deferrals differ from the W-2 box 12 deferral codes; the saver's credit uses the owner answer. Confirm which is right (a 457(b) or after-tax amount may not be on the W-2).",
+      });
+    }
+    // workplace plan versus W-2 box 13
+    const box13Known = mine.filter((w) => w.retirementPlan !== null);
+    if (box13Known.length > 0 && pa.coveredByWorkplacePlan.value !== null) {
+      const box13 = box13Known.some((w) => w.retirementPlan === true);
+      if (pa.coveredByWorkplacePlan.value !== box13) {
+        conflicts.push({
+          factKey: `returnAnswers.${pa.slot}.workplacePlan`,
+          candidates: [
+            owner(`${pa.name}: owner answer (covered by a plan at work)`, pa.coveredByWorkplacePlan.value ? "yes" : "no", pa.coveredByWorkplacePlan.refs),
+            { basis: docBasisOfMine, label: `${pa.name}: W-2 box 13 Retirement plan checkbox`, value: box13 ? "checked" : "not checked", refs },
+          ],
+          chosen: `${pa.name}: owner answer (covered by a plan at work)`,
+          reason: "The owner's answer about workplace plan coverage differs from W-2 box 13. The IRA deduction phase-out depends on it; the owner answer is used (a SEP, SIMPLE or qualified plan through self-employment is also coverage).",
+        });
+      }
+    }
+    // HSA employer contributions versus the coverage answer
+    const codeW = mine.reduce((sum, w) => sum + w.box12.filter((e) => e.code === "W").reduce((a, e) => a + e.amountCents, 0), 0);
+    if (pa.hsaCoverage.value === "none" && codeW > 0) {
+      conflicts.push({
+        factKey: `returnAnswers.${pa.slot}.hsa`,
+        candidates: [
+          owner(`${pa.name}: owner answer (no HDHP coverage)`, "none", pa.hsaCoverage.refs),
+          { basis: docBasisOfMine, label: `${pa.name}: W-2 box 12 code W (employer HSA contributions)`, value: codeW, refs },
+        ],
+        chosen: null,
+        reason: "The owner says there was no HSA-eligible coverage but the W-2 shows employer HSA contributions; the HSA deduction is left to the CPA until this is resolved.",
+      });
+    }
+    // tips versus W-2 box 7
+    const box7 = mine.reduce((sum, w) => sum + (w.socialSecurityTipsCents ?? 0), 0);
+    if (box7 > 0 && pa.tipsChoice.value === "none") {
+      conflicts.push({
+        factKey: `returnAnswers.${pa.slot}.tips`,
+        candidates: [
+          owner(`${pa.name}: owner answer (no tips)`, "none", pa.tipsChoice.refs),
+          { basis: docBasisOfMine, label: `${pa.name}: W-2 box 7 (social security tips)`, value: box7, refs },
+        ],
+        chosen: `${pa.name}: owner answer (no tips)`,
+        reason: "The W-2 shows tips in box 7 but the owner reports no tips; Schedule 1-A takes the owner answer. Confirm (box 7 tips may not be qualified tips, but the owner should say so).",
+      });
+    } else if (box7 > 0 && pa.tipsChoice.value === "some" && pa.tipsCents.value !== null && pa.tipsCents.value !== box7) {
+      conflicts.push({
+        factKey: `returnAnswers.${pa.slot}.tips`,
+        candidates: [
+          owner(`${pa.name}: owner answer (qualified tips)`, pa.tipsCents.value, pa.tipsCents.refs),
+          { basis: docBasisOfMine, label: `${pa.name}: W-2 box 7 (social security tips)`, value: box7, refs },
+        ],
+        chosen: `${pa.name}: owner answer (qualified tips)`,
+        reason: "The owner's qualified tips differ from W-2 box 7 (tips reported to the employer, tips from other employers or non-qualified tips can explain it); Schedule 1-A takes the owner answer.",
+      });
+    }
+    // overtime versus W-2 box 14
+    const box14Overtime = mine.reduce((sum, w) => sum + w.box14.filter((e) => /overtime|flsa/i.test(e.label)).reduce((a, e) => a + e.amountCents, 0), 0);
+    if (box14Overtime > 0 && pa.overtimeChoice.value === "none") {
+      conflicts.push({
+        factKey: `returnAnswers.${pa.slot}.overtime`,
+        candidates: [
+          owner(`${pa.name}: owner answer (no overtime)`, "none", pa.overtimeChoice.refs),
+          { basis: docBasisOfMine, label: `${pa.name}: W-2 box 14 overtime`, value: box14Overtime, refs },
+        ],
+        chosen: `${pa.name}: owner answer (no overtime)`,
+        reason: "The W-2 box 14 shows an overtime amount but the owner reports no overtime; Schedule 1-A takes the owner answer. The IRS says an amount the employer shows in box 14 can generally be relied on.",
+      });
+    }
   }
 
   // ── Document provenance advisories ─────────────────────────────────────────
@@ -969,7 +1103,8 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       additions: statedLeaf(answers.ctAdditionsCents, "CT Schedule 1 additions", "ct_additions"),
       subtractions: statedLeaf(answers.ctSubtractionsCents, "CT Schedule 1 subtractions", "ct_subtractions"),
     },
-    priorYear: { totalTaxCents: priorTotalTax, agiCents: priorAgi },
+    priorYear: { totalTaxCents: priorTotalTax, agiCents: priorAgi, filingStatus: priorFilingStatus },
+    returnAnswers,
   };
   return { facts, conflicts, openItems };
 }

@@ -40,12 +40,6 @@ export const NONE_GROUP_TEXT = {
   se_other:
     "No farm income, church employee income, unreported tips (Form 4137), Form 8919 wages, railroad (RRTA) compensation or optional SE methods.",
   qbi_carryforwards: "No prior-year qualified business loss or REIT / PTP loss carryforwards (Form 8995).",
-  /**
-   * Interim statement (Phase 1b replaces it with per-person "born before Jan 2, 1961" / blind answers and applies the
-   * additional standard deduction, $1,600 per qualifying spouse MFJ, itself). It gates 1040 line 12e only: it has no catalog line.
-   */
-  age_blind_standard_deduction:
-    "Neither spouse was born before January 2, 1961 (age 65 or older at the end of 2025) or is legally blind: no additional standard deduction on 1040 line 12e.",
 } as const;
 
 export type NoneGroupId = keyof typeof NONE_GROUP_TEXT;
@@ -441,6 +435,55 @@ const EXTRA = [
   ["f6251.amti", "Form 6251", "4", "Alternative minimum taxable income"],
   ["f6251.tmt", "Form 6251", "10", "Tentative minimum tax"],
   ["f6251.amt", "Form 6251", "11", "Alternative minimum tax"],
+  // Phase 1b: the standard deduction with the age 65 / blind boxes (Form 1040 line 12d); the total is the standard amount for line 12e
+  ["std.additional", "Standard deduction chart", "12d", "Additional standard deduction (born before January 2, 1961 or blind, per box)"],
+  ["std.total", "Standard deduction chart", "12e", "Standard deduction (base plus the line 12d additions)"],
+  // Phase 1b: Schedule 1-A (line 38 goes to Form 1040 line 13b)
+  ["sch1a.3", "Schedule 1-A", "3", "Modified adjusted gross income (Part I)"],
+  ["sch1a.4c", "Schedule 1-A", "4c", "Qualified tips received as an employee"],
+  ["sch1a.7", "Schedule 1-A", "7", "Qualified tips, smaller of line 6 or the maximum"],
+  ["sch1a.13", "Schedule 1-A", "13", "Qualified tips deduction"],
+  ["sch1a.14a", "Schedule 1-A", "14a", "Qualified overtime compensation included in Form W-2, box 1"],
+  ["sch1a.15", "Schedule 1-A", "15", "Qualified overtime, smaller of line 14c or the maximum"],
+  ["sch1a.21", "Schedule 1-A", "21", "Qualified overtime compensation deduction"],
+  ["sch1a.23", "Schedule 1-A", "23", "Qualified passenger vehicle loan interest (column iii total)"],
+  ["sch1a.24", "Schedule 1-A", "24", "Car-loan interest, smaller of line 23 or the maximum"],
+  ["sch1a.30", "Schedule 1-A", "30", "Qualified passenger vehicle loan interest deduction"],
+  ["sch1a.36a", "Schedule 1-A", "36a", "Enhanced deduction for seniors, taxpayer A"],
+  ["sch1a.36b", "Schedule 1-A", "36b", "Enhanced deduction for seniors, taxpayer B"],
+  ["sch1a.37", "Schedule 1-A", "37", "Enhanced deduction for seniors"],
+  ["sch1a.38", "Schedule 1-A", "38", "Total additional deductions (to Form 1040 line 13b)"],
+  // Phase 1b: Form 8889, one form per spouse (a = first person in the Return completeness questionnaire, b = second)
+  ["f8889a.2", "Form 8889 (spouse A)", "2", "HSA contributions made by or for spouse A"],
+  ["f8889a.3", "Form 8889 (spouse A)", "3", "Contribution limit before reductions (spouse A)"],
+  ["f8889a.8", "Form 8889 (spouse A)", "8", "Limit including the additional contribution amount (spouse A)"],
+  ["f8889a.9", "Form 8889 (spouse A)", "9", "Employer contributions (spouse A)"],
+  ["f8889a.12", "Form 8889 (spouse A)", "12", "Limit after employer contributions (spouse A)"],
+  ["f8889a.13", "Form 8889 (spouse A)", "13", "HSA deduction (spouse A)"],
+  ["f8889b.2", "Form 8889 (spouse B)", "2", "HSA contributions made by or for spouse B"],
+  ["f8889b.3", "Form 8889 (spouse B)", "3", "Contribution limit before reductions (spouse B)"],
+  ["f8889b.8", "Form 8889 (spouse B)", "8", "Limit including the additional contribution amount (spouse B)"],
+  ["f8889b.9", "Form 8889 (spouse B)", "9", "Employer contributions (spouse B)"],
+  ["f8889b.12", "Form 8889 (spouse B)", "12", "Limit after employer contributions (spouse B)"],
+  ["f8889b.13", "Form 8889 (spouse B)", "13", "HSA deduction (spouse B)"],
+  // Phase 1b: IRA deduction (Pub. 590-A Worksheets 1-1 and 1-2; the total goes to Schedule 1 line 20)
+  ["ira.magi", "IRA worksheet", "1-1 line 7", "Modified AGI for the traditional IRA deduction"],
+  ["ira.a.7", "IRA worksheet", "1-2 line 7 (A)", "IRA deduction, taxpayer A"],
+  ["ira.b.7", "IRA worksheet", "1-2 line 7 (B)", "IRA deduction, taxpayer B"],
+  // Phase 1b: Form 8880 (saver's credit; line 12 goes to Schedule 3 line 4)
+  ["f8880.7", "Form 8880", "7", "Qualified contributions after the $2,000 cap per person"],
+  ["f8880.8", "Form 8880", "8", "Adjusted gross income (Form 1040 line 11a)"],
+  ["f8880.10", "Form 8880", "10", "Contributions times the applicable decimal"],
+  ["f8880.11", "Form 8880", "11", "Limitation based on tax liability"],
+  ["f8880.12", "Form 8880", "12", "Credit for qualified retirement savings contributions"],
+  // Phase 1b: Form 2210 regular-method ESTIMATE (informational; the IRS figures the penalty itself)
+  ["f2210.4", "Form 2210", "4", "Current year tax"],
+  ["f2210.5", "Form 2210", "5", "90% of the current year tax"],
+  ["f2210.6", "Form 2210", "6", "Withholding taxes"],
+  ["f2210.7", "Form 2210", "7", "Current year tax minus withholding"],
+  ["f2210.8", "Form 2210", "8", "Maximum required annual payment based on the prior year's tax"],
+  ["f2210.9", "Form 2210", "9", "Required annual payment"],
+  ["f2210.19", "Form 2210", "19", "Estimated penalty (regular method estimate)"],
   ["f8960.nii", "Form 8960", "12", "Net investment income"],
   ["f8960.niit", "Form 8960", "17", "Net investment income tax"],
   ["ct1040.1", "CT-1040", "1", "Federal adjusted gross income (1040 line 11a)"],

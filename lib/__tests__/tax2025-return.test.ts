@@ -235,16 +235,17 @@ describe("computeTy2025Return: incomplete facts", () => {
     expect(NONE_GROUP_IDS.length).toBeGreaterThan(10);
   });
 
-  it("the 1b lines are not_yet_computed (never 0) until an amount is stated", () => {
+  it("the Phase 1b lines are missing_input (never 0) until the owner answers the Return completeness questions or an amount is stated", () => {
+    // Phase 1a had these as not_yet_computed; since Phase 1b the rules compute them and an unanswered input is missing_input.
     const f = fullFacts();
     f.adjustments.hsa = missingLeaf();
     f.adjustments.ira = missingLeaf();
     f.adjustments.sch1a = missingLeaf();
     f.credits.savers = missingLeaf();
     const ret = computeTy2025Return(f);
-    for (const k of ["sch1.13", "sch1.20", "f1040.13b", "sch3.4"] as const) expect(st(ret, k), k).toBe("not_yet_computed");
+    for (const k of ["sch1.13", "sch1.20", "f1040.13b", "sch3.4"] as const) expect(st(ret, k), k).toBe("missing_input");
     expect(st(ret, "f1040.11a")).not.toBe("computed");
-    expect(st(ret, "f1040.38")).toBe("not_yet_computed");
+    expect(st(ret, "f1040.38")).toBe("not_yet_computed"); // informational: the estimate is not available, the IRS figures the penalty
     expect(st(ret, "f1040.35a")).toBe("not_yet_computed");
   });
 

@@ -11,7 +11,7 @@
 
 import { z } from "zod";
 import { NONE_GROUP_IDS, type NoneGroupId } from "@/lib/tax2025/line-catalog";
-import { BASES, type Basis } from "@/lib/tax2025/types";
+import { BASES, missingLeaf, type Basis, type Sourced } from "@/lib/tax2025/types";
 
 const refKindSchema = z.enum([
   "document",
@@ -256,6 +256,127 @@ export const donationFactSchema = z.object({
 });
 export type DonationFact = z.infer<typeof donationFactSchema>;
 
+// ── Phase 1b: owner answers that feed the adjustment / credit rules ───────────
+//
+// Built from the "Return completeness" questionnaire (lib/tax2025/answers.ts).
+// Every leaf follows the leaf convention: value null + basis null = NOT ANSWERED;
+// value null + basis "answer_owner" = the owner chose "Not sure - ask the CPA"
+// (the rules turn that into needs_cpa_judgment, never into a guess).
+
+export const PERSON_SLOTS = ["a", "b"] as const;
+export type PersonSlot = (typeof PERSON_SLOTS)[number];
+
+export const personAnswersSchema = z.object({
+  /** Questionnaire slot: a = first person asked about (Eric), b = second (Eva). */
+  slot: z.enum(PERSON_SLOTS),
+  /** The household user this slot was matched to by name; null = could not be matched (open item). */
+  userId: z.string().nullable(),
+  name: z.string(),
+  bornBefore1961: sourcedSchema(z.boolean()),
+  /** Blind at the end of 2025 (Form 1040 line 12d box; the age box is `bornBefore1961`). */
+  blind: sourcedSchema(z.boolean()),
+  age50Plus: sourcedSchema(z.boolean()),
+  age55Plus: sourcedSchema(z.boolean()),
+  /** A Social Security number valid for employment (needed for the Schedule 1-A deductions). */
+  validSsn: sourcedSchema(z.boolean()),
+  coveredByWorkplacePlan: sourcedSchema(z.boolean()),
+  /** Elective deferrals to a 401(k), 403(b), 457(b), SIMPLE, SEP or TSP in 2025 (cents). */
+  deferralsCents: sourcedSchema(cents),
+  traditionalIraCents: sourcedSchema(cents),
+  rothIraCents: sourcedSchema(cents),
+  hsaCoverage: sourcedSchema(z.enum(["none", "self_only", "family", "changed"])),
+  /** Months (0-12) the person was an eligible individual on the first day of the month with HDHP coverage. */
+  hsaMonthsEligible: sourcedSchema(z.number().int()),
+  hsaEligibleDec1: sourcedSchema(z.boolean()),
+  /** True = some month in Medicare or someone else's dependent. */
+  hsaMedicareOrDependent: sourcedSchema(z.boolean()),
+  hsaDirectContributionsCents: sourcedSchema(cents),
+  /** True = employer contributions include another year's money (Form 8889 Employer Contribution Worksheet). */
+  hsaEmployerOtherYear: sourcedSchema(z.boolean()),
+  hsaDistributions: sourcedSchema(z.enum(["none", "some"])),
+  tipsChoice: sourcedSchema(z.enum(["none", "some", "ask_employer"])),
+  tipsCents: sourcedSchema(cents),
+  overtimeChoice: sourcedSchema(z.enum(["none", "premium", "total", "ask_employer"])),
+  overtimeCents: sourcedSchema(cents),
+});
+export type PersonAnswers = z.infer<typeof personAnswersSchema>;
+
+export const returnAnswersSchema = z.object({
+  people: z.array(personAnswersSchema),
+  /** Distribution from a retirement plan / IRA / ABLE account since 2022 (Form 8880 line 4). */
+  retirementDistributionSince2022: sourcedSchema(z.boolean()),
+  /** A full-time student for 5+ months, or claimed as someone else's dependent (Form 8880). */
+  studentOrDependent: sourcedSchema(z.boolean()),
+  /** No Puerto Rico excluded income and no Form 2555 / 4563 (Schedule 1-A lines 2a-2e are zero). */
+  magiExclusionsNone: sourcedSchema(z.boolean()),
+  carLoan: z.object({
+    choice: sourcedSchema(z.enum(["none", "some"])),
+    /** The vehicle and loan meet every listed condition. */
+    qualifies: sourcedSchema(z.boolean()),
+    interestPaidCents: sourcedSchema(cents),
+    deductedElsewhereCents: sourcedSchema(cents),
+  }),
+  attestations: z.object({
+    digitalAssets: sourcedSchema(z.boolean()),
+    foreignAccounts: sourcedSchema(z.boolean()),
+  }),
+  priorYear: z.object({
+    /** The 2024 federal return was a joint return. */
+    filedJoint: sourcedSchema(z.boolean()),
+    /** The 2024 return had Additional Medicare Tax, NIIT or a refundable credit (they change the Form 2210 "2024 tax"). */
+    hadExcludedTaxOrRefundable: sourcedSchema(z.boolean()),
+  }),
+  useTax: z.object({
+    choice: sourcedSchema(z.enum(["none", "some"])),
+    generalRatePurchasesCents: sourcedSchema(cents),
+    otherRateItems: sourcedSchema(z.boolean()),
+    taxPaidToOtherStateCents: sourcedSchema(cents),
+  }),
+  /** Optional "about how much" amounts the owner gave for a "none" group answered "some" (shown to the CPA; never computed). */
+  statedSomeAmounts: z.record(z.enum(NONE_GROUP_IDS as [NoneGroupId, ...NoneGroupId[]]), sourcedSchema(cents)),
+});
+export type ReturnAnswers = z.infer<typeof returnAnswersSchema>;
+
+/** Every answer missing. `people` carries one entry per slot with the given names. */
+export function emptyReturnAnswers(people: readonly { slot: PersonSlot; userId: string | null; name: string }[] = []): ReturnAnswers {
+  const m = <T>(): Sourced<T> => missingLeaf<T>();
+  return {
+    people: people.map((p) => ({
+      slot: p.slot,
+      userId: p.userId,
+      name: p.name,
+      bornBefore1961: m(),
+      blind: m(),
+      age50Plus: m(),
+      age55Plus: m(),
+      validSsn: m(),
+      coveredByWorkplacePlan: m(),
+      deferralsCents: m(),
+      traditionalIraCents: m(),
+      rothIraCents: m(),
+      hsaCoverage: m(),
+      hsaMonthsEligible: m(),
+      hsaEligibleDec1: m(),
+      hsaMedicareOrDependent: m(),
+      hsaDirectContributionsCents: m(),
+      hsaEmployerOtherYear: m(),
+      hsaDistributions: m(),
+      tipsChoice: m(),
+      tipsCents: m(),
+      overtimeChoice: m(),
+      overtimeCents: m(),
+    })),
+    retirementDistributionSince2022: m(),
+    studentOrDependent: m(),
+    magiExclusionsNone: m(),
+    carLoan: { choice: m(), qualifies: m(), interestPaidCents: m(), deductedElsewhereCents: m() },
+    attestations: { digitalAssets: m(), foreignAccounts: m() },
+    priorYear: { filedJoint: m(), hadExcludedTaxOrRefundable: m() },
+    useTax: { choice: m(), generalRatePurchasesCents: m(), otherRateItems: m(), taxPaidToOtherStateCents: m() },
+    statedSomeAmounts: {},
+  };
+}
+
 // ── The facts object ──────────────────────────────────────────────────────────
 
 export const ty2025FactsSchema = z.object({
@@ -282,14 +403,14 @@ export const ty2025FactsSchema = z.object({
   }),
   /** Above-the-line adjustments STATED by the owner/CPA (cents). Null = not stated: the line stays not-yet-computed / missing, never 0. */
   adjustments: z.object({
-    /** Schedule 1-A total (1040 line 13b); Phase 1b computes it. */
+    /** Schedule 1-A total (1040 line 13b): an owner / CPA OVERRIDE. Left null, the Schedule 1-A rule computes it from `returnAnswers`. */
     sch1a: sourcedSchema(cents),
     hsa: sourcedSchema(cents),
     ira: sourcedSchema(cents),
     seRetirement: sourcedSchema(cents),
     seHealthInsurance: sourcedSchema(cents),
   }),
-  /** Nonrefundable credits STATED by the owner/CPA (cents). Phase 1b computes these lines; null = not yet computed. */
+  /** Nonrefundable credits STATED by the owner/CPA (cents): an OVERRIDE. Left null, the foreign tax credit and saver's credit rules compute them. */
   credits: z.object({
     /** Schedule 3 line 1. */
     foreignTax: sourcedSchema(cents),
@@ -340,7 +461,11 @@ export const ty2025FactsSchema = z.object({
   priorYear: z.object({
     totalTaxCents: sourcedSchema(cents),
     agiCents: sourcedSchema(cents),
+    /** Filing status printed on the 2024 return (extraction field filingStatus): "mfj", "single" ... */
+    filingStatus: sourcedSchema(z.string()),
   }),
+  /** Phase 1b: the owner's answers to the "Return completeness" questionnaire. */
+  returnAnswers: returnAnswersSchema,
 });
 
 export type Ty2025Facts = z.infer<typeof ty2025FactsSchema>;

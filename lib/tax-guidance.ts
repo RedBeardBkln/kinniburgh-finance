@@ -70,17 +70,17 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
     category: "other",
     question: "Do you have any dependents you claim (children or other relatives)?",
     context:
-      "Dependents unlock the child tax credit (up to $2,000 per qualifying child), the credit for other dependents ($500), and can affect filing status (Head of Household). Claiming a dependent who doesn't qualify is one of the most common causes of IRS adjustments and penalties — the notes below describe who qualifies.",
+      "Dependents unlock the child tax credit (up to $2,200 per qualifying child for 2025), the credit for other dependents ($500), and can affect filing status (Head of Household). Claiming a dependent who doesn't qualify is one of the most common causes of IRS adjustments and penalties — the notes below describe who qualifies.",
     options: [
       {
         value: "none",
         label: "No dependents",
-        note: "No dependent-related credits this year. If your situation changes (a child or an elderly parent you support), tell your CPA — a qualifying dependent can be worth $500–$2,000 in credits, and support records you keep now make the claim easy to substantiate later.",
+        note: "No dependent-related credits this year. If your situation changes (a child or an elderly parent you support), tell your CPA — a qualifying dependent can be worth $500–$2,200 in credits, and support records you keep now make the claim easy to substantiate later.",
       },
       {
         value: "children",
         label: "One or more qualifying children",
-        note: "Each qualifying child under 17 at year-end may be worth up to $2,000 (child tax credit), partly refundable. The child must generally live with you over half the year and be your son, daughter, stepchild, foster child, sibling, or a descendant of one. If the other parent also qualifies, the tie-breaker rules (custody, income) decide — claiming a non-qualifying child risks repaying the credit plus penalties.",
+        note: "Each qualifying child under 17 at year-end may be worth up to $2,200 for 2025 (child tax credit), partly refundable. The child must generally live with you over half the year and be your son, daughter, stepchild, foster child, sibling, or a descendant of one. If the other parent also qualifies, the tie-breaker rules (custody, income) decide — claiming a non-qualifying child risks repaying the credit plus penalties.",
       },
       {
         value: "other_dependents",
@@ -95,7 +95,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
     category: "deductions",
     question: "Do you expect your itemized deductions to exceed your standard deduction?",
     context:
-      "You get the standard deduction automatically (2025: ~$30,000 married-filing-jointly, ~$15,000 single — indexed figures; your CPA confirms exact numbers). Itemizing only pays when mortgage interest, state/local taxes (SALT, capped at $10,000), charitable gifts, and medical expenses over 7.5% of income add up to more. Itemizing is completely legitimate either way — you simply claim whichever is larger, never both.",
+      "You get the standard deduction automatically (2025: $31,500 married-filing-jointly, $15,750 single, plus an additional amount for each spouse born before January 2, 1961 or blind; your CPA confirms the exact figure). Itemizing only pays when mortgage interest, state/local taxes (SALT, capped at $40,000 for 2025 and reduced for incomes above $500,000), charitable gifts, and medical expenses over 7.5% of income add up to more. Itemizing is completely legitimate either way — you simply claim whichever is larger, never both.",
     options: [
       {
         value: "itemize",
@@ -394,10 +394,10 @@ export function baseOpportunitiesForHousehold(): TaxOpportunity[] {
     },
     {
       key: "salt_cap",
-      title: "State & local taxes (SALT) up to the $10,000 cap",
+      title: "State & local taxes (SALT) up to the $40,000 cap",
       explanation:
-        "Property taxes on both properties (Arbor Rd ~$3,400/yr, primary residence per your bills) plus CT state income tax withholding count toward SALT — deductible up to $10,000 total. Above the cap there's no federal benefit, so we track it to make sure you reach but don't oversell it.",
-      value: "Up to $10,000 of deductions",
+        "Property taxes on both properties (Arbor Rd ~$3,400/yr, primary residence per your bills) plus CT state income tax paid count toward SALT — deductible up to $40,000 total for 2025 (the cap is reduced for incomes above $500,000 and never goes below $10,000). Above the cap there's no federal benefit, so we track it to make sure you reach but don't oversell it.",
+      value: "Up to $40,000 of deductions",
       risk: "conservative",
       caveat: "",
       forms: ["Schedule A"],
@@ -572,7 +572,7 @@ export const PERSONAL_FORM_PLAN: FormPlan[] = [
     whereToGet: "Attaches to Form 1040; prepared here from your uploaded documents.",
     fields: [
       { line: "Home mortgage interest (line 8a)", source: "PennyMac Form 1098 (upload it and the platform parses it)", haveData: false },
-      { line: "State/local taxes (line 5e)", source: "Property tax bills + CT income tax withholding (capped at $10,000)", haveData: false },
+      { line: "State/local taxes (line 5e)", source: "Property tax bills + CT income tax paid (capped at $40,000 for 2025)", haveData: false },
       { line: "Gifts to charity (line 11)", source: "Your logged donations (cash needs bank records; $250+ needs receipts)", haveData: false },
     ],
   },

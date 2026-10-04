@@ -71,6 +71,7 @@ const URL_4562_INSTR = `${IRS}/instructions/i4562`;
 const URL_PUB_946 = `${IRS}/pub/irs-pdf/p946.pdf`;
 const URL_6251_INSTR = `${IRS}/instructions/i6251`;
 const URL_2210_INSTR = `${IRS}/instructions/i2210`;
+const URL_2210_FORM = `${IRS}/pub/irs-pdf/f2210.pdf`;
 const URL_INTEREST_RATES = `${IRS}/payments/quarterly-interest-rates`;
 const URL_CT_INSTR = "https://portal.ct.gov/-/media/drs/forms/2025/income/2025-ct-1040-instructions_1225.pdf";
 const URL_CT_TCS = "https://portal.ct.gov/-/media/drs/forms/2025/income/ct-1040-tcs_1225.pdf";
@@ -103,6 +104,12 @@ export const CONSTANTS = {
     STANDARD_DEDUCTION_MFJ_2025,
     URL_1040_INSTR,
     "Standard deduction, married filing jointly, TY2025 (1040 instructions, What's New)."
+  ),
+  STANDARD_DEDUCTION_ADDITIONAL_MFJ: def(
+    "STANDARD_DEDUCTION_ADDITIONAL_MFJ",
+    1600,
+    URL_1040_INSTR,
+    "Additional standard deduction per box checked on Form 1040 line 12d (born before January 2, 1961, or blind; each spouse separately), MFJ. The 2025 Standard Deduction Chart reads 33,100 / 34,700 / 36,300 / 37,900 for 1 / 2 / 3 / 4 boxes, i.e. the base plus this amount per box; the dependents worksheet line 4b also multiplies the box count by 1,600. Separate from the Schedule 1-A senior deduction."
   ),
   TAX_TABLE_MAX_TAXABLE_INCOME: def(
     "TAX_TABLE_MAX_TAXABLE_INCOME",
@@ -293,6 +300,18 @@ export const CONSTANTS = {
   SCH1A_SENIOR_AMOUNT: def("SCH1A_SENIOR_AMOUNT", 6000, URL_SCH_1A, "Senior deduction per person born before Jan 2, 1961."),
   SCH1A_SENIOR_MAGI_START_MFJ: def("SCH1A_SENIOR_MAGI_START_MFJ", 150000, URL_SCH_1A, "Senior deduction MAGI reduction starts (MFJ)."),
   SCH1A_SENIOR_REDUCTION_RATE: def("SCH1A_SENIOR_REDUCTION_RATE", 0.06, URL_SCH_1A, "Senior deduction reduced by 6% of the MAGI excess."),
+  SCH1A_REDUCTION_STEP: def(
+    "SCH1A_REDUCTION_STEP",
+    1000,
+    URL_SCH_1A,
+    "Schedule 1-A lines 11, 19 and 28: the MAGI excess is divided by $1,000 (rounded DOWN for tips and overtime, rounded UP for car-loan interest)."
+  ),
+  SCH1A_SENIOR_BORN_BEFORE: def(
+    "SCH1A_SENIOR_BORN_BEFORE",
+    "1961-01-02",
+    URL_SCH_1A,
+    "Enhanced deduction for seniors: the person was born before January 2, 1961 (Schedule 1-A lines 36a / 36b)."
+  ),
 
   // ── HSA / IRA / saver's credit (Phase 1b rules) ───────────────────────────
   HSA_LIMIT_SELF_ONLY: def("HSA_LIMIT_SELF_ONLY", 4300, URL_8889_INSTR, "HSA contribution limit, self-only coverage."),
@@ -312,6 +331,32 @@ export const CONSTANTS = {
     URL_PUB_590A,
     "Deduction phase-out when not covered but the spouse is, MFJ MAGI."
   ),
+  IRA_WORKSHEET_REDUCTION_COVERED_MFJ: def(
+    "IRA_WORKSHEET_REDUCTION_COVERED_MFJ",
+    { under50: 0.35, age50: 0.4 },
+    URL_PUB_590A,
+    "Pub 590-A Worksheet 1-2 line 4 (also the 1040 instructions IRA Deduction Worksheet line 7): MFJ and the person is covered by a workplace plan: line 3 x 35% (40% if age 50 or older at the end of 2025)."
+  ),
+  IRA_WORKSHEET_REDUCTION_OTHER: def(
+    "IRA_WORKSHEET_REDUCTION_OTHER",
+    { under50: 0.7, age50: 0.8 },
+    URL_PUB_590A,
+    "Pub 590-A Worksheet 1-2 line 4: all others, including MFJ when the person is NOT covered but the spouse is: line 3 x 70% (80% if age 50 or older)."
+  ),
+  IRA_FULL_DEDUCTION_RANGE_COVERED_MFJ: def(
+    "IRA_FULL_DEDUCTION_RANGE_COVERED_MFJ",
+    20000,
+    URL_PUB_590A,
+    "Worksheet 1-2 line 3: when line 1 minus MAGI is $20,000 or more (MFJ and covered), the deduction is not reduced."
+  ),
+  IRA_FULL_DEDUCTION_RANGE_OTHER: def(
+    "IRA_FULL_DEDUCTION_RANGE_OTHER",
+    10000,
+    URL_PUB_590A,
+    "Worksheet 1-2 line 3: when line 1 minus MAGI is $10,000 or more (all others), the deduction is not reduced."
+  ),
+  IRA_REDUCED_MINIMUM: def("IRA_REDUCED_MINIMUM", 200, URL_PUB_590A, "Worksheet 1-2 line 4: a reduced deduction under $200 is entered as $200."),
+  IRA_ROUND_UP_TO: def("IRA_ROUND_UP_TO", 10, URL_PUB_590A, "Worksheet 1-2 line 4: a result that is not a multiple of $10 is rounded up to the next multiple of $10 (the Pub's own Example 1 prints $6,825; the written rule, repeated in the 1040 instructions, is followed)."),
   SAVERS_CONTRIBUTION_CAP: def("SAVERS_CONTRIBUTION_CAP", 2000, URL_8880_FORM, "Saver's credit: contributions counted up to $2,000 per person."),
   SAVERS_RATE_BANDS_MFJ: def(
     "SAVERS_RATE_BANDS_MFJ",
@@ -375,6 +420,49 @@ export const CONSTANTS = {
   SAFE_HARBOR_PRIOR_YEAR_HIGH_AGI_FRACTION: def("SAFE_HARBOR_PRIOR_YEAR_HIGH_AGI_FRACTION", 1.1, URL_2210_INSTR, "Safe harbor: 110% of the prior-year tax if prior-year AGI is over $150,000."),
   SAFE_HARBOR_HIGH_AGI_THRESHOLD: def("SAFE_HARBOR_HIGH_AGI_THRESHOLD", 150000, URL_2210_INSTR, "Prior-year AGI above this uses the 110% safe harbor."),
   UNDERPAYMENT_NO_PENALTY_BELOW: def("UNDERPAYMENT_NO_PENALTY_BELOW", 1000, URL_2210_INSTR, "No penalty if tax minus withholding is under $1,000."),
+  FORM_2210_DUE_DATES: def(
+    "FORM_2210_DUE_DATES",
+    ["2025-04-15", "2025-06-15", "2025-09-15", "2026-01-15"] as string[],
+    URL_2210_FORM,
+    "Form 2210 Part III payment due dates (columns a-d). A payment made on the next business day counts as made on the due date (instructions, line 11)."
+  ),
+  FORM_2210_PENALTY_END: def(
+    "FORM_2210_PENALTY_END",
+    "2026-04-15",
+    URL_2210_INSTR,
+    "The Form 2210 penalty worksheet figures the penalty for each underpayment through April 15, 2026 (rate period 4); later interest is billed by the IRS."
+  ),
+  FORM_2210_RATE_PERIODS: def(
+    "FORM_2210_RATE_PERIODS",
+    [
+      { start: "2025-04-16", end: "2025-06-30", ratePercent: 7 },
+      { start: "2025-07-01", end: "2025-09-30", ratePercent: 7 },
+      { start: "2025-10-01", end: "2025-12-31", ratePercent: 7 },
+      { start: "2026-01-01", end: "2026-04-15", ratePercent: 7 },
+    ] as { start: string; end: string; ratePercent: number }[],
+    URL_2210_INSTR,
+    "Form 2210 penalty worksheet: underpayment x days / 365 x 0.07 in each of the four rate periods (the 2025 worksheet prints 0.07 for every period)."
+  ),
+  FORM_2210_DAYS_IN_YEAR: def("FORM_2210_DAYS_IN_YEAR", 365, URL_2210_INSTR, "Form 2210 penalty worksheet: days divided by 365."),
+  FORM_2210_INSTALLMENT_FRACTION: def("FORM_2210_INSTALLMENT_FRACTION", 0.25, URL_2210_INSTR, "Form 2210 line 10: each required installment is 25% of the required annual payment (regular method)."),
+  FORM_2210_LINE2_SCH2_LINES: def(
+    "FORM_2210_LINE2_SCH2_LINES",
+    ["4", "8", "9", "11", "12", "14", "15", "16", "17a", "17c", "17d", "17e", "17f", "17g", "17h", "17i", "17j", "17l", "17z", "19"] as string[],
+    URL_2210_INSTR,
+    "Form 2210 line 2 (Form 1040 filers): the Schedule 2 lines to add (line 8 = additional tax on distributions only)."
+  ),
+  FORM_2210_LINE3_LINES: def(
+    "FORM_2210_LINE3_LINES",
+    ["f1040.27a", "f1040.28", "f1040.29", "f1040.30", "sch3.9", "sch3.12", "sch3.13b"] as string[],
+    URL_2210_INSTR,
+    "Form 2210 line 3: refundable credits (earned income, additional child tax, refundable American opportunity, refundable adoption, premium tax credit, fuel credit, section 1341 credit)."
+  ),
+  FORM_2210_PRIOR_YEAR_TAX_NOTE: def(
+    "FORM_2210_PRIOR_YEAR_TAX_NOTE",
+    "2024 tax for line 8 = Form 1040 line 22 + Schedule 2 lines 4, 17e-17j, 17l, 17z, 19, minus refundable credits; it does NOT include 2024 Additional Medicare Tax (line 11) or net investment income tax (line 12)",
+    URL_2210_INSTR,
+    "Form 2210 line 8 instructions. The extracted prior-year total tax (Form 1040 line 24) equals this figure only when the 2024 return had none of those excluded items."
+  ),
   UNDERPAYMENT_INTEREST_RATES: def(
     "UNDERPAYMENT_INTEREST_RATES",
     { "2025": [7, 7, 7, 7], "2026": [7, 6, 7, 7] } as Record<string, number[]>,
@@ -413,6 +501,12 @@ export const CONSTANTS = {
     ] as UpToBand[],
     URL_CT_INSTR,
     "Phase-out decimal by CT AGI (MFJ); credit = tentative credit x (1 - decimal). 1.00 above $130,500 = $0."
+  ),
+  CT_USE_TAX_RATE_GENERAL: def(
+    "CT_USE_TAX_RATE_GENERAL",
+    0.0635,
+    URL_CT_INSTR,
+    "Connecticut individual use tax worksheet, Section B: the general rate is 6.35% of the purchase price, minus tax paid to another state (column 6). The 7.75% (luxury), 1% (computer services) and 2.99% (vessels) sections are not computed here."
   ),
   CT_LATE_PAYMENT_PENALTY_RATE: def("CT_LATE_PAYMENT_PENALTY_RATE", 0.1, URL_CT_INSTR, "CT-1040 line 27 late payment penalty rate (10%); the minimum-penalty and month-counting rules are not verified."),
   CT_INTEREST_RATE_PER_MONTH: def("CT_INTEREST_RATE_PER_MONTH", 0.01, URL_CT_INSTR, "CT-1040 line 28 interest, 1% per month."),
