@@ -265,12 +265,14 @@ describe("accepting one suggestion", () => {
     });
     loaderMock.mockResolvedValue([crafted("defamt_eric", 100)]);
     expect(await acceptPrefillSuggestions({ ...base, mode: "items", items: [{ nodeId: "defamt_eric" }] })).toEqual({ ok: false, error: "That question is not shown right now" });
-    expect(mockDb.$transaction).not.toHaveBeenCalled();
+    expect(mockDb.taxQuestionnaire.upsert).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
     // form-2210 ut3 is bound to a Planning answer: never prefilled
     loaderMock.mockResolvedValue([{ ...crafted("ut3", 100), questionnaireId: "form-2210" }]);
     const res = await acceptPrefillSuggestions({ ...base, questionnaireId: "form-2210", mode: "items", items: [{ nodeId: "ut3" }] });
     expect(res.ok).toBe(false);
-    expect(mockDb.$transaction).not.toHaveBeenCalled();
+    expect(mockDb.taxQuestionnaire.upsert).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
   });
 
   it("returns an error and writes nothing when the loader produced no suggestions", async () => {
@@ -322,6 +324,24 @@ describe("bulk accept", () => {
     loaderMock.mockResolvedValue(suggestionsFor([w2doc(DOC_A, ERIC, { box12: box12(["D", 100_000]) }, { verified: false })]));
     const res = await acceptPrefillSuggestions({ ...base, mode: "bulk", items: [] });
     expect(res).toEqual({ ok: false, error: "There is nothing to accept right now" });
-    expect(mockDb.$transaction).not.toHaveBeenCalled();
+    expect(mockDb.taxQuestionnaire.upsert).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("D1: the saved answers are re-read inside the transaction after the loader, and only the accepted nodes are merged", async () => {
+    mockDb.taxQuestionnaire.findUnique.mockResolvedValue(null);
+    const other = { age_eva: { v: "no", at: "2026-10-04T10:00:00.000Z", by: "u2" } };
+    loaderMock.mockImplementation(async () => {
+      // the other household member saves while the (slow) loader runs
+      mockDb.taxQuestionnaire.findUnique.mockResolvedValue(stored(other));
+      return suggestionsFor(standardDocs());
+    });
+    const res = await acceptPrefillSuggestions({ ...base, mode: "items", items: [{ nodeId: "plan_eric" }] });
+    expect(res.ok).toBe(true);
+    expect(written().age_eva).toEqual(other.age_eva);
+    expect(written().plan_eric).toBeDefined();
+    // the row is read exactly once, and that read happens inside the transaction
+    expect(mockDb.taxQuestionnaire.findUnique).toHaveBeenCalledTimes(1);
+    expect(mockDb.taxQuestionnaire.findUnique.mock.invocationCallOrder[0]!).toBeGreaterThan(loaderMock.mock.invocationCallOrder[0]!);
   });
 });

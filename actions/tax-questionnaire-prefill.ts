@@ -63,6 +63,9 @@ function json(value: unknown): Prisma.InputJsonValue {
   return value as unknown as Prisma.InputJsonValue;
 }
 
+/** A user-facing reason thrown inside the transaction (rolls it back); anything else is reported generically. */
+class PrefillRejected extends Error {}
+
 interface Chosen {
   suggestion: PrefillSuggestion;
   evaluation: PrefillEvaluation;
@@ -86,12 +89,8 @@ export async function acceptPrefillSuggestions(input: z.input<typeof acceptSchem
   const scope = resolveQuestionnaireScope(def, entities, taxYear, entityId);
   if (!scope.ok) return { ok: false, error: scope.error };
 
-  const row = await db.taxQuestionnaire.findUnique({
-    where: { taxYear_entityId_questionnaireId: { taxYear, entityId, questionnaireId } },
-  });
-  const stored: StoredAnswers = row ? parseStoredAnswers(row.answers) : {};
-
-  // Planning answers are only READ (a workspace is never opened here).
+  // Planning answers are only READ (a workspace is never opened here). They are not part of the
+  // accepted nodes (bound nodes are refused), so reading them before the slow loader is safe.
   const personal = entities.find((e) => e.type === "personal") ?? null;
   const workspace = personal
     ? await db.taxWorkspace.findUnique({
@@ -105,24 +104,17 @@ export async function acceptPrefillSuggestions(input: z.input<typeof acceptSchem
     skippedReason: q.skippedReason,
     answeredAt: q.answeredAt,
   }));
-  const before: EffectiveAnswers = effectiveAnswers(def, stored, planning, scope.ctx);
 
-  // The suggestions are recomputed on the server from the documents as they are right now.
+  // The suggestions are recomputed on the server from the documents as they are right now. This is the
+  // slow step (several queries), so the saved answers are NOT read until it has finished: they are read
+  // again inside the transaction below, and only the accepted nodes are merged into that fresh copy, so an
+  // answer the other household member saved while this ran is never overwritten.
   const all = (await loadPrefillSuggestions(taxYear)).filter((s) => s.questionnaireId === questionnaireId);
 
-  const chosen: Chosen[] = [];
-  if (mode === "bulk") {
-    const states = computePrefillStates(questionnaireId, all, before);
-    for (const s of all) {
-      const primary = s.nodeIds[0];
-      const st = primary ? states[primary] : undefined;
-      if (!st || !st.bulk || st.suggestionKey !== s.key) continue;
-      const ev = combineContributions(s, s.docIds);
-      if (!ev || ev.strength !== "strong") continue;
-      chosen.push({ suggestion: s, evaluation: ev, docIds: s.docIds });
-    }
-    if (chosen.length === 0) return { ok: false, error: "There is nothing to accept right now" };
-  } else {
+  // Item mode needs only the suggestions and the chosen documents (not the saved answers).
+  let itemChoices: Chosen[] | null = null;
+  if (mode === "items") {
+    itemChoices = [];
     const seen = new Set<string>();
     for (const item of items) {
       if (seen.has(item.nodeId)) return { ok: false, error: "The same question was listed twice" };
@@ -137,48 +129,74 @@ export async function acceptPrefillSuggestions(input: z.input<typeof acceptSchem
           error: s.needsPick && (item.documentIds ?? []).length === 0 ? "Pick the document to use first" : "Those documents cannot be used for this answer",
         };
       }
-      chosen.push({ suggestion: s, evaluation: ev, docIds: s.kind === "planning" ? [] : docIds });
+      itemChoices.push({ suggestion: s, evaluation: ev, docIds: s.kind === "planning" ? [] : docIds });
     }
   }
 
-  // Validate on the AFTER state (a dependent amount is only shown after its gate answer), exactly like a normal save.
-  const now = new Date();
-  const after: EffectiveAnswers = { ...before };
-  for (const c of chosen) {
-    for (const a of c.evaluation.answers) {
-      const node = def.nodes.find((n) => n.id === a.nodeId);
-      if (!node) return { ok: false, error: "Unknown question" };
-      if (node.binding) return { ok: false, error: "That question is shared with the Planning screen and cannot be filled this way" };
-      after[a.nodeId] = { value: a.value, source: "questionnaire", at: now.toISOString(), by: user.id };
-    }
-  }
-  for (const c of chosen) {
-    for (const a of c.evaluation.answers) {
-      if (!isNodeVisible(def, scope.ctx, after, a.nodeId)) return { ok: false, error: "That question is not shown right now" };
-    }
-  }
-
-  const entries: StoredAnswers = {};
-  const auditNodes: { nodeId: string; previous: unknown; value: unknown; field: string; docIds: string[]; basis: string }[] = [];
-  for (const c of chosen) {
-    const src = buildAnswerSource(c.suggestion, c.evaluation, c.docIds);
-    for (const a of c.evaluation.answers) {
-      entries[a.nodeId] = { v: a.value, at: now.toISOString(), by: user.id, src };
-      auditNodes.push({
-        nodeId: a.nodeId,
-        previous: before[a.nodeId]?.value ?? null,
-        value: a.value,
-        field: src.field,
-        docIds: src.docIds,
-        basis: src.basis,
-      });
-    }
-  }
-  const answers: StoredAnswers = { ...stored, ...entries };
   const auditBase = { taxYear, questionnaireId, entityId };
-
   try {
-    await db.$transaction(async (tx) => {
+    const accepted = await db.$transaction(async (tx) => {
+      // Fresh read inside the transaction, after the loader returned.
+      const row = await tx.taxQuestionnaire.findUnique({
+        where: { taxYear_entityId_questionnaireId: { taxYear, entityId, questionnaireId } },
+      });
+      const stored: StoredAnswers = row ? parseStoredAnswers(row.answers) : {};
+      const before: EffectiveAnswers = effectiveAnswers(def, stored, planning, scope.ctx);
+
+      let chosen: Chosen[];
+      if (itemChoices) {
+        chosen = itemChoices;
+      } else {
+        // Bulk: which suggestions are still waiting is decided from the fresh copy.
+        chosen = [];
+        const states = computePrefillStates(questionnaireId, all, before);
+        for (const s of all) {
+          const primary = s.nodeIds[0];
+          const st = primary ? states[primary] : undefined;
+          if (!st || !st.bulk || st.suggestionKey !== s.key) continue;
+          const ev = combineContributions(s, s.docIds);
+          if (!ev || ev.strength !== "strong") continue;
+          chosen.push({ suggestion: s, evaluation: ev, docIds: s.docIds });
+        }
+        if (chosen.length === 0) throw new PrefillRejected("There is nothing to accept right now");
+      }
+
+      // Validate on the AFTER state (a dependent amount is only shown after its gate answer), exactly like a normal save.
+      const now = new Date();
+      const after: EffectiveAnswers = { ...before };
+      for (const c of chosen) {
+        for (const a of c.evaluation.answers) {
+          const node = def.nodes.find((n) => n.id === a.nodeId);
+          if (!node) throw new PrefillRejected("Unknown question");
+          if (node.binding) throw new PrefillRejected("That question is shared with the Planning screen and cannot be filled this way");
+          after[a.nodeId] = { value: a.value, source: "questionnaire", at: now.toISOString(), by: user.id };
+        }
+      }
+      for (const c of chosen) {
+        for (const a of c.evaluation.answers) {
+          if (!isNodeVisible(def, scope.ctx, after, a.nodeId)) throw new PrefillRejected("That question is not shown right now");
+        }
+      }
+
+      const entries: StoredAnswers = {};
+      const auditNodes: { nodeId: string; previous: unknown; value: unknown; field: string; docIds: string[]; basis: string }[] = [];
+      for (const c of chosen) {
+        const src = buildAnswerSource(c.suggestion, c.evaluation, c.docIds);
+        for (const a of c.evaluation.answers) {
+          entries[a.nodeId] = { v: a.value, at: now.toISOString(), by: user.id, src };
+          auditNodes.push({
+            nodeId: a.nodeId,
+            previous: before[a.nodeId]?.value ?? null,
+            value: a.value,
+            field: src.field,
+            docIds: src.docIds,
+            basis: src.basis,
+          });
+        }
+      }
+      // Merge ONLY the accepted nodes into the fresh copy (other nodes, and their `src`, are kept as read just now).
+      const answers: StoredAnswers = { ...stored, ...entries };
+
       await tx.taxQuestionnaire.upsert({
         where: { taxYear_entityId_questionnaireId: { taxYear, entityId, questionnaireId } },
         create: { taxYear, entityId, questionnaireId, definitionVersion: def.version, answers: json(answers) },
@@ -196,13 +214,15 @@ export async function acceptPrefillSuggestions(input: z.input<typeof acceptSchem
           }),
         },
       });
+      return Object.keys(entries);
     });
-  } catch {
+
+    revalidatePath(`/tax/forms/${taxYear}`);
+    revalidatePath(`/tax/forms/${taxYear}/questionnaire/${questionnaireId}`);
+    revalidatePath(`/tax/forms/${taxYear}/cpa-summary`);
+    return { ok: true, accepted };
+  } catch (e) {
+    if (e instanceof PrefillRejected) return { ok: false, error: e.message };
     return { ok: false, error: "Could not save the answers" };
   }
-
-  revalidatePath(`/tax/forms/${taxYear}`);
-  revalidatePath(`/tax/forms/${taxYear}/questionnaire/${questionnaireId}`);
-  revalidatePath(`/tax/forms/${taxYear}/cpa-summary`);
-  return { ok: true, accepted: Object.keys(entries) };
 }
