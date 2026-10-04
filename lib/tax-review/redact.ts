@@ -6,7 +6,7 @@
 //   - EINs are MASKED when they must stay visible to a person (only the last 4 digits remain);
 //   - the two household members are labelled exactly "Taxpayer M" and "Taxpayer F" (no real or first names).
 //
-// Hex digests (fingerprints, hashes) are allowed: a long hex token that contains at least one letter a-f is not a
+// UUIDs (document ids) are allowed for the same reason. Hex digests (fingerprints, hashes) are allowed: a long hex token that contains at least one letter a-f is not a
 // number (a random 64-hex string often contains a 9-digit run by chance, so counting it would fail most hashes).
 //
 // PURE: no DB, no network, no clock. No function here ever echoes the rejected text in an error message.
@@ -17,6 +17,8 @@ export type RedactionIssue = "ssn_like" | "nine_digit_run" | "long_digit_run" | 
 
 /** A hex token (digest, fingerprint): 12 to 64 hex characters containing at least one letter. */
 const HEX_TOKEN = /\b(?=[0-9a-f]*[a-f])[0-9a-f]{12,64}\b/gi;
+/** A UUID (document ids appear in review text); its last group can be twelve digits by chance. */
+const UUID_TOKEN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 /** NN-NNNNNNN (an employer identification number as printed). */
 const EIN_LIKE = /\b\d{2}[-‐-―−]\d{7}\b/;
 const EIN_ALL = /\b(\d{2})[-‐-―−](\d{3})(\d{4})\b/g;
@@ -31,7 +33,7 @@ export function findRedactionIssues(text: string): RedactionIssue[] {
   const issues: RedactionIssue[] = [];
   if (containsSsnLikeText(t)) issues.push("ssn_like");
   if (EIN_LIKE.test(t)) issues.push("ein_like");
-  const withoutHex = t.replace(HEX_TOKEN, " ");
+  const withoutHex = t.replace(UUID_TOKEN, " ").replace(HEX_TOKEN, " ");
   for (const m of withoutHex.matchAll(/\d{9,}/g)) {
     issues.push(m[0].length === 9 ? "nine_digit_run" : "long_digit_run");
     break;
