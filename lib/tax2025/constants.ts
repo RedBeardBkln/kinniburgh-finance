@@ -441,7 +441,7 @@ export const CONSTANTS = {
       { start: "2026-01-01", end: "2026-04-15", ratePercent: 7 },
     ] as { start: string; end: string; ratePercent: number }[],
     URL_2210_INSTR,
-    "Form 2210 penalty worksheet: underpayment x days / 365 x 0.07 in each of the four rate periods (the 2025 worksheet prints 0.07 for every period)."
+    "Form 2210 penalty worksheet: underpayment x days / 365 x 0.07 in each of the four rate periods (the 2025 worksheet prints 0.07 for every period). Rate period 4 follows the PRINTED form on purpose; the IRS quarterly table shows 6% for Q2 2026 (April 1-15), a difference of about $0.04 per $1,000 underpaid in an informational estimate."
   ),
   FORM_2210_DAYS_IN_YEAR: def("FORM_2210_DAYS_IN_YEAR", 365, URL_2210_INSTR, "Form 2210 penalty worksheet: days divided by 365."),
   FORM_2210_INSTALLMENT_FRACTION: def("FORM_2210_INSTALLMENT_FRACTION", 0.25, URL_2210_INSTR, "Form 2210 line 10: each required installment is 25% of the required annual payment (regular method)."),
@@ -459,9 +459,9 @@ export const CONSTANTS = {
   ),
   FORM_2210_PRIOR_YEAR_TAX_NOTE: def(
     "FORM_2210_PRIOR_YEAR_TAX_NOTE",
-    "2024 tax for line 8 = Form 1040 line 22 + Schedule 2 lines 4, 17e-17j, 17l, 17z, 19, minus refundable credits; it does NOT include 2024 Additional Medicare Tax (line 11) or net investment income tax (line 12)",
+    "2024 tax for line 8 = Form 1040 line 22 + Schedule 2 lines 4, 8 (distributions only), 9, 10, 11, 12, 14, 15, 16, 17a, 17c-17j, 17l, 17z, 19, minus refundable credits; Additional Medicare Tax (line 11) and net investment income tax (line 12) ARE included",
     URL_2210_INSTR,
-    "Form 2210 line 8 instructions. The extracted prior-year total tax (Form 1040 line 24) equals this figure only when the 2024 return had none of those excluded items."
+    "Form 2210 line 8 instructions (re-read by the Tester 2026-10-04). The extracted prior-year total tax (Form 1040 line 24) differs from this figure only by the Schedule 2 lines not in the chart (5-7, 13, 17b, 17k, 17m and later) and by the refundable credits, which are subtracted."
   ),
   UNDERPAYMENT_INTEREST_RATES: def(
     "UNDERPAYMENT_INTEREST_RATES",

@@ -14,12 +14,13 @@
 //   Schedule 3 line 11); line 7 = 4 - 6, under $1,000 no penalty. line 8 = the prior
 //   year's tax (100%, or 110% when the prior-year AGI is more than $150,000);
 //   line 9 = the smaller of line 5 and line 8; line 6 at least line 9: no penalty.
-// Prior-year tax (instructions, line 8) is Form 1040 line 22 plus Schedule 2 lines 4,
-// 17e-17j, 17l, 17z, 19, minus refundable credits; it does NOT include the 2024
-// Additional Medicare Tax or net investment income tax. The extracted figure is the
-// 2024 TOTAL TAX (line 24), so it equals the instruction's figure only when the 2024
-// return had none of those items: the owner answers that, and a "yes" / "not sure"
-// is needs_cpa_judgment.
+// Prior-year tax (instructions, line 8) is Form 1040 line 22 plus Schedule 2 lines 4, 8
+// (distributions only), 9, 10, 11, 12, 14, 15, 16, 17a, 17c-17j, 17l, 17z, 19, minus
+// refundable credits: Additional Medicare Tax (11) and net investment income tax (12) ARE
+// included. The extracted figure is the 2024 TOTAL TAX (line 24); it differs only by
+// Schedule 2 lines 5-7 and 13 (unreported-tip and similar taxes) and by the refundable
+// credits, so the owner is asked only about those and a "yes" / "not sure" is
+// needs_cpa_judgment.
 // Part III (regular method): each of the four installments is 25% of line 9; withholding
 // is treated as paid one quarter on each due date (instructions, line 11); a 2024
 // overpayment applied is treated as paid April 15, 2025; estimated payments are
@@ -99,6 +100,8 @@ export function dayNumber(iso: string): number {
 }
 
 /** Penalty (before rounding) on `amount` unpaid from `fromIso` (exclusive) through `toIso` (inclusive), by rate period. */
+// Rate period 4 (1/1-4/15/2026) follows the PRINTED Form 2210 worksheet (0.07); the IRS quarterly table shows 6% for Q2 2026,
+// so April 1-15 is overstated by about $0.04 per $1,000 underpaid. Informational estimate: left as printed on purpose.
 export function penaltyForPeriod(amount: Decimal, fromIso: string, toIso: string): Decimal {
   const from = dayNumber(fromIso);
   const to = dayNumber(toIso);
@@ -208,9 +211,9 @@ export function computePenalty2210(input: Penalty2210Input): RuleResult {
   if (joint.state === "missing" && pr.filingStatus !== null && pr.filingStatus !== "mfj") {
     return stopAll("needs_cpa_judgment", `The 2024 return shows filing status "${pr.filingStatus}", not joint: line 8 and box E are the CPA's.`, "2024 filing status");
   }
-  if (pr.hadExcludedTaxOrRefundable.state === "missing") return stopAll("missing_input", "Whether the 2024 return had Additional Medicare Tax, net investment income tax or a refundable credit has not been answered (they change the 2024 tax used on line 8).", "2024 return: Additional Medicare Tax / NIIT / refundable credits");
+  if (pr.hadExcludedTaxOrRefundable.state === "missing") return stopAll("missing_input", "Whether the 2024 return had a refundable credit or a Schedule 2 tax for unreported tips (lines 5-7, 13) has not been answered (they change the 2024 tax used on line 8).", "2024 return: refundable credits / Schedule 2 lines 5-7, 13");
   if (pr.hadExcludedTaxOrRefundable.state === "unsure" || (pr.hadExcludedTaxOrRefundable.state === "answered" && pr.hadExcludedTaxOrRefundable.value)) {
-    return stopAll("needs_cpa_judgment", "The 2024 return had (or may have had) Additional Medicare Tax, net investment income tax or a refundable credit: the instruction's 2024 tax cannot be read from the extracted total tax; the CPA figures line 8.", "2024 tax for Form 2210 line 8");
+    return stopAll("needs_cpa_judgment", "The 2024 return had (or may have had) a refundable credit or a Schedule 2 tax for unreported tips (lines 5-7, 13): the instruction's 2024 tax cannot be read from the extracted total tax; the CPA figures line 8.", "2024 tax for Form 2210 line 8");
   }
   if (pr.totalTax === null || pr.agi === null) {
     return stopAll("missing_input", "The 2024 total tax and AGI are not available (upload the 2024 federal return and confirm its extraction): the prior-year safe harbor cannot be figured.", "2024 total tax and AGI");

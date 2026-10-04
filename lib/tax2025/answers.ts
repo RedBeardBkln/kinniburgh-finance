@@ -50,8 +50,20 @@ export const RC_CONTEXT: QuestionnaireContext = { year: 2025, entityName: null, 
 
 type Raw = { kind: "missing" } | { kind: "unsure" } | { kind: "value"; value: AnswerValue };
 
+/** The first-name token of a display name: the first word, and for a hyphenated name its first part ("Eva-Laura Ramirez" -> "eva"). */
+export function firstNameToken(name: string): string {
+  return (name.trim().toLowerCase().split(/\s+/)[0] ?? "").split("-")[0] ?? "";
+}
+
+/** Exact (case-insensitive) first-name token match: "Eva-Laura Ramirez" matches "eva"; "Evan" does not. */
 export function matchPerson(name: string, key: string): boolean {
-  return name.trim().toLowerCase().startsWith(key);
+  return firstNameToken(name) === key;
+}
+
+/** The ONE household user whose first name is `key`; null when there is none or more than one (ambiguous). */
+export function uniquePersonMatch<T extends { name: string }>(people: readonly T[], key: string): T | null {
+  const hits = people.filter((u) => matchPerson(u.name, key));
+  return hits.length === 1 ? (hits[0] as T) : null;
 }
 
 export function parseCompletenessAnswers(
@@ -117,7 +129,7 @@ export function parseCompletenessAnswers(
   // ── people ──────────────────────────────────────────────────────────────────
   const personAnswers: PersonAnswers[] = RC_PERSONS.map((P) => {
     const k = P.key;
-    const user = people.find((u) => matchPerson(u.name, k));
+    const user = uniquePersonMatch(people, k);
     const base = emptyReturnAnswers([{ slot: P.slot, userId: user?.userId ?? null, name: user?.name ?? P.name }]).people[0] as PersonAnswers;
     const lbl = (what: string) => `${P.name}: ${what}`;
     const iraC = choice(`ira_${k}`);
@@ -185,13 +197,15 @@ export function parseCompletenessAnswers(
   ra.attestations.digitalAssets = yn("digital", "Digital assets (Form 1040 page 1 question)");
   ra.attestations.foreignAccounts = yn("foreign", "Foreign accounts and trusts (Schedule B Part III)");
   ra.priorYear.filedJoint = yn("pyjoint", "2024 return was joint");
-  ra.priorYear.hadExcludedTaxOrRefundable = yn("pyextra", "2024 return had Additional Medicare Tax, NIIT or a refundable credit");
+  ra.priorYear.hadExcludedTaxOrRefundable = yn("pyextra", "2024 return had a refundable credit or a Schedule 2 tax for unreported tips (lines 5-7, 13)");
   {
     const c = choice("ut");
     ra.useTax.choice = c === null ? missing() : c === "unsure" ? unsure("ut", "Out-of-state purchases") : leaf(c === "some" ? "some" : "none", "ut", "Out-of-state purchases");
     const buy = cents("utbuy");
     ra.useTax.generalRatePurchasesCents = buy === null ? missing() : buy === "unsure" ? unsure("utbuy", "Use tax purchases") : leaf(buy, "utbuy", "Use tax purchases");
     ra.useTax.otherRateItems = yn("utother", "Items at a special use tax rate");
+    const untaxed = cents("utbuy2");
+    ra.useTax.untaxedPurchasesCents = untaxed === null ? missing() : untaxed === "unsure" ? unsure("utbuy2", "Untaxed purchases") : leaf(untaxed, "utbuy2", "Untaxed purchases");
     const paidTax = cents("uttax");
     ra.useTax.taxPaidToOtherStateCents = paidTax === null ? missing() : paidTax === "unsure" ? unsure("uttax", "Tax paid to another state") : leaf(paidTax, "uttax", "Tax paid to another state");
   }

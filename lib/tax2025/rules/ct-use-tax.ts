@@ -27,6 +27,11 @@ export interface CtUseTaxInput {
   otherRateItems: Ans<boolean>;
   /** Sales or use tax already paid to another state on those purchases. */
   taxPaidToOtherState: Ans<Decimal>;
+  /**
+   * Second worksheet row: purchases on which NO tax was paid anywhere. When supplied it must be answered; each row is
+   * figured on its own and floored at zero ("do not enter negative amounts"), then added. Omitted = a single row.
+   */
+  untaxedPurchases?: Ans<Decimal>;
 }
 
 export function computeCtUseTax(input: CtUseTaxInput): UseTaxResult {
@@ -45,12 +50,17 @@ export function computeCtUseTax(input: CtUseTaxInput): UseTaxResult {
   if (input.generalRatePurchases.state === "unsure") return unsure("the total of purchases subject to use tax");
   if (input.taxPaidToOtherState.state === "missing") return miss("the tax already paid to another state on those purchases");
   if (input.taxPaidToOtherState.state === "unsure") return unsure("the tax already paid to another state on those purchases");
+  const extra = input.untaxedPurchases;
+  if (extra !== undefined && extra.state === "missing") return miss("the purchases on which no tax was paid anywhere");
+  if (extra !== undefined && extra.state === "unsure") return unsure("the purchases on which no tax was paid anywhere");
   const rate = D(K.CT_USE_TAX_RATE_GENERAL.value);
   const gross = input.generalRatePurchases.value.times(rate);
-  const amount = maxD(ZERO, gross.minus(input.taxPaidToOtherState.value));
+  const row1 = maxD(ZERO, gross.minus(input.taxPaidToOtherState.value)); // each worksheet row is floored at 0 on its own
+  const extraGross = extra !== undefined && extra.state === "answered" ? extra.value.times(rate) : ZERO;
+  const amount = row1.plus(extraGross);
   return {
     ok: true,
     amount,
-    reason: `Use tax ${fmt(amount)}: ${fmt(input.generalRatePurchases.value)} of purchases x ${rate.times(100).toString()}% = ${fmt(gross.toDecimalPlaces(2))}, minus ${fmt(input.taxPaidToOtherState.value)} already paid to another state.`,
+    reason: `Use tax ${fmt(amount)}: ${fmt(input.generalRatePurchases.value)} of purchases x ${rate.times(100).toString()}% = ${fmt(gross.toDecimalPlaces(2))}, minus ${fmt(input.taxPaidToOtherState.value)} already paid to another state (not below zero for that row)${extra !== undefined && extra.state === "answered" ? `, plus ${fmt(extra.value)} of untaxed purchases x ${rate.times(100).toString()}% = ${fmt(extraGross.toDecimalPlaces(2))}` : ""}.`,
   };
 }

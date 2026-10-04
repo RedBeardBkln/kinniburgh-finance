@@ -871,6 +871,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
           generalRatePurchases: dollarsAns(ra.useTax.generalRatePurchasesCents),
           otherRateItems: ans(ra.useTax.otherRateItems),
           taxPaidToOtherState: dollarsAns(ra.useTax.taxPaidToOtherStateCents),
+          ...(ra.useTax.untaxedPurchasesCents ? { untaxedPurchases: dollarsAns(ra.useTax.untaxedPurchasesCents) } : {}),
         });
   const useTaxValue = useTaxStated ?? (useTaxRule !== null && useTaxRule.ok ? useTaxRule.amount : null);
   const ctBalance = computeCtBalance({
