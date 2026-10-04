@@ -1,0 +1,253 @@
+// Types of the PDF layer (plan sections 5.3, 6.3, 6.4). Everything in lib/tax2025/pdf/
+// except the (later) adapter depends only on PdfReturnView, a plain JSON-safe view of
+// the effective return. Money in PdfLine is INTEGER DOLLARS (the engine already
+// applied roundLine); no floats, no Decimal.
+
+import type { Headline, LineKey, RuleStatus } from "@/lib/tax2025/types";
+import type { PendingLineKey } from "@/lib/tax2025/pdf/pending-line-keys";
+
+/** A line a map may reference: an engine key or a not-yet-emitted (pending) key. */
+export type LineRef = LineKey | PendingLineKey;
+
+/** `overridden` exists only in the effective view (RuleStatus belongs to the engine). */
+export type PdfLineStatus = RuleStatus | "overridden";
+
+export interface PdfLineOverride {
+  /** The single note string used everywhere (formatOverrideNote), e.g. "CPA override: was $1 computed, now $2, by ...". */
+  note: string;
+  /** Base computed whole-dollar amount (null when the base line carried none). */
+  computedAmount: number | null;
+  stale: boolean;
+}
+
+export interface PdfLine {
+  key: LineRef;
+  status: PdfLineStatus;
+  /** Whole dollars. Null unless the status carries an amount. */
+  amount: number | null;
+  reason: string | null;
+  /** "Form 1040", "Schedule C", ... */
+  formLabel: string;
+  /** As printed, e.g. "11a". */
+  formLine: string;
+  label: string;
+  override?: PdfLineOverride;
+  /** Set when the line comes from a rule whose in-force alternative is an undecided default: the decision label. */
+  defaultUndecided?: string;
+}
+
+export type PdfSeverity = "blocking" | "advisory";
+
+/** An engine/CPA-facing open item as the cover prints it. */
+export interface PdfOpenItem {
+  id: string;
+  severity: PdfSeverity;
+  /** "Form 1040", ... or "General". */
+  formLabel: string;
+  lineKeys: string[];
+  message: string;
+  action: string;
+}
+
+export interface PdfDecision {
+  id: string;
+  label: string;
+  /** Alternative id in force. */
+  chosen: string;
+  status: "decided" | "default_undecided";
+  decidedBy?: string;
+  decidedAt?: string;
+  /** Plain-language tax effect of the alternative, when known. */
+  effectNote?: string;
+}
+
+export interface PdfOverrideEntry {
+  key: string;
+  formLabel: string;
+  formLine: string;
+  note: string;
+  stale: boolean;
+}
+
+export type TableKey = "schb.interest" | "schb.dividends" | "ct.withholding" | "schc.otherExpenses" | "f8283.sectionA";
+
+export interface PdfTableRow {
+  /** Column id -> value. Numbers are whole dollars (money columns); strings are text columns. */
+  cells: Readonly<Record<string, string | number | null>>;
+}
+
+/** An answer a checkbox/text map entry can read (filing status, Y/N attestations, occupations ...). */
+export type PdfAnswer = string | boolean | null;
+
+export interface PdfHeader {
+  /** "Name1 and Name2". */
+  householdNames: string | null;
+  taxpayerName: string | null;
+  spouseName: string | null;
+  /** Schedule C proprietor business name (EKC). */
+  ekcName: string | null;
+}
+
+export interface PdfReturnView {
+  taxYear: 2025;
+  filingStatus: "mfj";
+  /** ISO timestamp the view was built (display converted to America/New_York). */
+  generatedAt: string;
+  generatedBy: string;
+  /** Hex SHA-256 of the canonical JSON of { lines, openItems, decisions, headline }; the cover prints 12 hex. */
+  fingerprint: string;
+  /** Optional engine version const. */
+  engineVersion?: string;
+  lines: Partial<Record<LineRef, PdfLine>>;
+  header: PdfHeader;
+  answers: Readonly<Record<string, PdfAnswer>>;
+  tables: Partial<Record<TableKey, PdfTableRow[]>>;
+  openItems: PdfOpenItem[];
+  decisions: PdfDecision[];
+  overrides: PdfOverrideEntry[];
+  /** Rule ids the CPA acknowledged (kept visible; not blocking). */
+  acknowledged: string[];
+  headline: Headline;
+  /** Constant ids used anywhere in the return, for the citation legend. */
+  citations: string[];
+}
+
+// ── Maps ──────────────────────────────────────────────────────────────────────
+
+export type BlankReason =
+  | "ssn"
+  | "ein"
+  | "bank"
+  | "signature_pin"
+  | "preparer"
+  | "contact_address"
+  | "owner_statement_na"
+  | "not_modeled";
+
+export const BLANK_REASON_LABELS: Readonly<Record<BlankReason, string>> = {
+  ssn: "Social security numbers",
+  ein: "Employer identification numbers",
+  bank: "Bank routing / account numbers",
+  signature_pin: "Signatures and PINs",
+  preparer: "Paid preparer and third-party designee",
+  contact_address: "Address, phone, email, occupation",
+  owner_statement_na: "Does not apply (owner statement)",
+  not_modeled: "Not modeled by the engine yet",
+};
+
+export type HeaderSource =
+  | "household.names"
+  | "household.taxpayer"
+  | "household.spouse"
+  | "household.taxpayerFirst"
+  | "household.taxpayerLast"
+  | "household.spouseFirst"
+  | "household.spouseLast"
+  | "entity.ekcName"
+  | "year";
+
+export interface MapMoneyLine {
+  kind: "money";
+  field: string;
+  line: LineRef;
+  /** Print "0" for a computed/not-applicable zero (subtotals and lines the form says to enter 0 on). */
+  zero?: "print";
+  /** The form is not valid without this line: list under "lines the engine does not emit" when absent. */
+  expected?: boolean;
+}
+
+export interface MapCheckLine {
+  kind: "check";
+  field: string;
+  /** Key of PdfReturnView.answers (e.g. "filingStatus", "digitalAssets"). */
+  choice: string;
+  /** Checked iff answers[choice] === equals. Unanswered (undefined / null) => unchecked. */
+  equals: string | boolean;
+  /** When true and the answer is missing, an open item "answer needed" is raised. */
+  required?: boolean;
+  /** Human text for the open item. */
+  label?: string;
+}
+
+export interface MapTextLine {
+  kind: "text";
+  field: string;
+  /** Key of PdfReturnView.answers holding a string. */
+  answer: string;
+  label?: string;
+}
+
+export type MapLine = MapMoneyLine | MapCheckLine | MapTextLine;
+
+export interface MapHeaderEntry {
+  field: string;
+  source: HeaderSource;
+}
+
+export interface MapTable {
+  table: TableKey;
+  /** One record per row: column id -> full field name. */
+  rows: ReadonlyArray<Readonly<Record<string, string>>>;
+  /** Column id holding whole-dollar money, summed into the overflow row. */
+  amountColumn: string;
+  /** Column id holding the row label, set to "Other (see statement)" in the overflow row. */
+  labelColumn: string;
+  overflow: "summary_row_and_statement";
+}
+
+export type MapBlank =
+  | { field: string; reason: BlankReason }
+  | { match: RegExp; reason: BlankReason };
+
+export interface FormMap {
+  formId: string;
+  lines: MapLine[];
+  tables: MapTable[];
+  header: MapHeaderEntry[];
+  blank: MapBlank[];
+}
+
+// ── Fill output ───────────────────────────────────────────────────────────────
+
+export type PacketOpenItemSource = "line_blank" | "fill";
+
+/** An item produced while filling a form (never the engine's own OpenItem). */
+export interface PacketOpenItem {
+  /** Stable within a packet (de-duplicated by id): e.g. "blank:f1040:f1040.11a". */
+  id: string;
+  severity: PdfSeverity;
+  source: PacketOpenItemSource;
+  formId: string;
+  lineKey?: string;
+  field?: string;
+  message: string;
+}
+
+export interface ContinuationList {
+  formId: string;
+  table: TableKey;
+  /** Every row, including those that fit on the form. */
+  rows: Array<Record<string, string | number | null>>;
+}
+
+export interface FillOptions {
+  /** Per-page DRAFT footer (decision E1). Default true. */
+  stamp: boolean;
+  /** 12 hex chars of the fingerprint, printed in the stamp. */
+  fingerprint: string;
+  /** Display date for the stamp ("2026-10-03"). */
+  stampDate: string;
+  /** When set (use ALTERNATIVE_STAMP_TEXT), this text is stamped on every page regardless of `stamp`. */
+  alternativeLabel?: string;
+}
+
+export interface FillResult {
+  formId: string;
+  bytes: Uint8Array;
+  openItems: PacketOpenItem[];
+  /** Fields that received a value (name only; values are never logged). */
+  filledFields: string[];
+  /** Per blank reason: how many fields were left blank by design. */
+  blankByDesign: Partial<Record<BlankReason, number>>;
+  continuations: ContinuationList[];
+}
