@@ -22,6 +22,8 @@ import { buildSheetModel, SHEET_CHECKLIST, SHEET_DRAFT_LABEL, SHEET_STATUS_LABEL
 import { buildCardConclusions } from "@/lib/tax2025-sheet-conclusions";
 import { sheetCsvFilename, sheetToCsv } from "@/lib/tax2025-sheet-csv";
 import { findOwnerBannedWording } from "@/lib/tax-wording";
+import { QUESTIONNAIRES } from "@/lib/tax-questionnaire-content";
+import { OWNER_LINE, UNSURE_LABEL } from "@/lib/tax-questionnaire";
 import { emptyFacts, fullFacts, fullFacts1b } from "./tax2025-fixtures";
 import { DEFAULT_FILL_OPTIONS } from "./tax2025-pdf-harness";
 
@@ -148,6 +150,12 @@ describe("rendered surfaces carry no CPA wording", () => {
       DRAFT_SUBJECT,
       CT1040_COVER_NOTE,
     ]);
+  });
+
+  it("the questionnaires: every title, intro, question, option, help text, outcome sentence and the Not sure label", () => {
+    const strings = proseStrings(QUESTIONNAIRES);
+    expect(strings.length).toBeGreaterThan(300); // not vacuous
+    expectClean("questionnaires", [...strings, UNSURE_LABEL, ...Object.values(OWNER_LINE)]);
   });
 
   it("the filled form: document properties and every field tooltip, with an override note present", async () => {

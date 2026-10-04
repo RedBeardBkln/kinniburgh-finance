@@ -316,13 +316,13 @@ describe("Forms strip / questionnaire page copy does not over-claim", () => {
     expect(src).toContain("A few answers are shared with the Planning screen and are marked.");
   });
 
-  it("applies-outcome sentences report facts and leave preparation to the CPA", () => {
+  it("applies-outcome sentences report facts and leave preparation to the owner", () => {
     for (const d of QUESTIONNAIRES) {
       const applies = d.outcomeText.applies;
       expect(applies, d.id).toMatch(/^Owner reports /);
-      expect(applies, d.id).not.toMatch(/the CPA (prepares|handles) /);
+      expect(applies, d.id).not.toMatch(/you (prepare|handle) /);
     }
-    expect(questionnaireById("form-8889")!.outcomeText.applies).toContain("the CPA decides whether and how to prepare it");
-    expect(questionnaireById("qbi-deduction")!.outcomeText.applies).toContain("the CPA decides whether and how to prepare it");
+    expect(questionnaireById("form-8889")!.outcomeText.applies).toContain("you decide whether and how to prepare it");
+    expect(questionnaireById("qbi-deduction")!.outcomeText.applies).toContain("you decide whether and how to prepare it");
   });
 });

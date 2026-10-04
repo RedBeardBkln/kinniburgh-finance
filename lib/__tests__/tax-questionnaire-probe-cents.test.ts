@@ -177,14 +177,14 @@ describe("softened copy", () => {
       "app/tax/forms/[year]/cpa-summary/page.tsx",
     ]) expect(read(p), p).not.toMatch(/Nothing here decides/);
   });
-  it("every outcome sentence still begins 'Owner reports'; none says the CPA prepares/handles/files", () => {
+  it("every outcome sentence still begins 'Owner reports'; none says the owner prepares/handles/files", () => {
     for (const q of QUESTIONNAIRES) {
       const outs = (q as unknown as { outcomeText: Record<string, string> }).outcomeText;
       for (const [k, v] of Object.entries(outs ?? {})) {
         expect(v, `${q.id}.${k}`).toMatch(/^Owner /);
         if (k === "applies") expect(v, `${q.id}.${k}`).toMatch(/^Owner reports /);
-        if (/CPA/.test(v)) expect(v, `${q.id}.${k}`).toMatch(/the CPA (decides|determines|checks|confirms|must assess)/i);
-        expect(v, `${q.id}.${k}`).not.toMatch(/CPA (prepares|handles|files|will)/i);
+        if (/\byou\b/i.test(v)) expect(v, `${q.id}.${k}`).toMatch(/\byou (decide|determine|check|confirm)\b/i);
+        expect(v, `${q.id}.${k}`).not.toMatch(/\byou (prepare|handle|file|will) /i);
         expect(v, `${q.id}.${k}`).not.toMatch(/\b(you|your) (qualify|must|should|can claim)\b/i);
       }
     }

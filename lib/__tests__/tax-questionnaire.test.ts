@@ -425,7 +425,7 @@ describe("summary generation", () => {
     const s = buildSummary(d, CTX, e, "bring the W-2");
     expect(s.status).toEqual({ kind: "answered", shown: 7, unsureCount: 0, outcome: "applies" });
     expect(s.outcomeText).toBe(
-      "Owner reports HSA contributions or withdrawals, so Form 8889 likely applies - the Return completeness answers feed the computed HSA deduction; the CPA decides whether and how to prepare it."
+      "Owner reports HSA contributions or withdrawals, so Form 8889 likely applies - the Return completeness answers feed the computed HSA deduction; you decide whether and how to prepare it."
     );
     expect(s.facts.map((f) => [f.nodeId, f.answerLabel])).toEqual([
       ["hs1", "Eric"],
@@ -464,7 +464,7 @@ describe("summary generation", () => {
     const ctx = { ...CTX, year: 2026, entityName: "Sudden Valley Property Management, LLC" };
     const s = buildSummary(d, ctx, eff({ ef1: "one", ef3: "none", ef4: "no", ef5: "neither", ef6: "during", ef7: "personal" }), "   ");
     expect(s.outcomeText).toBe(
-      "Owner reports one owner and no election; the IRS describes that as a disregarded entity - the CPA confirms."
+      "Owner reports one owner and no election; the IRS describes that as a disregarded entity - you confirm."
     );
     expect(s.facts[0]).toMatchObject({
       prompt: "How many owners (members) does Sudden Valley Property Management, LLC have?",

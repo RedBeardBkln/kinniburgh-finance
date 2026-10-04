@@ -1,10 +1,10 @@
-// Content for the CPA-input questionnaires (data only - the engine is
+// Content for the owner-input questionnaires (data only - the engine is
 // lib/tax-questionnaire.ts). Every definition is DATA: question id, text,
 // options, "shows when" rules and an optional derived outcome. Branching is never
 // hard-coded in a component.
 //
 // Ground rules for this copy (CLAUDE.md #1 and #8):
-//   * Questions gather facts for the CPA. They never advise, and the derived outcome
+//   * Questions gather facts for your return. They never advise, and the derived outcome
 //     shown on a card is always phrased "Owner reports ..." (it never states a tax
 //     amount or an eligibility conclusion). Since Phase 1b the owner's answers ALSO
 //     feed the computed draft return (lib/tax2025, through lib/tax2025/answers.ts),
@@ -185,7 +185,7 @@ function dollars(
   return { id, kind: "dollars", prompt, min: 0, max: 10_000_000, showWhen: showWhen ?? null, ...rest };
 }
 
-const OUTCOME_UNSURE_DEFAULT = "Owner is unsure - the CPA decides.";
+const OUTCOME_UNSURE_DEFAULT = "Owner is unsure - you decide.";
 
 function outcomes(applies: string, notApplies: string, unsure: string = OUTCOME_UNSURE_DEFAULT): Record<Outcome, string> {
   return { applies, not_applies: notApplies, unsure };
@@ -201,7 +201,7 @@ const FORM_8829: QuestionnaireDef = {
   title: "Home office",
   formLabel: "Form 8829",
   scope: "household",
-  intro: "Facts about any part of the home used for EK Consulting work in {year}, for the CPA to review.",
+  intro: "Facts about any part of the home used for EK Consulting work in {year}, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single(
@@ -211,7 +211,7 @@ const FORM_8829: QuestionnaireDef = {
         o("yes_exclusive", "Yes - a space used regularly and only for EK Consulting"),
         o("yes_shared", "Yes - but the space is also used personally", {
           warning:
-            "Also marks the home-office deduction 'ruled out' on the Planning screen and Forms page, as that answer does today; the CPA can still review it.",
+            "Also marks the home-office deduction 'ruled out' on the Planning screen and Forms page, as that answer does today; you can still review it.",
         }),
         o("no", "No - no part of the home was used for the business"),
         UNSURE,
@@ -294,9 +294,9 @@ const FORM_8829: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports a home space used for the business - the CPA decides whether and how to claim it.",
+    "Owner reports a home space used for the business - you decide whether and how to claim it.",
     "Owner reports no home space used for the business.",
-    "Owner is unsure or reports mixed personal use - the CPA decides."
+    "Owner is unsure or reports mixed personal use - you decide."
   ),
 };
 
@@ -310,12 +310,12 @@ const FORM_4562: QuestionnaireDef = {
   title: "Depreciation and amortization",
   formLabel: "Form 4562",
   scope: "household",
-  intro: "Facts about business equipment and property for the CPA. The app records inputs only; it never computes depreciation.",
+  intro: "Facts about business equipment and property for your return. The app records inputs only; it never computes depreciation.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single(
       "da1",
-      "In {year}, did EK Consulting start using any equipment or other long-lasting business assets (such as computers, furniture or a vehicle), or does it still own any that the CPA should review?",
+      "In {year}, did EK Consulting start using any equipment or other long-lasting business assets (such as computers, furniture or a vehicle), or does it still own any that need a depreciation decision?",
       [
         o("none", "None"),
         o("some", "Yes - I will list them in the app's fixed-asset register"),
@@ -381,9 +381,9 @@ const FORM_4562: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports depreciable assets - the CPA decides treatment (the app records inputs only).",
+    "Owner reports depreciable assets - you decide treatment (the app records inputs only).",
     "Owner reports no depreciable business assets.",
-    "Owner is unsure about depreciable assets - the CPA decides."
+    "Owner is unsure about depreciable assets - you decide."
   ),
 };
 
@@ -396,7 +396,7 @@ const PA_HOURS: readonly QOption[] = [
   UNSURE,
 ];
 const PA_HOURS_HELP =
-  "The IRS material-participation tests (the tests for how involved you were in the activity) include more than 100 hours and more than 500 hours, and say participation may be shown by any reasonable means such as calendars or narrative summaries. Whether a test is met is for the CPA.";
+  "The IRS material-participation tests (the tests for how involved you were in the activity) include more than 100 hours and more than 500 hours, and say participation may be shown by any reasonable means such as calendars or narrative summaries. Whether a test is met is for you to decide.";
 
 const FORM_8582: QuestionnaireDef = {
   id: "form-8582",
@@ -404,7 +404,7 @@ const FORM_8582: QuestionnaireDef = {
   title: "Passive activity loss limitations",
   formLabel: "Form 8582",
   scope: "household",
-  intro: "Facts about the Sudden Valley rental and any other passive activities, for the CPA to review.",
+  intro: "Facts about the Sudden Valley rental and any other passive activities, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single(
@@ -412,7 +412,7 @@ const FORM_8582: QuestionnaireDef = {
       "In {year}, on average, how long did guests stay at the Sudden Valley rental?",
       [o("avg7", "7 days or less"), o("avg30", "8 to 30 days"), o("over30", "More than 30 days"), UNSURE],
       {
-        help: "The IRS instructions say a rental is not treated as a 'rental activity' for these rules when the average period of customer use is 7 days or less, or 30 days or less with significant personal services. How the average is figured is for the CPA.",
+        help: "The IRS instructions say a rental is not treated as a 'rental activity' for these rules when the average period of customer use is 7 days or less, or 30 days or less with significant personal services. How the average is figured is for you to decide.",
         sources: ["8582"],
       }
     ),
@@ -466,7 +466,7 @@ const FORM_8582: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports a rental loss or other passive items - the CPA decides whether Form 8582 is needed.",
+    "Owner reports a rental loss or other passive items - you decide whether Form 8582 is needed.",
     "Owner reports no rental loss, no suspended losses and no other passive activities."
   ),
 };
@@ -482,7 +482,7 @@ const FORM_8880: QuestionnaireDef = {
   formLabel: "Form 8880",
   scope: "household",
   intro:
-    "Facts about retirement-account contributions for {year}, for the CPA to review. The IRS describes Form 8880 as the form that figures the retirement savings contributions credit.",
+    "Facts about retirement-account contributions for {year}, for you to review. The IRS describes Form 8880 as the form that figures the retirement savings contributions credit.",
   introSources: ["8880"],
   sourcesTaxYear: SOURCES_TAX_YEAR,
   planningLinks: [
@@ -537,9 +537,9 @@ const FORM_8880: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports retirement contributions and no student/dependent status - the answers feed the computed saver's credit (none above the Form 8880 income limit); the CPA confirms the result.",
+    "Owner reports retirement contributions and no student/dependent status - the answers feed the computed saver's credit (none above the Form 8880 income limit); you confirm the result.",
     "Owner reports no retirement-account contributions.",
-    "Owner is unsure or reports a possible eligibility issue - the CPA decides."
+    "Owner is unsure or reports a possible eligibility issue - you decide."
   ),
 };
 
@@ -553,7 +553,7 @@ const FORM_8889: QuestionnaireDef = {
   title: "Health Savings Accounts",
   formLabel: "Form 8889",
   scope: "household",
-  intro: "Facts about health-plan coverage and Health Savings Account (HSA) activity in {year}, for the CPA to review.",
+  intro: "Facts about health-plan coverage and Health Savings Account (HSA) activity in {year}, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   planningLinks: [{ key: "retirement_contributions", label: "Retirement contributions (Planning answer)" }],
   nodes: [
@@ -615,7 +615,7 @@ const FORM_8889: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports HSA contributions or withdrawals, so Form 8889 likely applies - the Return completeness answers feed the computed HSA deduction; the CPA decides whether and how to prepare it.",
+    "Owner reports HSA contributions or withdrawals, so Form 8889 likely applies - the Return completeness answers feed the computed HSA deduction; you decide whether and how to prepare it.",
     "Owner reports no HSA-eligible plan, or no contributions or withdrawals."
   ),
 };
@@ -628,7 +628,7 @@ const FORM_2210: QuestionnaireDef = {
   title: "Underpayment of estimated tax",
   formLabel: "Form 2210",
   scope: "household",
-  intro: "Facts about tax withheld from pay and estimated tax payments for {year}, for the CPA to review.",
+  intro: "Facts about tax withheld from pay and estimated tax payments for {year}, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   planningLinks: [{ key: "estimated_taxes_2025", label: "Estimated taxes paid (Planning answer)" }],
   nodes: [
@@ -680,7 +680,7 @@ const FORM_2210: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports facts that may mean an underpayment - the draft return shows a regular-method penalty estimate; the CPA decides whether the form is needed.",
+    "Owner reports facts that may mean an underpayment - the draft return shows a regular-method penalty estimate; you decide whether the form is needed.",
     "Owner reports regular on-time payments and no IRS notice, or no tax last year."
   ),
 };
@@ -693,7 +693,7 @@ const FORM_1040_ES: QuestionnaireDef = {
   title: "Estimated tax for {nextYear}",
   formLabel: "Form 1040-ES",
   scope: "household",
-  intro: "Facts about how {nextYear} income tax is being covered so far, for the CPA to review.",
+  intro: "Facts about how {nextYear} income tax is being covered so far, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single(
@@ -732,7 +732,7 @@ const FORM_1040_ES: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports estimated payments are in place or still to be set up - the CPA decides whether, how much and when.",
+    "Owner reports estimated payments are in place or still to be set up - you decide whether, how much and when.",
     "Owner reports covering {nextYear} tax through withholding only."
   ),
 };
@@ -745,7 +745,7 @@ const FORM_SCHEDULE_3: QuestionnaireDef = {
   title: "Additional credits and payments",
   formLabel: "Schedule 3",
   scope: "household",
-  intro: "Facts about extension payments and possible credits for {year}, for the CPA to review.",
+  intro: "Facts about extension payments and possible credits for {year}, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single("s31", "Did you send a payment to the IRS with a request for more time to file your {year} return (Form 4868)?", YES_NO, {
@@ -812,7 +812,7 @@ const FORM_SCHEDULE_3: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports possible additional credits or payments - the draft return computes the foreign tax credit, the saver's credit and the extension payment; the CPA decides which other credits apply.",
+    "Owner reports possible additional credits or payments - the draft return computes the foreign tax credit, the saver's credit and the extension payment; you decide which other credits apply.",
     "Owner reports no extension payment, single employer and no listed credits."
   ),
 };
@@ -827,7 +827,7 @@ const FORM_QBI: QuestionnaireDef = {
   title: "Qualified business income deduction",
   formLabel: "QBI deduction",
   scope: "household",
-  intro: "Facts about business income or loss in {year}, for the CPA to review.",
+  intro: "Facts about business income or loss in {year}, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     multi(
@@ -851,7 +851,7 @@ const FORM_QBI: QuestionnaireDef = {
       "How much of EK Consulting's income comes from giving clients professional advice or counsel (consulting)?",
       [o("all", "Essentially all of it"), o("some", "Some of it"), o("no", "None of it (it comes from products, software or other services)"), UNSURE],
       {
-        help: "The Form 8995-A instructions list consulting - giving clients professional advice and counsel - among 'specified service trades or businesses'. Which category applies is for the CPA.",
+        help: "The Form 8995-A instructions list consulting - giving clients professional advice and counsel - among 'specified service trades or businesses'. Which category applies is for you to decide.",
         sources: ["8995A"],
         showWhen: inn("qb1", "ekc"),
       }
@@ -878,7 +878,7 @@ const FORM_QBI: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports business income or loss, so Form 8995 or 8995-A likely applies - the CPA decides whether and how to prepare it.",
+    "Owner reports business income or loss, so Form 8995 or 8995-A likely applies - you decide whether and how to prepare it.",
     "Owner reports no business income or loss."
   ),
 };
@@ -899,7 +899,7 @@ const FORM_ADDL_MEDICARE: QuestionnaireDef = {
   title: "Additional Medicare Tax",
   formLabel: "Form 8959",
   scope: "household",
-  intro: "Facts about wages and self-employment income in {year}, for the CPA to review.",
+  intro: "Facts about wages and self-employment income in {year}, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single("mt1", "Who, if anyone, had a single W-2 with Medicare wages (box 5) above $200,000 in {year}?", WHO_NONE, {
@@ -925,7 +925,7 @@ const FORM_ADDL_MEDICARE: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports facts that may require Form 8959 - the CPA decides.",
+    "Owner reports facts that may require Form 8959 - you decide.",
     "Owner reports no wages or income over the thresholds and no Additional Medicare Tax withheld."
   ),
 };
@@ -941,7 +941,7 @@ const FORM_CHILD_CREDITS: QuestionnaireDef = {
   title: "Child and dependent credits",
   formLabel: "Child / dependent credits",
   scope: "household",
-  intro: "Facts about dependents for {year}, for the CPA to review.",
+  intro: "Facts about dependents for {year}, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single(
@@ -1009,7 +1009,7 @@ const FORM_CHILD_CREDITS: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports dependents - the CPA determines the credits and forms.",
+    "Owner reports dependents - you determine the credits and forms.",
     "Owner reports no dependents."
   ),
 };
@@ -1024,7 +1024,7 @@ const FORM_CLEAN_VEHICLE: QuestionnaireDef = {
   title: "Clean vehicle credit",
   formLabel: "Clean vehicle credit",
   scope: "household",
-  intro: "Facts about any plug-in electric or fuel-cell vehicle acquired in {year}, for the CPA to review.",
+  intro: "Facts about any plug-in electric or fuel-cell vehicle acquired in {year}, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single(
@@ -1077,9 +1077,9 @@ const FORM_CLEAN_VEHICLE: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports a vehicle acquired on or before September 30, 2025 - the CPA determines eligibility.",
+    "Owner reports a vehicle acquired on or before September 30, 2025 - you determine eligibility.",
     "Owner reports no vehicle purchase.",
-    "Owner is unsure or reports facts the CPA must assess (such as an acquisition date after September 30, 2025)."
+    "Owner is unsure or reports facts that need assessing (such as an acquisition date after September 30, 2025)."
   ),
 };
 
@@ -1091,7 +1091,7 @@ const FORM_K1: QuestionnaireDef = {
   title: "Schedule K-1 handling",
   formLabel: "Schedule K-1",
   scope: "household",
-  intro: "Facts about the K-1 documents on file for {year}, for the CPA to review.",
+  intro: "Facts about the K-1 documents on file for {year}, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single(
@@ -1128,9 +1128,9 @@ const FORM_K1: QuestionnaireDef = {
   outcomeDefault: "unsure",
   // "not_applies" is never produced (a K-1 on file means there is something to handle); the text exists so the table is complete.
   outcomeText: outcomes(
-    "Owner reports a K-1 was received - the CPA decides how it is handled.",
+    "Owner reports a K-1 was received - you decide how it is handled.",
     "Owner reports no K-1 was received.",
-    "Owner is unsure what issued the K-1 - the CPA decides."
+    "Owner is unsure what issued the K-1 - you decide."
   ),
 };
 
@@ -1142,7 +1142,7 @@ const FORM_SCHEDULE_SE: QuestionnaireDef = {
   title: "Self-employment tax",
   formLabel: "Schedule SE",
   scope: "household",
-  intro: "Facts about self-employment income in {year}, for the CPA to review.",
+  intro: "Facts about self-employment income in {year}, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single(
@@ -1150,7 +1150,7 @@ const FORM_SCHEDULE_SE: QuestionnaireDef = {
       "For {year}, did EK Consulting have a net profit, a net loss, or neither (business income minus business expenses)?",
       [o("profit", "A net profit"), o("loss", "A net loss"), o("neither", "Neither"), UNSURE],
       {
-        help: "The IRS says Schedule SE is required when line 4c of the schedule is $400 or more, and that even with a loss or small amount it may be to your benefit to file and use an optional method. The CPA works this out.",
+        help: "The IRS says Schedule SE is required when line 4c of the schedule is $400 or more, and that even with a loss or small amount it may be to your benefit to file and use an optional method. You work this out.",
         sources: ["SE"],
       }
     ),
@@ -1169,9 +1169,9 @@ const FORM_SCHEDULE_SE: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports self-employment profit or other self-employment income - the CPA decides on Schedule SE.",
+    "Owner reports self-employment profit or other self-employment income - you decide on Schedule SE.",
     "Owner reports no self-employment profit or income.",
-    "Owner is unsure or reports a loss - the CPA decides."
+    "Owner is unsure or reports a loss - you decide."
   ),
 };
 
@@ -1183,7 +1183,7 @@ const FORM_ENTITY_FEDERAL: QuestionnaireDef = {
   title: "Separate federal entity return",
   formLabel: "Entity return",
   scope: "entity",
-  intro: "Facts about how {entity} is owned and classified, for the CPA to review.",
+  intro: "Facts about how {entity} is owned and classified, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single("ef1", "How many owners (members) does {entity} have?", [o("one", "One"), o("multiple", "Two or more"), UNSURE], {
@@ -1247,8 +1247,8 @@ const FORM_ENTITY_FEDERAL: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports more than one owner or a corporate election - the CPA decides whether a separate federal return is needed.",
-    "Owner reports one owner and no election; the IRS describes that as a disregarded entity - the CPA confirms."
+    "Owner reports more than one owner or a corporate election - you decide whether a separate federal return is needed.",
+    "Owner reports one owner and no election; the IRS describes that as a disregarded entity - you confirm."
   ),
 };
 
@@ -1260,7 +1260,7 @@ const FORM_ENTITY_CT: QuestionnaireDef = {
   title: "Connecticut business-entity filing",
   formLabel: "CT entity filing",
   scope: "entity",
-  intro: "Facts about how {entity} reports and does business in Connecticut, for the CPA to review.",
+  intro: "Facts about how {entity} reports and does business in Connecticut, for you to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
     single(
@@ -1297,8 +1297,8 @@ const FORM_ENTITY_CT: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports a partnership, S corporation or corporation - the CPA decides which Connecticut filings apply.",
-    "Owner reports a disregarded entity with no employees and no other Connecticut state taxes - the CPA confirms."
+    "Owner reports a partnership, S corporation or corporation - you decide which Connecticut filings apply.",
+    "Owner reports a disregarded entity with no employees and no other Connecticut state taxes - you confirm."
   ),
 };
 
@@ -1379,7 +1379,7 @@ const RC_GROUP_PROMPTS: Readonly<Record<RcNoneGroupId, string>> = {
     "an addition the Connecticut return requires that is not covered above: Connecticut income tax you deducted somewhere other than Schedule A, expenses or bond premium you deducted that relate to tax-exempt income, interest on money borrowed to buy tax-exempt bonds, a payout from a Connecticut Manufacturing Reinvestment Account, pay from a foreign nonqualified plan taxed under Section 457A, interest from certain U.S. agency bonds that is exempt from federal tax but not Connecticut tax, or a loss or deduction of an enrolled member of the Mashantucket Pequot or Mohegan Tribe living on tribal land",
   ct_other_subtractions:
     "a Connecticut subtraction not covered above: interest on a Connecticut individual development account; interest on a Connecticut bond that is included in your federal income (for example a Build America Bond); earnings on a Connecticut Homecare Option account; contributions to a Manufacturing Reinvestment Account; help with repairing a crumbling (pyrrhotite) foundation that you included in income; costs of donating an organ or bone marrow; Bioscience Venture Capital; payments from the Fallen Hero Fund; payments from the Connecticut Student Loan Reimbursement Program; stock received under a Connecticut share plan; business expenses of a Connecticut cannabis or medical-marijuana licensee (Chapters 420f or 420h); or income earned as an enrolled member of the Mashantucket Pequot or Mohegan Tribe living on tribal land",
-  // Connecticut CT-1040 lines 7, 13 and 20a-20d (rules/ct-credits.ts): credits the app does not calculate, so a Yes goes to the CPA.
+  // Connecticut CT-1040 lines 7, 13 and 20a-20d (rules/ct-credits.ts): credits the app does not calculate, so a Yes means you work them out.
   ct_other_state_tax:
     "income that another state (or a city or county in another state) also taxed, for example wages for work you did in another state, or rent or business income from outside Connecticut, which can earn a credit on the Connecticut return for the tax paid to that state",
   ct_other_credits:
@@ -1502,7 +1502,7 @@ function otherIncomeSplit(): QNode[] {
       "Did any of these apply: the refund was for a tax year other than {prevYear}; it was not an income tax refund; you owed alternative minimum tax in {prevYear}; you could not use all your {prevYear} credits; someone else could claim you as a dependent in {prevYear}; you paid your last {prevYear} state estimate in {year}; or your {prevYear} tax on Form 1040 line 16 was zero although line 15 was more than zero?",
       YES_NO,
       {
-        help: "The IRS says to use Pub. 525 (itemized deduction recoveries) instead of the refund worksheet in these cases, so the CPA would figure the taxable part.",
+        help: "The IRS says to use Pub. 525 (itemized deduction recoveries) instead of the refund worksheet in these cases, so you would figure the taxable part.",
         sources: ["1040GI"],
         showWhen: ITEMIZED,
       }
@@ -1633,7 +1633,7 @@ function rcPersonNodes(): QNode[] {
         `Did ${P.name} receive tips as an employee in 2025 in an occupation that customarily received tips (the IRS keeps a list of these occupations)?`,
         [o("some", "Yes - I know the amount"), o("ask_employer", "Yes - I do not know the amount yet, I will ask the employer"), o("none", "No tips"), UNSURE],
         {
-          help: "The IRS says qualified tips are cash tips paid voluntarily, not negotiated, determined by the customer, in an occupation that customarily received tips on or before December 31, 2024 (the list is at IRS.gov/TippedOccupations); automatic gratuities and mandatory service charges are not qualified tips. The 2025 Form W-2 does not separately show them: the amount in box 7 or the tips reported to the employer can be used. Tips from your own business need the CPA - answer 'Not sure'.",
+          help: "The IRS says qualified tips are cash tips paid voluntarily, not negotiated, determined by the customer, in an occupation that customarily received tips on or before December 31, 2024 (the list is at IRS.gov/TippedOccupations); automatic gratuities and mandatory service charges are not qualified tips. The 2025 Form W-2 does not separately show them: the amount in box 7 or the tips reported to the employer can be used. Tips from your own business need your decision - answer 'Not sure'.",
           sources: ["SCH1A", "1040GI"],
         }
       ),
@@ -1822,12 +1822,12 @@ function rcPersonNodes(): QNode[] {
   // I. "none" statements for the rare lines
   for (const id of RC_NONE_GROUP_IDS) {
     out.push(
-      single(`g_${id}`, `In 2025, did Eric or Eva have any of these: ${RC_GROUP_PROMPTS[id]}? (Answer No only if none of them applies. The app does not calculate these items, so a Yes passes them to the CPA.)`, [o("some", "Yes - at least one"), o("none", "No - none of these"), UNSURE])
+      single(`g_${id}`, `In 2025, did Eric or Eva have any of these: ${RC_GROUP_PROMPTS[id]}? (Answer No only if none of them applies. The app does not calculate these items, so a Yes means you work them out yourself.)`, [o("some", "Yes - at least one"), o("none", "No - none of these"), UNSURE])
     );
     // Other income: right after the Yes / No, ask WHICH kinds, then the total, then the split by kind (see otherIncomeKinds / otherIncomeSplit)
     if (id === "other_income") out.push(...otherIncomeKinds());
     out.push(
-      dollars(`ga_${id}`, `In 2025, about how much was the total for ${RC_GROUP_LABELS[id]}, in dollars (an estimate is fine and only the CPA sees it)?`, {
+      dollars(`ga_${id}`, `In 2025, about how much was the total for ${RC_GROUP_LABELS[id]}, in dollars (an estimate is fine; it is only noted and never used in the computation)?`, {
         showWhen: inn(`g_${id}`, "some"),
       })
     );
@@ -1845,7 +1845,7 @@ const FORM_RETURN_COMPLETENESS: QuestionnaireDef = {
   formLabel: "Form 1040 and Connecticut CT-1040",
   scope: "household",
   intro:
-    "One short flow for {year}: answer Yes or No for each item the return still needs, and give amounts only after a Yes. The app computes the Schedule 1-A deductions (tips, overtime, car-loan interest and the senior deduction), the Health Savings Account (HSA) and Individual Retirement Account (IRA) deductions, the saver's credit, payments and a Form 2210 estimate from these answers, and marks anything it cannot compute for the CPA.",
+    "One short flow for {year}: answer Yes or No for each item the return still needs, and give amounts only after a Yes. The app computes the Schedule 1-A deductions (tips, overtime, car-loan interest and the senior deduction), the Health Savings Account (HSA) and Individual Retirement Account (IRA) deductions, the saver's credit, payments and a Form 2210 estimate from these answers, and marks anything it cannot compute for you to work out.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   planningLinks: [
     { key: "retirement_contributions", label: "Retirement contributions (Planning answer)" },
@@ -1858,7 +1858,7 @@ const FORM_RETURN_COMPLETENESS: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports at least one rare item the app cannot compute - the CPA decides how it is reported; everything else answered here feeds the computed return.",
+    "Owner reports at least one rare item the app cannot compute - you decide how it is reported; everything else answered here feeds the computed return.",
     "Owner reports none of the rare items apply; the answers feed the computed return."
   ),
 };
