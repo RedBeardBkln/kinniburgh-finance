@@ -6,8 +6,10 @@
 // narrow interface the PDF routes depend on, so the routes are testable without a database and the store can be wired at
 // merge time without touching the routes again.
 //
-// Default: NO approval. Until the store is wired (lib/tax2025-pdf-build.ts defaultPdfRouteDeps), every clean-copy request
-// is refused (403), which is the safe direction: the stamped draft packet is always available.
+// Production (lib/tax2025-pdf-build.ts defaultPdfRouteDeps) uses the store-backed lookup of lib/tax-review-approval-lookup.ts,
+// fed with the return fingerprint v2 that buildPdfViewForYear computes server-side (it replaces `view.fingerprint`, so what is
+// stamped, named and looked up is ONE identifier). The default here is NO approval: a request with no lookup is refused (403),
+// the safe direction; the stamped draft packet is always available.
 
 export interface ApprovalLookup {
   /**
@@ -16,6 +18,11 @@ export interface ApprovalLookup {
    * May reject (database error): callers treat a rejection as "not approved".
    */
   currentApproval(fingerprint: string): Promise<boolean>;
+  /**
+   * When the approval in force for `fingerprint` was recorded (an ISO timestamp, printed in the final package index), or null
+   * when there is none. Optional: a lookup without it leaves the index saying only "Approved by owner".
+   */
+  approvedAt?(fingerprint: string): Promise<string | null>;
 }
 
 /** The default until the approval store is wired: nothing is ever approved. */

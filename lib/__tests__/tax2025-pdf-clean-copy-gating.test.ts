@@ -72,9 +72,10 @@ describe("the default is: nothing is approved", () => {
     for (const v of [null, "", "0", "true", "yes", "2"]) expect(parseFinal(v)).toBe(false);
   });
 
-  it("the production deps start from noApprovalLookup until the review store is wired", () => {
+  it("the production deps use the review store's approval lookup (no longer the nothing-is-approved default)", () => {
     const src = read("lib/tax2025-pdf-build.ts");
-    expect(src).toContain("approval: noApprovalLookup");
+    expect(src).toContain("approval: storeApprovalLookup");
+    expect(src).not.toContain("noApprovalLookup");
     expect(src).toContain("FINAL_PACKAGE_CHANGE_TYPE");
     expect(FINAL_PACKAGE_CHANGE_TYPE).toBe("tax_final_package_download");
     expect(PACKET_EXPORT_CHANGE_TYPE).toBe("tax_packet_export");

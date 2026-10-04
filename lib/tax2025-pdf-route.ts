@@ -97,6 +97,16 @@ async function isApproved(deps: PdfRouteDeps, fingerprint: string): Promise<bool
   }
 }
 
+/** When the approval for `fingerprint` was recorded, for the package index. Best effort: any failure leaves the date out (the approval itself was already checked). */
+async function approvedAtOf(deps: PdfRouteDeps, fingerprint: string): Promise<string | null> {
+  try {
+    return (await deps.approval?.approvedAt?.(fingerprint)) ?? null;
+  } catch (err) {
+    logFailure("approval date lookup", err);
+    return null;
+  }
+}
+
 /** Form ids that may be requested individually: registered maps whose blank form is in the manifest. */
 export function servableFormIds(maps: readonly FormMap[]): string[] {
   return maps.map((m) => m.formId).filter((id) => isKnownFormId(id));
@@ -186,7 +196,7 @@ async function handleFinalPackage(view: PdfReturnView, req: PacketRequest, deps:
   if (view.openItems.some((i) => i.severity === "blocking")) {
     return jsonError(409, "The final package is not built while blocking items remain.");
   }
-  const result = await buildFinalPackage(view, { maps: deps.maps ?? FORM_MAPS });
+  const result = await buildFinalPackage(view, { maps: deps.maps ?? FORM_MAPS, approvedAt: await approvedAtOf(deps, view.fingerprint) });
   if (!result.ok) return jsonError(409, `The final package could not be built: ${result.reason}`);
   await deps.recordExport({
     userId: req.user.id,
