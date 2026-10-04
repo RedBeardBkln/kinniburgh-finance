@@ -630,7 +630,11 @@ const FORM_2210: QuestionnaireDef = {
   sourcesTaxYear: SOURCES_TAX_YEAR,
   planningLinks: [{ key: "estimated_taxes_2025", label: "Estimated taxes paid (Planning answer)" }],
   nodes: [
-    single("ut1", "Was federal income tax withheld from pay in {year}?", YES_NO),
+    single(
+      "ut1",
+      "Did your employers withhold federal income tax from your regular paychecks during {year}? (This is the ordinary amount taken out of each paycheck and shown in box 2 of your W-2s, not money collected by the IRS for back taxes.)",
+      YES_NO
+    ),
     single(
       "ut2",
       "Did you make federal estimated tax payments for {year}?",
