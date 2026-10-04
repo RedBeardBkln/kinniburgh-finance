@@ -88,6 +88,13 @@ export interface PdfHeader {
   ekcName: string | null;
 }
 
+/** The engine's verdict on whether a form belongs in the filing (Ty2025Return.formsRequired entry). */
+export interface PdfFormRequirement {
+  /** true = include; false = not needed; "blocking" = cannot tell until a blocking item is resolved. */
+  required: boolean | "blocking";
+  reason: string;
+}
+
 export interface PdfReturnView {
   taxYear: 2025;
   filingStatus: "mfj";
@@ -110,6 +117,12 @@ export interface PdfReturnView {
   headline: Headline;
   /** Constant ids used anywhere in the return, for the citation legend. */
   citations: string[];
+  /**
+   * Ty2025Return.formsRequired keyed by the engine's FormId ("schb", "f8959", "f8995", ...).
+   * When present, a map with an `engineFormId` is included/omitted by the engine's verdict
+   * instead of the line-based inclusion rule (policy.ts formInclusion).
+   */
+  formsRequired?: Partial<Record<string, PdfFormRequirement>>;
 }
 
 // ── Maps ──────────────────────────────────────────────────────────────────────
@@ -201,6 +214,8 @@ export type MapBlank =
 
 export interface FormMap {
   formId: string;
+  /** The engine's FormId for this form (Ty2025Return.formsRequired key), when the engine decides inclusion. */
+  engineFormId?: string;
   lines: MapLine[];
   tables: MapTable[];
   header: MapHeaderEntry[];
