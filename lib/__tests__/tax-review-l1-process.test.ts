@@ -5,6 +5,7 @@ import type { PdfLine } from "@/lib/tax2025/pdf/types";
 import type { SheetLine } from "@/lib/tax2025-sheet";
 import type { L1Context } from "@/lib/tax-review/l1/context";
 import { blankNotZeroCheck } from "@/lib/tax-review/l1/blank-not-zero";
+import { plainStatus, plainText } from "@/lib/tax-review/l1/helpers";
 import { engineCompleteCheck, engineGateState, overridesInForceCheck, unresolvedChoicesCheck } from "@/lib/tax-review/l1/engine-state";
 import { filingMethodCheck } from "@/lib/tax-review/l1/filing-method";
 import { requiredFormsCheck } from "@/lib/tax-review/l1/forms-required";
@@ -322,5 +323,23 @@ describe("L1.X1 same figures on every surface", () => {
     if (!line) throw new Error("no sch1.3");
     line.override = { note: "Owner override: was $1 computed, now $2", computedAmount: 1, stale: false };
     expect(has(await run(surfaceAgreementCheck, { ...clean, view }), "L1.X1.override-note", "blocker")).toBe(true);
+  });
+});
+
+describe("plain wording of quoted engine text", () => {
+  it("never leaves a CPA reference in text the reviewer shows", () => {
+    expect(plainText("Ask the CPA about it.")).toBe("Ask a tax professional about it.");
+    expect(plainText("The CPA decides.")).toBe("you decide.");
+    expect(plainText("if the CPA chooses the actual method")).toBe("if you choose the actual method");
+    expect(plainText("left for the CPA to figure")).toBe("left for the owner to figure");
+    expect(plainText("CPA review needed")).toBe("a tax professional review needed");
+    expect(plainText("x".repeat(500), 50)).toHaveLength(50);
+  });
+  it("status ids become plain words", () => {
+    expect(plainStatus("needs_cpa_rule_unverified")).toBe("rule not verified");
+    expect(plainStatus("needs_cpa_judgment")).toBe("needs your decision");
+    expect(plainStatus("missing_input")).toBe("missing input");
+    expect(plainStatus("not_yet_computed")).toBe("not yet computed");
+    for (const s of ["needs_cpa_rule_unverified", "needs_cpa_judgment"]) expect(plainStatus(s)).not.toMatch(/cpa/i);
   });
 });

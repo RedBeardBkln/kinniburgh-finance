@@ -67,7 +67,10 @@ export function lineTitle(key: string): string {
  */
 export function plainText(text: string, max = 300): string {
   const t = text
-    .replace(/\bthe CPA\b/gi, "you")
+    .replace(/\bthe CPA decides\b/gi, "you decide")
+    .replace(/\bthe CPA chooses\b/gi, "you choose")
+    .replace(/\b(ask|tell|confirm with|check with|review with|consult) (?:the|your) CPA\b/gi, "$1 a tax professional")
+    .replace(/\bthe CPA\b/gi, "the owner")
     .replace(/\bCPA\b/g, "a tax professional")
     .replace(/\s+/g, " ")
     .trim();
