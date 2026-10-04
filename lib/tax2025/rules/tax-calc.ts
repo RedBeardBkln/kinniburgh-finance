@@ -57,10 +57,15 @@ export interface IncomeTaxInput {
   /** 1040 line 3a qualified dividends (whole dollars, 0 if none); null = missing. */
   qualifiedDividends: Decimal | null;
   /**
-   * Net capital gain for the QDCG worksheet line 3: capital gain distributions
-   * (1040 line 7) when no Schedule D is required. 0 if none; null = missing.
+   * Net capital gain for the QDCG worksheet line 3: the smaller of Schedule D line 15 or 16 (0 if either is a loss) when Schedule D is
+   * filed, else the capital gain distributions on 1040 line 7a. NOT 1040 line 7a itself when Schedule D is filed. 0 if none; null = missing.
    */
   netCapitalGain: Decimal | null;
+  /**
+   * The Schedule D Tax Worksheet (lines 18 / 19 of Schedule D, collectibles / section 1250 gain) would be needed instead of this worksheet.
+   * It is not implemented: the tax is blocked with this status and reason (the Schedule D rule decides).
+   */
+  scheduleDTaxWorksheet?: { status: "missing_input" | "needs_cpa_judgment"; reason: string };
 }
 
 export interface QdcgWorksheet {
@@ -137,6 +142,17 @@ export function computeIncomeTax(input: IncomeTaxInput): RuleResult {
       lines: [blockedLine("f1040.16", "Tax", "16", "missing_input", reason)],
       reasons: [reason],
       inputsMissing: missing,
+    };
+  }
+
+  if (input.scheduleDTaxWorksheet !== undefined) {
+    const { status, reason } = input.scheduleDTaxWorksheet;
+    return {
+      ...base,
+      status,
+      lines: [blockedLine("f1040.16", "Tax", "16", status, reason), blockedLine("qdcg.25", "Qualified Dividends and Capital Gain Tax Worksheet, line 25", "QDCG ws 25", status, reason)],
+      reasons: [reason],
+      inputsMissing: status === "missing_input" ? ["Schedule D lines 18 and 19 (collectibles / section 1250 gain statement)"] : [],
     };
   }
 

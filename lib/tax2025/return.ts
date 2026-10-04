@@ -35,6 +35,8 @@ import {
   estimatesPaidInYear,
   leafDollars,
   scheduleAInputs,
+  scheduleDInput,
+  section1256Present,
   sumCentsStrict,
 } from "@/lib/tax2025/inputs";
 import { LINE_CATALOG, NONE_GROUP_TEXT, lineMeta, type NoneGroupId } from "@/lib/tax2025/line-catalog";
@@ -53,6 +55,7 @@ import { computeStandardDeduction } from "@/lib/tax2025/rules/standard-deduction
 import { computeSchedule1a } from "@/lib/tax2025/rules/schedule-1a";
 import { computeSchedule3Summary } from "@/lib/tax2025/rules/schedule-3";
 import { computeScheduleC } from "@/lib/tax2025/rules/schedule-c";
+import { carryoverOutOpenItem, computeCapitalLossCarryoverOut, computeScheduleD, type ScheduleDOutput } from "@/lib/tax2025/rules/schedule-d";
 import { computeForm8959, computeScheduleSe } from "@/lib/tax2025/rules/se-medicare";
 import { computeAmtScreen, computeNiitScreen } from "@/lib/tax2025/rules/screens";
 import { computeIncomeTax } from "@/lib/tax2025/rules/tax-calc";
@@ -76,13 +79,14 @@ import {
   type RuleResult,
   type RuleStatus,
   type ScheduleCDetail,
+  type ScheduleDDetail,
   type Sourced,
   type Ty2025Decisions,
   type Ty2025Return,
 } from "@/lib/tax2025/types";
 
 /** Bumped whenever a rule, the constants or the line catalog changes (stale-output detection for stored overrides / PDFs). */
-export const TY2025_ENGINE_VERSION = "ty2025-1b.1";
+export const TY2025_ENGINE_VERSION = "ty2025-1b.2";
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
 
@@ -118,6 +122,10 @@ class Assembly {
   readonly decisions: RuleDecision[] = [];
   readonly resultLineKeys = new Map<string, LineKey[]>();
   scheduleC: ScheduleCDetail | null = null;
+  scheduleD: ScheduleDDetail | null = null;
+  scheduleDItems: OpenItem[] = [];
+  /** The Schedule D Tax Worksheet would be needed (not implemented): Form 1040 line 16 is blocked with this. */
+  scheduleDTaxBlock: ScheduleDOutput["taxBlock"] = null;
 
   constructor(
     readonly facts: Ty2025Facts,
@@ -261,7 +269,7 @@ class Assembly {
         ...(l.informational ? { informational: true } : {}),
         ruleId: working.ruleId,
         citations: working.citations,
-        refs: opts.refs ?? [],
+        refs: l.refs ?? opts.refs ?? [],
       });
       keys.push(l.key);
     }
@@ -401,7 +409,10 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     if (!meta.group) continue;
     const stmt = facts.statedNone[meta.group];
     const forcedCpa =
-      (meta.group === "retirement_ss_income" && inv.hasRetirementOrSsBoxes) || (meta.group === "other_income" && inv.hasOtherIncomeBoxes);
+      (meta.group === "retirement_ss_income" && inv.hasRetirementOrSsBoxes) ||
+      (meta.group === "other_income" && inv.hasOtherIncomeBoxes) ||
+      // Section 1256 contracts (Form 6781) feed Schedule D lines 4 and 11: never computed, whatever the owner stated
+      (meta.group === "capital_gain_other" && section1256Present(facts));
     if (fill) {
       A.fixed(meta.key, ZERO, "not_applicable", "Assumed none in the provisional estimate.", "none-group");
       if (stmt?.value !== true) A.assumedZero.add(meta.key);
@@ -477,7 +488,6 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   const interest = docInterest === null ? null : docInterest.plus(centsToDollars(booksInterestCents));
   const dividends = A.assume(inv.ordinaryDividends, ZERO, "Ordinary dividends, assumed $0");
   const qualified = A.assume(inv.qualifiedDividends, ZERO, "Qualified dividends, assumed $0");
-  const gainDist = A.assume(inv.capitalGainDistributions, ZERO, "Capital gain distributions, assumed $0");
   const taxExempt = A.assume(inv.taxExempt, ZERO, "Tax-exempt interest, assumed $0");
   const noInvestmentDocsReason = (what: string) =>
     `No 1099 ${what} income is on file and the owner has not confirmed there is none.`;
@@ -493,13 +503,14 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   else A.blocked("f1040.3a", "missing_input", noInvestmentDocsReason("dividend"), "income");
   if (dividends !== null) A.fixed("f1040.3b", dividends, "computed", null, "income", dividendRefs);
   else A.blocked("f1040.3b", "missing_input", noInvestmentDocsReason("dividend"), "income");
-  if (inv.hasCapitalTransactionBoxes && !fill) {
-    A.blocked("f1040.7a", "needs_cpa_judgment", "A 1099 reports sales (1099-B boxes): Schedule D / Form 8949 are not computed by this engine.", "income");
-  } else if (gainDist !== null) {
-    A.fixed("f1040.7a", gainDist, "computed", "Capital gain distributions only (no 1099-B sales are on file).", "income", dividendRefs);
-  } else {
-    A.blocked("f1040.7a", "missing_input", noInvestmentDocsReason("dividend"), "income");
-  }
+  // Schedule D (and the Form 8949 summary rows): the capital gain figures. It owns schd.*, 1040 line 7a and the QDCG worksheet line 3
+  // (qdcg.3: the smaller of Schedule D line 15 or 16, NOT line 7a, once Schedule D is filed).
+  const schedD = computeScheduleD(scheduleDInput(facts, inv, fill));
+  A.scheduleD = schedD.detail;
+  A.scheduleDItems = schedD.openItems;
+  A.scheduleDTaxBlock = fill ? null : schedD.taxBlock;
+  for (const what of schedD.assumptions) A.assumedFacts.push(what);
+  A.register(schedD.result, { refs: dividendRefs });
   // 1040 line 7b: no verified meaning, left explicitly uncomputed
   A.blocked("f1040.7b", "not_yet_computed", "Not collected: see the 2025 Form 1040 instructions for line 7b.", "income", true);
 
@@ -684,19 +695,31 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     seRetirement: seRetire,
     taxableIncomeBeforeQbi: tiBeforeQbi,
     qualifiedDividends: A.num("f1040.3a"),
-    netCapitalGain: A.num("f1040.7a"),
+    netCapitalGain: A.num("qdcg.3"),
     section199aDividends: A.assume(inv.section199aDividends, ZERO, "Section 199A dividends, assumed $0"),
     ...(decisions.qbiForm ? { decision: decisions.qbiForm } : {}),
   });
   A.register(qbi, { refs: [...bookRefs, ...dividendRefs], owns: ["f1040.13a"] });
   A.sum("f1040.14", ["f1040.12e", "f1040.13a", "f1040.13b"]);
   A.derive("f1040.15", ["f1040.11b", "f1040.14"], (v) => maxD(ZERO, v[0]!.minus(v[1]!)));
+  if (!fill && A.scheduleD !== null) {
+    // Capital loss carried to 2026 (provisional: the Capital Loss Carryover Worksheet logic on the 2025 figures)
+    const [sd7, sd15, sd16, sd21, i11b, i14] = (["schd.7", "schd.15", "schd.16", "schd.21", "f1040.11b", "f1040.14"] as const).map((k) => A.peek(k));
+    if (sd7 && sd15 && sd16 && sd21 && i11b && i14 && sd16.lessThan(0)) {
+      const co = computeCapitalLossCarryoverOut({ line7: sd7, line15: sd15, line21: sd21, taxableIncomeBeforeFloor: i11b.minus(i14) });
+      if (co !== null) {
+        A.scheduleD = { ...A.scheduleD, carryoverOut: co };
+        A.scheduleDItems.push(carryoverOutOpenItem(co));
+      }
+    }
+  }
 
   // 7. Tax on taxable income
   const tax = computeIncomeTax({
     taxableIncome: A.num("f1040.15"),
     qualifiedDividends: A.num("f1040.3a"),
-    netCapitalGain: A.num("f1040.7a"),
+    netCapitalGain: A.num("qdcg.3"),
+    ...(A.scheduleDTaxBlock !== null ? { scheduleDTaxWorksheet: A.scheduleDTaxBlock } : {}),
   });
   A.register(tax, { refs: [], owns: ["f1040.16"] });
   if (!A.lines.has("qdcg.25")) {
@@ -715,15 +738,16 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     standardDeduction: std,
     privateActivityBondInterest: A.assume(inv.privateActivityBondInterest, ZERO, "Private activity bond interest, assumed $0"),
     regularTax: A.num("f1040.16"),
-    hasPreferentialIncome: (A.num("f1040.3a") ?? ZERO).greaterThan(0) || (A.num("f1040.7a") ?? ZERO).greaterThan(0),
+    hasPreferentialIncome: (A.num("f1040.3a") ?? ZERO).greaterThan(0) || (A.num("qdcg.3") ?? ZERO).greaterThan(0),
   });
   A.register(amtScreen, { owns: ["f6251.amti", "f6251.tmt", "f6251.amt", "sch2.2"] });
   const niit = computeNiitScreen({
     magi: A.num("f1040.11a"),
     taxableInterest: A.num("f1040.2b"),
     ordinaryDividends: A.num("f1040.3b"),
+    // Form 8960 line 5a is Form 1040 line 7a, signed (a loss limited to $3,000 reduces net investment income)
     capitalGainDistributions: A.num("f1040.7a"),
-    otherInvestmentIncomePresent: inv.hasCapitalTransactionBoxes || inv.hasOtherIncomeBoxes,
+    otherInvestmentIncomePresent: inv.hasOtherIncomeBoxes || scheduleDUnmodeledInvestmentIncome(facts, inv),
   });
   A.register(niit, { owns: ["f8960.nii", "f8960.niit", "sch2.12"] });
   A.sum("sch2.1z", ["sch2.1a", "sch2.1b", "sch2.1c", "sch2.1d", "sch2.1e", "sch2.1f", "sch2.1y"]);
@@ -908,6 +932,14 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     }
   }
   return A;
+}
+
+/** Capital items that are NOT in Schedule D's computed figures (so net investment income is incomplete): an unread 1099-B or Section 1256 contracts. */
+function scheduleDUnmodeledInvestmentIncome(facts: Ty2025Facts, inv: ReturnType<typeof aggregateInvestments>): boolean {
+  const sales = facts.income.brokerSales;
+  // a 1099-B that has no sales-summary entry at all (facts built before the capture side) is still an unread 1099-B
+  const legacyUnread = inv.hasCapitalTransactionBoxes && facts.income.otherIncomeBoxes.some((b) => b.variant === "1099-B" && !sales.some((d) => d.docId === b.docId));
+  return legacyUnread || section1256Present(facts) || sales.some((d) => !d.summaryRead && (d.signalled1099B || d.forms1099DaPresent));
 }
 
 function lineAmount(result: RuleResult, key: LineKey): Decimal | null {
@@ -1101,7 +1133,10 @@ const STANDING_ADVISORIES: readonly OpenItem[] = [
 
 // ── Forms required (C7) ───────────────────────────────────────────────────────
 
-export function computeFormsRequired(ret: Pick<Ty2025Return, "lines" | "results">, facts: Ty2025Facts): Partial<Record<FormId, FormRequirement>> {
+export function computeFormsRequired(
+  ret: Pick<Ty2025Return, "lines" | "results"> & { scheduleD?: ScheduleDDetail | null },
+  facts: Ty2025Facts
+): Partial<Record<FormId, FormRequirement>> {
   const L = ret.lines;
   const amount = (k: LineKey): number | null => {
     const l = L[k];
@@ -1207,9 +1242,27 @@ export function computeFormsRequired(ret: Pick<Ty2025Return, "lines" | "results"
   out.f8829 = facts.income.scheduleC.homeOfficeEligibility.value === "yes_exclusive"
     ? { required: "blocking", reason: "A home office is claimed: Form 8829 is needed only if the CPA chooses the actual method (decision X1)." }
     : { required: false, reason: "No home office deduction claimed." };
-  out.schd = facts.income.otherIncomeBoxes.some((b) => b.variant === "1099-B")
-    ? { required: "blocking", reason: "A 1099-B was read: Schedule D / Form 8949 are not computed by this engine." }
-    : { required: false, reason: "No 1099-B sales on file (capital gain distributions go directly on 1040 line 7a)." };
+  const sd = ret.scheduleD;
+  if (sd === undefined || sd === null) {
+    // Schedule D was not assessed (an older caller): a 1099-B in the facts cannot be ruled out
+    out.schd = facts.income.otherIncomeBoxes.some((b) => b.variant === "1099-B")
+      ? { required: "blocking", reason: "A 1099-B was read: Schedule D / Form 8949 are not computed by this engine." }
+      : { required: false, reason: "No 1099-B sales on file (capital gain distributions go directly on 1040 line 7a)." };
+    out.f8949 = out.schd.required === "blocking" ? { required: "blocking", reason: "A 1099-B was read: Form 8949 cannot be ruled out." } : { required: false, reason: "No capital transactions to report on Form 8949." };
+    return out;
+  }
+  out.schd =
+    sd.required === true
+      ? { required: true, reason: "Capital transactions, a capital loss carryover or another capital item are present: Schedule D is required." }
+      : sd.required === "blocking"
+        ? { required: "blocking", reason: "Cannot tell whether Schedule D is required until the capital gain inputs (unread 1099-B summary, carryover, other sales or capital items) are resolved." }
+        : { required: false, reason: "No capital transactions: only capital gain distributions, which go directly on 1040 line 7a (Exception 1); check the line 7b \"Schedule D not required\" box." };
+  out.f8949 =
+    sd.form8949Required === true
+      ? { required: true, reason: "Some sales have a wash sale adjustment, no basis reported to the IRS (boxes B / E / H / K) or a 1099-DA: they go on Form 8949 (a summary row per broker with the broker's pages attached as the statement)." }
+      : sd.form8949Required === "blocking"
+        ? { required: "blocking", reason: "Cannot tell whether Form 8949 is needed until the sales summary, the owner's adjustment answers and the missing figures are resolved." }
+        : { required: false, reason: sd.categories.length === 0 ? "No capital transactions are on file to report on Form 8949." : "Every sale has basis reported to the IRS and no adjustment: the totals go directly on Schedule D lines 1a / 8a (no Form 8949)." };
   return out;
 }
 
@@ -1284,6 +1337,7 @@ function blockedWholeReturn(facts: Ty2025Facts, status: string): Ty2025Return {
     },
     citations: [],
     scheduleC: null,
+    scheduleD: null,
     formsRequired: {},
     attestations: attestationsOf(facts),
   };
@@ -1315,6 +1369,7 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
   const openItems: OpenItem[] = [
     ...(extras.openItems ?? []),
     ...ruleOpenItems(A),
+    ...A.scheduleDItems,
     ...attestationOpenItems(attestations),
     ...informationalOpenItems(A),
     ...noneGroupOpenItems(A),
@@ -1361,6 +1416,7 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
     headline,
     citations: [...A.citations].sort(),
     scheduleC: A.scheduleC,
+    scheduleD: A.scheduleD,
     formsRequired: {},
     attestations,
   };

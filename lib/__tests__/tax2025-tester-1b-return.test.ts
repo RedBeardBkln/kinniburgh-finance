@@ -304,8 +304,8 @@ describe("Return completeness questionnaire: tree integrity", () => {
       for (const o of n.options) expect(seen.has(`${n.id}:${o.id}`), `${n.id}:${o.id} unreachable`).toBe(true);
     }
   });
-  it("each of the 14 stated-none groups has exactly one g_ question and one ga_ amount node, and every NoneGroupId has line-catalog text", () => {
-    expect(NONE_GROUP_IDS).toHaveLength(14);
+  it("each of the 16 stated-none groups has exactly one g_ question and one ga_ amount node, and every NoneGroupId has line-catalog text", () => {
+    expect(NONE_GROUP_IDS).toHaveLength(16); // + capital_gain_other and capital_special_rates (Schedule D)
     const ids = new Set(def.nodes.map((n) => n.id));
     for (const g of NONE_GROUP_IDS) {
       expect(ids.has(`g_${g}`), g).toBe(true);
@@ -388,7 +388,7 @@ describe("answers.ts: answers -> facts", () => {
     expect(g[3]! in p.statedNone).toBe(false);
     expect(p.returnAnswers.statedSomeAmounts[g[1]!]?.value).toBe(50_000);
   });
-  it("all-none answers set statedNone for exactly the 14 groups and the engine finishes the rare lines as explicit not_applicable zeros", () => {
+  it("all-none answers set statedNone for exactly the 16 groups and the engine finishes the rare lines as explicit not_applicable zeros", () => {
     const answers: EffectiveAnswers = {};
     for (const gid of NONE_GROUP_IDS) answers[`g_${gid}`] = { value: "none", source: "questionnaire", at: null, by: null };
     const p = parseCompletenessAnswers(answers, people);
@@ -480,7 +480,8 @@ describe("all-none questionnaire path -> parse -> engine", () => {
     return computeTy2025Return(f);
   }
   it("with 'No' to everything except 'was the 2024 return joint' the golden numbers reproduce from the REAL parse (federal 27,015, CT tax 8,788), the headline is complete, and no 1b line is blocked", () => {
-    const r = engineFrom(allNone({ pyjoint: "yes" }));
+    // cgall (Is every sale listed on the Robinhood statement?) is a Yes/No whose "Yes" is the clean answer: a blanket "No" would say sales are missing
+    const r = engineFrom(allNone({ pyjoint: "yes", cgall: "yes" }));
     expect(r.headline.federal.totalTax.amount).toBe(27015);
     expect(r.headline.connecticut.tax.amount).toBe(8788);
     expect(r.headline.complete).toBe(true);
@@ -489,7 +490,7 @@ describe("all-none questionnaire path -> parse -> engine", () => {
     expect(r.openItems.filter((o) => o.severity === "blocking").map((o) => o.id)).toEqual(expect.not.arrayContaining(["return-completeness-not-started"]));
   });
   it("answering 'No' to 'was the 2024 return a joint return' (the naive all-No path) hands the Form 2210 estimate to the CPA instead of guessing (advisory only)", () => {
-    const r = engineFrom(allNone());
+    const r = engineFrom(allNone({ cgall: "yes" }));
     expect(amt(r, "f2210.19")).toBeNull();
     expect(r.openItems.find((o) => o.id === "rule:penalty-2210-estimate")?.severity).toBe("advisory");
     expect(r.headline.complete).toBe(true);

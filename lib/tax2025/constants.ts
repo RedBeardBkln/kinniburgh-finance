@@ -62,6 +62,7 @@ const URL_8959_INSTR = `${IRS}/instructions/i8959`;
 const URL_8960_INSTR = `${IRS}/instructions/i8960`;
 const URL_SCH_B_INSTR = `${IRS}/instructions/i1040sb`;
 const URL_8995_INSTR = `${IRS}/instructions/i8995`;
+const URL_SCH_D_INSTR = `${IRS}/instructions/i1040sd`;
 const URL_8889_INSTR = `${IRS}/instructions/i8889`;
 const URL_PUB_590A = `${IRS}/publications/p590a`;
 const URL_8880_FORM = `${IRS}/pub/irs-pdf/f8880.pdf`;
@@ -166,6 +167,22 @@ export const CONSTANTS = {
     1500,
     URL_1040_INSTR,
     "Schedule B is required if taxable interest or ordinary dividends exceed $1,500 (plan section 4.2, 1040 instructions)."
+  ),
+
+  // ── Schedule D (capital gains and losses), read from the 2025 form and its instructions on 2026-10-04 ──
+  CAPITAL_LOSS_LIMIT_MFJ: def(
+    "CAPITAL_LOSS_LIMIT_MFJ",
+    3000,
+    URL_SCH_D_INSTR,
+    "Schedule D line 21: a net capital loss is deductible up to the smaller of the loss on line 16 or $3,000 (treat both as positive numbers); the excess carries to 2026 (Capital Losses, and the line 21 instructions).",
+    "2026-10-04"
+  ),
+  CAPITAL_LOSS_LIMIT_MFS: def(
+    "CAPITAL_LOSS_LIMIT_MFS",
+    1500,
+    URL_SCH_D_INSTR,
+    "Schedule D line 21: $1,500 if married filing separately. Recorded for the citation only; the engine is MFJ-only and never uses it.",
+    "2026-10-04"
   ),
 
   // ── Self-employment tax / Medicare ────────────────────────────────────────
