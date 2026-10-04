@@ -22,6 +22,7 @@
     "validate": "tsx scripts/validate-imports.ts",
     "forms:fetch": "tsx scripts/forms/fetch-blank-forms.ts",
     "forms:catalog": "tsx scripts/forms/build-catalog.ts",
+    "tax2025:pdf-gap": "tsx scripts/tax2025-pdf-gap.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

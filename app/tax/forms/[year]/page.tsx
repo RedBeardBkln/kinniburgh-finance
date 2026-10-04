@@ -7,6 +7,7 @@ import { AppShell } from "@/components/app-shell";
 import { loadFormsPageData } from "@/lib/tax-forms-build";
 import { FormCard } from "@/components/tax/forms/form-card";
 import { FormsSummary } from "@/components/tax/forms/forms-summary";
+import { PDF_SUPPORTED_YEAR, PdfDownloadButtons } from "@/components/tax/forms/pdf-download-buttons";
 import { EntityFormsSectionView } from "@/components/tax/forms/entity-forms-section";
 
 interface PageProps {
@@ -75,6 +76,8 @@ export default async function TaxFormsPage({ params }: PageProps) {
             </Link>
           </div>
         </div>
+
+        {year === PDF_SUPPORTED_YEAR ? <PdfDownloadButtons year={year} /> : null}
 
         <FormsSummary data={data} />
 
