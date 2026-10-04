@@ -1,10 +1,11 @@
 // SYNTHETIC fixtures for the T3 (Schedule B, Form 8995, Form 8959) and T5 (CT-1040) map
 // tests. Every name and number is invented ("Alex Example", "Payer 3 Bank"); nothing is
-// read from, or resembles, the real return. Money is whole dollars.
+// read from the real return. (viewFromEngine below reuses the engine's own synthetic test
+// facts, lib/__tests__/tax2025-fixtures.ts.) Money is whole dollars.
 
 import { lineMeta } from "@/lib/tax2025/line-catalog";
-import type { LineKey, RuleStatus } from "@/lib/tax2025/types";
-import type { PdfFormRequirement, PdfLine, PdfReturnView, PdfTableRow, TableKey } from "@/lib/tax2025/pdf/types";
+import type { LineKey, RuleStatus, Ty2025Return } from "@/lib/tax2025/types";
+import type { LineRef, PdfFormRequirement, PdfLine, PdfReturnView, PdfTableRow, TableKey } from "@/lib/tax2025/pdf/types";
 import { makeView, pdfLine, type ViewOptions } from "./tax2025-pdf-view.fixture";
 
 /** A PdfLine for a real engine key, labelled from the real line catalog. */
@@ -46,4 +47,19 @@ export function viewWith(opts: ViewOptions & { tables?: Partial<Record<TableKey,
   const { formsRequired, ...rest } = opts;
   const view = makeView(rest);
   return formsRequired === undefined ? view : { ...view, formsRequired };
+}
+
+/**
+ * A PdfReturnView built from a REAL engine result (a minimal stand-in for the adapter that
+ * lives on the adapter branch): every ReturnLine becomes a PdfLine, formsRequired is copied.
+ * Used by the integration tests so the maps are exercised against the engine's real keys and statuses.
+ */
+export function viewFromEngine(ret: Ty2025Return, opts: ViewOptions & { tables?: Partial<Record<TableKey, PdfTableRow[]>> } = {}): PdfReturnView {
+  const lines: Partial<Record<LineRef, PdfLine>> = {};
+  for (const l of Object.values(ret.lines)) {
+    if (!l) continue;
+    lines[l.key] = pdfLine({ key: l.key, formLabel: l.form, formLine: l.formLine, label: l.label, amount: l.amount, status: l.status, reason: l.reason });
+  }
+  const view = makeView({ ...opts, lines });
+  return { ...view, formsRequired: ret.formsRequired as PdfReturnView["formsRequired"] };
 }

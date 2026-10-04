@@ -69,7 +69,13 @@ export interface PdfOverrideEntry {
   stale: boolean;
 }
 
-export type TableKey = "schb.interest" | "schb.dividends" | "ct.withholding" | "schc.otherExpenses" | "f8283.sectionA";
+export type TableKey =
+  | "schb.interest"
+  | "schb.dividends"
+  | "ct.withholding"
+  | "ct.propertyTax"
+  | "schc.otherExpenses"
+  | "f8283.sectionA";
 
 export interface PdfTableRow {
   /** Column id -> value. Numbers are whole dollars (money columns); strings are text columns. */
@@ -167,6 +173,12 @@ export interface MapMoneyLine {
   zero?: "print";
   /** The form is not valid without this line: list under "lines the engine does not emit" when absent. */
   expected?: boolean;
+  /**
+   * One signed engine amount feeds two printed lines (e.g. CT balance: positive = tax due,
+   * negative = overpayment). "owed" prints the amount only when it is positive; "refund"
+   * prints the magnitude only when it is negative. Anything else leaves the field blank.
+   */
+  sign?: "owed" | "refund";
 }
 
 export interface MapCheckLine {
@@ -206,6 +218,11 @@ export interface MapTable {
   /** Column id holding the row label, set to "Other (see statement)" in the overflow row. */
   labelColumn: string;
   overflow: "summary_row_and_statement";
+  /**
+   * List every row on the cover even when they all fit (for tables where the printed form has
+   * no column that identifies a row, e.g. the CT-1040 withholding schedule has no employer name).
+   */
+  coverList?: boolean;
 }
 
 export type MapBlank =

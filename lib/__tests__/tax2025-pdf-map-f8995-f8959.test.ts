@@ -5,11 +5,14 @@ import { describe, expect, it } from "vitest";
 import { LINE_KEYS } from "@/lib/tax2025/line-catalog";
 import { fillForm } from "@/lib/tax2025/pdf/fill";
 import { f8959Map } from "@/lib/tax2025/pdf/maps/f8959";
+import { schBMap } from "@/lib/tax2025/pdf/maps/schB";
 import { f8995Map } from "@/lib/tax2025/pdf/maps/f8995";
 import { buildPacket } from "@/lib/tax2025/pdf/packet";
 import { formInclusion } from "@/lib/tax2025/pdf/policy";
+import { computeTy2025Return } from "@/lib/tax2025/return";
 import type { LineKey, RuleStatus } from "@/lib/tax2025/types";
-import { engineLine, linesOf, required, viewWith } from "./fixtures/tax2025-pdf-mvp2-ct.fixture";
+import { fullFacts } from "./tax2025-fixtures";
+import { engineLine, linesOf, required, viewFromEngine, viewWith } from "./fixtures/tax2025-pdf-mvp2-ct.fixture";
 import { DEFAULT_FILL_OPTIONS, assertMapComplete, assertMapGolden, readAllFields } from "./tax2025-pdf-harness";
 
 const P = "topmostSubform[0].Page1[0].";
@@ -228,5 +231,40 @@ describe("Form 8959 map", () => {
       const names = Object.keys(unzipSync(packet.zip));
       expect(names).toEqual(["00-cover.pdf", "01-f8959.pdf"]);
     });
+  });
+});
+
+// ── Against the REAL engine output ───────────────────────────────────────────
+
+describe("T3 maps against the real engine output", () => {
+  const ret = computeTy2025Return(fullFacts());
+  const view = viewFromEngine(ret, { header: { ekcName: "Example Consulting, LLC" } });
+
+  it("Form 8995: the engine's QBI lines land on the printed lines", async () => {
+    const result = await fillForm("f8995", view, f8995Map, NO_STAMP);
+    const f = await readAllFields(result.bytes);
+    const fmt = (key: LineKey): string => {
+      const l = ret.lines[key];
+      if (!l || l.amount === null) throw new Error(`engine did not compute ${key}`);
+      return l.amount.toLocaleString("en-US");
+    };
+    expect(f.get(`${T}Row1i[0].f1_05[0]`)).toBe(fmt("f8995.1i"));
+    expect(f.get(`${P}f1_21[0]`)).toBe(fmt("f8995.5"));
+    expect(f.get(`${P}f1_27[0]`)).toBe(fmt("f8995.11"));
+    expect(f.get(`${P}f1_31[0]`)).toBe(fmt("f8995.15"));
+    expect(f.get(`${T}Row1i[0].f1_03[0]`)).toBe("Example Consulting, LLC");
+    expect(f.get(`${T}Row1i[0].f1_04[0]`)).toBe("");
+  });
+
+  it("the packet follows the engine's formsRequired verdicts: 8995 in, 8959 and Schedule B out", async () => {
+    expect(ret.formsRequired.f8995?.required).toBe(true);
+    expect(ret.formsRequired.f8959?.required).toBe(false);
+    expect(ret.formsRequired.schb?.required).toBe(false);
+    const packet = await buildPacket(view, { maps: [schBMap, f8995Map, f8959Map] });
+    const names = packet.files.map((x) => x.name);
+    expect(names).toEqual(["00-cover.pdf", "01-f8995.pdf"]);
+    const omitted = packet.forms.filter((x) => !x.included).map((x) => x.formId).sort();
+    expect(omitted).toEqual(["f1040sb", "f8959"]);
+    for (const o of packet.forms.filter((x) => !x.included)) expect(o.reason).toContain("not required");
   });
 });

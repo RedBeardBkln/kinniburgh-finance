@@ -17,11 +17,9 @@ export const PENDING_LINE_KEYS = [
   "sch2.1",
   // Schedule A
   // Schedule SE
-  // CT-1040
-  "ct1040.2",
+  // CT-1040 (printed lines 2, 4, 5, 22 and 26 are fed by the engine's ct1040.additions /
+  // subtractions / ctAgi / balance keys, so they are not pending)
   "ct1040.3",
-  "ct1040.4",
-  "ct1040.5",
   "ct1040.7",
   "ct1040.8",
   "ct1040.12",
@@ -30,7 +28,6 @@ export const PENDING_LINE_KEYS = [
   "ct1040.16",
   "ct1040.17",
   "ct1040.21",
-  "ct1040.22",
 ] as const;
 
 export type PendingLineKey = (typeof PENDING_LINE_KEYS)[number];

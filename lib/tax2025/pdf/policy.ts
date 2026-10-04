@@ -80,7 +80,11 @@ export function resolveFieldValue(formId: string, line: PdfLine | undefined, ent
             ? `default, undecided: ${line.defaultUndecided}`
             : undefined;
       let write: string | null;
-      if (line.status === "not_applicable") {
+      if (entry.sign !== undefined) {
+        // One signed amount feeds two lines: this one prints only its own direction.
+        const magnitude = entry.sign === "owed" ? amount : -amount;
+        write = magnitude > 0 ? formatDollars(magnitude) : null;
+      } else if (line.status === "not_applicable") {
         write = entry.zero === "print" ? "0" : null;
       } else if (amount === 0) {
         // An explicit CPA pin of $0 is an instruction and prints; a computed zero prints only where the form wants it.
