@@ -521,7 +521,7 @@ const FORM_8880: QuestionnaireDef = {
       sources: ["SAVER"],
       showWhen: SV_POSITIVE,
     }),
-    dollars("sv5", "About how much did Eric and Eva contribute in total to these accounts for {year}, not counting a Health Savings Account (HSA), in whole dollars?", { showWhen: SV_POSITIVE }),
+    dollars("sv5", "About how much did Eric and Eva contribute in total to these accounts for {year}, not counting a Health Savings Account (HSA), in dollars?", { showWhen: SV_POSITIVE }),
     single(
       "sv6",
       "Do you have account statements or other paperwork showing each contribution?",
@@ -590,7 +590,7 @@ const FORM_8889: QuestionnaireDef = {
         showWhen: inn("hs3", "yes"),
       }
     ),
-    dollars("hs5", "About how much did you deposit yourselves into an HSA for {year} (not through payroll), in whole dollars?", { showWhen: inn("hs4", "direct") }),
+    dollars("hs5", "About how much did you deposit yourselves into an HSA for {year} (not through payroll), in dollars?", { showWhen: inn("hs4", "direct") }),
     single("hs6", "Do you have the {year} W-2 from the employer showing an amount in box 12 with code W (HSA contributions through the employer or payroll)?", YES_NO, { showWhen: inn("hs4", "payroll", "employer") }),
     single("hs7", "Did Eric or Eva take money out of an HSA in {year} (any withdrawals are shown on Form 1099-SA, box 1)?", YES_NO, {
       help: "The IRS says anyone who received HSA distributions must file Form 8889 even with no taxable income; distributions are shown on Form 1099-SA, box 1.",
@@ -644,11 +644,11 @@ const FORM_2210: QuestionnaireDef = {
         sources: ["2210"],
       }
     ),
-    dollars("ut3", "What was the total of your estimated tax payments for {year}, federal and Connecticut combined, in whole dollars?", {
+    dollars("ut3", "What was the total of your estimated tax payments for {year}, federal and Connecticut combined, in dollars?", {
       showWhen: inn("ut2", "regular", "some"),
       binding: { mode: "shared_number", questionKey: "estimated_tax_payments_amount", format: "whole_dollars" },
     }),
-    dollars("ut4", "Of that total, about how much was federal (paid to the IRS rather than Connecticut), in whole dollars?", { showWhen: inn("ut2", "regular", "some") }),
+    dollars("ut4", "Of that total, about how much was federal (paid to the IRS rather than Connecticut), in dollars?", { showWhen: inn("ut2", "regular", "some") }),
     single("ut5", "Were all of those estimated payments made by their due dates?", YES_NO, { showWhen: inn("ut2", "regular", "some") }),
     single("ut6", "In {year}, did your income arrive unevenly during the year (for example, most of it late in the year)?", YES_NO, {
       help: "The IRS describes an annualized income installment method that may reduce the penalty when income is uneven.",
@@ -712,7 +712,7 @@ const FORM_1040_ES: QuestionnaireDef = {
     single("es2", "Have any {nextYear} estimated tax payments (federal or Connecticut) been made so far?", [o("none", "None yet"), o("some", "Some"), o("all_due", "All that have come due"), UNSURE], {
       showWhen: inn("es1", "estimates", "both"),
     }),
-    dollars("es3", "About how much has been paid so far toward {nextYear} federal estimated tax, in whole dollars?", { showWhen: inn("es2", "some", "all_due") }),
+    dollars("es3", "About how much has been paid so far toward {nextYear} federal estimated tax, in dollars?", { showWhen: inn("es2", "some", "all_due") }),
     single("es4", "Did Eric or Eva change the tax withholding from their pay for {nextYear} (by giving the employer a new Form W-4)?", YES_NO, {
       help: "The IRS says an employee can ask the employer to withhold more tax by filing a new Form W-4.",
       sources: ["EST"],
@@ -750,7 +750,7 @@ const FORM_SCHEDULE_3: QuestionnaireDef = {
       help: "The IRS 1040 instructions list an amount paid with a request for an extension to file among the other payments reported in Schedule 3, Part II.",
       sources: ["1040GI"],
     }),
-    dollars("s32", "How much did you pay with the extension request, in whole dollars?", { showWhen: inn("s31", "yes") }),
+    dollars("s32", "How much did you pay with the extension request, in dollars?", { showWhen: inn("s31", "yes") }),
     single("s33", "In {year}, did Eric or Eva have more than one employer (more than one W-2 for the same person)?", YES_NO, {
       help: "The IRS says that with more than one employer, too much social security tax may have been withheld, which can be taken as a credit; it is figured separately for each spouse.",
       sources: ["1040GI"],
@@ -1407,13 +1407,13 @@ function rcPersonNodes(): QNode[] {
         help: "The IRS counts designated Roth contributions as elective deferrals; these amounts may be shown in box 12 of the Form W-2.",
         sources: ["8880F"],
       }),
-      dollars(`defamt_${k}`, `What was the total of ${P.name}'s elective deferrals in 2025, in whole dollars (add up all plans)?`, { showWhen: inn(`def_${k}`, "some"), sources: ["8880F"] }),
+      dollars(`defamt_${k}`, `What was the total of ${P.name}'s elective deferrals in 2025, in dollars (add up all plans)?`, { showWhen: inn(`def_${k}`, "some"), sources: ["8880F"] }),
       single(`ira_${k}`, `Did ${P.name} contribute to a traditional or Roth IRA for 2025, including contributions made by April 15, 2026 that are designated for 2025?`, SOME_NONE, {
         help: "The IRS 1040 instructions count traditional IRA contributions made, or to be made, by the due date of the 2025 return not counting extensions (April 15, 2026 for most people).",
         sources: ["1040GI"],
       }),
-      dollars(`tira_${k}`, `How much did ${P.name} contribute to a traditional IRA for 2025, in whole dollars (enter 0 if only Roth)?`, { showWhen: inn(`ira_${k}`, "some") }),
-      dollars(`roth_${k}`, `How much did ${P.name} contribute to a Roth IRA for 2025, in whole dollars (enter 0 if none)?`, { showWhen: inn(`ira_${k}`, "some") }),
+      dollars(`tira_${k}`, `How much did ${P.name} contribute to a traditional IRA for 2025, in dollars (enter 0 if only Roth)?`, { showWhen: inn(`ira_${k}`, "some") }),
+      dollars(`roth_${k}`, `How much did ${P.name} contribute to a Roth IRA for 2025, in dollars (enter 0 if none)?`, { showWhen: inn(`ira_${k}`, "some") }),
       single(`ira50_${k}`, `Was ${P.name} age 50 or older at the end of 2025?`, YES_NO, {
         help: "The IRS says the IRA contribution limit and the percentage used to reduce the IRA deduction are higher for a person age 50 or older at the end of 2025.",
         sources: ["590A"],
@@ -1468,7 +1468,7 @@ function rcPersonNodes(): QNode[] {
         sources: ["8889"],
         showWhen: COVERED,
       }),
-      dollars(`hsadir_${k}`, `How much did ${P.name} deposit directly into an HSA for 2025, not through payroll, in whole dollars (enter 0 if none; deposits made by April 15, 2026 count for 2025)?`, {
+      dollars(`hsadir_${k}`, `How much did ${P.name} deposit directly into an HSA for 2025, not through payroll, in dollars (enter 0 if none; deposits made by April 15, 2026 count for 2025)?`, {
         help: "The IRS counts contributions made for 2025 up to April 15, 2026; payroll contributions through a cafeteria plan (an employer's pre-tax benefits plan) are treated as employer contributions (W-2 box 12 code W) and are read from the W-2.",
         sources: ["8889"],
         showWhen: COVERED,
@@ -1501,7 +1501,7 @@ function rcPersonNodes(): QNode[] {
           sources: ["SCH1A", "1040GI"],
         }
       ),
-      dollars(`tipsamt_${k}`, `How much did ${P.name} receive in qualified tips (the cash tips the IRS counts for this deduction) in 2025 from all employers together, in whole dollars?`, {
+      dollars(`tipsamt_${k}`, `How much did ${P.name} receive in qualified tips (the cash tips the IRS counts for this deduction) in 2025 from all employers together, in dollars?`, {
         help: "The IRS worksheet for more than one employer uses, for each employer, the larger of the tips on the W-2 or reported to the employer; enter the total of those.",
         sources: ["1040GI"],
         showWhen: inn(`tips_${k}`, "some"),
@@ -1521,7 +1521,7 @@ function rcPersonNodes(): QNode[] {
           sources: ["1040GI"],
         }
       ),
-      dollars(`otamt_${k}`, `How much was ${P.name}'s overtime amount in 2025 from all employers together, in whole dollars (the total pay for the overtime hours if you chose that answer)?`, { showWhen: inn(`ot_${k}`, "premium", "total") }),
+      dollars(`otamt_${k}`, `How much was ${P.name}'s overtime amount in 2025 from all employers together, in dollars (the total pay for the overtime hours if you chose that answer)?`, { showWhen: inn(`ot_${k}`, "premium", "total") }),
       single(`ssn_${k}`, `Does ${P.name} have a Social Security number that is valid for employment, issued before the due date of the 2025 return?`, YES_NO, {
         help: "The IRS requires a valid Social Security number for the person who received the qualified tips or overtime, or who claims the enhanced deduction for seniors; this app never stores a Social Security number.",
         sources: ["1040GI"],
@@ -1539,8 +1539,8 @@ function rcPersonNodes(): QNode[] {
       sources: ["1040GI"],
       showWhen: inn("car", "some"),
     }),
-    dollars("carint", "How much interest was paid or accrued (charged, even if not yet paid) on the car loan(s) in 2025, in whole dollars?", { showWhen: inn("car", "some") }),
-    dollars("carelse", "Of that interest, how much was deducted somewhere else on the return, such as on Schedule C (business profit or loss) for business use, in whole dollars (enter 0 if none)?", {
+    dollars("carint", "How much interest was paid or accrued (charged, even if not yet paid) on the car loan(s) in 2025, in dollars?", { showWhen: inn("car", "some") }),
+    dollars("carelse", "Of that interest, how much was deducted somewhere else on the return, such as on Schedule C (business profit or loss) for business use, in dollars (enter 0 if none)?", {
       help: "The IRS says the same interest cannot be deducted twice: interest deducted on Schedule C, E or F is not also deducted on Schedule 1-A.",
       sources: ["1040GI"],
       showWhen: inn("car", "some"),
@@ -1566,18 +1566,18 @@ function rcPersonNodes(): QNode[] {
       single(`${J.id}`, `Did you make ${J.who} estimated income tax payments for 2025 (payments you sent in yourselves during the year, not tax withheld from pay, a payment with an extension request, or a 2024 overpayment applied to 2025 - those are asked separately)?`, SOME_NONE)
     );
     for (const W of RC_PAYMENT_WINDOWS) {
-      out.push(dollars(`${J.id}${W.n}`, `In total, how much ${J.who} estimated tax was ${W.label}, in whole dollars (enter 0 if none)?`, { showWhen: inn(J.id, "some") }));
+      out.push(dollars(`${J.id}${W.n}`, `In total, how much ${J.who} estimated tax was ${W.label}, in dollars (enter 0 if none)?`, { showWhen: inn(J.id, "some") }));
     }
   }
   for (const E of [
-    { id: "fext", prompt: "Did you send a payment to the IRS with a request for more time to file (a federal extension, Form 4868) for 2025?", amt: "How much did you pay with the federal extension request, in whole dollars?", sources: ["1040GI"] },
-    { id: "cext", prompt: "Did you send a payment to Connecticut with a request for more time to file (a Connecticut extension, Form CT-1040 EXT) for 2025?", amt: "How much did you pay with the Connecticut extension request, in whole dollars?", sources: [] },
-    { id: "fov", prompt: "On your 2024 federal return, did you choose to apply an overpayment (instead of getting it refunded) to your 2025 estimated tax?", amt: "How much of your 2024 federal overpayment was applied to your 2025 federal estimated tax, in whole dollars?", sources: ["2210F"] },
-    { id: "cov", prompt: "On your 2024 Connecticut return, did you choose to apply an overpayment (instead of getting it refunded) to your 2025 estimated tax?", amt: "How much of your 2024 Connecticut overpayment was applied to your 2025 Connecticut estimated tax, in whole dollars?", sources: [] },
+    { id: "fext", prompt: "Did you send a payment to the IRS with a request for more time to file (a federal extension, Form 4868) for 2025?", amt: "How much did you pay with the federal extension request, in dollars?", sources: ["1040GI"] },
+    { id: "cext", prompt: "Did you send a payment to Connecticut with a request for more time to file (a Connecticut extension, Form CT-1040 EXT) for 2025?", amt: "How much did you pay with the Connecticut extension request, in dollars?", sources: [] },
+    { id: "fov", prompt: "On your 2024 federal return, did you choose to apply an overpayment (instead of getting it refunded) to your 2025 estimated tax?", amt: "How much of your 2024 federal overpayment was applied to your 2025 federal estimated tax, in dollars?", sources: ["2210F"] },
+    { id: "cov", prompt: "On your 2024 Connecticut return, did you choose to apply an overpayment (instead of getting it refunded) to your 2025 estimated tax?", amt: "How much of your 2024 Connecticut overpayment was applied to your 2025 Connecticut estimated tax, in dollars?", sources: [] },
     {
       id: "cpy",
       prompt: "During 2025, did you pay Connecticut income tax for tax year 2024 - a balance due on the 2024 return, or the January 2025 estimated installment for 2024?",
-      amt: "How much Connecticut income tax did you pay in 2025 for tax year 2024, in whole dollars?",
+      amt: "How much Connecticut income tax did you pay in 2025 for tax year 2024, in dollars?",
       sources: [],
     },
   ] as const) {
@@ -1590,12 +1590,12 @@ function rcPersonNodes(): QNode[] {
       help: "Connecticut says use tax is due on goods or taxable services bought out of state for use in Connecticut when no Connecticut sales tax was paid, and that CT-1040 line 15 must show 0 if none is due.",
       sources: ["CT1040I"],
     }),
-    dollars("utbuy", "What was the total purchase price of those items on which you paid sales or use tax to another state, in whole dollars (enter 0 if none)?", {
+    dollars("utbuy", "What was the total purchase price of those items on which you paid sales or use tax to another state, in dollars (enter 0 if none)?", {
       help: "Connecticut says the CT-1040 use tax worksheet applies the general rate of 6.35% to the purchase price and subtracts tax already paid on the purchase.",
       sources: ["CT1040I"],
       showWhen: inn("ut", "some"),
     }),
-    dollars("utbuy2", "What was the total purchase price of those items on which NO sales or use tax was paid anywhere, in whole dollars (enter 0 if none)?", {
+    dollars("utbuy2", "What was the total purchase price of those items on which NO sales or use tax was paid anywhere, in dollars (enter 0 if none)?", {
       showWhen: inn("ut", "some"),
     }),
     single("utother", "Were any of those purchases luxury items (most expensive vehicles, jewelry, clothing, footwear, handbags, luggage, umbrellas, wallets or watches above the prices in the Connecticut CT-1040 instructions), computer or data processing services, or a vessel (boat)?", YES_NO, {
@@ -1603,7 +1603,7 @@ function rcPersonNodes(): QNode[] {
       sources: ["CT1040I"],
       showWhen: inn("ut", "some"),
     }),
-    dollars("uttax", "How much sales or use tax did you pay to another state on the items in the first amount above, in whole dollars (enter 0 if none)?", {
+    dollars("uttax", "How much sales or use tax did you pay to another state on the items in the first amount above, in dollars (enter 0 if none)?", {
       help: "Connecticut says the CT-1040 use tax worksheet subtracts tax already paid on the purchase (column 6).",
       sources: ["CT1040I"],
       showWhen: inn("ut", "some"),
@@ -1635,7 +1635,7 @@ function rcPersonNodes(): QNode[] {
   for (const id of NONE_GROUP_IDS) {
     out.push(
       single(`g_${id}`, `In 2025, did Eric or Eva have any of these: ${RC_GROUP_PROMPTS[id]}? (Answer No only if none of them applies. The app does not calculate these items, so a Yes passes them to the CPA.)`, [o("some", "Yes - at least one"), o("none", "No - none of these"), UNSURE]),
-      dollars(`ga_${id}`, `In 2025, about how much was the total for ${RC_GROUP_LABELS[id]}, in whole dollars (an estimate is fine and only the CPA sees it)?`, {
+      dollars(`ga_${id}`, `In 2025, about how much was the total for ${RC_GROUP_LABELS[id]}, in dollars (an estimate is fine and only the CPA sees it)?`, {
         showWhen: inn(`g_${id}`, "some"),
       })
     );

@@ -439,7 +439,7 @@ describe("summary generation", () => {
     expect(s.facts[0]!.prompt).toBe(
       "Which of you was covered by a high-deductible health plan (HDHP) that can be paired with a Health Savings Account (HSA) for any part of 2025? (Your insurer or employer can tell you whether the plan is HSA-eligible.)"
     );
-    expect(s.facts[4]!.prompt).toBe("About how much did you deposit yourselves into an HSA for 2025 (not through payroll), in whole dollars?");
+    expect(s.facts[4]!.prompt).toBe("About how much did you deposit yourselves into an HSA for 2025 (not through payroll), in dollars?");
     expect(s.openQuestions).toEqual([]);
     expect(s.note).toBe("bring the W-2");
     expect(s.planningLinks).toEqual([{ key: "retirement_contributions", label: "Retirement contributions (Planning answer)" }]);
