@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "taxYear": 2025,
+  "extractor": "pdftotext (xpdf) without -layout; pages separated by a form feed",
+  "sources": [
+    {
+      "id": "i1040gi",
+      "title": "2025 Instructions for Form 1040 and Form 1040-SR",
+      "url": "https://www.irs.gov/pub/irs-prior/i1040gi--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "482e9c487c608f1bbeaceef35bc3c0933e8b35443cfff447e4279d590468364a",
+      "pdfBytes": 4434643,
+      "textSha256": "54a9ac6fe9439d4398d94d411cb4959a69a85939e95b4cbdfdc02feaf113e545",
+      "textBytes": 611750,
+      "pages": 126
+    },
+    {
+      "id": "i1040sa",
+      "title": "2025 Instructions for Schedule A (Itemized Deductions)",
+      "url": "https://www.irs.gov/pub/irs-prior/i1040sca--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "b0999b12d9dc4b13868501a9c1879011c00d2fc035f13a1391251d355a6242c8",
+      "pdfBytes": 594250,
+      "textSha256": "b32de296775aff8edfe20b5e37cb84a8a4098eef19f07524708f046c9050fb76",
+      "textBytes": 106059,
+      "pages": 18
+    },
+    {
+      "id": "i1040sb",
+      "title": "2025 Instructions for Schedule B (Interest and Ordinary Dividends)",
+      "url": "https://www.irs.gov/pub/irs-prior/i1040sb--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "b92f31ece57a82ea576ac96507fe5df637dbda7489a80eb28aaab88e7c87b287",
+      "pdfBytes": 153064,
+      "textSha256": "9ea774bfecd0f360f58e086b4d285c27b69803ecbc71a1585212e8855e6f9341",
+      "textBytes": 13444,
+      "pages": 3
+    },
+    {
+      "id": "i1040sc",
+      "title": "2025 Instructions for Schedule C (Profit or Loss From Business)",
+      "url": "https://www.irs.gov/pub/irs-prior/i1040sc--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "b5536db91498a450572e37078d7d5ee8fdc400e385d4fee3a26c230a33e399b6",
+      "pdfBytes": 357575,
+      "textSha256": "30710d0bca2f64db413cc17db3fa733eba38b18e6a38fdb9efa1e6de2dfaa815",
+      "textBytes": 121400,
+      "pages": 19
+    },
+    {
+      "id": "i1040sd",
+      "title": "2025 Instructions for Schedule D (Capital Gains and Losses)",
+      "url": "https://www.irs.gov/pub/irs-prior/i1040sd--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "650643a686378b7573e4f4476ee4e7c9f9bab1384314dca32dc336f7b2276002",
+      "pdfBytes": 298718,
+      "textSha256": "e4afeec97df272f1fbe37301c37537d93583b2188c44254be9381ab442d24733",
+      "textBytes": 90427,
+      "pages": 16
+    },
+    {
+      "id": "i1040sse",
+      "title": "2025 Instructions for Schedule SE (Self-Employment Tax)",
+      "url": "https://www.irs.gov/pub/irs-prior/i1040sse--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "ea9e3120706f9d5e21ce1c6cbec256b5e2e2bf02c44759773d9236462cf4d800",
+      "pdfBytes": 176326,
+      "textSha256": "d5b451a1882de8fc22310af22fd8e75f64fe54d8c79767062477a43befcb0e44",
+      "textBytes": 32364,
+      "pages": 5
+    },
+    {
+      "id": "i8949",
+      "title": "2025 Instructions for Form 8949 (Sales and Other Dispositions of Capital Assets)",
+      "url": "https://www.irs.gov/pub/irs-prior/i8949--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "f077991c83b086810c46cbad3755e0f126cb8dfd88cf8bf8ab2d5605d6e7ab45",
+      "pdfBytes": 255808,
+      "textSha256": "d8f286f09b78b9be5b7dc089fa1598bc722253417432aa3687f06db06140eb35",
+      "textBytes": 76332,
+      "pages": 13
+    },
+    {
+      "id": "i8959",
+      "title": "2025 Instructions for Form 8959 (Additional Medicare Tax)",
+      "url": "https://www.irs.gov/pub/irs-prior/i8959--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "1d223be73b4bac959a00e9b55784297bafa73a986567987c083671abf687b68f",
+      "pdfBytes": 146897,
+      "textSha256": "a0f4ec3fa09f13a4b692b1503d9ff2617e1e46b6fe7ca7316566d96df3f8f06e",
+      "textBytes": 19301,
+      "pages": 4
+    },
+    {
+      "id": "i8960",
+      "title": "2025 Instructions for Form 8960 (Net Investment Income Tax)",
+      "url": "https://www.irs.gov/pub/irs-prior/i8960--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "b10fbb23ff4a053db197285497a00914c558e3ae0cdf5c956b7c0c7867376428",
+      "pdfBytes": 377700,
+      "textSha256": "2c4e37a3a6aa37eaa528f22fdb5198096cc68ba19c010156023b3841df451743",
+      "textBytes": 114808,
+      "pages": 25
+    },
+    {
+      "id": "i8995",
+      "title": "2025 Instructions for Form 8995 (Qualified Business Income Deduction)",
+      "url": "https://www.irs.gov/pub/irs-prior/i8995--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "875843baead68f6fa9aa7c3f6f27d6c1f37cb971ac334bcf414acdb4c1487684",
+      "pdfBytes": 216021,
+      "textSha256": "9758556849bb785735a81d3eb582166b281b05a9805d98b1ce390ba2816247b5",
+      "textBytes": 43169,
+      "pages": 11
+    },
+    {
+      "id": "i2210",
+      "title": "2025 Instructions for Form 2210 (Underpayment of Estimated Tax)",
+      "url": "https://www.irs.gov/pub/irs-prior/i2210--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "7bd6a47494e588fcb422a9ae97970a369fe24fd778ad33b224aeb1cd759e831d",
+      "pdfBytes": 270086,
+      "textSha256": "3fcef37b5baefdea25d41d1e10127e92fc51f12cabe21d0f22e71c373ee461b8",
+      "textBytes": 50970,
+      "pages": 11
+    },
+    {
+      "id": "p936",
+      "title": "2025 Publication 936 (Home Mortgage Interest Deduction)",
+      "url": "https://www.irs.gov/pub/irs-prior/p936--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "a4ef802b92ddd40ce2d00331b5012834dd274fd6ce74624586a1ea7dc31c32de",
+      "pdfBytes": 1353191,
+      "textSha256": "e9b5327e363742cf1ec522b298cf3b0e1ee99352e0d44d9b7c0833fbb34d533f",
+      "textBytes": 97421,
+      "pages": 23
+    },
+    {
+      "id": "p587",
+      "title": "2025 Publication 587 (Business Use of Your Home)",
+      "url": "https://www.irs.gov/pub/irs-prior/p587--2025.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "7f68de213b25a0f826b6112191fcf89e29c121865ef59c4945f8699de0a6d2af",
+      "pdfBytes": 1482736,
+      "textSha256": "275481884b0274d360a2d1e1f3a662377a13d0d3d16b29188fc7edc9091c8e69",
+      "textBytes": 162312,
+      "pages": 35
+    },
+    {
+      "id": "ct1040i",
+      "title": "2025 Connecticut Form CT-1040 instructions (Department of Revenue Services)",
+      "url": "https://portal.ct.gov/-/media/drs/forms/2025/income/2025-ct-1040-instructions_1225.pdf",
+      "retrievedOn": "2026-10-04",
+      "pdfSha256": "0e2cabf0fd48b9fa86d926adfb9e3c6dad3cbf17badfcf11321d8e4bceb24386",
+      "pdfBytes": 998064,
+      "textSha256": "ece824e5e378008344413cfab08bd977835bc75c06b3b8ddf73058c4d330d97c",
+      "textBytes": 124419,
+      "pages": 28
+    }
+  ]
+}

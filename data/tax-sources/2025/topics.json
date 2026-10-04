@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "_doc": "Which pinned source pages each AI review task receives (lib/tax-review/llm/sources.ts excerptForTopics). Order = priority: when a task's text would exceed its size cap, later ranges are cut first. Page numbers are the 1-based PDF pages of the pdftotext output (a form feed separates pages).",
+  "topics": [
+    { "id": "itemized_basics", "title": "Standard or itemized deduction (Form 1040 lines 12a-12e)", "tasks": ["b1", "e2", "f1"], "ranges": [{ "source": "i1040gi", "pages": [33, 35] }] },
+    { "id": "income_lines", "title": "Form 1040 income lines 1a-9", "tasks": ["a1", "a2", "f1"], "ranges": [{ "source": "i1040gi", "pages": [23, 33] }] },
+    { "id": "sched_b", "title": "Schedule B instructions", "tasks": ["a1", "a2"], "ranges": [{ "source": "i1040sb" }] },
+    { "id": "capital_gains", "title": "Form 8949 and Schedule D instructions", "tasks": ["a2", "c2"], "ranges": [{ "source": "i8949", "pages": [1, 6] }, { "source": "i1040sd", "pages": [1, 9] }] },
+    { "id": "mortgage_interest", "title": "Publication 936 (home mortgage interest)", "tasks": ["b1", "e2"], "ranges": [{ "source": "p936", "pages": [1, 10] }] },
+    { "id": "sched_a", "title": "Schedule A instructions", "tasks": ["b1"], "ranges": [{ "source": "i1040sa" }] },
+    { "id": "sch1a", "title": "Schedule 1-A (tips, overtime, car loan interest, seniors) in the Form 1040 instructions", "tasks": ["b2", "c3"], "ranges": [{ "source": "i1040gi", "pages": [101, 110] }] },
+    { "id": "qbi", "title": "Form 8995 instructions (qualified business income deduction)", "tasks": ["b2", "e2"], "ranges": [{ "source": "i8995" }] },
+    { "id": "payments", "title": "Payments, refund, amount owed, penalty (Form 1040 lines 25-38)", "tasks": ["b3"], "ranges": [{ "source": "i1040gi", "pages": [39, 40] }, { "source": "i1040gi", "pages": [61, 65] }] },
+    { "id": "additional_medicare", "title": "Form 8959 instructions (Additional Medicare Tax)", "tasks": ["b3", "c3"], "ranges": [{ "source": "i8959" }] },
+    { "id": "niit", "title": "Form 8960 instructions (Net Investment Income Tax)", "tasks": ["b3"], "ranges": [{ "source": "i8960", "pages": [1, 13] }] },
+    { "id": "underpayment", "title": "Form 2210 instructions (underpayment of estimated tax)", "tasks": ["b3"], "ranges": [{ "source": "i2210", "pages": [1, 5] }] },
+    { "id": "ct_instructions_1", "title": "Connecticut CT-1040 instructions, first half", "tasks": ["d1", "d2"], "ranges": [{ "source": "ct1040i", "pages": [1, 14] }] },
+    { "id": "ct_instructions_2", "title": "Connecticut CT-1040 instructions, second half", "tasks": ["d1", "d2"], "ranges": [{ "source": "ct1040i", "pages": [15, 28] }] },
+    { "id": "home_office", "title": "Publication 587 (business use of your home)", "tasks": ["e1", "e2"], "ranges": [{ "source": "p587", "pages": [1, 12] }] },
+    { "id": "sched_c", "title": "Schedule C instructions (first pages)", "tasks": ["e1"], "ranges": [{ "source": "i1040sc", "pages": [1, 8] }] }
+  ]
+}
