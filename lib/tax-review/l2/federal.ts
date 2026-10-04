@@ -585,8 +585,13 @@ export function computeFederal(inp: OracleInputs): Ledger {
     const qbiAmt = profitNow - nz(v("sch1.15")) - nz(v("sch1.16")) - nz(v("sch1.17"));
     const reit = dollarsOfCents(div5);
     if (decisions.qbiForm === "8995a" || l11 > K.QBI_8995_THRESHOLD_MFJ.value) {
-      L.abstain("Form 8995", "taxable income is above the Form 8995 threshold (or Form 8995-A was chosen): Form 8995-A is not recomputed");
       L.lines.delete("f8995.11");
+      if (qbiAmt <= 0 && reit <= 0) {
+        // a qualified business loss and no REIT / PTP income: there is no deduction at any income level
+        L.put("f1040.13a", 0, [], "no positive qualified business income");
+        return;
+      }
+      L.abstain("Form 8995", "taxable income is above the Form 8995 threshold (or Form 8995-A was chosen): Form 8995-A is not recomputed");
       L.put("f1040.13a", null);
       return;
     }

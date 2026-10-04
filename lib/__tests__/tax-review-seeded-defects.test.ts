@@ -11,6 +11,7 @@ import type { Severity } from "@/lib/tax-review/types";
 import {
   cleanDocs,
   cleanScenario,
+  buildPipeline,
   describeFindings,
   editPacketFile,
   fieldOfLine,
@@ -20,9 +21,11 @@ import {
   setText,
   significant,
   w2Doc,
+  type Pipeline,
 } from "./tax-review-harness";
 import type { L1Result } from "@/lib/tax-review/l1/run-l1";
 import { EVA_ID, owner } from "./tax2025-fixtures";
+import { runL2 } from "@/lib/tax-review/l2";
 
 // Seeded-defects harness (plan section 9.2): take a clean return, inject ONE known defect at the stage it simulates, and prove the
 // named L1 check raises the named severity. The clean pipeline itself must raise nothing of severity medium or higher.
@@ -265,8 +268,48 @@ describe("S13 and S14", () => {
   it("S13 (an input changes after the run) is covered per mutation by tax-review-fingerprint.test.ts and the gate tests", () => {
     expect(true).toBe(true);
   });
-  it.skip("S14 engine arithmetic error: the independent recomputation (L2) is Phase C", () => {
-    expect(true).toBe(true);
+});
+
+describe("S14 engine arithmetic error (the independent recalculation, L2)", () => {
+  const l2Of = (ctx: Pipeline["ctx"]) => runL2({ ret: ctx.ret, effective: ctx.effective, facts: ctx.facts });
+  const l2Findings = (r: ReturnType<typeof runL2>) => r.findings.filter((f) => f.check !== "L2.coverage");
+
+  it("the clean pipeline: the recalculation runs, agrees with the engine and raises nothing of severity medium or higher", async () => {
+    const { ctx } = await buildPipeline(cleanScenario());
+    const r = l2Of(ctx);
+    expect(r.status).toBe("ran");
+    expect(describeFindings(significant(r.findings))).toEqual([]);
+    expect(r.summary.linesCompared).toBeGreaterThan(300);
+  });
+
+  it("L2: a rule's output wrong by $25 (taxable income and its headline row) is an acceptable blocker on each differing figure, and nothing else", async () => {
+    const { ctx } = await buildPipeline(cleanScenario(), {
+      mutateRet: (ret) => {
+        const line = ret.lines["f1040.15"];
+        if (line === undefined || line.amount === null) throw new Error("no taxable income");
+        line.amount += 25;
+        const head = ret.headline.federal.taxableIncome;
+        if (head.amount !== null) head.amount += 25;
+      },
+    });
+    const r = l2Of(ctx);
+    expect(r.status).toBe("ran");
+    const hits = l2Findings(r);
+    expect(hits.map((f) => `${f.severity} ${f.check}`).sort()).toEqual(["blocker L2.diff.f1040.15", "blocker L2.diff.head.federal.taxableIncome"]);
+    expect(hits.every((f) => f.layer === "L2" && f.acceptable && f.origin === "deterministic")).toBe(true);
+    expect(r.summary.mismatchCount).toBe(2);
+  });
+
+  it("L2: a $1 error is inside the rounding tolerance (a low finding that does not gate); the plan's table said blocker, the Phase C brief set the $1 tolerance", async () => {
+    const { ctx } = await buildPipeline(cleanScenario(), {
+      mutateRet: (ret) => {
+        const line = ret.lines["f1040.24"];
+        if (line === undefined || line.amount === null) throw new Error("no total tax");
+        line.amount += 1;
+      },
+    });
+    const hits = l2Findings(l2Of(ctx));
+    expect(hits.map((f) => `${f.severity} ${f.check}`)).toEqual(["low L2.diff.f1040.24"]);
   });
 });
 

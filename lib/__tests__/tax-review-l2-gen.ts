@@ -111,6 +111,7 @@ export function randomHousehold(seed: number): Generated {
   }
   f.income.w2s = docs;
 
+  const noQbiEarly = level === "very_high"; // REIT dividends would need Form 8995-A above the threshold
   // ── interest and dividends ──
   const nInt = pick(r, [0, 1, 1, 2]);
   f.income.interest = [];
@@ -123,7 +124,7 @@ export function randomHousehold(seed: number): Generated {
   for (let i = 0; i < nDiv; i++) {
     const a = logUniform(r, 1_000, 6_000_000) + int(r, 0, 99);
     const q = r() < 0.7 ? Math.floor(a * r()) : 0;
-    f.income.dividends.push(dividend({ docId: `div-${i}`, box1aCents: a, box1bCents: q, box2aCents: r() < 0.25 ? logUniform(r, 1_000, 1_500_000) : 0, box5Cents: r() < 0.1 ? int(r, 100, 60_000) : 0 }));
+    f.income.dividends.push(dividend({ docId: `div-${i}`, box1aCents: a, box1bCents: q, box2aCents: r() < 0.25 ? logUniform(r, 1_000, 1_500_000) : 0, box5Cents: !noQbiEarly && r() < 0.1 ? int(r, 100, 60_000) : 0 }));
   }
   f.income.noDividendsConfirmed = nDiv === 0 ? owner(true) : { value: null, basis: null, refs: [] };
   f.income.dividendBoxes2b2dConfirmedZero = true;
@@ -160,9 +161,10 @@ export function randomHousehold(seed: number): Generated {
 
   // ── Schedule C ──
   const sc = f.income.scheduleC;
-  const revenue = r() < 0.1 ? 0 : logUniform(r, 1_000, 400_000) * 100 + int(r, 0, 99);
-  const glLines = [gl("4000", "Services", "revenue", revenue)];
-  const nExp = pick(r, [0, 1, 2, 3, 5, 8]);
+  const noQbi = level === "very_high" || (level === "high" && r() < 0.3); // above the Form 8995 threshold the engine needs Form 8995-A for a business profit
+  const revenue = noQbi ? 0 : r() < 0.1 ? 0 : logUniform(r, 1_000, 400_000) * 100 + int(r, 0, 99);
+  const glLines = noQbi ? [] : [gl("4000", "Services", "revenue", revenue)];
+  const nExp = noQbi ? 0 : pick(r, [0, 1, 2, 3, 5, 8]);
   const used = new Set<string>();
   for (let i = 0; i < nExp; i++) {
     const name = pick(r, EXPENSE_ACCOUNTS);
@@ -171,10 +173,10 @@ export function randomHousehold(seed: number): Generated {
     const cap = r() < 0.2 ? revenue * 1.4 + 500_000 : revenue * 0.4 + 200_000;
     glLines.push(gl(String(5000 + i), name, "expense", Math.max(100, Math.floor(r() * cap)) + int(r, 0, 99)));
   }
-  if (r() < 0.15) glLines.push(gl("7000", "Other income:Interest earned", "revenue", int(r, 100, 90_000)));
+  if (!noQbi && r() < 0.15) glLines.push(gl("7000", "Other income:Interest earned", "revenue", int(r, 100, 90_000)));
   sc.glLines = glLines;
   sc.booksEmpty = false;
-  const mileage = r() < 0.3;
+  const mileage = !noQbi && r() < 0.3;
   if (mileage) {
     sc.mileage = [
       { miles: int(r, 10, 9000), ratePerMile: "0.700", dateIso: "2025-03-01" },
@@ -182,7 +184,7 @@ export function randomHousehold(seed: number): Generated {
     ];
     sc.mileageNoneConfirmed = owner(false);
   }
-  const home = pick(r, ["no", "no", "yes_exclusive"] as const);
+  const home = noQbi ? "no" : pick(r, ["no", "no", "yes_exclusive"] as const);
   sc.homeOfficeEligibility = owner(home);
   if (home === "yes_exclusive") sc.homeOfficeSqft = owner(int(r, 50, 450));
   if (revenue > 0) tags.push("schc");
