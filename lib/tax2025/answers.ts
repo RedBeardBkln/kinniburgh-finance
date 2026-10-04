@@ -22,7 +22,9 @@
 
 import {
   UNSURE_ID,
+  describeAnswerSource,
   visibleNodes,
+  type AnswerSource,
   type AnswerValue,
   type EffectiveAnswers,
   type QuestionnaireContext,
@@ -66,6 +68,21 @@ export function uniquePersonMatch<T extends { name: string }>(people: readonly T
   return hits.length === 1 ? (hits[0] as T) : null;
 }
 
+/** Generic (no issuer, EIN or name) label for the document an accepted answer was filled from. */
+function sourceDocLabel(field: string): string {
+  return field.startsWith("return2024.") ? "2024 federal return" : "W-2";
+}
+
+/** The extra refs an answer accepted from a document / Planning answer carries (none for an answer the owner typed). */
+function sourceRefs(src: AnswerSource | undefined): Ref[] {
+  if (!src) return [];
+  if (src.kind === "planning") {
+    const key = src.field.replace(/^planning\./, "");
+    return [{ kind: "planning", id: key, label: "Planning answer" }];
+  }
+  return src.docIds.map((docId): Ref => ({ kind: "document", id: docId, label: sourceDocLabel(src.field) }));
+}
+
 export function parseCompletenessAnswers(
   effective: EffectiveAnswers,
   people: readonly { userId: string; name: string }[]
@@ -81,10 +98,18 @@ export function parseCompletenessAnswers(
     if (v === UNSURE_ID || (Array.isArray(v) && v.length === 1 && v[0] === UNSURE_ID)) return { kind: "unsure" };
     return { kind: "value", value: v };
   };
-  const ref = (id: string, label: string): Ref[] => [{ kind: "questionnaire", id: `${RETURN_COMPLETENESS_ID}.${id}`, label }];
+  // An answer accepted from a document keeps its basis (answer_owner: the owner accepted it, and every
+  // precedence rule is unchanged) but also carries the document ref and a note saying where it came from,
+  // so the sheet and the CPA summary can link the answer to the document. No `src` = byte-identical output.
+  const ref = (id: string, label: string): Ref[] => [
+    { kind: "questionnaire", id: `${RETURN_COMPLETENESS_ID}.${id}`, label },
+    ...sourceRefs(effective[id]?.src),
+  ];
   const noteOf = (id: string): string | undefined => {
     const a = effective[id];
-    return a?.at ? `answered ${a.at.slice(0, 10)}` : undefined;
+    if (!a?.at) return undefined;
+    const base = `answered ${a.at.slice(0, 10)}`;
+    return a.src ? `${base}; ${describeAnswerSource(a.src).replace(/^Filled/, "filled")}` : base;
   };
   const leaf = <T>(value: T, id: string, label: string): Sourced<T> => sourced(value, "answer_owner", ref(id, label), noteOf(id));
   const missing = <T>(): Sourced<T> => missingLeaf<T>();

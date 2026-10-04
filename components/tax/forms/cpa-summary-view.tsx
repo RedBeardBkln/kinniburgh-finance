@@ -55,7 +55,8 @@ function Block({ block, names }: { block: CpaSummaryBlock; names: Record<string,
                 <span className="block text-xs text-muted-foreground">
                   {f.source === "planning" && !f.by
                     ? `Answered on the Planning screen${f.answeredAt ? ` ${when(f.answeredAt)}` : ""}`
-                    : `Answered${f.by && names[f.by] ? ` by ${names[f.by]}` : ""}${f.answeredAt ? ` on ${when(f.answeredAt)}` : ""}`}
+                    : `${f.sourceNote ? "Accepted" : "Answered"}${f.by && names[f.by] ? ` by ${names[f.by]}` : ""}${f.answeredAt ? ` on ${when(f.answeredAt)}` : ""}`}
+                  {f.sourceNote ? ` - ${f.sourceNote}` : ""}
                 </span>
               </li>
             ))}

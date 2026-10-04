@@ -84,6 +84,7 @@ export default async function TaxQuestionnairePage({ params, searchParams }: Pag
           ctx={ctx}
           effective={page.effective}
           bound={page.bound}
+          prefill={page.prefill}
           note={page.note}
           noteMeta={page.noteMeta}
           stale={page.stale}

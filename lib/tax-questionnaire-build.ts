@@ -22,6 +22,8 @@ import {
   type StoredAnswers,
 } from "@/lib/tax-questionnaire";
 import { questionnaireById } from "@/lib/tax-questionnaire-content";
+import { NO_PREFILL, computePrefillStates, prefillNodeIdsFor, type QuestionnairePrefill } from "@/lib/tax-prefill";
+import { loadPrefillSuggestions } from "@/lib/tax-prefill-build";
 
 // ── Read-only DB helpers for the questionnaire pages ─────────────────────────
 // STRICTLY READ-ONLY: never calls ensurePersonalWorkspace / ensureTaxWorkspace and
@@ -119,6 +121,7 @@ export interface QuestionnairePageData {
   ctx: QuestionnaireContext;
   effective: EffectiveAnswers;
   bound: Record<string, BoundNodeInfo>;
+  prefill: QuestionnairePrefill;
   note: string | null;
   noteMeta: { at: string; byName: string | null } | null;
   stale: boolean;
@@ -175,6 +178,23 @@ export async function loadQuestionnairePage(
     };
   }
 
+  // Suggestions from the household's documents (read-only; a failure just means none). Only the
+  // questionnaires that have a prefill rule pay for the extra document load.
+  let prefill: QuestionnairePrefill = NO_PREFILL;
+  if (year === 2025 && prefillNodeIdsFor(def.id).length > 0) {
+    const suggestions = (await loadPrefillSuggestions(year)).filter((s) => s.questionnaireId === def.id);
+    if (suggestions.length > 0) {
+      const states = computePrefillStates(def.id, suggestions, effective);
+      const waiting = Object.values(states).filter((st) => st.state === "suggested" && st.suggestionKey !== null);
+      prefill = {
+        suggestions,
+        states,
+        bulkCount: waiting.filter((st) => st.bulk).length,
+        weakCount: waiting.filter((st) => !st.bulk).length,
+      };
+    }
+  }
+
   const neighbor = (i: number): QuestionnaireNeighbor | null => {
     const x = list[i];
     if (!x) return null;
@@ -193,6 +213,7 @@ export async function loadQuestionnairePage(
     ctx: scope.ctx,
     effective,
     bound,
+    prefill,
     note: row?.note ?? null,
     noteMeta: row?.noteUpdatedAt
       ? { at: row.noteUpdatedAt.toISOString(), byName: userName(base.userNames, row.noteUpdatedById) }
