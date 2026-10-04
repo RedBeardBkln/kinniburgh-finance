@@ -31,16 +31,15 @@ import type {
   PdfTableRow,
   TableKey,
 } from "@/lib/tax2025/pdf/types";
+import { HEADLINE_ROW_IDS, type AppliedOverride, type EffectiveReturn, type HeadlineRowId } from "@/lib/tax2025/overrides";
 import {
   LINE_KEYS,
   hasAmount,
   lineMeta,
-  type Headline,
   type LineKey,
   type OpenItem,
   type RuleAlternative,
   type RuleDecision,
-  type RuleStatus,
   type ReturnLine,
   type Ty2025Return,
 } from "@/lib/tax2025/types";
@@ -60,40 +59,28 @@ export const TABLE_COLUMNS = {
 export const PAYER_NOT_READ = "Payer not read";
 export const EMPLOYER_NOT_READ = "Employer not read";
 
-// ── Override placeholder (structural subset of overrides.ts EffectiveReturn) ──
+// ── Overrides (the effective return from lib/tax2025/overrides.ts) ────────────
 
-/** The part of an applied line override the adapter needs (AppliedLineOverride in overrides.ts satisfies it). */
-export interface LineOverrideLike {
-  was: { status: RuleStatus; amount: number | null };
-  /** Override value in whole dollars. */
-  nowAmount: number;
-  /** Non-null when the base changed after the override was set. */
-  stale: object | null;
+/** Row of the headline marks: the engine headline row ids (HEADLINE_ROWS) and how the cover names them. */
+const HEADLINE_LABELS: Readonly<Record<HeadlineRowId, string>> = {
+  "federal.agi": "Federal AGI",
+  "federal.taxableIncome": "Federal taxable income",
+  "federal.totalTax": "Federal total tax",
+  "federal.totalPayments": "Federal total payments",
+  "federal.balance": "Federal balance",
+  "connecticut.ctAgi": "CT AGI",
+  "connecticut.tax": "CT tax",
+  "connecticut.totalPayments": "CT total payments",
+  "connecticut.balance": "CT balance",
+};
+
+export interface AdapterOverrides {
+  effective: EffectiveReturn;
+  /** formatOverrideNote from overrides.ts: the single note string used by the sheet, the CSV, the PDF field note and the cover. */
+  formatNote: (override: AppliedOverride) => string;
 }
 
-export interface EffectiveLineLike<O extends LineOverrideLike> {
-  base: ReturnLine;
-  effective: { amount: number | null; status: RuleStatus | "overridden" };
-  override?: O;
-  stale?: object;
-}
-
-export interface EffectiveReturnLike<O extends LineOverrideLike> {
-  lines: Partial<Record<LineKey, EffectiveLineLike<O>>>;
-  /** Adjusted open items (acknowledged blocking items removed, override items added). */
-  openItems: readonly OpenItem[];
-  acknowledged: ReadonlyArray<{ ruleId: string }>;
-  decisions: readonly RuleDecision[];
-  headline: Headline;
-}
-
-export interface AdapterOverrides<O extends LineOverrideLike> {
-  effective: EffectiveReturnLike<O>;
-  /** formatOverrideNote from overrides.ts: the single note string used by sheet, CSV and PDF. */
-  formatNote: (override: O) => string;
-}
-
-export interface ToPdfViewOptions<O extends LineOverrideLike = LineOverrideLike> {
+export interface ToPdfViewOptions {
   /** ISO timestamp the view is built (shown in America/New_York on the cover). */
   generatedAt: string;
   /** Display name of the signed-in user who generated the packet. */
@@ -107,7 +94,7 @@ export interface ToPdfViewOptions<O extends LineOverrideLike = LineOverrideLike>
    * override `filingStatus`, which is fixed by the engine (MFJ only).
    */
   answers?: Readonly<Record<string, PdfAnswer>>;
-  overrides?: AdapterOverrides<O>;
+  overrides?: AdapterOverrides;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -162,7 +149,7 @@ function alternativeText(a: RuleAlternative): string {
   return clip(`${a.label}: ${detail}`, 260);
 }
 
-function toPdfDecision(d: RuleDecision, results: Ty2025Return["results"]): PdfDecision {
+function toPdfDecision(d: RuleDecision, results: Ty2025Return["results"], overrideNote?: string): PdfDecision {
   const result = results.find((r) => r.decision?.id === d.id);
   const alternatives = result?.alternatives ?? [];
   const inForce = alternatives.find((a) => a.inForce);
@@ -176,6 +163,7 @@ function toPdfDecision(d: RuleDecision, results: Ty2025Return["results"]): PdfDe
   if (d.decidedBy !== undefined) out.decidedBy = d.decidedBy;
   if (d.decidedAt !== undefined) out.decidedAt = d.decidedAt;
   if (parts.length > 0) out.effectNote = parts.join(" ");
+  if (overrideNote !== undefined) out.overrideNote = overrideNote;
   return out;
 }
 
@@ -651,13 +639,79 @@ function buildAnswers(ret: Ty2025Return, facts: Ty2025Facts, extra: Readonly<Rec
 
 // ── The adapter ───────────────────────────────────────────────────────────────
 
-export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
+function lineWhere(key: LineKey): string {
+  const m = lineMeta(key);
+  return `${m.form} line ${m.formLine}`;
+}
+
+/** What the override layer adds to the view (empty / false when nothing is overridden). */
+function overrideParts(ov: AdapterOverrides | undefined): {
+  notice: PdfReturnView["overrideNotice"];
+  resolved: PdfReturnView["resolvedByOverride"];
+  acknowledged: PdfReturnView["acknowledged"];
+  decisionNotes: ReadonlyMap<string, string>;
+  fingerprint: Record<string, unknown> | null;
+} {
+  if (!ov) {
+    return {
+      notice: { totalsNotRecomputed: false, dependents: [], headlineMarks: [], engineChanged: [], count: 0 },
+      resolved: [],
+      acknowledged: [],
+      decisionNotes: new Map(),
+      fingerprint: null,
+    };
+  }
+  const eff = ov.effective;
+  const dependents: PdfReturnView["overrideNotice"]["dependents"] = [];
+  for (const key of LINE_KEYS) {
+    const e = eff.lines[key];
+    if (e?.dependsOnOverridden === undefined) continue;
+    dependents.push({ key, formLabel: e.base.form, formLine: e.base.formLine, dependsOn: e.dependsOnOverridden.map(lineWhere) });
+  }
+  const headlineMarks = HEADLINE_ROW_IDS.flatMap((id) => {
+    const r = eff.headlineRows[id];
+    return r.overridden || r.dependsOnOverride
+      ? [{ label: HEADLINE_LABELS[id], overridden: r.overridden, dependsOnOverride: r.dependsOnOverride, effectiveAmount: r.effectiveAmount }]
+      : [];
+  });
+  const decisionNotes = new Map<string, string>(eff.applied.decisions.map((d) => [d.decisionId, ov.formatNote(d)]));
+  const count = eff.applied.lines.length + eff.applied.decisions.length + eff.applied.acks.length;
+  const meta = (o: { id: string; version: number; authority: string; reason: string }) => ({ id: o.id, version: o.version, authority: o.authority, reason: o.reason });
+  return {
+    notice: {
+      totalsNotRecomputed: eff.totalsNotRecomputed,
+      dependents,
+      headlineMarks,
+      engineChanged: eff.engineChanged.map((c) => c.message),
+      count,
+    },
+    resolved: eff.resolvedByOverride.map((r) => ({ id: r.item.id, message: r.item.message, note: r.notes.join(" ") })),
+    acknowledged: eff.applied.acks.map((a) => ({ ruleId: a.ruleId, note: ov.formatNote(a) })),
+    decisionNotes,
+    // The override METADATA (version, authority, reason) is part of the fingerprint, not just the amounts: changing a reason or
+    // an authority changes the packet. Only present when something is overridden, so an un-overridden return fingerprints as before.
+    fingerprint:
+      count === 0 && eff.invalid.length === 0 && eff.stale.length === 0
+        ? null
+        : {
+            lines: eff.applied.lines.map((l) => ({ ...meta(l), key: l.targetKey, value: l.nowAmount, stale: l.stale !== null })),
+            decisions: eff.applied.decisions.map((d) => ({ ...meta(d), key: d.targetKey, choice: d.choice })),
+            acks: eff.applied.acks.map((a) => ({ ...meta(a), key: a.targetKey })),
+            resolved: eff.resolvedByOverride.map((r) => r.item.id),
+            totalsNotRecomputed: eff.totalsNotRecomputed,
+            invalid: eff.invalid.map((i) => i.id),
+          },
+  };
+}
+
+export function toPdfReturnView(
   ret: Ty2025Return,
   facts: Ty2025Facts,
-  opts: ToPdfViewOptions<O>,
+  opts: ToPdfViewOptions,
 ): PdfReturnView {
   const ov = opts.overrides;
   const undecided = defaultUndecidedLines(ret);
+  const parts = overrideParts(ov);
 
   const lines: Partial<Record<LineKey, PdfLine>> = {};
   const fingerprintLines: Partial<Record<LineKey, ReturnLine>> = {};
@@ -673,7 +727,8 @@ export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
       key,
       status,
       amount,
-      reason: base.reason,
+      // An overridden line is no longer "not computed": the engine's reason for the missing value is replaced by the override note.
+      reason: status === "overridden" ? null : base.reason,
       formLabel: base.form,
       formLine: base.formLine,
       label: base.label,
@@ -685,9 +740,10 @@ export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
       const o = eff.override;
       const stale = o.stale !== null || eff.stale !== undefined;
       const note = ov.formatNote(o);
-      line.override = { note, computedAmount: o.was.amount, stale };
-      overrideEntries.push({ key, formLabel: base.form, formLine: base.formLine, note, stale });
+      line.override = { note, computedAmount: o.was.amount, stale, supplied: o.wasBlocked };
+      overrideEntries.push({ key, formLabel: base.form, formLine: base.formLine, note, stale, supplied: o.wasBlocked });
     }
+    if (eff?.dependsOnOverridden !== undefined) line.dependsOnOverridden = eff.dependsOnOverridden.map(lineWhere);
     lines[key] = line;
     fingerprintLines[key] = { ...base, status: status === "overridden" ? base.status : status, amount };
   }
@@ -704,7 +760,7 @@ export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
   }));
 
   const decisionsSource: readonly RuleDecision[] = ov ? ov.effective.decisions : ret.decisions;
-  const decisions = decisionsSource.map((d) => toPdfDecision(d, ret.results));
+  const decisions = decisionsSource.map((d) => toPdfDecision(d, ret.results, parts.decisionNotes.get(d.id)));
   const headline = ov ? ov.effective.headline : ret.headline;
 
   const formsRequired = formsRequiredOf(ret);
@@ -730,6 +786,7 @@ export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
     headline,
     tables: built.tables,
     formsRequired,
+    ...(parts.fingerprint ? { overrides: parts.fingerprint } : {}),
   });
 
   return {
@@ -747,7 +804,9 @@ export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
     openItems,
     decisions,
     overrides: overrideEntries,
-    acknowledged: ov ? ov.effective.acknowledged.map((a) => a.ruleId) : [],
+    overrideNotice: parts.notice,
+    resolvedByOverride: parts.resolved,
+    acknowledged: parts.acknowledged,
     headline,
     citations: [...ret.citations],
   };

@@ -3,11 +3,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 // Mocks at the auth / loader boundary (repo convention: no integrated DB tests). The real
-// lib/tax2025-build.ts (DB-aware) is never imported: it is replaced by an injected fake.
+// lib/tax2025-overrides-build.ts (DB-aware, applies the recorded CPA overrides) is never
+// imported: it is replaced by an injected fake.
 const authMock = vi.hoisted(() => vi.fn());
 const buildMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth", () => ({ auth: authMock }));
-vi.mock("@/lib/tax2025-build", () => ({ buildTy2025Return: buildMock }));
+vi.mock("@/lib/tax2025-overrides-build", () => ({ buildTy2025ReturnWithOverrides: buildMock }));
 
 import { exportTaxReturnCsv } from "@/actions/tax-return";
 import { computeTy2025Return } from "@/lib/tax2025/return";
@@ -37,7 +38,11 @@ describe("exportTaxReturnCsv", () => {
     if (!res.ok) return;
     expect(buildMock).toHaveBeenCalledWith(2025);
     expect(res.filename).toBe("ty2025-cpa-review-sheet-DRAFT.csv");
-    expect(res.csv.startsWith("DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record,,,,,,,,,,,\r\nform,line_id,line_key,label,amount,status,provenance,citation_reason,override_amount,override_by,override_at,override_reason\r\n")).toBe(true);
+    expect(
+      res.csv.startsWith(
+        "DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record,,,,,,,,,,,,,,,,,\r\nform,line_id,line_key,label,amount,status,provenance,citation_reason,override_amount,override_by,override_at,override_reason,computed_amount,override_authority,override_version,override_stale,override_note,depends_on_override\r\n"
+      )
+    ).toBe(true);
     expect(res.csv).toContain("DRAFT NOTICE");
   });
 

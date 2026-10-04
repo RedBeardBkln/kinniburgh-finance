@@ -90,7 +90,7 @@ describe("cover model", () => {
         { id: "X1", label: "Home office method", chosen: "simplified", status: "default_undecided", effectNote: "actual method would change tax by $X" },
         { id: "X3", label: "QBI form", chosen: "8995", status: "decided", decidedBy: "Eric", decidedAt: "2026-10-05" },
       ],
-      acknowledged: ["qbi-8995"],
+      acknowledged: [{ ruleId: "qbi-8995", note: "CPA acknowledged rule qbi-8995 (reviewed), by Eric (per CPA) on 2026-10-05, reason: seen" }],
     });
     const lines = text(buildCoverModel(input({ view })).blocks);
     expect(lines).toContain("Schedule 1 line 3: CPA override: was $1 computed, now $2");
@@ -98,7 +98,9 @@ describe("cover model", () => {
     expect(lines).toContain("Form 1040 line 10: CPA override: was $5 computed, now $9");
     expect(lines).toContain("Home office method: simplified (default, undecided) - actual method would change tax by $X");
     expect(lines).toContain("QBI form: 8995 - decided by Eric on 2026-10-05");
-    expect(lines).toContain("qbi-8995");
+    // the acknowledged rule is listed WITH its recorded note (who / when / why), not just the rule id
+    expect(lines).toContain("CPA acknowledged rule qbi-8995 (reviewed), by Eric (per CPA) on 2026-10-05, reason: seen");
+    expect(lines).toContain("Acknowledged by the CPA (not blocking)");
   });
 
   it("lists what is left blank by design per form, and the citations", () => {

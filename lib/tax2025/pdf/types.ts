@@ -19,6 +19,8 @@ export interface PdfLineOverride {
   /** Base computed whole-dollar amount (null when the base line carried none). */
   computedAmount: number | null;
   stale: boolean;
+  /** The override SUPPLIES a value the engine could not compute (missing input / needs CPA / not yet computed). The adapter always sets it. */
+  supplied?: boolean;
 }
 
 export interface PdfLine {
@@ -33,6 +35,8 @@ export interface PdfLine {
   formLine: string;
   label: string;
   override?: PdfLineOverride;
+  /** Overridden lines this line depends on ("Schedule 1 line 3"): the line was NOT recomputed from them. */
+  dependsOnOverridden?: string[];
   /** Set when the line comes from a rule whose in-force alternative is an undecided default: the decision label. */
   defaultUndecided?: string;
   /**
@@ -65,6 +69,8 @@ export interface PdfDecision {
   decidedAt?: string;
   /** Plain-language tax effect of the alternative, when known. */
   effectNote?: string;
+  /** The recorded-override note (who / when / why / authority) when the decision was recorded through an override. */
+  overrideNote?: string;
 }
 
 export interface PdfOverrideEntry {
@@ -73,6 +79,50 @@ export interface PdfOverrideEntry {
   formLine: string;
   note: string;
   stale: boolean;
+  /** The override SUPPLIES a value the engine could not compute. The adapter always sets it. */
+  supplied?: boolean;
+}
+
+/** A line that depends on an overridden line and was NOT recomputed. */
+export interface PdfDependentLine {
+  key: string;
+  formLabel: string;
+  formLine: string;
+  /** "Schedule 1 line 3", ... */
+  dependsOn: string[];
+}
+
+/** A headline row whose source line is overridden or depends on an override. */
+export interface PdfHeadlineMark {
+  label: string;
+  overridden: boolean;
+  dependsOnOverride: boolean;
+  /** Whole dollars, only when the row's source line is overridden. */
+  effectiveAmount: number | null;
+}
+
+export interface PdfOverrideNotice {
+  /** A line override is in force: totals and dependent lines were NOT recomputed. */
+  totalsNotRecomputed: boolean;
+  dependents: PdfDependentLine[];
+  headlineMarks: PdfHeadlineMark[];
+  /** Engine changed since an override was set, value unchanged (advisory). */
+  engineChanged: string[];
+  /** Overrides in force: line figures + decisions + acknowledgements (counts only go to the audit row). */
+  count: number;
+}
+
+/** A blocking engine item whose lines were all supplied by overrides: no longer blocking, still listed. */
+export interface PdfResolvedItem {
+  id: string;
+  message: string;
+  note: string;
+}
+
+export interface PdfAcknowledged {
+  ruleId: string;
+  /** The recorded acknowledgement note (who / when / why). */
+  note: string;
 }
 
 export type TableKey =
@@ -130,8 +180,12 @@ export interface PdfReturnView {
   openItems: PdfOpenItem[];
   decisions: PdfDecision[];
   overrides: PdfOverrideEntry[];
-  /** Rule ids the CPA acknowledged (kept visible; not blocking). */
-  acknowledged: string[];
+  /** Totals-not-recomputed notice, dependent lines, headline marks (empty / false when nothing is overridden). */
+  overrideNotice: PdfOverrideNotice;
+  /** Blocking items resolved by line overrides (kept visible; not counted as blocking). */
+  resolvedByOverride: PdfResolvedItem[];
+  /** Rules the CPA acknowledged, with the recorded note (kept visible; not blocking). */
+  acknowledged: PdfAcknowledged[];
   headline: Headline;
   /** Constant ids used anywhere in the return, for the citation legend. */
   citations: string[];

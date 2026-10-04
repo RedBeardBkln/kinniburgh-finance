@@ -56,7 +56,7 @@ describe("D1: SSN-like text never reaches any part of a PDF", () => {
       overrides: [{ key: "f1040.10", formLabel: "Form 1040", formLine: "10", note: `CPA override: reason ${SSN}`, stale: false }],
       decisions: [{ id: "X1", label: "Home office", chosen: "simplified", status: "default_undecided", effectNote: `note ${SSN}` }],
       citations: [`cite ${SSN}`],
-      acknowledged: [`rule ${SSN}`],
+      acknowledged: [{ ruleId: "qbi-8995", note: `rule ${SSN}` }],
     });
     const model = buildCoverModel({ view, forms: [], fillItems: [], continuations: [], stamp: true });
     const text = allText(model.blocks);

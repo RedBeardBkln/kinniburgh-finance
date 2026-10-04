@@ -1,6 +1,13 @@
 import React, { createElement } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+
+// The override chips are client components that import the (DB-backed) server actions; nothing is called while rendering.
+vi.mock("@/actions/tax-return-overrides", () => ({
+  setTaxReturnOverride: vi.fn(),
+  clearTaxReturnOverride: vi.fn(),
+  listTaxReturnOverrideHistory: vi.fn(),
+}));
 import { computeTy2025Return } from "@/lib/tax2025/return";
 import { emptyReturnAnswers } from "@/lib/tax2025/facts";
 import { missingLeaf, type Ty2025Return } from "@/lib/tax2025/types";
@@ -229,10 +236,10 @@ describe("D4: the DRAFT label is on every printed part and is the first CSV row"
     expect((h.match(/data-testid="draft-label"/g) ?? []).length).toBe(6);
   });
 
-  it("the CSV's first row is the DRAFT label (12 cells), then the header", () => {
+  it("the CSV's first row is the DRAFT label (18 cells since the override columns were appended), then the header", () => {
     const csv = sheetToCsv(model(prod));
     const [first, second] = csv.split("\r\n");
-    expect(first).toBe(`${SHEET_DRAFT_LABEL},,,,,,,,,,,`);
+    expect(first).toBe(`${SHEET_DRAFT_LABEL},,,,,,,,,,,,,,,,,`);
     expect(second?.startsWith("form,line_id,line_key,")).toBe(true);
   });
 });

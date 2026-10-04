@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { buildTy2025Return } from "@/lib/tax2025-build";
+import { buildTy2025ReturnWithOverrides } from "@/lib/tax2025-overrides-build";
 import { sheetCsvFilename, sheetToCsv } from "@/lib/tax2025-sheet-csv";
 import { loadSheet } from "@/lib/tax2025-sheet-load";
 
@@ -26,7 +26,7 @@ export async function exportTaxReturnCsv(year: number): Promise<TaxReturnCsvResu
   const parsed = yearSchema.safeParse(year);
   if (!parsed.success) return { ok: false, error: "Invalid tax year" };
 
-  const loaded = await loadSheet(parsed.data, { build: buildTy2025Return });
+  const loaded = await loadSheet(parsed.data, { build: buildTy2025ReturnWithOverrides });
   if (loaded.kind === "unsupported_year") {
     return { ok: false, error: "The return engine is TY2025 only" };
   }

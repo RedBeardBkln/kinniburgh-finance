@@ -16,6 +16,20 @@
 //   - the DRAFT wording says the CPA is the preparer of record.
 
 import { allConstants } from "@/lib/tax2025/constants";
+import {
+  DECISION_KEYS,
+  DECISION_REGISTRY,
+  affectedLines,
+  authorityLabel,
+  formatOverrideNote,
+  isValidDecisionChoice,
+  type AppliedDecisionOverride,
+  type AppliedLineOverride,
+  type EffectiveLine,
+  type EffectiveReturn,
+  type HeadlineRowId,
+  type OverrideAuthority,
+} from "@/lib/tax2025/overrides";
 import { formatNewYorkDate, formatNewYorkDateTime } from "@/lib/tax2025/pdf/format";
 import {
   LINE_KEYS,
@@ -38,7 +52,8 @@ export const SHEET_SUPPORTED_YEAR = 2025;
 
 // ── Types (all JSON-safe) ─────────────────────────────────────────────────────
 
-export type SheetStatus = RuleStatus | "informational";
+/** "overridden": the value on this line is a recorded CPA / owner override, not the engine's. */
+export type SheetStatus = RuleStatus | "informational" | "overridden";
 
 export const SHEET_STATUS_LABELS: Readonly<Record<SheetStatus, string>> = {
   computed: "computed",
@@ -48,6 +63,7 @@ export const SHEET_STATUS_LABELS: Readonly<Record<SheetStatus, string>> = {
   needs_cpa_judgment: "needs CPA judgment",
   not_applicable: "not applicable",
   informational: "informational",
+  overridden: "override",
 };
 
 export type SheetChipKind =
@@ -57,7 +73,8 @@ export type SheetChipKind =
   | "books"
   | "derived"
   | "paystub"
-  | "decision";
+  | "decision"
+  | "override";
 
 export interface SheetChip {
   kind: SheetChipKind;
@@ -74,21 +91,48 @@ export const SHEET_CHIP_LABELS: Readonly<Record<SheetChipKind, string>> = {
   derived: "derived",
   paystub: "paystub",
   decision: "decision",
+  override: "override",
 };
 
 /**
- * Optional per-line override note. STRUCTURAL: the overrides module lives on another
- * branch, so this is deliberately a local type and nothing is imported from it.
- * `was` / `now` are whole dollars (null = the line carried no amount).
+ * A recorded line override as the sheet shows it (built from the overrides module's
+ * AppliedLineOverride; plain JSON). `note` is formatOverrideNote: the ONE string the
+ * sheet, the CSV, the PDF field note and the cover all print.
  */
 export interface SheetLineOverride {
-  was: number | null;
-  now: number | null;
+  id: string;
+  version: number;
+  authority: OverrideAuthority;
+  /** "CPA" or "Owner (Eric/Eva)". */
+  authorityLabel: string;
+  /** What the engine computed: "$12,345 computed" or "missing input" ... */
+  wasText: string;
+  /** The engine's own value for this line (null when it carried none). */
+  computedAmount: number | null;
+  computedStatusLabel: string;
+  /** The override value, whole dollars. */
+  nowAmount: number;
+  note: string;
   by: string;
   /** ISO timestamp. */
   at: string;
+  /** YYYY-MM-DD in America/New_York. */
+  atDate: string;
   reason: string;
-  stale?: boolean;
+  /** The override supplies a value the engine could not produce (missing input / needs CPA / not yet computed). */
+  supplied: boolean;
+  stale: boolean;
+  staleMessage: string | null;
+}
+
+/** The engine's own state of a line, before any override. */
+export interface SheetLineComputed {
+  amount: number | null;
+  amountText: string;
+  statusLabel: string;
+  reason: string | null;
+  /** The engine has no value for it (the override dialog says "no value yet"). */
+  blocked: boolean;
 }
 
 export interface SheetCitation {
@@ -116,6 +160,15 @@ export interface SheetLine {
   /** Decision label when the line comes from an alternative that is an undecided default. */
   defaultUndecided: string | null;
   override: SheetLineOverride | null;
+  /** The engine's own state of this line (before any override). */
+  computed: SheetLineComputed;
+  /** Lines this line feeds that an override here would NOT recompute (capped at 10; see affectsMore). */
+  affects: string[];
+  affectsMore: number;
+  /** Overridden lines this line depends on: it was NOT recomputed from them. */
+  dependsOnOverridden: { key: string; text: string }[];
+  /** An override can be set on this line (the sheet was built with overrides wired in). */
+  canOverride: boolean;
 }
 
 export interface SheetFormGroup {
@@ -139,10 +192,40 @@ export interface SheetAlternative {
   reasons: string[];
 }
 
+/** A decision recorded through the overrides table (who / when / why, shown with the decision). */
+export interface SheetDecisionOverride {
+  id: string;
+  version: number;
+  authority: OverrideAuthority;
+  authorityLabel: string;
+  note: string;
+  by: string;
+  at: string;
+  atDate: string;
+  reason: string;
+  choice: string;
+}
+
+/** One choice the decision dialog offers (an alternative the engine computed). */
+export interface SheetDecisionChoice {
+  id: string;
+  label: string;
+  /** The engine's effect text for this alternative. */
+  effectText: string;
+  isDefault: boolean;
+  inForce: boolean;
+}
+
 export interface SheetDecision {
   id: string;
   label: string;
   chosen: string;
+  /** The overrides-table key for this decision (null when the id is not a recordable decision). */
+  decisionKey: string | null;
+  /** The recorded override, when the decision was made through the overrides table. */
+  override: SheetDecisionOverride | null;
+  /** Choices a user may record (alternatives that are valid decision choices). */
+  choices: SheetDecisionChoice[];
   /** "default, undecided" or "decided". */
   statusText: string;
   undecided: boolean;
@@ -212,6 +295,36 @@ export interface SheetHeadlineRow {
   statusLabel: string;
   /** The provisional estimate when the return is incomplete; null when complete or not estimated. */
   provisionalText: string | null;
+  /** A line this row is read from is overridden: `computedText` is the ENGINE's figure, `effectiveText` the override-based one. */
+  overridden: boolean;
+  /** A line this row is read from depends on an override and was NOT recomputed. */
+  dependsOnOverride: boolean;
+  /** The row's figure read from the effective lines (only when `overridden` and every source has a value). */
+  effectiveText: string | null;
+}
+
+/** Everything the overrides panel (sheet top, printed) and the CSV notice need. Empty when nothing is overridden. */
+export interface SheetOverridesSummary {
+  /** Line overrides in force. */
+  lineCount: number;
+  decisionCount: number;
+  ackCount: number;
+  /** True when a line override is in force: headline totals and downstream lines were NOT recomputed. */
+  totalsNotRecomputed: boolean;
+  /** One sentence for the banner; null when nothing is overridden. */
+  totalsNotice: string | null;
+  lines: { key: string; lineText: string; label: string; note: string; authorityLabel: string; stale: boolean; supplied: boolean }[];
+  decisions: { label: string; note: string }[];
+  acknowledgements: { ruleId: string; note: string; items: string[] }[];
+  /** Lines flagged "depends on an override" (NOT recomputed), each with the overridden lines it depends on. */
+  dependents: { key: string; lineText: string; dependsOn: string[] }[];
+  /** Blocking engine items whose lines were all supplied by overrides: still listed, no longer counted as blocking. */
+  resolvedByOverride: { id: string; message: string; lines: { key: string; text: string }[]; notes: string[] }[];
+  stale: { key: string; message: string }[];
+  engineChanged: { key: string; message: string }[];
+  orphans: string[];
+  anomalies: string[];
+  invalid: string[];
 }
 
 export interface SheetAttestation {
@@ -243,6 +356,7 @@ export interface SheetModel {
     federal: SheetHeadlineRow[];
     connecticut: SheetHeadlineRow[];
     statusCounts: Record<SheetStatus, number>;
+    overrides: SheetOverridesSummary;
   };
   federal: SheetFormGroup[];
   connecticut: SheetFormGroup[];
@@ -256,7 +370,7 @@ export interface SheetModel {
   documents: SheetDocumentRow[];
   citations: SheetCitation[];
   checklist: string[];
-  /** The number of overrides rendered (0 until the overrides module is wired in). */
+  /** The number of line overrides rendered. */
   overrideCount: number;
 }
 
@@ -274,8 +388,11 @@ export interface BuildSheetInput {
   ret: Ty2025Return;
   documents: readonly SheetRawDocument[];
   now: Date;
-  /** Optional per-line overrides keyed by LineKey. */
-  overrides?: Readonly<Record<string, SheetLineOverride>>;
+  /**
+   * The return with the recorded overrides applied (applyOverrides). When present the sheet shows the EFFECTIVE
+   * values and marks every override; when absent it shows the engine's own return and offers no override buttons.
+   */
+  effective?: EffectiveReturn;
 }
 
 // ── Static text ───────────────────────────────────────────────────────────────
@@ -451,29 +568,92 @@ function defaultUndecidedLines(ret: Ty2025Return): Map<string, string> {
   return out;
 }
 
+const AFFECTS_CAP = 10;
+
+function atDateOf(iso: string): string {
+  return formatNewYorkDate(iso);
+}
+
+/** "$1,000 computed" / "missing input": what the engine had when the override was applied. */
+function wasTextOf(o: AppliedLineOverride): string {
+  return o.was.status === "computed" && o.was.amount !== null ? `${formatSheetMoney(o.was.amount)} computed` : SHEET_STATUS_LABELS[o.was.status];
+}
+
+function toSheetLineOverride(o: AppliedLineOverride): SheetLineOverride {
+  return {
+    id: o.id,
+    version: o.version,
+    authority: o.authority,
+    authorityLabel: authorityLabel(o.authority),
+    wasText: wasTextOf(o),
+    computedAmount: hasAmount(o.was.status) ? o.was.amount : null,
+    computedStatusLabel: SHEET_STATUS_LABELS[o.was.status],
+    nowAmount: o.nowAmount,
+    note: formatOverrideNote(o),
+    by: o.setByName,
+    at: o.setAt,
+    atDate: atDateOf(o.setAt),
+    reason: o.reason,
+    supplied: o.wasBlocked,
+    stale: o.stale !== null,
+    staleMessage: o.stale?.message ?? null,
+  };
+}
+
 function toSheetLine(
   l: ReturnLine,
   docs: ReadonlyMap<string, SheetRawDocument>,
   undecided: ReadonlyMap<string, string>,
-  overrides: Readonly<Record<string, SheetLineOverride>> | undefined
+  eff: EffectiveLine | undefined,
+  present: Partial<Record<LineKey, unknown>>
 ): SheetLine {
-  const status = statusOfLine(l);
+  const baseStatus = statusOfLine(l);
   const defaultUndecided = undecided.get(l.key) ?? null;
-  const ov = overrides?.[l.key];
-  return {
+  const computed: SheetLineComputed = {
+    amount: hasAmount(l.status) ? l.amount : null,
+    amountText: amountText(l.status, l.amount),
+    statusLabel: SHEET_STATUS_LABELS[baseStatus],
+    reason: l.reason,
+    blocked: !hasAmount(l.status),
+  };
+  const ov = eff?.override === undefined ? null : toSheetLineOverride(eff.override);
+  const affected = eff === undefined ? [] : affectedLines(l.key, present).map(lineText);
+  const dependsOn = (eff?.dependsOnOverridden ?? []).map((k) => ({ key: k, text: lineText(k) }));
+  const common = {
     key: l.key,
     form: l.form,
     formLine: l.formLine,
     label: l.label,
-    status,
-    statusLabel: SHEET_STATUS_LABELS[status],
-    amount: hasAmount(l.status) ? l.amount : null,
-    amountText: amountText(l.status, l.amount),
-    reason: l.reason,
     citations: l.citations.map(citationOf),
-    chips: chipsFor(l, docs, defaultUndecided),
     defaultUndecided,
-    override: ov === undefined ? null : { ...ov, stale: ov.stale === true },
+    computed,
+    affects: affected.slice(0, AFFECTS_CAP),
+    affectsMore: Math.max(0, affected.length - AFFECTS_CAP),
+    dependsOnOverridden: dependsOn,
+    canOverride: eff !== undefined,
+  };
+  if (ov === null) {
+    return {
+      ...common,
+      status: baseStatus,
+      statusLabel: SHEET_STATUS_LABELS[baseStatus],
+      amount: computed.amount,
+      amountText: computed.amountText,
+      reason: l.reason,
+      chips: chipsFor(l, docs, defaultUndecided),
+      override: null,
+    };
+  }
+  // An overridden line prints the override value; its provenance is the override itself (the computed state is kept in `computed`).
+  return {
+    ...common,
+    status: "overridden",
+    statusLabel: `${ov.authorityLabel === "CPA" ? "CPA" : "Owner"} override${ov.stale ? " (STALE)" : ""}`,
+    amount: ov.nowAmount,
+    amountText: formatSheetMoney(ov.nowAmount),
+    reason: null,
+    chips: [{ kind: "override", label: `${ov.authorityLabel === "CPA" ? "CPA" : "Owner"} override by ${ov.by} on ${ov.atDate}`, href: null }],
+    override: ov,
   };
 }
 
@@ -502,10 +682,37 @@ function altEffectText(a: RuleAlternative): string {
   return `${a.label}: ${detail}`;
 }
 
-function toSheetDecision(r: RuleResult): SheetDecision | null {
+function decisionKeyFor(decisionId: string): (typeof DECISION_KEYS)[number] | null {
+  return DECISION_KEYS.find((k) => DECISION_REGISTRY[k].decisionId === decisionId) ?? null;
+}
+
+function toSheetDecisionOverride(o: AppliedDecisionOverride): SheetDecisionOverride {
+  return {
+    id: o.id,
+    version: o.version,
+    authority: o.authority,
+    authorityLabel: authorityLabel(o.authority),
+    note: formatOverrideNote(o),
+    by: o.setByName,
+    at: o.setAt,
+    atDate: atDateOf(o.setAt),
+    reason: o.reason,
+    choice: o.choice,
+  };
+}
+
+function toSheetDecision(r: RuleResult, applied: ReadonlyMap<string, AppliedDecisionOverride>): SheetDecision | null {
   const d = r.decision;
   if (d === undefined) return null;
   const undecided = d.status === "default_undecided";
+  const decisionKey = decisionKeyFor(d.id);
+  const appliedOverride = applied.get(d.id);
+  const choices: SheetDecisionChoice[] =
+    decisionKey === null
+      ? []
+      : (r.alternatives ?? [])
+          .filter((a) => isValidDecisionChoice(decisionKey, a.id))
+          .map((a) => ({ id: a.id, label: a.label, effectText: altEffectText(a), isDefault: a.isDefault, inForce: a.inForce }));
   const alts = (r.alternatives ?? []).map((a): SheetAlternative => {
     const marker = undecided
       ? a.isDefault
@@ -542,6 +749,9 @@ function toSheetDecision(r: RuleResult): SheetDecision | null {
     id: d.id,
     label: d.label,
     chosen: d.chosen,
+    decisionKey,
+    override: appliedOverride === undefined ? null : toSheetDecisionOverride(appliedOverride),
+    choices,
     statusText: undecided ? "default, undecided" : "decided",
     undecided,
     decidedBy: d.decidedBy ?? null,
@@ -764,20 +974,91 @@ function headlineRow(
   h: { status: RuleStatus; amount: number | null },
   provisional: number | null | undefined,
   complete: boolean,
-  balance: boolean
+  balance: boolean,
+  rowId: HeadlineRowId,
+  eff: EffectiveReturn | undefined
 ): SheetHeadlineRow {
   const fmt = (n: number): string => (balance ? balanceText(n) : formatSheetMoney(n));
+  const state = eff?.headlineRows[rowId];
   return {
     label,
     computedText: hasAmount(h.status) && h.amount !== null ? fmt(h.amount) : NOT_COMPUTED,
     status: h.status,
     statusLabel: SHEET_STATUS_LABELS[h.status],
     provisionalText: complete || provisional === undefined || provisional === null ? null : fmt(provisional),
+    overridden: state?.overridden ?? false,
+    dependsOnOverride: state?.dependsOnOverride ?? false,
+    effectiveText: state?.effectiveAmount === undefined || state?.effectiveAmount === null ? null : fmt(state.effectiveAmount),
   };
 }
 
-function buildSummary(ret: Ty2025Return, items: readonly SheetOpenItem[]): SheetModel["summary"] {
-  const h = ret.headline;
+export const SHEET_TOTALS_NOT_RECOMPUTED =
+  "Totals are NOT recomputed for the overrides listed; the CPA figures them. Lines that depend on an override are flagged.";
+
+function emptyOverridesSummary(): SheetOverridesSummary {
+  return {
+    lineCount: 0,
+    decisionCount: 0,
+    ackCount: 0,
+    totalsNotRecomputed: false,
+    totalsNotice: null,
+    lines: [],
+    decisions: [],
+    acknowledgements: [],
+    dependents: [],
+    resolvedByOverride: [],
+    stale: [],
+    engineChanged: [],
+    orphans: [],
+    anomalies: [],
+    invalid: [],
+  };
+}
+
+/** The overrides panel / CSV notice model: plain strings from the effective view. */
+export function buildOverridesSummary(eff: EffectiveReturn): SheetOverridesSummary {
+  const lines = eff.applied.lines.map((o) => ({
+    key: o.targetKey,
+    lineText: `${o.form} ${o.formLine}`,
+    label: o.label,
+    note: formatOverrideNote(o),
+    authorityLabel: authorityLabel(o.authority),
+    stale: o.stale !== null,
+    supplied: o.wasBlocked,
+  }));
+  const dependents: SheetOverridesSummary["dependents"] = [];
+  for (const key of LINE_KEYS) {
+    const e = eff.lines[key];
+    if (e?.dependsOnOverridden === undefined) continue;
+    dependents.push({ key, lineText: lineText(key), dependsOn: e.dependsOnOverridden.map(lineText) });
+  }
+  const noteOf = (kind: string, key: string): string => `${kind} ${key}`;
+  return {
+    lineCount: eff.applied.lines.length,
+    decisionCount: eff.applied.decisions.length,
+    ackCount: eff.applied.acks.length,
+    totalsNotRecomputed: eff.totalsNotRecomputed,
+    totalsNotice: eff.totalsNotRecomputed ? SHEET_TOTALS_NOT_RECOMPUTED : null,
+    lines,
+    decisions: eff.applied.decisions.map((d) => ({ label: d.label, note: formatOverrideNote(d) })),
+    acknowledgements: eff.applied.acks.map((a) => ({ ruleId: a.ruleId, note: formatOverrideNote(a), items: a.items.map((i) => i.message) })),
+    dependents,
+    resolvedByOverride: eff.resolvedByOverride.map((r) => ({
+      id: r.item.id,
+      message: r.item.message,
+      lines: r.item.lineKeys.map((k) => ({ key: k, text: lineText(k) })),
+      notes: [...r.notes],
+    })),
+    stale: eff.stale.map((s) => ({ key: noteOf(s.targetKind, s.targetKey), message: s.info.message })),
+    engineChanged: eff.engineChanged.map((s) => ({ key: noteOf(s.targetKind, s.targetKey), message: s.message })),
+    orphans: eff.orphans.map((o) => o.message),
+    anomalies: eff.anomalies.map((a) => a.message),
+    invalid: eff.invalid.map((i) => `A recorded override could not be read (${i.error}) and was NOT applied.`),
+  };
+}
+
+function buildSummary(ret: Ty2025Return, items: readonly SheetOpenItem[], eff: EffectiveReturn | undefined): SheetModel["summary"] {
+  const h = eff?.headline ?? ret.headline;
   const p = h.provisional;
   const f = h.federal;
   const c = h.connecticut;
@@ -789,16 +1070,22 @@ function buildSummary(ret: Ty2025Return, items: readonly SheetOpenItem[]): Sheet
     needs_cpa_judgment: 0,
     not_applicable: 0,
     informational: 0,
+    overridden: 0,
   };
   for (const key of LINE_KEYS) {
     const l = ret.lines[key];
-    if (l !== undefined) statusCounts[statusOfLine(l)] += 1;
+    if (l === undefined) continue;
+    statusCounts[eff?.lines[key]?.override !== undefined ? "overridden" : statusOfLine(l)] += 1;
   }
+  const notRecomputed = eff?.totalsNotRecomputed === true;
+  const incomplete = `INCOMPLETE: ${h.blockingItemCount} blocking item(s). Figures marked "not computed" are NOT zero.`;
   return {
     complete: h.complete,
     completenessText: h.complete
       ? "No blocking items: every headline figure is computed. Read the caveats below."
-      : `INCOMPLETE: ${h.blockingItemCount} blocking item(s). Figures marked "not computed" are NOT zero.`,
+      : notRecomputed
+        ? `${h.blockingItemCount > 0 ? incomplete : "No blocking items, but the headline figures are the engine's."} ${SHEET_TOTALS_NOT_RECOMPUTED}`
+        : incomplete,
     blockingItemCount: h.blockingItemCount,
     advisoryItemCount: items.filter((i) => i.severity === "advisory").length,
     unverifiedDocumentCount: h.unverifiedDocumentCount,
@@ -808,19 +1095,20 @@ function buildSummary(ret: Ty2025Return, items: readonly SheetOpenItem[]): Sheet
     provisionalNote: !h.complete && p !== null ? p.note : null,
     provisionalAssumedFacts: !h.complete && p !== null ? [...p.assumedFacts] : [],
     federal: [
-      headlineRow("Federal AGI (Form 1040 line 11a)", f.agi, p?.agi, h.complete, false),
-      headlineRow("Federal taxable income (line 15)", f.taxableIncome, p?.taxableIncome, h.complete, false),
-      headlineRow("Federal total tax (line 24)", f.totalTax, p?.totalTax, h.complete, false),
-      headlineRow("Federal total payments (line 33)", f.totalPayments, p?.totalPayments, h.complete, false),
-      headlineRow("Federal balance", f.balance, p?.federalBalance, h.complete, true),
+      headlineRow("Federal AGI (Form 1040 line 11a)", f.agi, p?.agi, h.complete, false, "federal.agi", eff),
+      headlineRow("Federal taxable income (line 15)", f.taxableIncome, p?.taxableIncome, h.complete, false, "federal.taxableIncome", eff),
+      headlineRow("Federal total tax (line 24)", f.totalTax, p?.totalTax, h.complete, false, "federal.totalTax", eff),
+      headlineRow("Federal total payments (line 33)", f.totalPayments, p?.totalPayments, h.complete, false, "federal.totalPayments", eff),
+      headlineRow("Federal balance", f.balance, p?.federalBalance, h.complete, true, "federal.balance", eff),
     ],
     connecticut: [
-      headlineRow("Connecticut AGI", c.ctAgi, null, h.complete, false),
-      headlineRow("Connecticut income tax (line 6)", c.tax, p?.ctTax, h.complete, false),
-      headlineRow("Connecticut total payments (lines 18-20)", c.totalPayments, p?.ctPayments, h.complete, false),
-      headlineRow("Connecticut balance", c.balance, p?.ctBalance, h.complete, true),
+      headlineRow("Connecticut AGI", c.ctAgi, null, h.complete, false, "connecticut.ctAgi", eff),
+      headlineRow("Connecticut income tax (line 6)", c.tax, p?.ctTax, h.complete, false, "connecticut.tax", eff),
+      headlineRow("Connecticut total payments (lines 18-20)", c.totalPayments, p?.ctPayments, h.complete, false, "connecticut.totalPayments", eff),
+      headlineRow("Connecticut balance", c.balance, p?.ctBalance, h.complete, true, "connecticut.balance", eff),
     ],
     statusCounts,
+    overrides: eff === undefined ? emptyOverridesSummary() : buildOverridesSummary(eff),
   };
 }
 
@@ -833,18 +1121,20 @@ function answerText(a: Ty2025Return["attestations"]["digitalAssets"]): string {
 // ── The builder ───────────────────────────────────────────────────────────────
 
 export function buildSheetModel(input: BuildSheetInput): SheetModel {
-  const { ret, now } = input;
+  const { ret, now, effective } = input;
   const docs = new Map(input.documents.map((d) => [d.id, d]));
   const undecided = defaultUndecidedLines(ret);
   const all: SheetLine[] = [];
   for (const key of LINE_KEYS) {
     const l = ret.lines[key];
-    if (l !== undefined) all.push(toSheetLine(l, docs, undecided, input.overrides));
+    if (l !== undefined) all.push(toSheetLine(l, docs, undecided, effective?.lines[key], ret.lines));
   }
   const federal = all.filter((l) => l.form !== "CT-1040");
   const ct = all.filter((l) => l.form === "CT-1040");
-  const openItems = toSheetOpenItems(ret.openItems);
-  const decisions = ret.results.map(toSheetDecision).filter((d): d is SheetDecision => d !== null);
+  // The effective open items (acknowledged / resolved blocking items moved out, override items added) when overrides are applied.
+  const openItems = toSheetOpenItems(effective?.openItems ?? ret.openItems);
+  const appliedDecisions = new Map((effective?.applied.decisions ?? []).map((d) => [d.decisionId, d]));
+  const decisions = ret.results.map((r) => toSheetDecision(r, appliedDecisions)).filter((d): d is SheetDecision => d !== null);
   const raised = new Set(decisions.map((d) => d.id));
   const placeholders: SheetDecisionPlaceholder[] = KNOWN_DECISIONS.filter((k) => !raised.has(k.id)).map((k) => ({
     id: k.id,
@@ -859,7 +1149,7 @@ export function buildSheetModel(input: BuildSheetInput): SheetModel {
     generatedAt: now.toISOString(),
     generatedAtDisplay: formatNewYorkDateTime(now),
     draftLabel: SHEET_DRAFT_LABEL,
-    summary: buildSummary(ret, openItems),
+    summary: buildSummary(ret, openItems, effective),
     federal: buildGroups(federal, ret.formsRequired),
     connecticut: buildGroups(ct, ret.formsRequired),
     attestations: [
@@ -883,9 +1173,10 @@ export function formatOverrideDate(iso: string): string {
   return formatNewYorkDate(iso);
 }
 
-/** The one-line override note used on the page and in the CSV. */
+/**
+ * The one-line override note used on the page and in the CSV: formatOverrideNote (lib/tax2025/overrides.ts), the same
+ * string the PDF field note and the cover print, plus the STALE marker when the computed value moved after it was set.
+ */
 export function overrideNote(o: SheetLineOverride): string {
-  const was = o.was === null ? NOT_COMPUTED : formatSheetMoney(o.was);
-  const now = o.now === null ? NOT_COMPUTED : formatSheetMoney(o.now);
-  return `Override: was ${was}, now ${now}, by ${o.by} on ${formatOverrideDate(o.at)}: ${o.reason}${o.stale === true ? " (STALE: re-confirm or clear)" : ""}`;
+  return `${o.note}${o.stale ? " (STALE: re-confirm or clear)" : ""}`;
 }

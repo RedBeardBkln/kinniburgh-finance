@@ -6,7 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { PrintButton } from "@/components/tax/forms/print-button";
 import { ReturnCsvButton } from "@/components/tax/forms/return-csv-button";
 import { ReturnSheet } from "@/components/tax/forms/return-sheet";
-import { buildTy2025Return } from "@/lib/tax2025-build";
+import { buildTy2025ReturnWithOverrides } from "@/lib/tax2025-overrides-build";
 import { SHEET_DRAFT_LABEL, SHEET_SUPPORTED_YEAR } from "@/lib/tax2025-sheet";
 import { loadSheet } from "@/lib/tax2025-sheet-load";
 
@@ -28,7 +28,8 @@ export default async function TaxReturnSheetPage({ params }: PageProps) {
   const year = Number(yearStr);
   if (!Number.isInteger(year) || year < 2000 || year > 2100) notFound();
 
-  const loaded = year === SHEET_SUPPORTED_YEAR ? await loadSheet(year, { build: buildTy2025Return }) : null;
+  // The ONE loader that applies the recorded CPA overrides (fail-closed: unreadable overrides show an error, never the un-overridden return).
+  const loaded = year === SHEET_SUPPORTED_YEAR ? await loadSheet(year, { build: buildTy2025ReturnWithOverrides }) : null;
 
   return (
     <AppShell userName={session.user.name ?? undefined}>

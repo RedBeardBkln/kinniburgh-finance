@@ -182,7 +182,9 @@ export interface ViewOptions {
   header?: Partial<PdfReturnView["header"]>;
   tables?: PdfReturnView["tables"];
   citations?: string[];
-  acknowledged?: string[];
+  acknowledged?: PdfReturnView["acknowledged"];
+  overrideNotice?: Partial<PdfReturnView["overrideNotice"]>;
+  resolvedByOverride?: PdfReturnView["resolvedByOverride"];
 }
 
 export function makeView(opts: ViewOptions = {}): PdfReturnView {
@@ -209,6 +211,8 @@ export function makeView(opts: ViewOptions = {}): PdfReturnView {
     openItems,
     decisions,
     overrides: opts.overrides ?? [],
+    overrideNotice: { totalsNotRecomputed: false, dependents: [], headlineMarks: [], engineChanged: [], count: 0, ...opts.overrideNotice },
+    resolvedByOverride: opts.resolvedByOverride ?? [],
     acknowledged: opts.acknowledged ?? [],
     headline,
     citations: opts.citations ?? ["fed.std_deduction_mfj_2025", "fed.brackets_mfj_2025"],

@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getEntityBySlug } from "@/lib/entity";
-import { buildTy2025Return } from "@/lib/tax2025-build";
+import { buildTy2025ReturnWithOverrides } from "@/lib/tax2025-overrides-build";
+import { formatOverrideNote } from "@/lib/tax2025/overrides";
 import { toPdfReturnView } from "@/lib/tax2025/pdf/adapter";
 import {
   PACKET_EXPORT_CHANGE_TYPE,
@@ -16,12 +17,14 @@ import {
 // unit-tested adapter and PDF engine; this module itself is not unit-tested (repo
 // convention: a DB-touching wrapper around tested pure functions).
 //
-// T9b: once the overrides module lands (lib/tax2025/overrides*.ts), swap
-// buildTy2025Return(2025) for buildTy2025ReturnWithOverrides and pass
-// `overrides: { effective, formatNote: formatOverrideNote }` to toPdfReturnView.
+// CPA overrides: the view is built from buildTy2025ReturnWithOverrides, the SAME loader
+// the review sheet and the CSV use, so the filled forms, the cover and the sheet show
+// the same values and the same note (formatOverrideNote). The loader is fail-closed: if the
+// recorded overrides cannot be read the export is refused with an error, never produced
+// without them.
 
 export async function buildPdfViewForYear(year: 2025, generatedBy: string): Promise<BuiltView> {
-  const build = await buildTy2025Return(year);
+  const build = await buildTy2025ReturnWithOverrides(year);
   if ("error" in build) return { error: build.error };
   const ekc = await getEntityBySlug("ek-consulting");
   return {
@@ -29,11 +32,12 @@ export async function buildPdfViewForYear(year: 2025, generatedBy: string): Prom
       generatedAt: new Date().toISOString(),
       generatedBy,
       ekcName: ekc?.name ?? null,
+      overrides: { effective: build.effective, formatNote: formatOverrideNote },
     }),
   };
 }
 
-/** One AuditLog row: which forms and which return state were exported. Ids and counts only, never a value. */
+/** One AuditLog row: which forms and which return state were exported. Ids and counts only, never a value or a reason. */
 export async function recordPacketExport(entry: PacketExportAudit): Promise<void> {
   await db.auditLog.create({
     data: {
@@ -48,6 +52,7 @@ export async function recordPacketExport(entry: PacketExportAudit): Promise<void
         fingerprint: entry.fingerprint,
         engineVersion: entry.engineVersion,
         openItemCount: entry.openItemCount,
+        overrideCount: entry.overrideCount,
         fileCount: entry.fileCount,
       },
     },

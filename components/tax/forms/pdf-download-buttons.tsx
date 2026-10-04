@@ -32,7 +32,7 @@ const linkClass =
 const reviewSheetClass =
   "inline-flex min-h-11 items-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90";
 
-export function PdfDownloadButtons({ year }: { year: number }) {
+export function PdfDownloadButtons({ year, overrideCount = 0 }: { year: number; overrideCount?: number }) {
   if (year !== PDF_SUPPORTED_YEAR) return null;
   const base = `/api/tax/forms/${year}/pdf`;
   return (
@@ -61,6 +61,11 @@ export function PdfDownloadButtons({ year }: { year: number }) {
       <p className="text-xs text-muted-foreground">
         The clean copy removes the per-page DRAFT footer from the forms; the cover page is always marked DRAFT.
       </p>
+      {overrideCount > 0 ? (
+        <p className="text-xs font-medium text-violet-900" data-testid="pdf-overrides-note">
+          The packet includes the {overrideCount} override(s) in force and lists them on the cover.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2" aria-label="Individual forms">
         {FORM_MAPS.map((m) => (
           <a
