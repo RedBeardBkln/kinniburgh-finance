@@ -120,6 +120,8 @@ function viewFrom(ret: Ty2025Return, answers: Record<string, string | boolean | 
     openItems: [],
     decisions: [],
     overrides: [],
+    overrideNotice: { totalsNotRecomputed: false, dependents: [], headlineMarks: [], engineChanged: [], count: 0 },
+    resolvedByOverride: [],
     acknowledged: [],
     headline: ret.headline,
     citations: ret.citations,

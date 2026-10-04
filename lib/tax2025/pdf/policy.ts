@@ -130,6 +130,13 @@ export interface Inclusion {
  */
 export function formInclusion(map: FormMap, view: PdfReturnView): Inclusion {
   if (map.formId === "f1040") return { include: true, reason: "Form 1040 is always included" };
+  // A recorded override on a mapped line prints that value, so its form must be in the packet even when the engine's own
+  // verdict says "not required" (the override is an explicit instruction: it is never silently dropped with its form).
+  for (const entry of map.lines) {
+    if (entry.kind !== "money") continue;
+    const line = view.lines[entry.line];
+    if (line?.status === "overridden") return { include: true, reason: `a recorded override sets line ${line.formLine}` };
+  }
   // The engine's own verdict (Ty2025Return.formsRequired) wins over the line-based rule:
   // false = omit (with the engine's reason), true or "blocking" = include (the CPA needs
   // the form to see the blanks while an item is unresolved).

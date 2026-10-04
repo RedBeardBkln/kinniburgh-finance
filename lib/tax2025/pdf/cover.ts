@@ -69,6 +69,8 @@ const BLANK_POLICY =
   "under 'Boxes and entries the app does not decide') is a computed or not-applicable zero (IRS convention: a blank is zero); " +
   "only totals and lines the form tells you to complete are printed as 0.";
 
+const TOTALS_NOT_RECOMPUTED = "Totals are NOT recomputed for the overrides listed; the CPA figures them. Lines that depend on an override are flagged.";
+
 /** "$1,234" / "-$1,234" (sign before the currency symbol). */
 function money(n: number): string {
   return n < 0 ? `-$${formatDollars(-n)}` : `$${formatDollars(n)}`;
@@ -133,22 +135,43 @@ export function buildCoverModel(input: CoverInput): CoverModel {
     value: input.stamp ? "ON (DRAFT footer on every form page)" : "OFF (clean copy)",
   });
   b.push({ kind: "spacer" });
+  const notice = view.overrideNotice;
+  if (notice.count > 0) {
+    b.push({
+      kind: "para",
+      text: `OVERRIDES: ${notice.count} CPA / owner override(s) are in force and are listed below with who, when and why.${notice.totalsNotRecomputed ? " " + TOTALS_NOT_RECOMPUTED : ""}`,
+    });
+  }
   b.push({ kind: "para", text: FRAMING });
   b.push({ kind: "para", text: BLANK_POLICY });
 
   // Headline numbers.
   b.push({ kind: "heading", text: "Headline numbers" });
   const h = view.headline;
+  const strictLines = (suffix: string): void => {
+    b.push({ kind: "kv", label: `Federal AGI${suffix}`, value: dollars(h.federal.agi.amount) });
+    b.push({ kind: "kv", label: `Federal taxable income${suffix}`, value: dollars(h.federal.taxableIncome.amount) });
+    b.push({ kind: "kv", label: `Federal total tax${suffix}`, value: dollars(h.federal.totalTax.amount) });
+    b.push({ kind: "kv", label: `Federal total payments${suffix}`, value: dollars(h.federal.totalPayments.amount) });
+    b.push({ kind: "kv", label: `Federal balance (positive = owed, negative = refund)${suffix}`, value: dollars(h.federal.balance.amount) });
+    b.push({ kind: "kv", label: `CT AGI${suffix}`, value: dollars(h.connecticut.ctAgi.amount) });
+    b.push({ kind: "kv", label: `CT tax${suffix}`, value: dollars(h.connecticut.tax.amount) });
+    b.push({ kind: "kv", label: `CT total payments${suffix}`, value: dollars(h.connecticut.totalPayments.amount) });
+    b.push({ kind: "kv", label: `CT balance (positive = owed, negative = refund)${suffix}`, value: dollars(h.connecticut.balance.amount) });
+  };
   if (h.complete) {
-    b.push({ kind: "kv", label: "Federal AGI", value: dollars(h.federal.agi.amount) });
-    b.push({ kind: "kv", label: "Federal taxable income", value: dollars(h.federal.taxableIncome.amount) });
-    b.push({ kind: "kv", label: "Federal total tax", value: dollars(h.federal.totalTax.amount) });
-    b.push({ kind: "kv", label: "Federal total payments", value: dollars(h.federal.totalPayments.amount) });
-    b.push({ kind: "kv", label: "Federal balance (positive = owed, negative = refund)", value: dollars(h.federal.balance.amount) });
-    b.push({ kind: "kv", label: "CT AGI", value: dollars(h.connecticut.ctAgi.amount) });
-    b.push({ kind: "kv", label: "CT tax", value: dollars(h.connecticut.tax.amount) });
-    b.push({ kind: "kv", label: "CT total payments", value: dollars(h.connecticut.totalPayments.amount) });
-    b.push({ kind: "kv", label: "CT balance (positive = owed, negative = refund)", value: dollars(h.connecticut.balance.amount) });
+    strictLines("");
+  } else if (notice.totalsNotRecomputed) {
+    b.push({ kind: "para", text: `${TOTALS_NOT_RECOMPUTED} The figures below are the ENGINE's own and do NOT reflect the overrides.` });
+    strictLines(" (engine, not recomputed for overrides)");
+    for (const m of notice.headlineMarks) {
+      b.push({
+        kind: "bullet",
+        text: `${m.label}: ${m.overridden ? `a source line is OVERRIDDEN${m.effectiveAmount !== null ? `; the figure with the override is ${dollars(m.effectiveAmount)}` : ""}` : ""}${m.overridden && m.dependsOnOverride ? "; " : ""}${m.dependsOnOverride ? "depends on an override and was not recomputed" : ""}.`,
+      });
+    }
+    if (h.provisional) b.push({ kind: "para", text: `Estimate for the return as a whole: ${h.provisional.note}` });
+    b.push({ kind: "kv", label: "Blocking items", value: String(h.blockingItemCount) });
   } else {
     b.push({
       kind: "para",
@@ -221,7 +244,11 @@ export function buildCoverModel(input: CoverInput): CoverModel {
   for (const i of engineItems) b.push({ kind: "bullet", text: engineItemText(i) });
   if (view.acknowledged.length > 0) {
     b.push({ kind: "heading", text: "Acknowledged by the CPA (not blocking)" });
-    for (const id of view.acknowledged) b.push({ kind: "bullet", text: id });
+    for (const a of view.acknowledged) b.push({ kind: "bullet", text: a.note === "" ? a.ruleId : a.note });
+  }
+  if (view.resolvedByOverride.length > 0) {
+    b.push({ kind: "heading", text: `Resolved by CPA override (no longer blocking) (${view.resolvedByOverride.length})` });
+    for (const r of view.resolvedByOverride) b.push({ kind: "bullet", text: `${r.message}${r.note === "" ? "" : ` Supplied by: ${r.note}`}` });
   }
 
   // Items raised while filling.
@@ -240,10 +267,19 @@ export function buildCoverModel(input: CoverInput): CoverModel {
   const stale = view.overrides.filter((o) => o.stale);
   b.push({ kind: "heading", text: "Overrides in force" });
   if (live.length === 0) b.push({ kind: "para", text: "None." });
-  for (const o of live) b.push({ kind: "bullet", text: `${o.formLabel} line ${o.formLine}: ${o.note}` });
+  for (const o of live) b.push({ kind: "bullet", text: `${o.formLabel} line ${o.formLine}: ${o.note}${o.supplied === true ? " [supplied: the engine had no value for this line]" : ""}` });
   if (stale.length > 0) {
     b.push({ kind: "heading", text: "Stale overrides (re-confirm or clear)" });
     for (const o of stale) b.push({ kind: "bullet", text: `${o.formLabel} line ${o.formLine}: ${o.note}` });
+  }
+  if (notice.dependents.length > 0) {
+    b.push({ kind: "heading", text: `Totals NOT recomputed for these overrides (${notice.dependents.length} dependent line(s))` });
+    b.push({ kind: "para", text: `${TOTALS_NOT_RECOMPUTED} These lines depend on an override and print the engine's figure; confirm each or override it too.` });
+    for (const d of notice.dependents) b.push({ kind: "bullet", text: `${d.formLabel} line ${d.formLine} depends on ${d.dependsOn.join(", ")}` });
+  }
+  if (notice.engineChanged.length > 0) {
+    b.push({ kind: "heading", text: "Engine changed since an override was set (value unchanged)" });
+    for (const m of notice.engineChanged) b.push({ kind: "bullet", text: m });
   }
 
   // Decisions.
@@ -262,7 +298,7 @@ export function buildCoverModel(input: CoverInput): CoverModel {
     for (const d of decided) {
       b.push({
         kind: "bullet",
-        text: `${d.label}: ${d.chosen}${d.decidedBy ? ` - decided by ${d.decidedBy}` : ""}${d.decidedAt ? ` on ${d.decidedAt}` : ""}`,
+        text: `${d.label}: ${d.chosen}${d.decidedBy ? ` - decided by ${d.decidedBy}` : ""}${d.decidedAt ? ` on ${d.decidedAt}` : ""}${d.overrideNote ? ` (${d.overrideNote})` : ""}`,
       });
     }
   }

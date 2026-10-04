@@ -53,8 +53,5 @@ export {
   centsToWholeDollars,
   toPdfReturnView,
   type AdapterOverrides,
-  type EffectiveLineLike,
-  type EffectiveReturnLike,
-  type LineOverrideLike,
   type ToPdfViewOptions,
 } from "@/lib/tax2025/pdf/adapter";

@@ -37,6 +37,8 @@ export interface PacketExportAudit {
   fingerprint: string;
   engineVersion: string | null;
   openItemCount: number;
+  /** How many overrides (line figures, decisions, acknowledgements) were in force: a count, never a value or a reason. */
+  overrideCount: number;
   fileCount: number;
 }
 
@@ -125,6 +127,7 @@ export async function handlePacketRequest(req: PacketRequest, deps: PdfRouteDeps
       fingerprint: view.fingerprint,
       engineVersion: view.engineVersion ?? null,
       openItemCount: view.openItems.length,
+      overrideCount: view.overrideNotice.count,
       fileCount: packet.files.length,
     });
     const name = `ty${year.year}-draft-packet-${shortFingerprint(view.fingerprint)}${stamp ? "" : "-clean"}.zip`;
@@ -168,6 +171,7 @@ export async function handleFormRequest(req: FormRequest, deps: PdfRouteDeps): P
       fingerprint: view.fingerprint,
       engineVersion: view.engineVersion ?? null,
       openItemCount: view.openItems.length,
+      overrideCount: view.overrideNotice.count,
       fileCount: sheets.length,
     });
     const only = sheets[0];

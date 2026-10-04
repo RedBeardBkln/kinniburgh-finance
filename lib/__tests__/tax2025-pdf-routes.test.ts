@@ -169,7 +169,7 @@ describe("packet route (authenticated, injected builder)", () => {
     expect(recordExportMock).toHaveBeenCalledTimes(1);
     const entry = recordExportMock.mock.calls[0]?.[0] as PacketExportAudit;
     expect(Object.keys(entry).sort()).toEqual(
-      ["engineVersion", "fileCount", "fingerprint", "forms", "kind", "openItemCount", "stamp", "taxYear", "userId"].sort(),
+      ["engineVersion", "fileCount", "fingerprint", "forms", "kind", "openItemCount", "overrideCount", "stamp", "taxYear", "userId"].sort(),
     );
     expect(entry.userId).toBe("user-1");
     expect(entry.kind).toBe("packet");
@@ -356,7 +356,7 @@ describe("download buttons component and its mount", () => {
 
   it("is mounted on the Forms page header area for 2025 only", () => {
     expect(page).toContain('import { PDF_SUPPORTED_YEAR, PdfDownloadButtons } from "@/components/tax/forms/pdf-download-buttons";');
-    expect(page).toContain("{year === PDF_SUPPORTED_YEAR ? <PdfDownloadButtons year={year} /> : null}");
+    expect(page).toContain("{year === PDF_SUPPORTED_YEAR ? <PdfDownloadButtons year={year} overrideCount={overrideCount} /> : null}");
     // Between the header block and the summary, i.e. in the header area, above the form cards.
     expect(page.indexOf("<PdfDownloadButtons")).toBeLessThan(page.indexOf("<FormsSummary"));
     expect(page.indexOf("<PdfDownloadButtons")).toBeGreaterThan(page.indexOf("CPA summary"));

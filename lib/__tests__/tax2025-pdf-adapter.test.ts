@@ -11,9 +11,8 @@ import {
   centsToWholeDollars,
   toPdfReturnView,
   type AdapterOverrides,
-  type EffectiveReturnLike,
-  type LineOverrideLike,
 } from "@/lib/tax2025/pdf/adapter";
+import { applyOverrides, formatOverrideNote, lineSnapshot, type OverrideRow } from "@/lib/tax2025/overrides";
 import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 import { resolveFieldValue } from "@/lib/tax2025/pdf/policy";
 import { computeTy2025Return, TY2025_ENGINE_VERSION } from "@/lib/tax2025/return";
@@ -530,65 +529,132 @@ describe("fingerprint", () => {
   });
 });
 
-describe("overrides placeholder (T7 shape, injected)", () => {
-  interface FakeApplied extends LineOverrideLike {
-    note: string;
-  }
-
-  function withOverride(ret: Ty2025Return, stale: boolean): AdapterOverrides<FakeApplied> {
-    const target = ret.lines["sch1.3"];
-    if (!target) throw new Error("fixture has no sch1.3");
-    const effective: EffectiveReturnLike<FakeApplied> = {
-      lines: {
-        "sch1.3": {
-          base: target,
-          effective: { amount: 13_000, status: "overridden" },
-          override: {
-            was: { status: target.status, amount: target.amount },
-            nowAmount: 13_000,
-            stale: stale ? { message: "base changed" } : null,
-            note: "CPA override: was X, now $13,000",
-          },
-        },
-      },
-      openItems: ret.openItems.filter((i) => i.id !== "assumptions-no-ct-sales-tax-or-other"),
-      acknowledged: [{ ruleId: "rule:fake" }],
-      decisions: ret.decisions,
-      headline: ret.headline,
+describe("overrides (the real applyOverrides output)", () => {
+  let seq = 0;
+  function row(ret: Ty2025Return, key: (typeof LINE_KEYS)[number], valueCents: number, over: Partial<OverrideRow> = {}): OverrideRow {
+    const l = ret.lines[key];
+    if (!l) throw new Error(`fixture has no ${key}`);
+    seq += 1;
+    return {
+      id: `00000000-0000-4000-8000-${String(7000 + seq).padStart(12, "0")}`,
+      taxYear: 2025,
+      targetKind: "line",
+      targetKey: key,
+      version: 1,
+      valueKind: "money_cents",
+      valueCents,
+      valueText: null,
+      computedSnapshot: lineSnapshot(l, ret.engineVersion),
+      authority: "cpa",
+      reason: "CPA said so",
+      setByName: "Eric Kinniburgh",
+      setAt: new Date("2026-10-12T02:30:00Z"),
+      archivedAt: null,
+      ...over,
     };
-    return { effective, formatNote: (o) => o.note };
   }
+  function withRows(ret: Ty2025Return, rows: OverrideRow[]): AdapterOverrides {
+    return { effective: applyOverrides(ret, rows), formatNote: formatOverrideNote };
+  }
+  const NOTE = "CPA override: was $50,000 computed, now $130,000, by Eric Kinniburgh (per CPA) on 2026-10-11, reason: CPA said so";
 
-  it("pins the override amount, status 'overridden', the note and the cover entry", () => {
+  it("pins the override amount, status 'overridden', the note, the dependents and the cover entry", () => {
     const f = fullFacts();
     const ret = computeTy2025Return(f);
-    const view = toPdfReturnView(ret, f, { ...OPTS, overrides: withOverride(ret, false) });
+    expect(ret.lines["sch1.3"]?.amount).toBe(50_000);
+    const view = toPdfReturnView(ret, f, { ...OPTS, overrides: withRows(ret, [row(ret, "sch1.3", 13_000_000)]) });
     const line = view.lines["sch1.3"];
     expect(line?.status).toBe("overridden");
-    expect(line?.amount).toBe(13_000);
-    expect(line?.override).toEqual({ note: "CPA override: was X, now $13,000", computedAmount: ret.lines["sch1.3"]?.amount ?? null, stale: false });
-    expect(view.overrides).toEqual([
-      { key: "sch1.3", formLabel: "Schedule 1", formLine: "3", note: "CPA override: was X, now $13,000", stale: false },
-    ]);
-    expect(view.acknowledged).toEqual(["rule:fake"]);
-    expect(view.openItems.some((i) => i.id === "assumptions-no-ct-sales-tax-or-other")).toBe(false);
+    expect(line?.amount).toBe(130_000);
+    expect(line?.override).toEqual({ note: NOTE, computedAmount: 50_000, stale: false, supplied: false });
+    expect(view.overrides).toEqual([{ key: "sch1.3", formLabel: "Schedule 1", formLine: "3", note: NOTE, stale: false, supplied: false }]);
+    expect(view.lines["f1040.9"]?.dependsOnOverridden).toEqual(["Schedule 1 line 3"]);
+    expect(view.overrideNotice.totalsNotRecomputed).toBe(true);
+    expect(view.overrideNotice.count).toBe(1);
+    expect(view.overrideNotice.dependents.some((d) => d.key === "f1040.9" && d.dependsOn.includes("Schedule 1 line 3"))).toBe(true);
+    expect(view.overrideNotice.headlineMarks.find((m) => m.label === "Federal AGI")).toMatchObject({ overridden: false, dependsOnOverride: true });
     // The policy writes the override and carries the note as the field tooltip.
     const decision = resolveFieldValue("f1040s1", line, { kind: "money", field: "x", line: "sch1.3" });
-    expect(decision.write).toBe(formatDollars(13_000));
-    expect(decision.tooltip).toBe("CPA override: was X, now $13,000");
+    expect(decision.write).toBe(formatDollars(130_000));
+    expect(decision.tooltip).toBe(NOTE);
     // The base return is untouched and the fingerprint reflects the override.
     expect(ret.lines["sch1.3"]?.status).toBe("computed");
     expect(view.fingerprint).not.toBe(toPdfReturnView(ret, f, OPTS).fingerprint);
   });
 
-  it("flags a stale override and lists it in the cover's stale section", () => {
+  it("without overrides the view carries no marks (and fingerprints exactly as before)", () => {
     const f = fullFacts();
     const ret = computeTy2025Return(f);
-    const view = toPdfReturnView(ret, f, { ...OPTS, overrides: withOverride(ret, true) });
+    const plain = toPdfReturnView(ret, f, OPTS);
+    const empty = toPdfReturnView(ret, f, { ...OPTS, overrides: withRows(ret, []) });
+    expect(plain.overrideNotice).toEqual({ totalsNotRecomputed: false, dependents: [], headlineMarks: [], engineChanged: [], count: 0 });
+    expect(empty.fingerprint).toBe(plain.fingerprint);
+    expect(empty.overrides).toEqual([]);
+    expect(Object.values(empty.lines).every((l) => l?.dependsOnOverridden === undefined && l?.override === undefined)).toBe(true);
+  });
+
+  it("the fingerprint covers the override METADATA: value, reason, authority and version each change it", () => {
+    const f = fullFacts();
+    const ret = computeTy2025Return(f);
+    const fp = (over: Partial<OverrideRow>): string => toPdfReturnView(ret, f, { ...OPTS, overrides: withRows(ret, [row(ret, "sch1.3", 13_000_000, { id: "00000000-0000-4000-8000-0000000000f1", ...over })]) }).fingerprint;
+    const base = fp({});
+    expect(fp({})).toBe(base); // deterministic
+    expect(fp({ valueCents: 13_100_000 })).not.toBe(base);
+    expect(fp({ reason: "A different reason" })).not.toBe(base);
+    expect(fp({ authority: "owner" })).not.toBe(base);
+    expect(fp({ version: 2 })).not.toBe(base);
+  });
+
+  it("flags a stale override (the computed value changed after it was set) and lists it in the cover's stale section", () => {
+    const f = fullFacts();
+    const ret = computeTy2025Return(f);
+    const stale = row(ret, "sch1.3", 13_000_000, { computedSnapshot: { status: "computed", cents: 1_000_000, engineVersion: ret.engineVersion } });
+    const view = toPdfReturnView(ret, f, { ...OPTS, overrides: withRows(ret, [stale]) });
     expect(view.lines["sch1.3"]?.override?.stale).toBe(true);
     expect(view.overrides[0]?.stale).toBe(true);
     const model = buildCoverModel({ view, forms: [], fillItems: [], continuations: [], stamp: true });
     expect(model.blocks.some((b) => b.kind === "heading" && b.text.startsWith("Stale overrides"))).toBe(true);
+  });
+
+  it("a pin on a BLOCKED line prints (is no longer blank), is marked supplied, and its engine item moves to the resolved list", () => {
+    const f = emptyFacts();
+    const ret = computeTy2025Return(f);
+    expect(ret.lines["sch3.1"]?.amount).toBeNull();
+    const view = toPdfReturnView(ret, f, { ...OPTS, overrides: withRows(ret, [row(ret, "sch3.1", 250_000)]) });
+    const line = view.lines["sch3.1"];
+    expect(line).toMatchObject({ status: "overridden", amount: 2500, reason: null });
+    expect(line?.override?.supplied).toBe(true);
+    const decision = resolveFieldValue("f1040s3", line, { kind: "money", field: "x", line: "sch3.1" });
+    expect(decision.write).toBe(formatDollars(2500));
+    expect(decision.items).toEqual([]); // no `line_blank` item for it
+    expect(view.resolvedByOverride.map((r) => r.id)).toEqual(["rule:foreign-tax-credit"]);
+    expect(view.openItems.some((i) => i.id === "rule:foreign-tax-credit")).toBe(false);
+    const model = buildCoverModel({ view, forms: [], fillItems: [], continuations: [], stamp: true });
+    const text = model.blocks.map((b) => (b.kind === "kv" ? `${b.label}: ${b.value}` : b.kind === "spacer" ? "" : b.text)).join("\n");
+    expect(text).toContain("Resolved by CPA override (no longer blocking) (1)");
+    expect(text).toContain("[supplied: the engine had no value for this line]");
+    expect(text).toContain("Totals NOT recomputed for these overrides");
+  });
+
+  it("an acknowledgement and a recorded decision keep their notes (who / when / why)", () => {
+    const f = emptyFacts();
+    const ret = computeTy2025Return(f);
+    const result = ret.results.find((r) => r.ruleId === "foreign-tax-credit");
+    const ack: OverrideRow = {
+      ...row(ret, "sch3.1", 0),
+      targetKind: "rule_ack",
+      targetKey: "foreign-tax-credit",
+      valueKind: "ack",
+      valueCents: null,
+      computedSnapshot: { status: result?.status ?? "missing_input", cents: null, engineVersion: ret.engineVersion },
+    };
+    const view = toPdfReturnView(ret, f, { ...OPTS, overrides: withRows(ret, [ack]) });
+    expect(view.acknowledged).toHaveLength(1);
+    expect(view.acknowledged[0]?.ruleId).toBe("foreign-tax-credit");
+    expect(view.acknowledged[0]?.note).toContain("CPA acknowledged rule foreign-tax-credit");
+    expect(view.acknowledged[0]?.note).toContain("reason: CPA said so");
+    expect(view.overrideNotice.count).toBe(1);
+    expect(view.overrideNotice.totalsNotRecomputed).toBe(false); // an acknowledgement changes no number
   });
 });
 
