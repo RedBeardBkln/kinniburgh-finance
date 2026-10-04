@@ -686,7 +686,7 @@ export function computePrefillSuggestions(input: PrefillInput): PrefillSuggestio
       basis: "planning",
       docValue: "claimed_already",
       chip: "From your Planning answer: the solar credit was already claimed on a prior return",
-      caveats: ["A credit carried forward from that return would still be claimed on the 2025 return: tell the CPA if there is one."],
+      caveats: ["A credit carried forward from that return would still be claimed on the 2025 return: check whether there is one."],
       needsPick: false,
       docIds: [],
       candidates: [],

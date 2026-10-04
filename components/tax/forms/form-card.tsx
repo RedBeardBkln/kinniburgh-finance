@@ -119,7 +119,7 @@ export function FormCard({
           className={`mt-2 rounded-md border px-2 py-1.5 text-xs ${CONCLUSION_CLASS[conclusion.tone]}`}
           data-testid="engine-conclusion"
         >
-          <span className="font-semibold">Engine conclusion (DRAFT, for the CPA): </span>
+          <span className="font-semibold">Engine conclusion (DRAFT): </span>
           {conclusion.text}{" "}
           <Link href={`/tax/forms/${taxYear}/return` as Route} className="underline print:hidden">
             See the review sheet

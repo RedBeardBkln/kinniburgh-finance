@@ -1,5 +1,5 @@
 // Card-level conclusions for the Forms page (Phase 1c). The Forms page keeps its
-// "Needs CPA input" cards and their questionnaire links; where the TY2025 engine now
+// "Needs your input" cards and their questionnaire links; where the TY2025 engine now
 // COMPUTES the card's subject (home office, QBI, Additional Medicare Tax, Form 8889,
 // Form 8880, Form 2210, Schedule 3, Schedule SE, the child / dependent credits) this
 // module turns the engine's verdict into one sentence the card can print, e.g.
@@ -16,6 +16,7 @@ import {
   type Ty2025Return,
 } from "@/lib/tax2025/types";
 import { formatSheetMoney, scheduleCUnanswered } from "@/lib/tax2025-sheet";
+import { ownerWordingDeep } from "@/lib/tax-wording";
 
 export type ConclusionTone = "computed" | "not_required" | "blocked";
 
@@ -66,6 +67,11 @@ function lineVerdict(ret: Ty2025Return, key: LineKey, noun: string, clause: (amo
  * not compute are simply absent.
  */
 export function buildCardConclusions(ret: Ty2025Return): Record<string, CardConclusion> {
+  // Engine reasons are quoted in the verdict text and may still say "the CPA decides": reword at this boundary.
+  return ownerWordingDeep(buildCardConclusionsRaw(ret));
+}
+
+function buildCardConclusionsRaw(ret: Ty2025Return): Record<string, CardConclusion> {
   const out: Record<string, CardConclusion> = {};
 
   out["additional-medicare-tax"] = formVerdict(ret, "f8959", "Form 8959", () => {
@@ -76,7 +82,7 @@ export function buildCardConclusions(ret: Ty2025Return): Record<string, CardConc
 
   out["qbi-deduction"] = formVerdict(ret, "f8995", "Form 8995", () => `Qualified business income deduction ${money(amountOf(ret, "f1040.13a"))} (Form 1040 line 13a).`);
   if (statusOf(ret, "f1040.13a") === "needs_cpa_judgment") {
-    out["qbi-deduction"] = { tone: "blocked", text: `Needs CPA decision (Form 8995 versus 8995-A): ${reasonOf(ret, "f1040.13a")}` };
+    out["qbi-deduction"] = { tone: "blocked", text: `Needs your decision (Form 8995 versus 8995-A): ${reasonOf(ret, "f1040.13a")}` };
   }
 
   out["form-8889"] = formVerdict(ret, "f8889", "Form 8889", () => `HSA deduction ${money(amountOf(ret, "sch1.13"))} (Schedule 1 line 13).`);
@@ -127,7 +133,7 @@ export function buildCardConclusions(ret: Ty2025Return): Record<string, CardConc
   } else if (f4562?.required === false) {
     out["form-4562"] = { tone: "not_required", text: `Computed: Form 4562 not required - ${f4562.reason}` };
   } else {
-    out["form-4562"] = { tone: "blocked", text: `Not computed (CPA decision X2): ${f4562?.reason ?? "the engine has no verdict."}` };
+    out["form-4562"] = { tone: "blocked", text: `Not computed (owner decision X2): ${f4562?.reason ?? "the engine has no verdict."}` };
   }
 
   out["child-dependent-credits"] = lineVerdict(ret, "f1040.19", "the child tax credit and credit for other dependents", () => `${ret.lines["f1040.19"]?.reason ?? "no child or other-dependent credit."}`);

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { clearTaxReturnOverride, setTaxReturnOverride } from "@/actions/tax-return-overrides";
 import { checkLineForm, checkReasonInput, describeActionFailure } from "@/lib/tax2025/override-input";
 import type { OverrideAuthority } from "@/lib/tax2025/overrides";
-import { AuthorityField, BUTTON_PLAIN, BUTTON_PRIMARY, ClearSection, FIELD, HistorySection, ReasonField } from "@/components/tax/forms/override-parts";
+import { AuthorityField, NEW_OVERRIDE_AUTHORITY, BUTTON_PLAIN, BUTTON_PRIMARY, ClearSection, FIELD, HistorySection, ReasonField } from "@/components/tax/forms/override-parts";
 import { ModalShell } from "@/components/tax/forms/modal-shell";
 
 // The override dialog for ONE line of the review sheet. Plain language, no
@@ -32,7 +32,6 @@ export function OverrideDialog({ line, taxYear, onClose }: { line: OverrideDialo
   const amountId = useId();
   const current = line.override;
   const [amountText, setAmountText] = useState(current === null ? "" : String(current.nowAmount));
-  const [authority, setAuthority] = useState<OverrideAuthority>(current?.authority ?? "cpa");
   const [reasonText, setReasonText] = useState("");
   const [clearing, setClearing] = useState(false);
   const [clearReason, setClearReason] = useState("");
@@ -52,7 +51,7 @@ export function OverrideDialog({ line, taxYear, onClose }: { line: OverrideDialo
     setBusy(true);
     setResult(null);
     try {
-      const res = await setTaxReturnOverride({ taxYear, targetKind: "line", targetKey: line.key, valueCents: form.cents, authority, reason: reasonText.trim() });
+      const res = await setTaxReturnOverride({ taxYear, targetKind: "line", targetKey: line.key, valueCents: form.cents, authority: NEW_OVERRIDE_AUTHORITY, reason: reasonText.trim() });
       if (!res.ok) {
         setResult(describeActionFailure(res));
         return;
@@ -101,7 +100,7 @@ export function OverrideDialog({ line, taxYear, onClose }: { line: OverrideDialo
 
         {line.computed.blocked ? (
           <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-            The engine could not work this line out. Entering a value here records your CPA&apos;s figure on this line and in the PDF. It does NOT recompute the
+            The engine could not work this line out. Entering a value here records your own figure on this line and in the PDF. It does NOT recompute the
             totals.
           </p>
         ) : null}
@@ -137,7 +136,7 @@ export function OverrideDialog({ line, taxYear, onClose }: { line: OverrideDialo
           ) : null}
         </div>
 
-        <AuthorityField value={authority} onChange={setAuthority} disabled={busy} />
+        <AuthorityField />
         <ReasonField value={reasonText} onChange={setReasonText} error={form.reasonError} disabled={busy} label="Reason (required)" />
 
         {line.affects.length > 0 ? (

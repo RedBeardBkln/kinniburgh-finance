@@ -55,7 +55,7 @@ const authoritySchema = z.enum(OVERRIDE_AUTHORITIES);
 
 const commonFields = {
   taxYear: yearSchema,
-  authority: authoritySchema.default("cpa"),
+  authority: authoritySchema.default("owner"),
   reason: reasonSchema,
 };
 
@@ -184,7 +184,7 @@ export async function setTaxReturnOverride(input: z.input<typeof setSchema>): Pr
     const result = base.results.find((r) => r.ruleId === v.targetKey);
     if (!result) return { ok: false, error: "That rule is not on the computed return." };
     if (!isAckableStatus(result.status)) {
-      return { ok: false, error: "Only a rule that needs CPA input or is missing an input can be acknowledged." };
+      return { ok: false, error: "Only a rule that needs your input or decision, or is missing an input, can be acknowledged." };
     }
     valueKind = "ack";
     snapshot = ruleSnapshot(result.status, engineVersion);

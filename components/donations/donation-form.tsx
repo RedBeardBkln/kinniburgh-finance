@@ -401,7 +401,7 @@ export function DonationForm({
         )}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Log one entry per gift. Drafts for your CPA - not tax advice; whether a gift is deductible is your CPA&apos;s call.
+        Log one entry per gift. Drafts for you to review - not tax advice; whether a gift is deductible is your decision.
       </p>
     </form>
   );

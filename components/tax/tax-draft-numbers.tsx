@@ -10,7 +10,7 @@ import { DRAFT_LABEL, type BalanceLabel, type SerializedTaxDraft } from "@/lib/t
 // client-rendered — see plan Risks item 7).
 //
 // Ground rule 8 (CLAUDE.md): every dollar figure here is a draft, pre-credit
-// estimate for CPA review, never a filed number nor financial/tax advice —
+// estimate for the owner's review, never a filed number nor financial/tax advice —
 // enforced visually via the persistent DRAFT_LABEL badge (never a
 // hover-only tooltip) plus per-section "before credits"/"upper bound" framing
 // in row labels, not solely in the footer disclaimer below.
@@ -61,7 +61,7 @@ export function TaxDraftNumbers({
         </div>
         <p className="text-xs text-muted-foreground">
           Computed from your real uploaded documents, paystubs, and answers. Read the caveats below
-          before treating any figure here as final — nothing on this card has been reviewed by a CPA.
+          before treating any figure here as final — nothing on this card has been professionally reviewed.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -198,7 +198,7 @@ export function TaxDraftNumbers({
         )}
 
         <p className="border-t pt-3 text-xs text-muted-foreground">
-          These are draft, pre-credit numbers for your CPA to review — not a filed return, not tax advice.
+          These are draft, pre-credit numbers for you to review — not a filed return, not tax advice.
         </p>
       </CardContent>
     </Card>

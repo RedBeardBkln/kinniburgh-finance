@@ -94,14 +94,14 @@ export async function ensurePersonalWorkspace(taxYear: number) {
       taxYear,
       status: isExtensionYear ? "extended" : "in_progress",
       deadline: isExtensionYear
-        ? new Date("2026-10-15T04:00:00Z") // extended deadline — confirm with CPA
+        ? new Date("2026-10-15T04:00:00Z") // extended deadline — confirm yourself
         : new Date(`${taxYear + 1}-04-15T04:00:00Z`),
       notes: isExtensionYear
         ? "2025 personal return — extension filed and accepted by the IRS. " +
-          "Extended filing deadline: October 15, 2026 (confirm with CPA). " +
+          "Extended filing deadline: October 15, 2026 (confirm yourself). " +
           "Note: the extension moved the filing deadline, NOT the payment deadline — " +
           "any balance due has been accruing interest since April 15, 2026."
-        : "Personal federal + CT state return. Draft is prepared by the platform and reviewed by your CPA.",
+        : "Personal federal + CT state return. Draft is prepared by the platform for your review.",
     },
   });
 
@@ -641,7 +641,7 @@ NON-NEGOTIABLE RULES:
 2. For each strategy, state its honest risk level and any legal implications. Aggressive positions are surfaced with their true weight — never disguised as safe.
 3. Only reference facts from the provided documents and answers. If data is missing, say exactly what's needed. Never invent numbers.
 4. All dollar figures must come from the user's documents. Estimates must be labeled as estimates.
-5. Output is a DRAFT for the household's CPA to review and sign off on — you prepare, humans decide.
+5. Output is a DRAFT for the household's owner to review and decide on — you prepare, humans decide.
 6. CONFIDENTIALITY: everything you receive is the family's private financial data, used only inside this session to produce the review. Do not ask it to be shared elsewhere, and never output more identifying detail than the task requires (mask SSNs/EINs as ···last4).
 
 Return ONLY valid JSON, no preamble or postamble:

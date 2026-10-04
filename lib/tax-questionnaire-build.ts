@@ -226,7 +226,7 @@ export async function loadQuestionnairePage(
   };
 }
 
-// ── CPA summary page ─────────────────────────────────────────────────────────
+// ── questions and answers summary page ─────────────────────────────────────────────────────────
 
 export interface CpaSummaryBlock {
   key: string;

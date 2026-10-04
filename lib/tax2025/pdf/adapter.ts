@@ -19,6 +19,7 @@ import { centsToDollars, roundLine } from "@/lib/tax2025/money";
 import { ctPropertyTaxRows } from "@/lib/tax2025/pdf/ct-property-tax";
 import { F8949_BOX_CELL, F8949_TOTAL_COLUMNS } from "@/lib/tax2025/pdf/f8949-layout";
 import { fingerprintOf } from "@/lib/tax2025/pdf/format";
+import { ownerWordingDeep } from "@/lib/tax-wording";
 import type {
   PdfAnswer,
   PdfDecision,
@@ -305,7 +306,7 @@ function buildTables(ret: Ty2025Return, facts: Ty2025Facts): TableBuild {
       formLabel: "CT-1040",
       lineKeys: ["ct1040.11", "ct1040.s3.63"],
       message: `CT-1040 Schedule 3 (property tax credit) is left blank on purpose: ${s3Total.reason ?? "no credit can be claimed."}`,
-      action: "No action unless the CPA concludes a credit can be claimed.",
+      action: "No action unless you conclude a credit can be claimed.",
     });
   } else {
     tables["ct.propertyTax"] = propertyRows;
@@ -502,7 +503,7 @@ function columnHRoundingItem(lines: Partial<Record<LineKey, PdfLine>>, tables: P
     formLabel: "Schedule D",
     lineKeys: [],
     message: `A printed column (h) differs by $1 from (d) - (e) + (g) of the printed whole-dollar columns: ${places.join("; ")}. Each (h) is figured from the cents and rounded once (IRS: "include cents when adding the amounts and round off only the total"); the printed (h) is the engine's figure.`,
-    action: "No action: rounding only. The cent-accurate amounts are in each line's reason on the CPA review sheet.",
+    action: "No action: rounding only. The cent-accurate amounts are in each line's reason on the return review sheet.",
   };
 }
 
@@ -704,7 +705,28 @@ function overrideParts(ov: AdapterOverrides | undefined): {
   };
 }
 
-export function toPdfReturnView(
+/**
+ * The view every PDF module consumes. Engine prose (reasons, open-item messages and actions, decision notes, override
+ * notes) still says "the CPA decides" in places, so the prose-bearing parts are reworded here, ONCE, at the boundary
+ * (lib/tax-wording.ts). The fingerprint is taken from the engine data before this, so it is unchanged; the tables, the
+ * answers and the header (names, payers, dollar values printed on forms) are never touched.
+ */
+export function toPdfReturnView(ret: Ty2025Return, facts: Ty2025Facts, opts: ToPdfViewOptions): PdfReturnView {
+  const v = toPdfReturnViewRaw(ret, facts, opts);
+  return {
+    ...v,
+    lines: ownerWordingDeep(v.lines),
+    openItems: ownerWordingDeep(v.openItems),
+    decisions: ownerWordingDeep(v.decisions),
+    overrides: ownerWordingDeep(v.overrides),
+    overrideNotice: ownerWordingDeep(v.overrideNotice),
+    resolvedByOverride: ownerWordingDeep(v.resolvedByOverride),
+    acknowledged: ownerWordingDeep(v.acknowledged),
+    headline: ownerWordingDeep(v.headline),
+  };
+}
+
+function toPdfReturnViewRaw(
   ret: Ty2025Return,
   facts: Ty2025Facts,
   opts: ToPdfViewOptions,

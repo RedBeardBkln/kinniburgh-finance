@@ -188,7 +188,7 @@ describe("receiptFlags - goods and services (CPA flag, no arithmetic)", () => {
     const f = receiptFlags(reading({ noGoodsOrServicesStated: false, benefitStatement: "Dinner for two" }));
     expect(f.find((x) => x.code === "receipt_goods_services")).toMatchObject({ level: "cpa" });
     expect(f[0]!.message).toContain("Dinner for two");
-    expect(f[0]!.message).toMatch(/your CPA decides/);
+    expect(f[0]!.message).toMatch(/you decide/);
   });
 
   it("explicit 'provided' with no description still flags, saying there is no description", () => {
@@ -235,7 +235,7 @@ describe("receiptFlags - goods and services (CPA flag, no arithmetic)", () => {
     expect(flag!.message).toMatch(/entirely intangible religious benefits/);
     expect(flag!.message).toMatch(/No record yet/);
     expect(flag!.message).toMatch(/complete acknowledgment/);
-    expect(flag!.message).toMatch(/your CPA/);
+    expect(flag!.message).toMatch(/a tax professional/);
     // Still no arithmetic or dollar figure.
     expect(flag!.message).not.toMatch(/\$\d/);
   });

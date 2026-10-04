@@ -140,9 +140,9 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
           <h1 className="text-2xl font-semibold">Personal Taxes — {year}</h1>
           <p className="text-sm text-muted-foreground">
             {isExtensionYear
-              ? "Extension filed & accepted by the IRS — extended deadline October 15, 2026 (confirm with CPA)."
+              ? "Extension filed & accepted by the IRS — extended deadline October 15, 2026 (confirm yourself)."
               : "Federal + CT state return."}{" "}
-            All outputs are drafts for your CPA to review.
+            All outputs are drafts for you to review.
           </p>
         </div>
 

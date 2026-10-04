@@ -73,8 +73,30 @@ export interface PacketResult {
   coverPageCount: number;
 }
 
-export async function buildPacket(view: PdfReturnView, options: PacketOptions): Promise<PacketResult> {
-  const stamp = options.stamp ?? true;
+export interface FilledPacketForms {
+  forms: CoverForm[];
+  files: PacketFile[];
+  openItems: PacketOpenItem[];
+  continuations: ContinuationList[];
+}
+
+export interface FillPacketOptions {
+  maps: readonly FormMap[];
+  /** Per-page DRAFT footer. Ignored (always off) when `final` is set. */
+  stamp: boolean;
+  /** FINAL clean forms (fill.ts `final`): no stamp, no draft/override tooltip notes, neutral document properties. */
+  final: boolean;
+  /** Folder for the form files inside the zip ("" for the draft packet, "forms/" for the final package). */
+  folder: string;
+}
+
+/**
+ * Fill every form the inclusion rule selects, in IRS attachment order. Shared by the DRAFT packet and the final package so
+ * both file the same forms with the same field values; only the stamp, the tooltips, the document properties and the
+ * file locations differ.
+ */
+export async function fillPacketForms(view: PdfReturnView, options: FillPacketOptions): Promise<FilledPacketForms> {
+  const stamp = options.final ? false : options.stamp;
   const fp12 = shortFingerprint(view.fingerprint);
   const stampDate = formatNewYorkDate(view.generatedAt);
   const ordered = orderMaps(options.maps);
@@ -95,7 +117,7 @@ export async function buildPacket(view: PdfReturnView, options: PacketOptions): 
     // A form filed in several copies (Form 8949) yields one file per copy; every other form exactly one.
     let filled: Awaited<ReturnType<typeof fillFormCopies>>;
     try {
-      filled = await fillFormCopies(map.formId, view, map, { stamp, fingerprint: fp12, stampDate });
+      filled = await fillFormCopies(map.formId, view, map, { stamp, fingerprint: fp12, stampDate, final: options.final });
     } catch (err) {
       // A defect in a copy builder (e.g. a row whose box is not a box of its Part) must not take the whole packet down
       // or hide: the form is left out and a BLOCKING item says so. Only the error class is shown (messages can quote values).
@@ -105,7 +127,7 @@ export async function buildPacket(view: PdfReturnView, options: PacketOptions): 
         severity: "blocking",
         source: "fill",
         formId: map.formId,
-        message: `${entry.title} could not be built (${err instanceof Error ? err.name : "unknown error"}) and is NOT in this packet; the CPA prepares it.`,
+        message: `${entry.title} could not be built (${err instanceof Error ? err.name : "unknown error"}) and is NOT in this packet; prepare it outside this app.`,
       });
       forms.push({ formId: map.formId, title: entry.title, included: false, reason: "it could not be built (see the blocking item)", blankByDesign: {} });
       continue;
@@ -116,11 +138,9 @@ export async function buildPacket(view: PdfReturnView, options: PacketOptions): 
     for (const { copy, result } of filled) {
       n += 1;
       const prefix = String(n).padStart(2, "0");
-      const name = isCt(map.formId)
-        ? `ct/${map.formId}.pdf`
-        : copy === null
-          ? `${prefix}-${map.formId}.pdf`
-          : `${prefix}-${map.formId}-${copy.suffix}.pdf`;
+      const name = `${options.folder}${
+        isCt(map.formId) ? `ct/${map.formId}.pdf` : copy === null ? `${prefix}-${map.formId}.pdf` : `${prefix}-${map.formId}-${copy.suffix}.pdf`
+      }`;
       files.push({ name, formId: map.formId, bytes: result.bytes });
       if (copy !== null) copyLines.push(`${name}: ${copy.label}`);
       for (const item of result.openItems) if (!itemById.has(item.id)) itemById.set(item.id, item);
@@ -140,7 +160,12 @@ export async function buildPacket(view: PdfReturnView, options: PacketOptions): 
     });
   }
 
-  const openItems = [...itemById.values()];
+  return { forms, files, openItems: [...itemById.values()], continuations };
+}
+
+export async function buildPacket(view: PdfReturnView, options: PacketOptions): Promise<PacketResult> {
+  const stamp = options.stamp ?? true;
+  const { forms, files, openItems, continuations } = await fillPacketForms(view, { maps: options.maps, stamp, final: false, folder: "" });
   const model = buildCoverModel({ view, forms, fillItems: openItems, continuations, stamp, missingForms: requiredFormsWithoutPdf(view) });
   const cover = await renderCover(model);
   if (model.redactedCount > 0) {

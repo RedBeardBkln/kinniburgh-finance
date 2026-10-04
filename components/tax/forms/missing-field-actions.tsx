@@ -268,7 +268,7 @@ function FixedAssetDialog({ fix, onClose }: { fix: FixedAssetFix; onClose: () =>
   return (
     <Shell title={`Add a ${fix.entityLabel} asset`} onClose={onClose}>
       <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-        {fix.hint.replace(/\.$/, "")}. Saved to the fixed-asset register for your CPA to review; nothing here computes depreciation.{" "}
+        {fix.hint.replace(/\.$/, "")}. Saved to the fixed-asset register for you to review; nothing here computes depreciation.{" "}
         <Link href={fix.listHref as Route} className="text-primary hover:underline">
           Open the full register →
         </Link>

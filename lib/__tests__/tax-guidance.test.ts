@@ -122,7 +122,7 @@ describe("formatOpportunityForDisplay", () => {
       caveat: "C",
       forms: [],
     });
-    expect(result.riskLabel).toBe("CPA review required");
+    expect(result.riskLabel).toBe("A professional's review is advised");
   });
 
   it("labels conservative items as well-established", () => {

@@ -134,7 +134,7 @@ export function ReceiptToDonation({ view, personalEntityId, entityLabel }: Recei
         </button>
       )}
       <p className="text-[11px] text-muted-foreground">
-        Nothing is saved until you press the save button in the form. Drafts for your CPA - not tax advice.
+        Nothing is saved until you press the save button in the form. Drafts for you to review - not tax advice.
       </p>
     </div>
   );

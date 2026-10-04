@@ -6,7 +6,7 @@ import { createFixedAsset, updateFixedAsset } from "@/actions/fixed-assets";
 import { uploadTaxFile } from "@/components/tax/tax-document-upload";
 import type { DocumentOption } from "@/lib/donations-build";
 
-// One form for adding AND editing a fixed asset. It RECORDS inputs for the CPA:
+// One form for adding AND editing a fixed asset. It RECORDS inputs for the return:
 // it never computes depreciation, picks a class, or decides Section 179 / bonus,
 // and never shows a building basis. Dollar fields are plain text parsed to cents
 // on the server - never Number()/parseFloat on the client.
@@ -195,7 +195,7 @@ export function FixedAssetForm({
             className={`${INPUT} font-mono`}
           />
           <p className="text-[11px] text-muted-foreground">
-            Enter 0 only if your CPA says the whole cost is building or improvement.
+            Enter 0 only if the whole cost is building or improvement.
           </p>
         </div>
       )}
@@ -284,7 +284,7 @@ export function FixedAssetForm({
         )}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Recorded inputs only - your CPA reviews each entry. This app does not calculate depreciation, choose a MACRS class,
+        Recorded inputs only - you review each entry. This app does not calculate depreciation, choose a MACRS class,
         or decide Section 179 / bonus depreciation.
       </p>
     </form>

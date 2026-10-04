@@ -6,9 +6,9 @@ import { buildTy2025ReturnWithOverrides } from "@/lib/tax2025-overrides-build";
 import { sheetCsvFilename, sheetToCsv } from "@/lib/tax2025-sheet-csv";
 import { loadSheet } from "@/lib/tax2025-sheet-load";
 
-// CSV export of the TY2025 CPA review sheet (Phase 1c). READ-ONLY: it computes the
+// CSV export of the TY2025 return review sheet (Phase 1c). READ-ONLY: it computes the
 // return from existing data (lib/tax2025-build.ts is read-only) and returns the CSV text;
-// nothing is written, stored or sent anywhere. The CSV is a computed DRAFT for the CPA
+// nothing is written, stored or sent anywhere. The CSV is a computed DRAFT for your review
 // (the preparer of record); lines without an amount are exported with an EMPTY amount, never 0.
 
 async function requireAuth(): Promise<{ id: string }> {

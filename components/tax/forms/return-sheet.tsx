@@ -19,13 +19,13 @@ import { OverrideDecisionButton } from "@/components/tax/forms/override-decision
 import { OverrideLineButton } from "@/components/tax/forms/override-line-button";
 import { OverridesPanel } from "@/components/tax/forms/overrides-panel";
 
-// The printable CPA REVIEW SHEET (Phase 1c). A server component: it receives ONLY the
+// The printable RETURN REVIEW SHEET (Phase 1c). A server component: it receives ONLY the
 // plain-JSON SheetModel (built from the engine's Ty2025Return) - no Decimals, no raw
 // extraction data. Six parts, each starting a new printed page (see the #return-sheet
 // block in app/globals.css):
 //   P1 summary   P2 federal lines   P3 Connecticut lines
-//   P4 CPA decisions   P5 open items, conflicts, owner homework   P6 documents + sign-off
-// Everything here is a computed DRAFT; the CPA is the preparer of record. A line without
+//   P4 owner decisions   P5 open items, conflicts, owner homework   P6 documents + sign-off
+// Everything here is a computed DRAFT; the owner is the preparer of record. A line without
 // an amount says "not computed" - it is never printed as 0.
 
 const STATUS_CLASS: Readonly<Record<SheetStatus, string>> = {
@@ -180,7 +180,7 @@ function PartSummary({ model }: { model: SheetModel }) {
         <Counter label="advisory items" value={s.advisoryItemCount} />
         <Counter label="unverified documents counted" value={s.unverifiedDocumentCount} warn />
         <Counter label="derived (inferred) inputs" value={s.derivedInputCount} warn />
-        <Counter label="undecided CPA decisions" value={s.undecidedDecisionCount} warn />
+        <Counter label="undecided owner decisions" value={s.undecidedDecisionCount} warn />
       </div>
       {s.caveats.length > 0 ? (
         <div>
@@ -429,7 +429,7 @@ function PartDecisions({ model }: { model: SheetModel }) {
       <Draft label={model.draftLabel} />
       <div>
         <h2 id="part-4-title" className="text-xl font-semibold">
-          4. CPA decisions
+          4. Owner decisions
         </h2>
         <p className="text-xs text-muted-foreground">
           Until a decision is recorded the engine uses the conservative alternative and marks it &quot;default, undecided&quot;.
@@ -471,7 +471,7 @@ function ItemRow({ item }: { item: SheetOpenItem }) {
       </td>
       <td className="py-1 pr-2 text-sm">{item.message}</td>
       <td className="py-1 pr-2 text-xs">{item.action}</td>
-      <td className="py-1 pr-2 text-xs">{item.who === "owner" ? "owner" : item.who === "derived" ? "computed from other lines" : "CPA"}</td>
+      <td className="py-1 pr-2 text-xs">{item.who === "owner" ? "owner" : item.who === "derived" ? "computed from other lines" : "your decision"}</td>
       <td className="py-1 text-xs">{item.lines.length > 0 ? item.lines.map((l) => l.text).join(", ") : "-"}</td>
     </tr>
   );
@@ -519,7 +519,7 @@ function PartOpenItems({ model }: { model: SheetModel }) {
           <h3 className="text-base font-semibold">Computed from other lines ({derived.length})</h3>
           <p className="text-xs text-muted-foreground">
             These items only wait for figures the engine computes from other lines (taxable income, AGI, Schedule C profit ...). Nobody has to
-            provide them: they resolve when the owner answers the homework items below and the CPA settles the items above.
+            provide them: they resolve when the owner answers the homework items below and you settle the items above.
           </p>
           <ItemTable items={derived} />
         </div>
@@ -576,7 +576,7 @@ function PartDocuments({ model }: { model: SheetModel }) {
       <Draft label={model.draftLabel} />
       <div>
         <h2 id="part-6-title" className="text-xl font-semibold">
-          6. Document index and CPA sign-off checklist
+          6. Document index and sign-off checklist
         </h2>
         <p className="text-xs text-muted-foreground">Which documents fed which lines. Unverified documents are listed first.</p>
       </div>
@@ -630,7 +630,7 @@ function PartDocuments({ model }: { model: SheetModel }) {
       </div>
 
       <div className="break-inside-avoid space-y-1">
-        <h3 className="text-base font-semibold">CPA sign-off checklist</h3>
+        <h3 className="text-base font-semibold">Sign-off checklist</h3>
         <ol className="space-y-1.5 text-sm" data-testid="signoff-checklist">
           {model.checklist.map((c) => (
             <li key={c} className="flex gap-2">
@@ -640,7 +640,7 @@ function PartDocuments({ model }: { model: SheetModel }) {
           ))}
         </ol>
         <p className="pt-3 text-xs text-muted-foreground">
-          Reviewed by: ______________________ Date: ______________ (the CPA is the preparer of record; this sheet is not a filed return).
+          Checked by: ______________________ Date: ______________ (you are the preparer of record; this sheet is not a filed return).
         </p>
       </div>
     </section>

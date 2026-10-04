@@ -2,7 +2,7 @@ import type { SheetOverridesSummary } from "@/lib/tax2025-sheet";
 
 // The overrides panel at the top of the review sheet. A server component: always
 // visible AND printed, so a reader of the printout can never miss that a figure is a
-// recorded CPA / owner override rather than something the engine computed. Plain
+// recorded owner override rather than something the engine computed. Plain
 // strings only (everything comes from the SheetModel).
 
 function List({ title, items, tone }: { title: string; items: string[]; tone?: "warn" }) {
@@ -26,7 +26,7 @@ export function OverridesPanel({ summary }: { summary: SheetOverridesSummary }) 
   if (!any) {
     return (
       <p className="text-xs text-muted-foreground" data-testid="overrides-none">
-        No CPA or owner overrides are in force. Every figure below is the app&apos;s own computation.
+        No overrides are in force. Every figure below is the app&apos;s own computation.
       </p>
     );
   }

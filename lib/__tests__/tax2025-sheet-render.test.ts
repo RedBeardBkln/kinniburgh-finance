@@ -54,14 +54,14 @@ function render(ret: ReturnType<typeof computeTy2025Return>, rows?: OverrideRow[
 }
 
 describe("ReturnSheet render", () => {
-  it("prints the six parts, the DRAFT label and the CPA-is-preparer wording on an all-missing return", () => {
+  it("prints the six parts, the DRAFT label and the owner-is-preparer wording on an all-missing return", () => {
     const html = render(computeTy2025Return(emptyFacts()));
     for (const id of ["part-1", "part-2", "part-3", "part-4", "part-5", "part-6"]) expect(html).toContain(`id="${id}"`);
-    expect(html).toContain("DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record");
+    expect(html).toContain("DRAFT - not a filed return - computed from the inputs shown; the owner is the preparer of record");
     expect(html).toContain("INCOMPLETE:");
     expect(html).toContain("not computed");
     expect(html).toContain("2026-10-03 12:30 EDT");
-    expect(html).toContain("CPA sign-off checklist");
+    expect(html).toContain("Sign-off checklist");
     expect(html).toContain("What Eric and Eva still need to answer or verify");
     // a not-computed wages line shows the status label, never a zero amount
     const row = html.match(/<tr[^>]*data-line-key="f1040\.1a"[\s\S]*?<\/tr>/)?.[0] ?? "";
@@ -81,7 +81,7 @@ describe("ReturnSheet render", () => {
     expect(html).toContain('data-decision="X1"');
     expect(html).toContain("Whole-return effect");
     // the ONE note wording (formatOverrideNote) with the computed value it replaced, who / when (America/New_York) / why
-    expect(html).toContain(`CPA override: was $1,000 computed, now $1,200, by Eric Kinniburgh (per CPA) on 2026-10-05, reason: measured`);
+    expect(html).toContain(`Advisor override: was $1,000 computed, now $1,200, by Eric Kinniburgh (per advisor, recorded earlier) on 2026-10-05, reason: measured`);
     expect(html).toContain('data-testid="override-note"');
     expect(html).toContain('data-testid="overrides-panel"');
     expect(html).toContain("Totals are NOT recomputed");

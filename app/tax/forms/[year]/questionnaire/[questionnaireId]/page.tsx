@@ -77,7 +77,7 @@ export default async function TaxQuestionnairePage({ params, searchParams }: Pag
             )}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Facts for your CPA - not tax advice. Your answers are facts for the CPA; the CPA decides whether a form is
+            Facts for your return - not tax advice. Your answers are facts the return is computed from; you decide whether a form is
             required. A few answers are shared with the Planning screen and are marked.
             {year !== def.sourcesTaxYear &&
               ` IRS references on this page are from the ${def.sourcesTaxYear} instructions; confirm for ${year}.`}
@@ -115,7 +115,7 @@ export default async function TaxQuestionnairePage({ params, searchParams }: Pag
             </Link>
           )}
           <Link href={`/tax/forms/${year}/cpa-summary` as Route} className="rounded-md border px-3 py-2 hover:bg-accent">
-            Open CPA summary
+            Open the questions and answers summary
           </Link>
         </nav>
       </div>

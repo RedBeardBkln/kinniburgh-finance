@@ -195,7 +195,7 @@ export function PrefillPanel(props: PrefillPanelProps) {
           </button>
           {pickButton}
         </div>
-        {!s && <p className="text-xs">Keeping your answer saves it as answered by you; the CPA summary will then no longer cite a document.</p>}
+        {!s && <p className="text-xs">Keeping your answer saves it as answered by you; the questions and answers summary will then no longer cite a document.</p>}
         {picker}
       </section>
     );
@@ -215,7 +215,7 @@ export function PrefillPanel(props: PrefillPanelProps) {
           ) : null}
         </p>
         <p className="text-xs">{s.chip}</p>
-        <p className="text-xs">Your answer stays as you gave it unless you choose to use the document value. The CPA summary shows both.</p>
+        <p className="text-xs">Your answer stays as you gave it unless you choose to use the document value. The questions and answers summary shows both.</p>
         <div className="flex flex-wrap gap-2">
           {s.answers.length > 0 && !s.needsPick && (
             <button type="button" disabled={props.busy} onClick={() => props.onAccept(undefined)} className={BTN_PRIMARY}>

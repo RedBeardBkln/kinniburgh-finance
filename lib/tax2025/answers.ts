@@ -124,7 +124,7 @@ export function parseCompletenessAnswers(
   };
   const leaf = <T>(value: T, id: string, label: string): Sourced<T> => sourced(value, "answer_owner", ref(id, label), noteOf(id));
   const missing = <T>(): Sourced<T> => missingLeaf<T>();
-  const unsure = <T>(id: string, label: string): Sourced<T> => unsureLeaf<T>(ref(id, label), "Not sure - ask the CPA");
+  const unsure = <T>(id: string, label: string): Sourced<T> => unsureLeaf<T>(ref(id, label), "Not sure - I need to look into this");
   /** A "derived" leaf: the value follows from another answer (for example "none" means 0). */
   const implied = <T>(value: T, id: string, label: string): Sourced<T> => sourced(value, "derived", ref(id, label), "follows from the owner's answer");
 

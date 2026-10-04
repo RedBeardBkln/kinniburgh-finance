@@ -378,6 +378,12 @@ export interface FillOptions {
   stampDate: string;
   /** When set (use ALTERNATIVE_STAMP_TEXT), this text is stamped on every page regardless of `stamp`. */
   alternativeLabel?: string;
+  /**
+   * FINAL (clean) form: no page stamp, no override / draft note in the field tooltips, and neutral document properties
+   * (Title = the form title; no Subject, Keywords or Author). Only the final package and `?final=1` set it, and only for
+   * an approved return (lib/tax2025-pdf-route.ts).
+   */
+  final?: boolean;
 }
 
 export interface FillResult {

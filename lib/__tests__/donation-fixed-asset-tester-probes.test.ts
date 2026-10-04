@@ -114,7 +114,7 @@ describe("substantiation boundary probes", () => {
     expect(flagsForYear([row(50001, "noncash", new Date())])).toEqual([]);
     const f = flagsForYear([row(50001)])[0]!;
     expect(f.level).toBe("cpa");
-    expect(f.message).toMatch(/CPA/);
+    expect(f.message).toMatch(/You decide/);
   });
   it("loggedTotals excludes archived and does not compute a deduction", () => {
     expect(loggedTotals([row(100, "cash"), row(200, "noncash"), row(999, "cash", new Date())])).toEqual({ cashCents: 100, noncashCents: 200 });

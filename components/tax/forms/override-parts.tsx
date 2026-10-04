@@ -16,20 +16,17 @@ export const BUTTON_DANGER =
   "min-h-[44px] rounded-md border border-red-300 px-4 py-2 text-sm text-red-800 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0";
 export const FIELD = "w-full rounded-md border bg-background px-3 py-2 text-sm";
 
-export function AuthorityField({ value, onChange, disabled }: { value: OverrideAuthority; onChange: (v: OverrideAuthority) => void; disabled: boolean }) {
-  const name = useId();
+/**
+ * The owner prepares the return and is the only decider, so there is nothing to choose: every override is recorded as
+ * the owner's (authority "owner"). Older rows stored as "cpa" still display as "Advisor (recorded earlier)".
+ */
+export const NEW_OVERRIDE_AUTHORITY: OverrideAuthority = "owner";
+
+export function AuthorityField() {
   return (
-    <fieldset className="space-y-1" disabled={disabled}>
-      <legend className="text-xs font-medium">Who decided this?</legend>
-      <label className="flex min-h-[44px] items-center gap-2 text-sm sm:min-h-0">
-        <input type="radio" name={name} checked={value === "cpa"} onChange={() => onChange("cpa")} />
-        CPA
-      </label>
-      <label className="flex min-h-[44px] items-center gap-2 text-sm sm:min-h-0">
-        <input type="radio" name={name} checked={value === "owner"} onChange={() => onChange("owner")} />
-        Owner (Eric/Eva)
-      </label>
-    </fieldset>
+    <p className="text-xs text-muted-foreground" data-testid="override-authority">
+      Recorded as the owner&apos;s decision (Owner (Eric/Eva)).
+    </p>
   );
 }
 

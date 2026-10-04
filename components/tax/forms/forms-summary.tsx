@@ -24,7 +24,7 @@ export function FormsSummary({ data }: { data: FormsPageData }) {
         <Stat label="Required" value={summary.required} className="border-blue-200 bg-blue-50 text-blue-900" />
         <Stat label="Conditional" value={summary.conditional} className="border-amber-200 bg-amber-50 text-amber-900" />
         <Stat
-          label="Needs CPA input"
+          label="Needs your input"
           value={summary.needsCpaInput}
           className="border-violet-200 bg-violet-50 text-violet-900"
         />
@@ -59,12 +59,12 @@ export function FormsSummary({ data }: { data: FormsPageData }) {
       {draft.status === "not_computed" && (
         <p className="text-xs text-muted-foreground">
           Draft tax numbers exist only for tax year 2025, so for {taxYear} Schedule A is conditional and Schedule SE needs
-          CPA input.
+          your input.
         </p>
       )}
       {draft.status === "available" && (
         <p className="text-xs text-muted-foreground">
-          Schedule A and Schedule SE use the 2025 draft computation (a draft for your CPA, not a filed number).
+          Schedule A and Schedule SE use the 2025 draft computation (a draft for you to review, not a filed number).
         </p>
       )}
 
@@ -121,7 +121,7 @@ export function FormsSummary({ data }: { data: FormsPageData }) {
         <p className="font-medium text-foreground">Next phase: PDF form filling and export</p>
         <p className="mt-0.5">
           Filling the official PDF forms and exporting them is the next phase and is not available yet. The CSV bundle
-          on each business workspace is unchanged. Everything here is a draft for your CPA to review — this is not tax
+          on each business workspace is unchanged. Everything here is a draft for you to review — this is not tax
           advice, and nothing is filed from this page.
         </p>
       </div>

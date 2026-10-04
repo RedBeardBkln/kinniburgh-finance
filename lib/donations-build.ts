@@ -61,7 +61,7 @@ interface LinkedReceiptDoc {
 
 /**
  * Flags from a LINKED donation_receipt's effective reading (the owner's
- * corrections win), so the CPA "goods or services were provided" flag stays
+ * corrections win), so the "goods or services were provided" flag stays
  * visible on the saved gift. Reads only through resolveTaxDocForCompute; empty
  * for any other kind of linked document or when the policy withholds the values.
  */

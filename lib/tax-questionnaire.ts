@@ -173,7 +173,7 @@ export type QuestionnaireStatus =
   | { kind: "answered"; shown: number; unsureCount: number; outcome: Outcome };
 
 export const UNSURE_ID = "unsure";
-export const UNSURE_LABEL = "Not sure - ask the CPA";
+export const UNSURE_LABEL = "Not sure - I need to look into this";
 
 // ── Copy ──────────────────────────────────────────────────────────────────────
 
@@ -585,9 +585,9 @@ export function statusLabel(status: QuestionnaireStatus): string {
 
 /** The single line a card shows under an Answered questionnaire. Never a determination. */
 export const OWNER_LINE: Readonly<Record<Outcome, string>> = {
-  applies: "Owner reports this likely applies - confirm with the CPA.",
-  not_applies: "Owner reports this likely does not apply - confirm with the CPA.",
-  unsure: "Owner is unsure - the CPA decides.",
+  applies: "Owner reports this likely applies - confirm it yourself.",
+  not_applies: "Owner reports this likely does not apply - confirm it yourself.",
+  unsure: "Owner is unsure - decide before filing.",
 };
 
 // ── Allocation helper (a total split into per-kind amounts) ──────────────────

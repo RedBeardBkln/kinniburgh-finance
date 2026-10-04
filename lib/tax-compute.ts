@@ -46,7 +46,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 //     (or SE health insurance, not modeled) — unconditionally true today, so
 //     it's a standing entry in computePersonalTaxReturn's `gaps` array too.
 //
-// Ground rule 8 (CLAUDE.md): this engine's output is a draft estimate for CPA
+// Ground rule 8 (CLAUDE.md): this engine's output is a draft estimate for the owner's
 // review, never a filed number nor financial/tax advice.
 //
 // UPDATE 2026-10-04 (Phase 1a, .claude/pipeline/ty2025-return-engine-v2): the
@@ -329,7 +329,7 @@ export function computeQBIDeduction(input: {
       deduction: new Decimal(0),
       phaseInFraction: null,
       notes: [
-        "above $494,600 MFJ taxable income: W-2 wage/UBIA limitation not modeled — no wages-paid or qualified-property data exists for EK Consulting; deduction stubbed at $0, needs CPA review before relying on it",
+        "above $494,600 MFJ taxable income: W-2 wage/UBIA limitation not modeled — no wages-paid or qualified-property data exists for EK Consulting; deduction stubbed at $0, needs your review before relying on it",
       ],
     };
   }
@@ -346,7 +346,7 @@ export function computeQBIDeduction(input: {
     deduction,
     phaseInFraction,
     notes: [
-      `taxable income is inside the $394,600–$494,600 MFJ QBI phase-in band — deduction uses a documented LINEAR INTERPOLATION simplification (fraction ${phaseInFraction.toString()}), not the true §199A W-2 wage/UBIA formula (no wages-paid/qualified-property data exists for EK Consulting); needs CPA review before relying on it`,
+      `taxable income is inside the $394,600–$494,600 MFJ QBI phase-in band — deduction uses a documented LINEAR INTERPOLATION simplification (fraction ${phaseInFraction.toString()}), not the true §199A W-2 wage/UBIA formula (no wages-paid/qualified-property data exists for EK Consulting); needs your review before relying on it`,
     ],
   };
 }

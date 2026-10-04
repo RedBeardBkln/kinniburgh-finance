@@ -195,8 +195,8 @@ export function receiptFlags(
       code: "receipt_goods_services",
       level: "cpa",
       message:
-        `CPA: the letter says goods or services were provided: "${quoted}". ` +
-        "The deductible part of this gift may be reduced - your CPA decides. " +
+        `Your decision: the letter says goods or services were provided: "${quoted}". ` +
+        "The deductible part of this gift may be reduced - you decide. " +
         "This app does not compute a reduced amount.",
     });
   } else if (reading.noGoodsOrServicesStated === true && reading.benefitStatement !== null) {
@@ -217,7 +217,7 @@ export function receiptFlags(
         (mode === "prefill"
           ? "The record type was left at 'No record yet'; you can still choose written acknowledgment yourself. "
           : "") +
-        "Ask the charity for a complete acknowledgment or confirm with your CPA.",
+        "Ask the charity for a complete acknowledgment or confirm it with a tax professional.",
     });
   }
 
@@ -254,7 +254,7 @@ export function receiptFlags(
         code: "receipt_noncash_value_needed",
         level: "info",
         message:
-          "The letter describes donated goods but does not value them. Enter the fair market value you determine, or ask your CPA.",
+          "The letter describes donated goods but does not value them. Enter the fair market value you determine, or ask a tax professional.",
       });
     }
   }

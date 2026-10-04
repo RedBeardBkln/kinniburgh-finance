@@ -286,7 +286,7 @@ describe("setTaxReturnOverride: writes", () => {
       valueKind: "money_cents",
       valueCents: 1_300_000,
       valueText: null,
-      authority: "cpa",
+      authority: "owner",
       reason: REASON,
       setById: USER,
       setByName: "Eric Kinniburgh",

@@ -1,4 +1,4 @@
-// The CPA REVIEW SHEET view model (Phase 1c): Ty2025Return -> SheetModel.
+// The RETURN REVIEW SHEET view model (Phase 1c): Ty2025Return -> SheetModel.
 //
 // PURE: no DB, no clock (the caller passes `now`), no network. The model is plain
 // JSON (strings, whole-dollar numbers, booleans, null, arrays, objects): no Decimal,
@@ -13,9 +13,12 @@
 //   - blocking open items come first;
 //   - a decision's conservative alternative is marked "default, undecided" until a
 //     decision is recorded;
-//   - the DRAFT wording says the CPA is the preparer of record.
+//   - the DRAFT wording says the owner is the preparer of record (no CPA reviews the return);
+//   - every owner-visible string leaves buildSheetModel through ownerWordingDeep (lib/tax-wording.ts), so engine prose
+//     that still says "the CPA decides" is reworded at this boundary and the identifiers (status, who) stay as they are.
 
 import { allConstants } from "@/lib/tax2025/constants";
+import { ownerWordingDeep } from "@/lib/tax-wording";
 import {
   DECISION_KEYS,
   DECISION_REGISTRY,
@@ -46,21 +49,21 @@ import {
   type Ty2025Return,
 } from "@/lib/tax2025/types";
 
-export const SHEET_DRAFT_LABEL = "DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record";
+export const SHEET_DRAFT_LABEL = "DRAFT - not a filed return - computed from the inputs shown; the owner is the preparer of record";
 
 export const SHEET_SUPPORTED_YEAR = 2025;
 
 // ── Types (all JSON-safe) ─────────────────────────────────────────────────────
 
-/** "overridden": the value on this line is a recorded CPA / owner override, not the engine's. */
+/** "overridden": the value on this line is a recorded owner override, not the engine's. */
 export type SheetStatus = RuleStatus | "informational" | "overridden";
 
 export const SHEET_STATUS_LABELS: Readonly<Record<SheetStatus, string>> = {
   computed: "computed",
   missing_input: "missing input",
   not_yet_computed: "not yet computed",
-  needs_cpa_rule_unverified: "needs CPA (rule unverified)",
-  needs_cpa_judgment: "needs CPA judgment",
+  needs_cpa_rule_unverified: "rule not verified (needs a professional's input or your own research)",
+  needs_cpa_judgment: "needs your decision",
   not_applicable: "not applicable",
   informational: "informational",
   overridden: "override",
@@ -103,7 +106,7 @@ export interface SheetLineOverride {
   id: string;
   version: number;
   authority: OverrideAuthority;
-  /** "CPA" or "Owner (Eric/Eva)". */
+  /** "Advisor (recorded earlier)" or "Owner (Eric/Eva)". */
   authorityLabel: string;
   /** What the engine computed: "$12,345 computed" or "missing input" ... */
   wasText: string;
@@ -119,7 +122,7 @@ export interface SheetLineOverride {
   /** YYYY-MM-DD in America/New_York. */
   atDate: string;
   reason: string;
-  /** The override supplies a value the engine could not produce (missing input / needs CPA / not yet computed). */
+  /** The override supplies a value the engine could not produce (missing input / needs a decision / not yet computed). */
   supplied: boolean;
   stale: boolean;
   staleMessage: string | null;
@@ -250,7 +253,7 @@ export interface SheetOpenItem {
   severity: "blocking" | "advisory";
   message: string;
   action: string;
-  /** Who has to act: the owner (Eric/Eva) or the CPA. */
+  /** Who has to act: the owner's answer ("owner"), the owner's own decision ("cpa": legacy identifier, shown as "your decision"), or nobody ("derived"). */
   who: "owner" | "cpa" | "derived";
   /**
    * What the OWNER has to do (the real root inputs only; derived figures such as taxable income are never asked of the
@@ -398,14 +401,14 @@ export interface BuildSheetInput {
 // ── Static text ───────────────────────────────────────────────────────────────
 
 export const SHEET_CHECKLIST: readonly string[] = [
-  "Review every CPA decision on the decisions page (home office method, depreciation elections, Form 8995 versus 8995-A, Arbor Rd property tax) and record the alternative you choose. The defaults shown are the conservative alternative, not a recommendation.",
+  "Review every decision on the decisions page (home office method, depreciation elections, Form 8995 versus 8995-A, Arbor Rd property tax) and record the alternative you choose. The defaults shown are the conservative alternative, not a recommendation.",
   "Confirm each open item (blocking first) is resolved or knowingly accepted, and read the conflicts list.",
   "Check every figure that rests on an UNVERIFIED AI document read against the source document.",
-  "Confirm Social Security numbers, dates of birth, bank routing and account numbers, signatures and PINs are added by the CPA in his own software. This app never stores them and never fills them in.",
+  "Confirm Social Security numbers, dates of birth, bank routing and account numbers, signatures and PINs are added by you on the printed forms. This app never stores them and never fills them in.",
   "Confirm prior-year carryforwards from the 2024 return (Form 5695 clean energy credit, qualified business loss, capital loss, charitable and any other carryover). None are assumed.",
   "Confirm the federal and Connecticut estimated-payment dates and amounts against IRS and CT DRS records.",
-  "Confirm every line marked needs CPA (rule unverified) or needs CPA judgment, and the constants cited for each computed line.",
-  "E-file authorization (Form 8879 / CT-8879), signing and filing are the CPA's. Nothing on this sheet has been filed.",
+  "Confirm every line marked rule not verified or needs your decision, and the constants cited for each computed line.",
+  "Signing and filing are yours: you add the signatures, PINs and any e-file authorization form yourself. Nothing on this sheet has been filed.",
 ];
 
 const ID_TO_FORM: Readonly<Record<string, FormId>> = {
@@ -454,7 +457,7 @@ const BASIS_LABELS: Readonly<Record<string, string>> = {
   doc_verified: "verified document",
   doc_unverified: "UNVERIFIED document read",
   answer_owner: "owner answer",
-  answer_cpa: "CPA answer",
+  answer_cpa: "advisor answer (recorded earlier)",
   books: "books",
   derived: "derived",
   override: "override",
@@ -648,11 +651,11 @@ function toSheetLine(
   return {
     ...common,
     status: "overridden",
-    statusLabel: `${ov.authorityLabel === "CPA" ? "CPA" : "Owner"} override${ov.stale ? " (STALE)" : ""}`,
+    statusLabel: `${ov.authority === "cpa" ? "Advisor" : "Owner"} override${ov.stale ? " (STALE)" : ""}`,
     amount: ov.nowAmount,
     amountText: formatSheetMoney(ov.nowAmount),
     reason: null,
-    chips: [{ kind: "override", label: `${ov.authorityLabel === "CPA" ? "CPA" : "Owner"} override by ${ov.by} on ${ov.atDate}`, href: null }],
+    chips: [{ kind: "override", label: `${ov.authority === "cpa" ? "Advisor" : "Owner"} override by ${ov.by} on ${ov.atDate}`, href: null }],
     override: ov,
   };
 }
@@ -798,8 +801,8 @@ const KNOWN_DECISIONS: readonly { id: string; label: string; notRaised: (ret: Ty
     notRaised: (ret) => {
       const open = scheduleCUnanswered(ret).fixedAssets;
       return open !== null
-        ? `Not decided: the ${open} has not been answered, so it is not known whether depreciation elections arise. The engine does not compute these alternatives yet; the CPA decides.`
-        : `The engine does not compute these alternatives yet; the CPA decides. ${ret.formsRequired.f4562?.reason ?? ""}`.trim();
+        ? `Not decided: the ${open} has not been answered, so it is not known whether depreciation elections arise. The engine does not compute these alternatives yet; you decide.`
+        : `The engine does not compute these alternatives yet; you decide. ${ret.formsRequired.f4562?.reason ?? ""}`.trim();
     },
   },
   {
@@ -844,7 +847,7 @@ export interface OpenItemRouting {
 }
 
 /**
- * Who has to act on an open item: the owner (a real fact: an answer, a verification, an upload), the CPA, or nobody
+ * Who has to act on an open item: the owner (a real fact: an answer, a verification, an upload), the owner's own decision ("cpa", a legacy identifier), or nobody
  * ("derived": the item only waits for figures computed from other lines, which resolve when the owner answers the root items).
  */
 export function routeOpenItem(item: Pick<OpenItem, "id" | "action">): OpenItemRouting {
@@ -993,7 +996,7 @@ function headlineRow(
 }
 
 export const SHEET_TOTALS_NOT_RECOMPUTED =
-  "Totals are NOT recomputed for the overrides listed; the CPA figures them. Lines that depend on an override are flagged.";
+  "Totals are NOT recomputed for the overrides listed; you figure them out. Lines that depend on an override are flagged.";
 
 function emptyOverridesSummary(): SheetOverridesSummary {
   return {
@@ -1114,13 +1117,18 @@ function buildSummary(ret: Ty2025Return, items: readonly SheetOpenItem[], eff: E
 
 function answerText(a: Ty2025Return["attestations"]["digitalAssets"]): string {
   if (a.status === "missing") return "not answered";
-  if (a.status === "unsure") return "owner is not sure (CPA decides)";
+  if (a.status === "unsure") return "owner is not sure (decide before filing)";
   return a.value === true ? "Yes" : "No";
 }
 
 // ── The builder ───────────────────────────────────────────────────────────────
 
 export function buildSheetModel(input: BuildSheetInput): SheetModel {
+  // Engine prose (rule reasons, item messages and actions) still says "the CPA decides" in places: reword it once here.
+  return ownerWordingDeep(buildSheetModelRaw(input));
+}
+
+function buildSheetModelRaw(input: BuildSheetInput): SheetModel {
   const { ret, now, effective } = input;
   const docs = new Map(input.documents.map((d) => [d.id, d]));
   const undecided = defaultUndecidedLines(ret);

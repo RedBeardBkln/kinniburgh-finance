@@ -6,7 +6,7 @@
 // forms / 24 fields) and overwrites each field's `haveData` from real
 // household data. It never computes an actual filled-in tax return, AGI, or
 // liability figure — only a boolean data-availability signal per field
-// (CLAUDE.md ground rule 8: drafts for a CPA, not tax advice).
+// (CLAUDE.md ground rule 8: drafts for a tax professional, not tax advice).
 //
 // Pass 3 (document-extraction-status-and-review) adds `computePersonalFormPlanBasis`:
 // the SAME predicates, but reporting where each line's data comes from

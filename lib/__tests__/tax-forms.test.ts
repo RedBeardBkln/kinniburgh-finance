@@ -329,7 +329,7 @@ describe("Sudden Valley and Mezzo", () => {
   it("Schedule E carries the 2025-renovation CPA note in Sudden Valley's first year (2026) only", () => {
     const e2026 = find(buildFormsPageData(input({ taxYear: 2026 })), "schedule-e");
     expect(e2026.cpaNote).toMatch(/2025 renovation/);
-    expect(e2026.cpaNote).toMatch(/CPA question/);
+    expect(e2026.cpaNote).toMatch(/question for you or a tax professional/);
     // It frames a question for the CPA; it does not claim a deduction amount or decide the treatment.
     expect(e2026.cpaNote).not.toMatch(/\$\d/);
     // A later year is not the first year, so no note.
@@ -351,7 +351,7 @@ describe("Sudden Valley and Mezzo", () => {
     const e = find(buildFormsPageData(input({ taxYear: 2026 })), "schedule-e");
     expect(e.applicability).toBe("required");
     expect(e.confirmWithCpa).toBe(true);
-    expect(e.reason).toMatch(/confirm with CPA/i);
+    expect(e.reason).toMatch(/confirm with a tax professional if unsure/i);
   });
 
   it("drops the classification caveat only when the entity record says disregarded", () => {
@@ -645,7 +645,7 @@ describe("donation log and fixed-asset lines flow into form readiness", () => {
   it("Form 4562 copy no longer claims nothing is recorded, and says the CPA decides", () => {
     const f4562 = find(buildFormsPageData(input({ taxYear: 2026 })), "form-4562");
     expect(f4562.reason).not.toMatch(/no purchase price/i);
-    expect(f4562.reason).toMatch(/CPA/);
+    expect(f4562.reason).toMatch(/your decision/);
     expect(f4562.reason).toMatch(/does not compute depreciation/);
   });
 

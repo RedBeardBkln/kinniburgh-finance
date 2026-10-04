@@ -125,7 +125,7 @@ export default async function TaxPage() {
             <p className="text-sm text-muted-foreground">
               Filing workspaces organized by tax year — one per entity. Financial
               data, documents, and drafts all live in one place. Confirm all
-              deadlines with your CPA — this is not tax advice.
+              deadlines at irs.gov and the CT DRS site — this is not tax advice.
             </p>
           </div>
           <AddPriorYearForm entities={allEntities} />

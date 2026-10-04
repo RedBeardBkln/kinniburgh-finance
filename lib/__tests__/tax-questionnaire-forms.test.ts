@@ -312,7 +312,7 @@ describe("Forms strip / questionnaire page copy does not over-claim", () => {
   it("questionnaire page does not say nothing decides a form, and names the shared answers", () => {
     const src = read("app/tax/forms/[year]/questionnaire/[questionnaireId]/page.tsx");
     expect(src).not.toContain("Nothing here decides whether a form is required");
-    expect(src).toContain("the CPA decides whether a form is required");
+    expect(src).toContain("you decide whether a form is required");
     expect(src).toContain("A few answers are shared with the Planning screen and are marked.");
   });
 

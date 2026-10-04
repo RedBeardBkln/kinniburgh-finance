@@ -34,10 +34,10 @@ import {
 } from "@/lib/tax-questionnaire";
 import { SOURCES } from "@/lib/tax-questionnaire-content";
 
-// The guided questionnaire for one "Needs CPA input" card. Branching, status and
+// The guided questionnaire for one "Needs your input" card. Branching, status and
 // the summary panel are computed with the SAME pure functions the server uses
 // (lib/tax-questionnaire.ts), so the page can never show a different follow-up
-// set than the server will accept. Facts for the CPA - not tax advice. No modal
+// set than the server will accept. Facts for your return - not tax advice. No modal
 // and no window.confirm: confirmations are inline steps.
 
 const BTN =
@@ -341,7 +341,7 @@ export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
             <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
           </div>
           <p className="text-xs text-muted-foreground">
-            More questions can appear as you answer. Every question has a &quot;Not sure&quot; choice - the CPA decides.
+            More questions can appear as you answer. Every question has a &quot;Not sure&quot; choice - you decide before filing.
           </p>
         </div>
 
@@ -560,7 +560,7 @@ export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
 
         <section className="space-y-2 rounded-lg border bg-card p-4">
           <label htmlFor="cpa-note" className="text-sm font-semibold">
-            Note for the CPA
+            Note
           </label>
           <textarea
             id="cpa-note"
@@ -637,7 +637,7 @@ export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
         {summary.openQuestions.length > 0 && (
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
-              Open questions for the CPA
+              Open questions
             </h3>
             <ul className="mt-1 list-disc space-y-1 pl-4 text-sm">
               {summary.openQuestions.map((q) => (

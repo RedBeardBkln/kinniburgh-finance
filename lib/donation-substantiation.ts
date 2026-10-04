@@ -97,7 +97,7 @@ export function flagsForYear(donations: readonly YearDonationInput[]): DonationF
         code: "noncash_over_500_form_8283",
         level: "cpa",
         message:
-          "CPA: Form 8283 may be required - non-cash gifts logged for this year total more than $500. Your CPA decides (items over $5,000 can also need an appraisal).",
+          "Your decision: Form 8283 may be required - non-cash gifts logged for this year total more than $500. You decide (items over $5,000 can also need an appraisal).",
       },
     ];
   }

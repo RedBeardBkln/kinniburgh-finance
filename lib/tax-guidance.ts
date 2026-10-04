@@ -5,7 +5,7 @@
 // through every DEDUCTION, CREDIT, and election the tax law legitimately allows.
 // Opportunities are graded conservatively; anything aggressive is labeled with
 // its honest legal risk rather than presented as safe. The system drafts and
-// advises; it never fabricates facts. Outputs are prep material for the CPA.
+// advises; it never fabricates facts. Outputs are prep material for the owner.
 
 // ── Question bank ─────────────────────────────────────────────────────────────
 
@@ -75,7 +75,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
       {
         value: "none",
         label: "No dependents",
-        note: "No dependent-related credits this year. If your situation changes (a child or an elderly parent you support), tell your CPA — a qualifying dependent can be worth $500–$2,200 in credits, and support records you keep now make the claim easy to substantiate later.",
+        note: "No dependent-related credits this year. If your situation changes (a child or an elderly parent you support), update your answers — a qualifying dependent can be worth $500–$2,200 in credits, and support records you keep now make the claim easy to substantiate later.",
       },
       {
         value: "children",
@@ -95,7 +95,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
     category: "deductions",
     question: "Do you expect your itemized deductions to exceed your standard deduction?",
     context:
-      "You get the standard deduction automatically (2025: $31,500 married-filing-jointly, $15,750 single, plus an additional amount for each spouse born before January 2, 1961 or blind; your CPA confirms the exact figure). Itemizing only pays when mortgage interest, state/local taxes (SALT, capped at $40,000 for 2025 and reduced for incomes above $500,000), charitable gifts, and medical expenses over 7.5% of income add up to more. Itemizing is completely legitimate either way — you simply claim whichever is larger, never both.",
+      "You get the standard deduction automatically (2025: $31,500 married-filing-jointly, $15,750 single, plus an additional amount for each spouse born before January 2, 1961 or blind; you confirm the exact figure). Itemizing only pays when mortgage interest, state/local taxes (SALT, capped at $40,000 for 2025 and reduced for incomes above $500,000), charitable gifts, and medical expenses over 7.5% of income add up to more. Itemizing is completely legitimate either way — you simply claim whichever is larger, never both.",
     options: [
       {
         value: "itemize",
@@ -185,7 +185,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
       {
         value: "unsure",
         label: "Not sure",
-        note: "Worth checking with your CPA — the prior return's Form 5695 shows whether a credit was claimed or carried forward. Claiming it twice is a common error with real penalties, so we verify first.",
+        note: "Worth checking — the prior return's Form 5695 shows whether a credit was claimed or carried forward. Claiming it twice is a common error with real penalties, so we verify first.",
       },
     ],
     unlocks: ["solar_credit_25d"],
@@ -275,7 +275,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
     category: "deductions",
     question: "Did you make any charitable gifts this tax year?",
     context:
-      "Schedule A line 11 reads the donation log. An empty log is not treated as an answer, so the Forms page keeps the line open until you either log your gifts or confirm there were none. This only records what you tell it - whether charitable gifts help your return depends on itemizing and limits your CPA decides.",
+      "Schedule A line 11 reads the donation log. An empty log is not treated as an answer, so the Forms page keeps the line open until you either log your gifts or confirm there were none. This only records what you tell it - whether charitable gifts help your return depends on itemizing and limits you decide.",
     options: [
       {
         value: "none",
@@ -293,7 +293,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
   {
     key: "fixed_assets_ekc",
     category: "deductions",
-    question: "Did EK Consulting place any equipment or other depreciable assets in service (or still hold any) that your CPA should review?",
+    question: "Did EK Consulting place any equipment or other depreciable assets in service (or still hold any) that need a depreciation decision?",
     context:
       "Schedule C line 13 reads the fixed-asset register for EK Consulting. An empty register is not treated as an answer, so the Forms page keeps the line open until you either record an asset or confirm there are none. The app only records cost, date and business-use inputs - it never computes depreciation or chooses a method.",
     options: [
@@ -305,7 +305,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
       {
         value: "some",
         label: "Yes - I'll enter them in the fixed-asset register",
-        note: "The line stays open until at least one EK Consulting asset is recorded. Keep the purchase invoice; your CPA decides depreciation, Section 179 and bonus treatment.",
+        note: "The line stays open until at least one EK Consulting asset is recorded. Keep the purchase invoice; you decide depreciation, Section 179 and bonus treatment.",
       },
     ],
     unlocks: [],
@@ -313,7 +313,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
   {
     key: "fixed_assets_sv",
     category: "deductions",
-    question: "Did Sudden Valley own a building or other depreciable property this tax year that your CPA should review?",
+    question: "Did Sudden Valley own a building or other depreciable property this tax year that needs a depreciation decision?",
     context:
       "Schedule E line 18 reads the fixed-asset register for Sudden Valley and needs the property's purchase price and land value. An empty register is not treated as an answer, so the Forms page keeps the line open until you record the building or confirm there is none. The app records inputs only - it never computes depreciation.",
     options: [
@@ -325,7 +325,7 @@ export const TAX_QUESTION_BANK: TaxQuestionDef[] = [
       {
         value: "some",
         label: "Yes - I'll enter it in the fixed-asset register",
-        note: "The line stays open until a Sudden Valley building with a recorded land value is entered. Keep the closing statement; your CPA decides the depreciation treatment.",
+        note: "The line stays open until a Sudden Valley building with a recorded land value is entered. Keep the closing statement; you decide the depreciation treatment.",
       },
     ],
     unlocks: [],
@@ -410,7 +410,7 @@ export function baseOpportunitiesForHousehold(): TaxOpportunity[] {
       value: "Often the largest rental deduction — potentially shelters most Airbnb income",
       risk: "conservative",
       caveat:
-        "Requires the original purchase price and land allocation — if unavailable, your CPA can use the county assessed land/building split. First-year (2026) Schedule E will include this.",
+        "Requires the original purchase price and land allocation — if unavailable, you can use the county assessed land/building split. First-year (2026) Schedule E will include this.",
       forms: ["Schedule E", "Form 4562"],
     },
     {
@@ -432,7 +432,7 @@ export function baseOpportunitiesForHousehold(): TaxOpportunity[] {
       value: "Potentially $10k–$25k+ of income sheltered per year",
       risk: "aggressive",
       caveat:
-        "This is a real but actively scrutinized strategy. It requires documented material participation (hours matter, 500+ typically) and an honest average-stay figure. The IRS has challenged these positions; a CPA must bless it before filing, and the recordkeeping burden is real. If participation can't be documented, the loss simply suspends and carries forward — still no harm, just no immediate benefit.",
+        "This is a real but actively scrutinized strategy. It requires documented material participation (hours matter, 500+ typically) and an honest average-stay figure. The IRS has challenged these positions; get a professional's opinion on it before filing, and the recordkeeping burden is real. If participation can't be documented, the loss simply suspends and carries forward — still no harm, just no immediate benefit.",
       forms: ["Schedule E", "Form 8582 (or its absence)"],
     },
     {
@@ -490,7 +490,7 @@ export function formatOpportunityForDisplay(op: TaxOpportunity): {
   const riskMap: Record<OpportunityRisk, { label: string; cls: string }> = {
     conservative: { label: "Well-established", cls: "bg-green-50 text-green-700 border-green-200" },
     moderate: { label: "Verify requirements", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-    aggressive: { label: "CPA review required", cls: "bg-red-50 text-red-700 border-red-200" },
+    aggressive: { label: "A professional's review is advised", cls: "bg-red-50 text-red-700 border-red-200" },
   };
   const r = riskMap[op.risk];
   return { title: op.title, riskLabel: r.label, riskClass: r.cls };
@@ -554,7 +554,7 @@ export const PERSONAL_FORM_PLAN: FormPlan[] = [
   {
     formName: "Form 1040 (U.S. Individual Income Tax Return)",
     purpose: "The core federal return — income, deductions, credits, and refund/amount owed.",
-    whereToGet: "IRS.gov/forms — free e-file via Free File or your CPA's software; DO NOT pay for the form itself.",
+    whereToGet: "IRS.gov/forms — free e-file via Free File or your tax software; DO NOT pay for the form itself.",
     fields: [
       { line: "Wages (line 1a)", source: "Sum of W-2 box 1 from uploaded W-2s", haveData: false },
       { line: "Interest income (line 2b)", source: "1099-INT forms (bank/Betterment)", haveData: false },
@@ -610,7 +610,7 @@ export const PERSONAL_FORM_PLAN: FormPlan[] = [
   {
     formName: "CT State Income Tax Return (Form CT-1040)",
     purpose: "Connecticut resident return — CT taxes income but offers pension/IRA subtraction and property tax credits.",
-    whereToGet: "portal.ct.gov/TSC or through your CPA — free to e-file.",
+    whereToGet: "portal.ct.gov/TSC — free to e-file.",
     fields: [
       { line: "CT adjusted gross income", source: "From federal AGI plus CT modifications", haveData: false },
       { line: "Property tax credit", source: "Primary residence property tax bills — upload them and the platform parses them", haveData: false },

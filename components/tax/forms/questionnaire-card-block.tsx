@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { questionnaireHref, statusLabel, type QuestionnaireCardState } from "@/lib/tax-questionnaire";
 
-// The questionnaire strip inside a "Needs CPA input" card: status, the
+// The questionnaire strip inside a "Needs your input" card: status, the
 // owner-reported outcome sentence, and a plain link (works without JS). It never
 // changes the card's badge, reason, applicability or readiness.
 

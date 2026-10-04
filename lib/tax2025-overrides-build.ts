@@ -10,7 +10,7 @@ import {
 } from "@/lib/tax2025/overrides";
 import type { Ty2025Return } from "@/lib/tax2025/types";
 
-// ── DB-aware loader for the TY2025 CPA overrides ─────────────────────────────
+// ── DB-aware loader for the TY2025 owner overrides ─────────────────────────────
 // Lives OUTSIDE lib/tax2025/ on purpose (that tree is pure: no DB, no clock). It is
 // the ONE entry point the review sheet, the CSV and the PDF packet call, so no
 // surface can show the un-overridden return by accident.
@@ -25,7 +25,7 @@ import type { Ty2025Return } from "@/lib/tax2025/types";
 //
 // FAIL-CLOSED (plan D7): if the override rows cannot be read the loader returns an
 // error. It NEVER falls back to the un-overridden return, which would silently drop a
-// CPA instruction.
+// instruction.
 
 /** The household return files under the Personal entity (same lookup as every other tax page and the engine loader). */
 export async function resolvePersonalEntityId(): Promise<string | null> {
@@ -73,7 +73,7 @@ export interface BaseAndActive {
 export type BaseAndActiveResult = BaseAndActive | { error: string };
 
 const ROWS_UNREADABLE =
-  "The recorded CPA overrides could not be read, so the return is not shown (it would silently leave them out). Try again; nothing was changed.";
+  "The recorded owner overrides could not be read, so the return is not shown (it would silently leave them out). Try again; nothing was changed.";
 
 /** Active rows plus the base return computed with their decisions. The set action snapshots lines from `base`. */
 export async function loadBaseAndActive(taxYear: 2025, deps: OverridesBuildDeps = {}): Promise<BaseAndActiveResult> {

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { exportTaxReturnCsv } from "@/actions/tax-return";
 
-// Download of the CPA review sheet as CSV. The server action authenticates, computes
+// Download of the return review sheet as CSV. The server action authenticates, computes
 // the return and returns the CSV text; this leaf only turns it into a file download.
 // No confirm dialog: the export is read-only and changes nothing.
 

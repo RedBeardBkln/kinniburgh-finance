@@ -456,7 +456,7 @@ describe("summary generation", () => {
       "For any month of 2025, was either of you enrolled in Medicare or claimed as someone else's dependent?",
     ]);
     expect(s.note).toBeNull();
-    expect(s.facts.find((f) => f.nodeId === "hs3")).toMatchObject({ answerLabel: "Not sure - ask the CPA", unsure: true });
+    expect(s.facts.find((f) => f.nodeId === "hs3")).toMatchObject({ answerLabel: "Not sure - I need to look into this", unsure: true });
   });
 
   it("entity questionnaire renders the entity name and year placeholders", () => {
@@ -497,7 +497,7 @@ describe("card state, hrefs and stored-answer parsing", () => {
     const state = buildCardState(d, "e1", CTX, row, []);
     expect(state.stale).toBe(true);
     expect(state.status).toMatchObject({ kind: "answered", outcome: "not_applies" });
-    expect(state.ownerLine).toBe("Owner reports this likely does not apply - confirm with the CPA.");
+    expect(state.ownerLine).toBe("Owner reports this likely does not apply - confirm it yourself.");
     expect(state.outcomeText).toBe("Owner reports no HSA-eligible plan, or no contributions or withdrawals.");
     expect(buildCardState(d, "e1", CTX, null, []).status).toEqual({ kind: "not_started" });
     expect(buildCardState(d, "e1", CTX, null, []).stale).toBe(false);
@@ -513,7 +513,7 @@ describe("card state, hrefs and stored-answer parsing", () => {
       taxYear: 2025, entityId: "e1", questionnaireId: "form-8889", definitionVersion: 1,
       answers: { hs1: { v: "unsure", at: T, by: null } }, note: null,
     }, []);
-    expect(s.ownerLine).toBe("Owner is unsure - the CPA decides.");
+    expect(s.ownerLine).toBe("Owner is unsure - decide before filing.");
   });
 
   it("questionnaireHref scopes entity questionnaires with ?entity=", () => {

@@ -422,7 +422,7 @@ export interface ItemizedDocSumResult {
  * ambiguity is structural, not resolved by having more documents) and a
  * different note when the count is 0. 1098 box 10 (box10Cents, often escrowed
  * real-estate taxes) is display-only (plan Q2): it is NEVER added to property
- * tax here (double-count risk against a separate bill; a CPA call).
+ * tax here (double-count risk against a separate bill; your call).
  *
  * property_tax: propertyTaxCents sums the effective `paidInTaxYearCents` of each
  * complete property_tax document for the tax year. That amount is owner-entered
@@ -481,7 +481,7 @@ export function sumItemizedDocInputs(documents: ItemizedDocInput[], taxYear: num
 
   for (const b of box10Docs) {
     notes.push(
-      `1098 from ${b.label} reports box 10 "other" of $${(b.cents / 100).toFixed(2)} — shown for reference only and NOT added to property tax (it is often escrowed real-estate tax that a separate bill may also cover; whether to count it is a CPA decision)`
+      `1098 from ${b.label} reports box 10 "other" of $${(b.cents / 100).toFixed(2)} — shown for reference only and NOT added to property tax (it is often escrowed real-estate tax that a separate bill may also cover; whether to count it is your decision)`
     );
   }
 

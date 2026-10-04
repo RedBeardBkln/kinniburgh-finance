@@ -14,7 +14,7 @@ interface PageProps {
   params: Promise<{ year: string }>;
 }
 
-// The TY2025 CPA REVIEW SHEET: a printable, read-only computed DRAFT (the CPA is the
+// The TY2025 RETURN REVIEW SHEET: a printable, read-only computed DRAFT (the owner is the
 // preparer of record). Auth is checked HERE, before anything is loaded (lib/tax2025-build.ts
 // has no auth of its own), and only the plain-JSON sheet model is handed to the components:
 // never the engine's facts, the resolved inputs or any raw document extraction.
@@ -28,7 +28,7 @@ export default async function TaxReturnSheetPage({ params }: PageProps) {
   const year = Number(yearStr);
   if (!Number.isInteger(year) || year < 2000 || year > 2100) notFound();
 
-  // The ONE loader that applies the recorded CPA overrides (fail-closed: unreadable overrides show an error, never the un-overridden return).
+  // The ONE loader that applies the recorded owner overrides (fail-closed: unreadable overrides show an error, never the un-overridden return).
   const loaded = year === SHEET_SUPPORTED_YEAR ? await loadSheet(year, { build: buildTy2025ReturnWithOverrides }) : null;
 
   return (
@@ -44,7 +44,7 @@ export default async function TaxReturnSheetPage({ params }: PageProps) {
               Forms {year}
             </Link>
             <span>/</span>
-            <span>CPA review sheet</span>
+            <span>Return review sheet</span>
           </div>
           {loaded?.kind === "ok" ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -56,7 +56,7 @@ export default async function TaxReturnSheetPage({ params }: PageProps) {
 
         {loaded === null || loaded.kind === "unsupported_year" ? (
           <div className="space-y-2 rounded-lg border p-4">
-            <h1 className="text-lg font-semibold">CPA review sheet - {year}</h1>
+            <h1 className="text-lg font-semibold">Return review sheet - {year}</h1>
             <p className="text-sm">
               The return engine is TY{SHEET_SUPPORTED_YEAR} only, so there is no review sheet for {year}.
             </p>

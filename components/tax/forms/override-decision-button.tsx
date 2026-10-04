@@ -6,9 +6,9 @@ import { clearTaxReturnOverride, setTaxReturnOverride } from "@/actions/tax-retu
 import { checkDecisionForm, checkReasonInput, describeActionFailure } from "@/lib/tax2025/override-input";
 import type { OverrideAuthority } from "@/lib/tax2025/overrides";
 import { ModalShell } from "@/components/tax/forms/modal-shell";
-import { AuthorityField, BUTTON_PLAIN, BUTTON_PRIMARY, ClearSection, HistorySection, ReasonField } from "@/components/tax/forms/override-parts";
+import { AuthorityField, NEW_OVERRIDE_AUTHORITY, BUTTON_PLAIN, BUTTON_PRIMARY, ClearSection, HistorySection, ReasonField } from "@/components/tax/forms/override-parts";
 
-// "Record this decision" on the CPA-decisions part of the review sheet. Recording a
+// "Record this decision" on the owner-decisions part of the review sheet. Recording a
 // decision is the ONE case where the whole return is recomputed: the choice is fed to
 // the engine, every alternative stays visible side by side, and who / when / why is
 // shown with the decision. Same mechanics as the line dialog (authority, required
@@ -29,7 +29,6 @@ function DecisionDialog({ data, taxYear, onClose }: { data: DecisionDialogData; 
   const radioName = useId();
   const current = data.override;
   const [choice, setChoice] = useState<string | null>(current?.choice ?? null);
-  const [authority, setAuthority] = useState<OverrideAuthority>(current?.authority ?? "cpa");
   const [reasonText, setReasonText] = useState("");
   const [clearing, setClearing] = useState(false);
   const [clearReason, setClearReason] = useState("");
@@ -49,7 +48,7 @@ function DecisionDialog({ data, taxYear, onClose }: { data: DecisionDialogData; 
     setBusy(true);
     setResult(null);
     try {
-      const res = await setTaxReturnOverride({ taxYear, targetKind: "decision", targetKey: data.decisionKey, choice, authority, reason: reasonText.trim() });
+      const res = await setTaxReturnOverride({ taxYear, targetKind: "decision", targetKey: data.decisionKey, choice, authority: NEW_OVERRIDE_AUTHORITY, reason: reasonText.trim() });
       if (!res.ok) {
         setResult(describeActionFailure(res));
         return;
@@ -111,7 +110,7 @@ function DecisionDialog({ data, taxYear, onClose }: { data: DecisionDialogData; 
           </p>
         ) : null}
 
-        <AuthorityField value={authority} onChange={setAuthority} disabled={busy} />
+        <AuthorityField />
         <ReasonField value={reasonText} onChange={setReasonText} error={form.reasonError} disabled={busy} label="Reason (required)" />
 
         <p aria-live="polite" className={`min-h-[1.25rem] text-sm ${result === null ? "" : "text-red-700"}`}>

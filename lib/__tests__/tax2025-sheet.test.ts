@@ -18,6 +18,7 @@ import { applyOverrides, formatOverrideNote, lineSnapshot, type EffectiveReturn,
 import { SHEET_CSV_COLUMNS, csvNumber, csvText, sheetCsvRow, sheetToCsv } from "@/lib/tax2025-sheet-csv";
 import { buildCardConclusions } from "@/lib/tax2025-sheet-conclusions";
 import { loadSheet } from "@/lib/tax2025-sheet-load";
+import { ownerWordingDeep } from "@/lib/tax-wording";
 import { emptyFacts, fullFacts, fullFacts1b, owner } from "@/lib/__tests__/tax2025-fixtures";
 
 const NOW = new Date("2026-10-03T16:30:00Z");
@@ -61,7 +62,7 @@ function pinRow(ret: Ty2025Return, key: (typeof LINE_KEYS)[number], valueCents: 
     computedSnapshot: lineSnapshot(l, ret.engineVersion),
     authority: "cpa",
     reason: "per the 1099 correction",
-    setByName: "the CPA",
+    setByName: "Eric Kinniburgh",
     setAt: new Date("2026-10-05T14:00:00Z"),
     archivedAt: null,
     ...over,
@@ -187,7 +188,7 @@ describe("sheet model: lines", () => {
 describe("sheet model: summary (P1)", () => {
   it("carries the DRAFT label, counts, engine version and an America/New_York timestamp", () => {
     const m = model(empty);
-    expect(m.draftLabel).toBe("DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record");
+    expect(m.draftLabel).toBe("DRAFT - not a filed return - computed from the inputs shown; the owner is the preparer of record");
     expect(SHEET_DRAFT_LABEL).toBe(m.draftLabel);
     expect(m.engineVersion).toBe(empty.engineVersion);
     expect(m.generatedAt).toBe("2026-10-03T16:30:00.000Z");
@@ -196,7 +197,8 @@ describe("sheet model: summary (P1)", () => {
     expect(m.summary.undecidedDecisionCount).toBe(empty.headline.undecidedDecisionCount);
     expect(m.summary.unverifiedDocumentCount).toBe(empty.headline.unverifiedDocumentCount);
     expect(m.summary.derivedInputCount).toBe(empty.headline.derivedInputCount);
-    expect(m.summary.caveats).toEqual(empty.headline.caveats);
+    // Engine prose is reworded once, at the sheet boundary (lib/tax-wording.ts); the caveats are otherwise the engine's.
+    expect(m.summary.caveats).toEqual(ownerWordingDeep(empty.headline.caveats));
   });
 
   it("an incomplete return says INCOMPLETE, never presents provisional figures as computed", () => {
@@ -316,11 +318,11 @@ describe("sheet model: decisions (P4)", () => {
     expect(line30?.defaultUndecided).toMatch(/Home office/);
     expect(line30?.chips.some((c) => c.label.startsWith("default, undecided"))).toBe(true);
 
-    const decided = model(computeTy2025Return(f, { homeOfficeMethod: { chosen: "actual", by: "the CPA", at: "2026-10-05T12:00:00Z" } }));
+    const decided = model(computeTy2025Return(f, { homeOfficeMethod: { chosen: "actual", by: "Eric Kinniburgh", at: "2026-10-05T12:00:00Z" } }));
     const x1 = decided.decisions.find((d) => d.id === "X1");
     expect(x1?.undecided).toBe(false);
     expect(x1?.statusText).toBe("decided");
-    expect(x1?.decidedBy).toBe("the CPA");
+    expect(x1?.decidedBy).toBe("Eric Kinniburgh");
     expect(x1?.alternatives.find((a) => a.id === "actual")?.marker).toBe("chosen");
     expect(x1?.alternatives.find((a) => a.id === "simplified")?.marker).toBe("default");
     expect(allLines(decided).find((l) => l.key === "schc.30")?.defaultUndecided).toBeNull();
@@ -373,14 +375,14 @@ describe("sheet model: provenance, documents and overrides", () => {
     const m = model(golden, { effective: eff });
     const l = allLines(m).find((x) => x.key === "f1040.1a");
     expect(l?.status).toBe("overridden");
-    expect(l?.statusLabel).toBe("CPA override");
+    expect(l?.statusLabel).toBe("Advisor override");
     expect(l?.amount).toBe(150);
     expect(l?.amountText).toBe("$150");
     expect(l?.override).toMatchObject({
       nowAmount: 150,
       computedAmount: was,
-      authorityLabel: "CPA",
-      by: "the CPA",
+      authorityLabel: "Advisor (recorded earlier)",
+      by: "Eric Kinniburgh",
       atDate: "2026-10-05",
       reason: "per the 1099 correction",
       supplied: false,
@@ -409,13 +411,13 @@ describe("sheet model: provenance, documents and overrides", () => {
     const rows = parseCsv(sheetToCsv(m));
     const row = rows.find((r) => r[2] === "f1040.1a");
     expect(row?.[4]).toBe("150"); // amount = the effective amount
-    expect(row?.[5]).toBe("CPA override");
+    expect(row?.[5]).toBe("Advisor override");
     expect(row?.[8]).toBe("150"); // override_amount
-    expect(row?.[9]).toBe("the CPA");
+    expect(row?.[9]).toBe("Eric Kinniburgh");
     expect(row?.[10]).toBe("2026-10-05"); // override_at, YYYY-MM-DD in America/New_York
     expect(row?.[11]).toBe("per the 1099 correction");
     expect(row?.[12]).toBe(String(was)); // computed_amount
-    expect(row?.[13]).toBe("CPA");
+    expect(row?.[13]).toBe("Advisor (recorded earlier)");
     expect(row?.[14]).toBe("1");
     expect(row?.[15]).toBe("no");
     expect(row?.[16]).toBe(l!.override!.note);
@@ -434,7 +436,7 @@ describe("sheet model: provenance, documents and overrides", () => {
     expect(l).toMatchObject({ status: "overridden", amount: 2500, amountText: "$2,500", reason: null });
     expect(l?.override?.supplied).toBe(true);
     expect(l?.computed.blocked).toBe(true);
-    expect(l?.chips).toEqual([{ kind: "override", label: "CPA override by the CPA on 2026-10-05", href: null }]);
+    expect(l?.chips).toEqual([{ kind: "override", label: "Advisor override by Eric Kinniburgh on 2026-10-05", href: null }]);
     expect(m.summary.overrides.resolvedByOverride.map((r) => r.id)).toEqual(["rule:foreign-tax-credit"]);
     expect(m.openItems.some((i) => i.id === "rule:foreign-tax-credit")).toBe(false);
     expect(m.summary.blockingItemCount).toBe(blocked.headline.blockingItemCount - 1);
@@ -449,7 +451,7 @@ describe("sheet model: provenance, documents and overrides", () => {
     expect(joined).toMatch(/Social Security numbers/);
     expect(joined).toMatch(/carryforward/i);
     expect(joined).toMatch(/estimated-payment dates/i);
-    expect(joined).toMatch(/E-file authorization/);
+    expect(joined).toMatch(/e-file authorization form/);
   });
 
   it("resolves citation ids to their source urls", () => {
@@ -493,7 +495,7 @@ describe("CSV export", () => {
     for (const r of rows) expect(r.length).toBe(SHEET_CSV_COLUMNS.length);
     const last = rows[rows.length - 1]!;
     expect(last[0]).toBe("DRAFT NOTICE");
-    expect(last[7]).toContain("the CPA is the preparer of record");
+    expect(last[7]).toContain("the owner is the preparer of record");
     expect(last[7]).not.toContain("override(s) in force");
     // override columns are empty when no override exists
     for (const r of rows.slice(2)) expect(r.slice(8)).toEqual(["", "", "", "", "", "", "", "", "", ""]);
@@ -697,11 +699,11 @@ describe("source checks (page, components, styles)", () => {
     expect(forms).toContain("conclusion={conclusions[entry.id]}");
     expect(forms).toContain("{year === PDF_SUPPORTED_YEAR ? <PdfDownloadButtons year={year} overrideCount={overrideCount} /> : null}");
     // T9b: the Forms page banner says the card figures are the engine's and points at the sheet when overrides are in force
-    expect(forms).toContain("{overrideCount} CPA override(s) are in force. The card figures below are the engine");
+    expect(forms).toContain("{overrideCount} owner override(s) are in force. The card figures below are the engine");
     expect(forms).toContain("data.needsCpaInput.map");
     expect(forms).toContain("<FormsSummary data={data} />");
     const buttons = read("components/tax/forms/pdf-download-buttons.tsx");
     expect(buttons).toContain("`/tax/forms/${year}/return`");
-    expect(buttons).toContain("CPA review sheet");
+    expect(buttons).toContain("Return review sheet");
   });
 });

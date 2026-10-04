@@ -23,8 +23,8 @@ import {
 } from "@/lib/tax-questionnaire";
 import { questionnaireById } from "@/lib/tax-questionnaire-content";
 
-// CPA-input questionnaires (Forms page "Needs CPA input" cards). These actions
-// store owner-reported FACTS for the CPA. The questionnaire row itself never
+// owner-input questionnaires (Forms page "Needs your input" cards). These actions
+// store owner-reported facts for your return. The questionnaire row itself never
 // changes a form's applicability or readiness; the only side effect outside it
 // is writing/clearing the SAME planning answer for the few "bound" questions (one
 // source of truth with the Planning screen), which then moves whatever the

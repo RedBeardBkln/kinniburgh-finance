@@ -146,7 +146,7 @@ export function formatOverrideHistoryRow(r: OverrideHistoryRow): HistoryRowText 
   return {
     title,
     valueText: valueOfRow(r),
-    authorityLabel: r.authority === "cpa" ? "CPA" : "Owner (Eric/Eva)",
+    authorityLabel: r.authority === "cpa" ? "Advisor (recorded earlier)" : "Owner (Eric/Eva)",
     setText: `Set by ${r.setByName} on ${formatOverrideDate(r.setAt)}`,
     reasonText: r.reason,
     clearReasonText: state === "cleared" ? r.archiveReason : null,
