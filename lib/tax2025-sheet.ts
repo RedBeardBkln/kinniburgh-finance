@@ -1,0 +1,815 @@
+// The CPA REVIEW SHEET view model (Phase 1c): Ty2025Return -> SheetModel.
+//
+// PURE: no DB, no clock (the caller passes `now`), no network. The model is plain
+// JSON (strings, whole-dollar numbers, booleans, null, arrays, objects): no Decimal,
+// no undefined, no Date. That is the only shape a server component may hand to a
+// client component, and the CSV export is built from the same model so the page and
+// the CSV can never disagree.
+//
+// Honesty rules the builder enforces (pinned by lib/__tests__/tax2025-sheet.test.ts):
+//   - every line the engine emitted appears exactly once, in catalog order;
+//   - a line without an amount is NEVER rendered as 0: its amount text says
+//     "not computed" and the CSV amount cell is empty;
+//   - blocking open items come first;
+//   - a decision's conservative alternative is marked "default, undecided" until a
+//     decision is recorded;
+//   - the DRAFT wording says the CPA is the preparer of record.
+
+import { allConstants } from "@/lib/tax2025/constants";
+import { formatNewYorkDate, formatNewYorkDateTime } from "@/lib/tax2025/pdf/format";
+import {
+  LINE_KEYS,
+  hasAmount,
+  lineMeta,
+  type FormId,
+  type FormRequirement,
+  type LineKey,
+  type OpenItem,
+  type ReturnLine,
+  type RuleAlternative,
+  type RuleResult,
+  type RuleStatus,
+  type Ty2025Return,
+} from "@/lib/tax2025/types";
+
+export const SHEET_DRAFT_LABEL = "DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record";
+
+export const SHEET_SUPPORTED_YEAR = 2025;
+
+// ── Types (all JSON-safe) ─────────────────────────────────────────────────────
+
+export type SheetStatus = RuleStatus | "informational";
+
+export const SHEET_STATUS_LABELS: Readonly<Record<SheetStatus, string>> = {
+  computed: "computed",
+  missing_input: "missing input",
+  not_yet_computed: "not yet computed",
+  needs_cpa_rule_unverified: "needs CPA (rule unverified)",
+  needs_cpa_judgment: "needs CPA judgment",
+  not_applicable: "not applicable",
+  informational: "informational",
+};
+
+export type SheetChipKind =
+  | "document_verified"
+  | "document_unverified"
+  | "owner_answer"
+  | "books"
+  | "derived"
+  | "paystub"
+  | "decision";
+
+export interface SheetChip {
+  kind: SheetChipKind;
+  label: string;
+  /** In-app link (document review screen) or null. */
+  href: string | null;
+}
+
+export const SHEET_CHIP_LABELS: Readonly<Record<SheetChipKind, string>> = {
+  document_verified: "document (verified)",
+  document_unverified: "document (UNVERIFIED AI read)",
+  owner_answer: "owner answer",
+  books: "books",
+  derived: "derived",
+  paystub: "paystub",
+  decision: "decision",
+};
+
+/**
+ * Optional per-line override note. STRUCTURAL: the overrides module lives on another
+ * branch, so this is deliberately a local type and nothing is imported from it.
+ * `was` / `now` are whole dollars (null = the line carried no amount).
+ */
+export interface SheetLineOverride {
+  was: number | null;
+  now: number | null;
+  by: string;
+  /** ISO timestamp. */
+  at: string;
+  reason: string;
+  stale?: boolean;
+}
+
+export interface SheetCitation {
+  id: string;
+  url: string | null;
+  verifiedOn: string | null;
+  note: string | null;
+}
+
+export interface SheetLine {
+  key: string;
+  form: string;
+  /** The line id as printed on the form, e.g. "11a". */
+  formLine: string;
+  label: string;
+  status: SheetStatus;
+  statusLabel: string;
+  /** Whole dollars; null unless the status carries an amount. */
+  amount: number | null;
+  /** "$1,234", "-$12", or "not computed" (never "0" for a line without an amount). */
+  amountText: string;
+  reason: string | null;
+  citations: SheetCitation[];
+  chips: SheetChip[];
+  /** Decision label when the line comes from an alternative that is an undecided default. */
+  defaultUndecided: string | null;
+  override: SheetLineOverride | null;
+}
+
+export interface SheetFormGroup {
+  form: string;
+  /** The engine's packet verdict for this form, when it has one. */
+  requirement: { required: boolean | "blocking"; label: string; reason: string } | null;
+  lines: SheetLine[];
+}
+
+export interface SheetAlternative {
+  id: string;
+  label: string;
+  status: SheetStatus;
+  statusLabel: string;
+  isDefault: boolean;
+  inForce: boolean;
+  /** "default, undecided" | "default" | "chosen" | null. */
+  marker: string | null;
+  effectAmountText: string | null;
+  effectNote: string | null;
+  reasons: string[];
+}
+
+export interface SheetDecision {
+  id: string;
+  label: string;
+  chosen: string;
+  /** "default, undecided" or "decided". */
+  statusText: string;
+  undecided: boolean;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  /** Form lines the in-force alternative carries, e.g. "Schedule C 30". */
+  affectedLines: string[];
+  alternatives: SheetAlternative[];
+  /** The engine's own whole-return effect text, in-force alternative first. */
+  wholeReturnEffect: string;
+}
+
+/** A decision the engine did not raise for this return (not triggered, or computed in a later phase). */
+export interface SheetDecisionPlaceholder {
+  id: string;
+  label: string;
+  note: string;
+}
+
+export interface SheetOpenItem {
+  id: string;
+  severity: "blocking" | "advisory";
+  message: string;
+  action: string;
+  /** Who has to act: the owner (Eric/Eva) or the CPA. */
+  who: "owner" | "cpa";
+  lines: { key: string; text: string }[];
+}
+
+export interface SheetConflict {
+  factKey: string;
+  chosen: string | null;
+  reason: string;
+  candidates: { basisLabel: string; label: string; valueText: string }[];
+}
+
+export interface SheetHomework {
+  id: string;
+  severity: "blocking" | "advisory";
+  what: string;
+  why: string;
+  lines: string[];
+}
+
+export interface SheetDocumentRow {
+  id: string;
+  docTypeLabel: string;
+  taxYear: number | null;
+  subject: string | null;
+  /** "verified" | "unverified AI read" | "older format (re-extract)" | "not on file list". */
+  statusText: string;
+  verified: boolean;
+  href: string;
+  fedLines: { key: string; text: string }[];
+}
+
+export interface SheetHeadlineRow {
+  label: string;
+  /** The strict (computed) figure or "not computed". */
+  computedText: string;
+  status: SheetStatus;
+  statusLabel: string;
+  /** The provisional estimate when the return is incomplete; null when complete or not estimated. */
+  provisionalText: string | null;
+}
+
+export interface SheetAttestation {
+  label: string;
+  answerText: string;
+  status: "answered" | "unsure" | "missing";
+}
+
+export interface SheetModel {
+  taxYear: 2025;
+  engineVersion: string;
+  /** ISO timestamp the sheet was built. */
+  generatedAt: string;
+  /** America/New_York. */
+  generatedAtDisplay: string;
+  draftLabel: string;
+  summary: {
+    complete: boolean;
+    /** "COMPLETE per the engine ..." or "INCOMPLETE: N blocking item(s)". */
+    completenessText: string;
+    blockingItemCount: number;
+    advisoryItemCount: number;
+    unverifiedDocumentCount: number;
+    derivedInputCount: number;
+    undecidedDecisionCount: number;
+    caveats: string[];
+    provisionalNote: string | null;
+    provisionalAssumedFacts: string[];
+    federal: SheetHeadlineRow[];
+    connecticut: SheetHeadlineRow[];
+    statusCounts: Record<SheetStatus, number>;
+  };
+  federal: SheetFormGroup[];
+  connecticut: SheetFormGroup[];
+  attestations: SheetAttestation[];
+  decisions: SheetDecision[];
+  decisionPlaceholders: SheetDecisionPlaceholder[];
+  /** Blocking first. */
+  openItems: SheetOpenItem[];
+  conflicts: SheetConflict[];
+  homework: SheetHomework[];
+  documents: SheetDocumentRow[];
+  citations: SheetCitation[];
+  checklist: string[];
+  /** The number of overrides rendered (0 until the overrides module is wired in). */
+  overrideCount: number;
+}
+
+/** What the builder needs to know about each document (a subset of the loader's SafeRawSummary). */
+export interface SheetRawDocument {
+  id: string;
+  docType: string;
+  taxYear: number | null;
+  verified: boolean;
+  legacyFormat: boolean;
+  subjectType: string | null;
+}
+
+export interface BuildSheetInput {
+  ret: Ty2025Return;
+  documents: readonly SheetRawDocument[];
+  now: Date;
+  /** Optional per-line overrides keyed by LineKey. */
+  overrides?: Readonly<Record<string, SheetLineOverride>>;
+}
+
+// ── Static text ───────────────────────────────────────────────────────────────
+
+export const SHEET_CHECKLIST: readonly string[] = [
+  "Review every CPA decision on the decisions page (home office method, depreciation elections, Form 8995 versus 8995-A, Arbor Rd property tax) and record the alternative you choose. The defaults shown are the conservative alternative, not a recommendation.",
+  "Confirm each open item (blocking first) is resolved or knowingly accepted, and read the conflicts list.",
+  "Check every figure that rests on an UNVERIFIED AI document read against the source document.",
+  "Confirm Social Security numbers, dates of birth, bank routing and account numbers, signatures and PINs are added by the CPA in his own software. This app never stores them and never fills them in.",
+  "Confirm prior-year carryforwards from the 2024 return (Form 5695 clean energy credit, qualified business loss, capital loss, charitable and any other carryover). None are assumed.",
+  "Confirm the federal and Connecticut estimated-payment dates and amounts against IRS and CT DRS records.",
+  "Confirm every line marked needs CPA (rule unverified) or needs CPA judgment, and the constants cited for each computed line.",
+  "E-file authorization (Form 8879 / CT-8879), signing and filing are the CPA's. Nothing on this sheet has been filed.",
+];
+
+const ID_TO_FORM: Readonly<Record<string, FormId>> = {
+  "Form 1040": "f1040",
+  "Schedule 1": "sch1",
+  "Schedule 2": "sch2",
+  "Schedule 3": "sch3",
+  "Schedule A": "scha",
+  "Schedule B": "schb",
+  "Schedule C": "schc",
+  "Schedule SE": "schse",
+  "Form 8995": "f8995",
+  "Form 8959": "f8959",
+  "Form 6251": "f6251",
+  "Form 8960": "f8960",
+  "Schedule 1-A": "sch1a",
+  "Form 8889 (spouse A)": "f8889",
+  "Form 8889 (spouse B)": "f8889",
+  "Form 8880": "f8880",
+  "Form 2210": "f2210",
+  "CT-1040": "ct1040",
+};
+
+const DOC_TYPE_LABELS: Readonly<Record<string, string>> = {
+  w2: "W-2",
+  "1099": "1099",
+  k1: "K-1",
+  extension: "Extension",
+  property_tax: "Property tax bill",
+  donation_receipt: "Donation receipt",
+  mortgage_interest: "1098",
+  mortgage_statement: "Mortgage statement",
+  tax_return: "Tax return",
+  bank_statement: "Bank statement",
+  insurance_policy: "Insurance policy",
+  utility_bill: "Utility bill",
+  policy: "Policy",
+  statement: "Statement",
+  other: "Document",
+};
+
+const BASIS_LABELS: Readonly<Record<string, string>> = {
+  doc_verified: "verified document",
+  doc_unverified: "UNVERIFIED document read",
+  answer_owner: "owner answer",
+  answer_cpa: "CPA answer",
+  books: "books",
+  derived: "derived",
+  override: "override",
+};
+
+// ── Small formatters ──────────────────────────────────────────────────────────
+
+/** "$1,234" / "-$1,234". Amounts are whole dollars (the engine rounds every line). */
+export function formatSheetMoney(n: number): string {
+  const abs = Math.abs(n);
+  const body = Number.isInteger(abs) ? abs.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : String(abs);
+  return n < 0 ? `-$${body}` : `$${body}`;
+}
+
+const NOT_COMPUTED = "not computed";
+
+function amountText(status: RuleStatus, amount: number | null): string {
+  return hasAmount(status) && amount !== null ? formatSheetMoney(amount) : NOT_COMPUTED;
+}
+
+function lineText(key: string): string {
+  if ((LINE_KEYS as readonly string[]).includes(key)) {
+    const m = lineMeta(key as LineKey);
+    return `${m.form} ${m.formLine}`;
+  }
+  return key;
+}
+
+function statusOfLine(l: ReturnLine): SheetStatus {
+  return l.informational === true && !hasAmount(l.status) ? "informational" : l.status;
+}
+
+const CITATION_INDEX: ReadonlyMap<string, SheetCitation> = new Map(
+  allConstants().map((c): [string, SheetCitation] => [c.id, { id: c.id, url: c.url, verifiedOn: c.verifiedOn, note: c.note }])
+);
+
+function citationOf(id: string): SheetCitation {
+  return CITATION_INDEX.get(id) ?? { id, url: null, verifiedOn: null, note: null };
+}
+
+// ── Provenance chips ──────────────────────────────────────────────────────────
+
+const MAX_CHIPS = 8;
+
+function chipsFor(line: ReturnLine, docs: ReadonlyMap<string, SheetRawDocument>, defaultUndecided: string | null): SheetChip[] {
+  const out: SheetChip[] = [];
+  const seen = new Set<string>();
+  const push = (chip: SheetChip, id: string): void => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push(chip);
+  };
+  for (const r of line.refs) {
+    switch (r.kind) {
+      case "document": {
+        const doc = docs.get(r.id);
+        const verified = doc?.verified === true;
+        const legacy = doc?.legacyFormat === true;
+        push(
+          {
+            kind: verified ? "document_verified" : "document_unverified",
+            label: `${r.label}${legacy ? " (older format)" : ""}`,
+            href: `/documents/${r.id}/review`,
+          },
+          `d:${r.id}`
+        );
+        break;
+      }
+      case "questionnaire":
+      case "planning":
+        push({ kind: "owner_answer", label: r.label, href: null }, `${r.kind}:${r.id}`);
+        break;
+      case "gl":
+      case "fixed_asset":
+      case "donation":
+      case "mileage":
+        push({ kind: "books", label: `${r.kind === "gl" ? "GL " : ""}${r.label}`, href: null }, `${r.kind}:${r.id}`);
+        break;
+      case "paystub":
+        push({ kind: "paystub", label: r.label, href: null }, `paystub:${r.id}`);
+        break;
+      case "decision":
+        push({ kind: "decision", label: r.label, href: null }, `decision:${r.id}`);
+        break;
+      case "constant":
+        break; // constants are shown as citations, not chips
+      default: {
+        const never: never = r.kind;
+        void never;
+      }
+    }
+  }
+  if (line.ruleId === "derive") {
+    push({ kind: "derived", label: "from other lines on this sheet", href: null }, "derived");
+  } else if (out.length === 0 && hasAmount(line.status)) {
+    push({ kind: "derived", label: `computed by rule ${line.ruleId}`, href: null }, "derived");
+  }
+  if (defaultUndecided !== null) push({ kind: "decision", label: `default, undecided: ${defaultUndecided}`, href: null }, "default-undecided");
+  if (out.length > MAX_CHIPS) {
+    const extra = out.length - (MAX_CHIPS - 1);
+    return [...out.slice(0, MAX_CHIPS - 1), { kind: "derived", label: `+${extra} more source(s)`, href: null }];
+  }
+  return out;
+}
+
+/** Lines carried by an in-force default alternative of an undecided decision: key -> decision label. */
+function defaultUndecidedLines(ret: Ty2025Return): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of ret.results) {
+    if (r.decision?.status !== "default_undecided") continue;
+    for (const alt of r.alternatives ?? []) {
+      if (!alt.inForce || !alt.isDefault) continue;
+      for (const l of alt.lines) out.set(l.key, r.decision.label);
+    }
+  }
+  return out;
+}
+
+function toSheetLine(
+  l: ReturnLine,
+  docs: ReadonlyMap<string, SheetRawDocument>,
+  undecided: ReadonlyMap<string, string>,
+  overrides: Readonly<Record<string, SheetLineOverride>> | undefined
+): SheetLine {
+  const status = statusOfLine(l);
+  const defaultUndecided = undecided.get(l.key) ?? null;
+  const ov = overrides?.[l.key];
+  return {
+    key: l.key,
+    form: l.form,
+    formLine: l.formLine,
+    label: l.label,
+    status,
+    statusLabel: SHEET_STATUS_LABELS[status],
+    amount: hasAmount(l.status) ? l.amount : null,
+    amountText: amountText(l.status, l.amount),
+    reason: l.reason,
+    citations: l.citations.map(citationOf),
+    chips: chipsFor(l, docs, defaultUndecided),
+    defaultUndecided,
+    override: ov === undefined ? null : { ...ov, stale: ov.stale === true },
+  };
+}
+
+// ── Form groups ───────────────────────────────────────────────────────────────
+
+const REQUIRED_LABEL = (r: boolean | "blocking"): string =>
+  r === true ? "needed in the packet" : r === false ? "not needed" : "cannot tell yet (blocking item)";
+
+function requirementFor(form: string, req: Partial<Record<FormId, FormRequirement>>): SheetFormGroup["requirement"] {
+  const id = ID_TO_FORM[form];
+  if (id === undefined) return null;
+  const r = req[id];
+  return r === undefined ? null : { required: r.required, label: REQUIRED_LABEL(r.required), reason: r.reason };
+}
+
+function buildGroups(lines: readonly SheetLine[], req: Partial<Record<FormId, FormRequirement>>): SheetFormGroup[] {
+  const groups = new Map<string, SheetLine[]>();
+  for (const l of lines) groups.set(l.form, [...(groups.get(l.form) ?? []), l]);
+  return [...groups.entries()].map(([form, ls]) => ({ form, requirement: requirementFor(form, req), lines: ls }));
+}
+
+// ── Decisions ─────────────────────────────────────────────────────────────────
+
+function altEffectText(a: RuleAlternative): string {
+  const detail = a.effect?.note ?? a.reasons[0] ?? SHEET_STATUS_LABELS[a.status];
+  return `${a.label}: ${detail}`;
+}
+
+function toSheetDecision(r: RuleResult): SheetDecision | null {
+  const d = r.decision;
+  if (d === undefined) return null;
+  const undecided = d.status === "default_undecided";
+  const alts = (r.alternatives ?? []).map((a): SheetAlternative => {
+    const marker = undecided
+      ? a.isDefault
+        ? "default, undecided"
+        : null
+      : a.inForce
+        ? a.isDefault
+          ? "chosen (the default)"
+          : "chosen"
+        : a.isDefault
+          ? "default"
+          : null;
+    return {
+      id: a.id,
+      label: a.label,
+      status: a.status,
+      statusLabel: SHEET_STATUS_LABELS[a.status],
+      isDefault: a.isDefault,
+      inForce: a.inForce,
+      marker,
+      effectAmountText: a.effect !== null && a.effect.amount !== null ? formatSheetMoney(a.effect.amount.toNumber()) : null,
+      effectNote: a.effect?.note ?? null,
+      reasons: [...a.reasons],
+    };
+  });
+  const inForce = (r.alternatives ?? []).find((a) => a.inForce);
+  const others = (r.alternatives ?? []).filter((a) => !a.inForce);
+  const parts: string[] = [];
+  if (inForce) parts.push(`In force: ${altEffectText(inForce)}`);
+  if (others.length > 0) parts.push(`Alternatives: ${others.map(altEffectText).join(" | ")}`);
+  const affected = new Set<string>();
+  for (const a of r.alternatives ?? []) if (a.inForce) for (const l of a.lines) affected.add(lineText(l.key));
+  return {
+    id: d.id,
+    label: d.label,
+    chosen: d.chosen,
+    statusText: undecided ? "default, undecided" : "decided",
+    undecided,
+    decidedBy: d.decidedBy ?? null,
+    decidedAt: d.decidedAt ?? null,
+    affectedLines: [...affected],
+    alternatives: alts,
+    wholeReturnEffect: parts.length > 0 ? parts.join(" ") : "The engine gives no effect text for this decision.",
+  };
+}
+
+const KNOWN_DECISIONS: readonly { id: string; label: string; notRaised: (ret: Ty2025Return) => string }[] = [
+  {
+    id: "X1",
+    label: "Home office: simplified method or actual expenses (Form 8829)",
+    notRaised: (ret) => `Not raised for this return: ${ret.formsRequired.f8829?.reason ?? "no home office deduction is claimed"}`,
+  },
+  {
+    id: "X2",
+    label: "Depreciation elections (Form 4562): regular MACRS, bonus, section 179, de minimis safe harbor",
+    notRaised: (ret) =>
+      `The engine does not compute these alternatives yet; the CPA decides. ${ret.formsRequired.f4562?.reason ?? ""}`.trim(),
+  },
+  {
+    id: "X3",
+    label: "QBI deduction form: Form 8995 or Form 8995-A",
+    notRaised: (ret) =>
+      `Not raised for this return: Form 8995 is used unless taxable income before the QBI deduction is over the Form 8995 limit. ${ret.formsRequired.f8995?.reason ?? ""}`.trim(),
+  },
+  {
+    id: "X5",
+    label: "Arbor Rd 2025 property tax: Schedule A or capitalize",
+    notRaised: () => "Not raised for this return: the engine raises it only when a property tax bill is classified as non-primary real estate (Arbor Rd).",
+  },
+];
+
+// ── Open items, conflicts, homework ───────────────────────────────────────────
+
+const OWNER_ACTION = /^(Archive|Record|Set |Enter|Upload|Open|Re-extract|Re-open|Answer|Confirm|Check|Provide|Read|GL-code|Reconcile|Give the details|Review the transactions)/i;
+
+/** Who has to act on an open item: the owner (an answer, a verification, an upload) or the CPA. */
+export function openItemOwner(item: Pick<OpenItem, "id" | "action">): "owner" | "cpa" {
+  if (item.id.startsWith("decision:") || item.id.startsWith("info:")) return "cpa";
+  if (item.id === "assumptions-no-ct-sales-tax-or-other") return "cpa";
+  if (item.id.startsWith("doc-unverified:") || item.id.startsWith("doc-legacy:") || item.id.startsWith("none:")) return "owner";
+  if (/^The CPA/i.test(item.action) || /^CPA to/i.test(item.action) || /^Tell the CPA/i.test(item.action)) return "cpa";
+  return OWNER_ACTION.test(item.action.trim()) ? "owner" : "cpa";
+}
+
+function toSheetOpenItems(items: readonly OpenItem[]): SheetOpenItem[] {
+  const seen = new Set<string>();
+  const unique: OpenItem[] = [];
+  for (const i of items) {
+    if (seen.has(i.id)) continue;
+    seen.add(i.id);
+    unique.push(i);
+  }
+  const rank = (i: OpenItem): number => (i.severity === "blocking" ? 0 : 1);
+  return unique
+    .map((i, idx) => ({ i, idx }))
+    .sort((a, b) => rank(a.i) - rank(b.i) || a.idx - b.idx)
+    .map(({ i }) => ({
+      id: i.id,
+      severity: i.severity,
+      message: i.message,
+      action: i.action,
+      who: openItemOwner(i),
+      lines: i.lineKeys.map((k) => ({ key: k, text: lineText(k) })),
+    }));
+}
+
+function valueText(v: string | number | null): string {
+  if (v === null) return "none";
+  return typeof v === "number" ? String(v) : v;
+}
+
+function toSheetConflicts(ret: Ty2025Return): SheetConflict[] {
+  return ret.conflicts.map((c) => ({
+    factKey: c.factKey,
+    chosen: c.chosen,
+    reason: c.reason,
+    candidates: c.candidates.map((x) => ({ basisLabel: BASIS_LABELS[x.basis] ?? x.basis, label: x.label, valueText: valueText(x.value) })),
+  }));
+}
+
+function toHomework(items: readonly SheetOpenItem[]): SheetHomework[] {
+  return items
+    .filter((i) => i.who === "owner")
+    .map((i) => ({ id: i.id, severity: i.severity, what: i.action, why: i.message, lines: i.lines.map((l) => l.text) }));
+}
+
+// ── Documents ─────────────────────────────────────────────────────────────────
+
+function docTypeText(docType: string): string {
+  return DOC_TYPE_LABELS[docType] ?? docType;
+}
+
+function buildDocumentIndex(ret: Ty2025Return, documents: readonly SheetRawDocument[]): SheetDocumentRow[] {
+  const fed = new Map<string, { key: string; text: string }[]>();
+  const labels = new Map<string, string>();
+  for (const key of LINE_KEYS) {
+    const l = ret.lines[key];
+    if (l === undefined) continue;
+    for (const r of l.refs) {
+      if (r.kind !== "document") continue;
+      labels.set(r.id, r.label);
+      const list = fed.get(r.id) ?? [];
+      if (!list.some((x) => x.key === key)) list.push({ key, text: lineText(key) });
+      fed.set(r.id, list);
+    }
+  }
+  const rows: SheetDocumentRow[] = documents.map((d) => ({
+    id: d.id,
+    docTypeLabel: docTypeText(d.docType),
+    taxYear: d.taxYear,
+    subject: d.subjectType,
+    statusText: d.legacyFormat ? "older format (re-extract)" : d.verified ? "verified" : "unverified AI read",
+    verified: d.verified,
+    href: `/documents/${d.id}/review`,
+    fedLines: fed.get(d.id) ?? [],
+  }));
+  const known = new Set(documents.map((d) => d.id));
+  for (const [id, list] of fed) {
+    if (known.has(id)) continue;
+    rows.push({
+      id,
+      docTypeLabel: labels.get(id) ?? "Document",
+      taxYear: null,
+      subject: null,
+      statusText: "not in the loader's document list",
+      verified: false,
+      href: `/documents/${id}/review`,
+      fedLines: list,
+    });
+  }
+  // Unverified first (the CPA's attention), then by type.
+  return rows.sort((a, b) => Number(a.verified) - Number(b.verified) || a.docTypeLabel.localeCompare(b.docTypeLabel) || a.id.localeCompare(b.id));
+}
+
+// ── Headline ──────────────────────────────────────────────────────────────────
+
+function balanceText(n: number): string {
+  return n > 0 ? `owed ${formatSheetMoney(n)}` : n < 0 ? `refund ${formatSheetMoney(-n)}` : "$0 (no balance)";
+}
+
+function headlineRow(
+  label: string,
+  h: { status: RuleStatus; amount: number | null },
+  provisional: number | null | undefined,
+  complete: boolean,
+  balance: boolean
+): SheetHeadlineRow {
+  const fmt = (n: number): string => (balance ? balanceText(n) : formatSheetMoney(n));
+  return {
+    label,
+    computedText: hasAmount(h.status) && h.amount !== null ? fmt(h.amount) : NOT_COMPUTED,
+    status: h.status,
+    statusLabel: SHEET_STATUS_LABELS[h.status],
+    provisionalText: complete || provisional === undefined || provisional === null ? null : fmt(provisional),
+  };
+}
+
+function buildSummary(ret: Ty2025Return, items: readonly SheetOpenItem[]): SheetModel["summary"] {
+  const h = ret.headline;
+  const p = h.provisional;
+  const f = h.federal;
+  const c = h.connecticut;
+  const statusCounts: Record<SheetStatus, number> = {
+    computed: 0,
+    missing_input: 0,
+    not_yet_computed: 0,
+    needs_cpa_rule_unverified: 0,
+    needs_cpa_judgment: 0,
+    not_applicable: 0,
+    informational: 0,
+  };
+  for (const key of LINE_KEYS) {
+    const l = ret.lines[key];
+    if (l !== undefined) statusCounts[statusOfLine(l)] += 1;
+  }
+  return {
+    complete: h.complete,
+    completenessText: h.complete
+      ? "No blocking items: every headline figure is computed. Read the caveats below."
+      : `INCOMPLETE: ${h.blockingItemCount} blocking item(s). Figures marked "not computed" are NOT zero.`,
+    blockingItemCount: h.blockingItemCount,
+    advisoryItemCount: items.filter((i) => i.severity === "advisory").length,
+    unverifiedDocumentCount: h.unverifiedDocumentCount,
+    derivedInputCount: h.derivedInputCount,
+    undecidedDecisionCount: h.undecidedDecisionCount,
+    caveats: [...h.caveats],
+    provisionalNote: !h.complete && p !== null ? p.note : null,
+    provisionalAssumedFacts: !h.complete && p !== null ? [...p.assumedFacts] : [],
+    federal: [
+      headlineRow("Federal AGI (Form 1040 line 11a)", f.agi, p?.agi, h.complete, false),
+      headlineRow("Federal taxable income (line 15)", f.taxableIncome, p?.taxableIncome, h.complete, false),
+      headlineRow("Federal total tax (line 24)", f.totalTax, p?.totalTax, h.complete, false),
+      headlineRow("Federal total payments (line 33)", f.totalPayments, p?.totalPayments, h.complete, false),
+      headlineRow("Federal balance", f.balance, p?.federalBalance, h.complete, true),
+    ],
+    connecticut: [
+      headlineRow("Connecticut AGI", c.ctAgi, null, h.complete, false),
+      headlineRow("Connecticut income tax (line 6)", c.tax, p?.ctTax, h.complete, false),
+      headlineRow("Connecticut total payments (lines 18-20)", c.totalPayments, p?.ctPayments, h.complete, false),
+      headlineRow("Connecticut balance", c.balance, p?.ctBalance, h.complete, true),
+    ],
+    statusCounts,
+  };
+}
+
+function answerText(a: Ty2025Return["attestations"]["digitalAssets"]): string {
+  if (a.status === "missing") return "not answered";
+  if (a.status === "unsure") return "owner is not sure (CPA decides)";
+  return a.value === true ? "Yes" : "No";
+}
+
+// ── The builder ───────────────────────────────────────────────────────────────
+
+export function buildSheetModel(input: BuildSheetInput): SheetModel {
+  const { ret, now } = input;
+  const docs = new Map(input.documents.map((d) => [d.id, d]));
+  const undecided = defaultUndecidedLines(ret);
+  const all: SheetLine[] = [];
+  for (const key of LINE_KEYS) {
+    const l = ret.lines[key];
+    if (l !== undefined) all.push(toSheetLine(l, docs, undecided, input.overrides));
+  }
+  const federal = all.filter((l) => l.form !== "CT-1040");
+  const ct = all.filter((l) => l.form === "CT-1040");
+  const openItems = toSheetOpenItems(ret.openItems);
+  const decisions = ret.results.map(toSheetDecision).filter((d): d is SheetDecision => d !== null);
+  const raised = new Set(decisions.map((d) => d.id));
+  const placeholders: SheetDecisionPlaceholder[] = KNOWN_DECISIONS.filter((k) => !raised.has(k.id)).map((k) => ({
+    id: k.id,
+    label: k.label,
+    note: k.notRaised(ret),
+  }));
+  const citationIds = new Set<string>(ret.citations);
+  for (const l of all) for (const c of l.citations) citationIds.add(c.id);
+  return {
+    taxYear: 2025,
+    engineVersion: ret.engineVersion,
+    generatedAt: now.toISOString(),
+    generatedAtDisplay: formatNewYorkDateTime(now),
+    draftLabel: SHEET_DRAFT_LABEL,
+    summary: buildSummary(ret, openItems),
+    federal: buildGroups(federal, ret.formsRequired),
+    connecticut: buildGroups(ct, ret.formsRequired),
+    attestations: [
+      { label: ret.attestations.digitalAssets.where, answerText: answerText(ret.attestations.digitalAssets), status: ret.attestations.digitalAssets.status },
+      { label: ret.attestations.foreignAccounts.where, answerText: answerText(ret.attestations.foreignAccounts), status: ret.attestations.foreignAccounts.status },
+    ],
+    decisions,
+    decisionPlaceholders: placeholders,
+    openItems,
+    conflicts: toSheetConflicts(ret),
+    homework: toHomework(openItems),
+    documents: buildDocumentIndex(ret, input.documents),
+    citations: [...citationIds].sort().map(citationOf),
+    checklist: [...SHEET_CHECKLIST],
+    overrideCount: all.filter((l) => l.override !== null).length,
+  };
+}
+
+/** "2026-10-03" for an override timestamp (America/New_York). */
+export function formatOverrideDate(iso: string): string {
+  return formatNewYorkDate(iso);
+}
+
+/** The one-line override note used on the page and in the CSV. */
+export function overrideNote(o: SheetLineOverride): string {
+  const was = o.was === null ? NOT_COMPUTED : formatSheetMoney(o.was);
+  const now = o.now === null ? NOT_COMPUTED : formatSheetMoney(o.now);
+  return `Override: was ${was}, now ${now}, by ${o.by} on ${formatOverrideDate(o.at)}: ${o.reason}${o.stale === true ? " (STALE: re-confirm or clear)" : ""}`;
+}

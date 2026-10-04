@@ -5,6 +5,9 @@ import type { Route } from "next";
 import { db } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
 import { loadFormsPageData } from "@/lib/tax-forms-build";
+import { buildTy2025Return } from "@/lib/tax2025-build";
+import { loadSheet } from "@/lib/tax2025-sheet-load";
+import type { CardConclusion } from "@/lib/tax2025-sheet-conclusions";
 import { FormCard } from "@/components/tax/forms/form-card";
 import { FormsSummary } from "@/components/tax/forms/forms-summary";
 import { PDF_SUPPORTED_YEAR, PdfDownloadButtons } from "@/components/tax/forms/pdf-download-buttons";
@@ -26,10 +29,15 @@ export default async function TaxFormsPage({ params }: PageProps) {
   const year = Number(yearStr);
   if (!Number.isInteger(year) || year < 2000 || year > 2100) notFound();
 
-  const [data, workspaceYears] = await Promise.all([
+  // For 2025 the engine's conclusions (home office, QBI, Additional Medicare, 8889, 8880, 2210,
+  // Schedule 3, SE ...) are printed on the matching cards. READ-ONLY and failure-tolerant: loadSheet
+  // never throws, and on any error the cards simply show no conclusion. It never touches the counters.
+  const [data, workspaceYears, sheet] = await Promise.all([
     loadFormsPageData(year),
     db.taxWorkspace.findMany({ select: { taxYear: true }, distinct: ["taxYear"] }),
+    year === PDF_SUPPORTED_YEAR ? loadSheet(year, { build: buildTy2025Return }) : Promise.resolve(null),
   ]);
+  const conclusions: Record<string, CardConclusion> = sheet?.kind === "ok" ? sheet.conclusions : {};
 
   // Year chips: every workspace year + the current year (+ the one being viewed).
   const currentYear = new Date().getUTCFullYear();
@@ -85,7 +93,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
           <h2 className="text-lg font-semibold">Federal — {data.householdLabel}</h2>
           <div className="grid gap-3 lg:grid-cols-2">
             {data.federal.map((entry) => (
-              <FormCard key={entry.id} entry={entry} taxYear={year} />
+              <FormCard key={entry.id} entry={entry} taxYear={year} conclusion={conclusions[entry.id]} />
             ))}
           </div>
         </section>
@@ -94,7 +102,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
           <h2 className="text-lg font-semibold">Connecticut — household</h2>
           <div className="grid gap-3 lg:grid-cols-2">
             {data.connecticut.map((entry) => (
-              <FormCard key={entry.id} entry={entry} taxYear={year} />
+              <FormCard key={entry.id} entry={entry} taxYear={year} conclusion={conclusions[entry.id]} />
             ))}
           </div>
         </section>
@@ -109,7 +117,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
             {data.needsCpaInput.map((entry) => (
-              <FormCard key={entry.id} entry={entry} taxYear={year} />
+              <FormCard key={entry.id} entry={entry} taxYear={year} conclusion={conclusions[entry.id]} />
             ))}
           </div>
         </section>

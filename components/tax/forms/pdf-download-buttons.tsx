@@ -1,3 +1,5 @@
+import Link from "next/link";
+import type { Route } from "next";
 import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 
 // DRAFT filled-PDF downloads for tax year 2025 (plan sections 6.9 / 6.10). A server
@@ -24,6 +26,10 @@ export const PDF_SUPPORTED_YEAR = 2025;
 const linkClass =
   "inline-flex min-h-11 items-center rounded-md border border-primary/40 px-4 text-sm font-medium text-primary hover:bg-primary/10";
 
+// The line-by-line review sheet the CPA keys the return from (every line with status, provenance and citation).
+const reviewSheetClass =
+  "inline-flex min-h-11 items-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90";
+
 export function PdfDownloadButtons({ year }: { year: number }) {
   if (year !== PDF_SUPPORTED_YEAR) return null;
   const base = `/api/tax/forms/${year}/pdf`;
@@ -40,6 +46,9 @@ export function PdfDownloadButtons({ year }: { year: number }) {
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        <Link href={`/tax/forms/${year}/return` as Route} className={reviewSheetClass}>
+          CPA review sheet (printable, with CSV)
+        </Link>
         <a href={base} download className={linkClass}>
           Download filing packet (zip)
         </a>
