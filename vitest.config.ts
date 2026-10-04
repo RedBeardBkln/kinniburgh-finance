@@ -1,10 +1,12 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import path from "path";
 
 export default defineConfig({
   test: {
     environment: "node",
     globals: true,
+    // Agent worktrees and scratch checkouts live under .claude/; never collect their copies of the tests.
+    exclude: [...configDefaults.exclude, "**/.claude/**"],
   },
   resolve: {
     alias: {

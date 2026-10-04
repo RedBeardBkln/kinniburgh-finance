@@ -201,6 +201,13 @@ export interface DocProvenanceRef {
 
 export interface W2SumResult {
   wagesCents: number;
+  /**
+   * Sum of W-2 box 3 (Social Security wages) and box 7 (Social Security tips) over the included
+   * documents, for Schedule SE line 8a (defect D1). NOT wired into the v1 draft (it still passes no
+   * priorSocialSecurityWages); the v2 engine (lib/tax2025) reads boxes per person instead.
+   */
+  socialSecurityWagesCents: number;
+  socialSecurityTipsCents: number;
   medicareWagesCents: number;
   federalWithheldCents: number;
   ctWithheldCents: number;
@@ -229,6 +236,8 @@ export interface W2SumResult {
  */
 export function sumW2Documents(documents: W2DocInput[], taxYear: number): W2SumResult {
   let wagesCents = 0;
+  let socialSecurityWagesCents = 0;
+  let socialSecurityTipsCents = 0;
   let medicareWagesCents = 0;
   let federalWithheldCents = 0;
   let ctWithheldCents = 0;
@@ -251,6 +260,8 @@ export function sumW2Documents(documents: W2DocInput[], taxYear: number): W2SumR
       continue;
     }
     wagesCents += data.wagesCents;
+    if (typeof data.socialSecurityWagesCents === "number") socialSecurityWagesCents += data.socialSecurityWagesCents;
+    if (typeof data.socialSecurityTipsCents === "number") socialSecurityTipsCents += data.socialSecurityTipsCents;
     if (typeof data.medicareWagesCents === "number") medicareWagesCents += data.medicareWagesCents;
     if (typeof data.federalWithheldCents === "number") federalWithheldCents += data.federalWithheldCents;
     const employerName = typeof data.employerName === "string" ? data.employerName : null;
@@ -282,6 +293,8 @@ export function sumW2Documents(documents: W2DocInput[], taxYear: number): W2SumR
 
   return {
     wagesCents,
+    socialSecurityWagesCents,
+    socialSecurityTipsCents,
     medicareWagesCents,
     federalWithheldCents,
     ctWithheldCents,

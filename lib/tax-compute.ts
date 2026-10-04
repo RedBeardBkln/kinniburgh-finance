@@ -48,6 +48,16 @@ import { Decimal } from "@prisma/client/runtime/library";
 //
 // Ground rule 8 (CLAUDE.md): this engine's output is a draft estimate for CPA
 // review, never a filed number nor financial/tax advice.
+//
+// UPDATE 2026-10-04 (Phase 1a, .claude/pipeline/ty2025-return-engine-v2): the
+// answers-driven TY2025 return engine (credits-aware, per-person W-2 split, Tax
+// Table / QDCG worksheet, per-line provenance) now lives in lib/tax2025/ and
+// imports the constants, CT tables and bracket helper exported from THIS file, so
+// they exist in one place. This module's "before credits / upper bound"
+// orchestrator (computePersonalTaxReturn) is unchanged and still feeds the v1
+// pages until the sheet switches to v2; it is superseded, not deleted, so its
+// tests remain a regression net. The only behavior change in this file is the CT
+// Table C step count (defect D7, see computeCtPhaseOutAddback).
 
 // ── Federal constants (specs/09-tax-year-2025-constants.md, "Federal" §) ────
 
@@ -572,33 +582,25 @@ export function computeCtInitialTax(ctTaxableIncome: Decimal): Decimal {
 }
 
 /**
- * CT § "Table C — 2% rate phase-out add-back": "$0 until CT AGI > $100,500,
- * then adds $50 per $5,000 of CT AGI above that, capping at $500 once CT AGI
- * > $145,500." Like Table A, this is internally imprecise: a plain
- * `ceil((ctAGI - 100500) / 5000) * 50` formula only reaches 9 steps ($450) at
- * exactly $145,500, one step short of spec 09's own stated $500 cap anchor —
- * the literal "$50 per $5,000" rate and the literal "$500 at $145,500" cap
- * boundary don't reconcile under pure ceil-division, same class of issue as
- * Table A (plan step 16's own "verify/adjust ceil vs floor" caveat).
- * DOCUMENTED INTERPRETATION chosen here (prioritizing the explicit, directly
- * spec-09-quoted cap boundary over the naive per-step arithmetic, same
- * resolution principle as Table A): a "fence-post" step count —
- * `floor(excess / 5000) + 1` for any ctAGI > $100,500 — which lands the cap
- * EXACTLY at $145,500 (`floor(45000/5000)+1 = 10` steps × $50 = $500). This
- * means even $1 of excess above $100,500 completes a full $50 step (more
- * generous per-dollar than Table A's convention) — a genuine, low-materiality
- * (≤$500) interpretation choice, not a fabricated number; sanity-check
- * against the real Table C PDF before filing.
+ * CT § "Table C — 2% rate phase-out add-back" (MFJ column), CORRECTED
+ * 2026-10-03 (defect D7) against the printed table in ct-1040-tcs_1225.pdf:
+ * CT AGI <= $100,500 -> $0; more than $100,500 but not more than $105,500 ->
+ * $50; ($105,500, $110,500] -> $100; ... ($140,500, $145,500] -> $450; more
+ * than $145,500 -> $500. The step count is `ceil((ctAGI - 100500) / 5000)`
+ * capped at 10 ($50 each). The earlier `floor(excess / 5000) + 1` reading was
+ * wrong at every exact band edge (AGI exactly $105,500 gave $100, the table says
+ * $50; exactly $145,500 gave $500, the table says $450). specs/09 records the
+ * correction and the earlier "one step short" worry was a misreading of the
+ * printed bands, not a defect in the source.
  */
 export function computeCtPhaseOutAddback(ctAGI: Decimal): Decimal {
   const THRESHOLD = 100500;
   const STEP_SIZE = 5000;
   const STEP_AMOUNT = 50;
-  const CAP = 500;
+  const MAX_STEPS = 10;
   if (ctAGI.lessThanOrEqualTo(THRESHOLD)) return new Decimal(0);
-  const excess = ctAGI.minus(THRESHOLD);
-  const steps = excess.div(STEP_SIZE).floor().plus(1);
-  return Decimal.min(CAP, steps.times(STEP_AMOUNT));
+  const steps = Decimal.min(MAX_STEPS, ctAGI.minus(THRESHOLD).div(STEP_SIZE).ceil());
+  return steps.times(STEP_AMOUNT);
 }
 
 export interface CtRecaptureResult {

@@ -1,0 +1,834 @@
+// resolveFacts(): plain rows in, Ty2025Facts + conflicts + open items out. PURE
+// (no DB, no clock). The DB-aware loader (lib/tax2025-build.ts) only fetches rows
+// and parses planning answers into the typed `RawTy2025Inputs` below.
+//
+// Source precedence per fact (documented here, tested):
+//   override > owner-verified document > owner answer (questionnaire / planning)
+//   > unverified AI document read > books-derived > missing.
+// Precedence only picks the value used; every candidate source is kept on the
+// conflicts list so a disagreement is visible, never resolved silently.
+//
+// Blank vs unknown: on a CURRENT-format extraction a blank box is a real "nothing
+// reported" and reads as 0; on a LEGACY-format extraction a box that was never read
+// stays null (unknown). A W-2 box that the return needs (1, 2, 3, 4, 5, 6) is never
+// defaulted: null stays null and the rule says missing_input.
+
+import { sumCtWithholding } from "@/lib/tax-extraction-schema";
+import type {
+  DividendFact,
+  DonationFact,
+  EstimatedPayment,
+  FixedAssetFact,
+  GlLineFact,
+  InterestFact,
+  MortgageFact,
+  OtherIncomeBox,
+  PropertyBillKind,
+  PropertyTaxBill,
+  Ty2025Facts,
+  W2Fact,
+} from "@/lib/tax2025/facts";
+import { NONE_GROUP_IDS, type NoneGroupId } from "@/lib/tax2025/line-catalog";
+import {
+  missingLeaf,
+  sourced,
+  type Basis,
+  type FactConflict,
+  type OpenItem,
+  type Ref,
+  type Sourced,
+} from "@/lib/tax2025/types";
+
+// ── Raw inputs ────────────────────────────────────────────────────────────────
+
+/** One Document row, already mapped through resolveTaxDocForCompute (effective extraction data). */
+export interface RawDocument {
+  id: string;
+  docType: string;
+  taxYear: number | null;
+  extractionStatus: string | null;
+  /** EFFECTIVE extraction (owner corrections overlaid). */
+  extractionData: unknown;
+  verified: boolean;
+  legacyFormat: boolean;
+  reextractIncomplete?: boolean;
+  /** "person" | "joint" | null */
+  subjectType: string | null;
+  subjectUserId: string | null;
+  documentName?: string | null;
+}
+
+/** Planning answers, already parsed by the loader (no DB, no free text here). */
+export interface RawPlanning {
+  filingStatus: string | null;
+  householdMembers: string | null;
+  evVehicle: string | null;
+  businessMileage: string | null;
+  homeOfficeEligibility: string | null;
+  homeOfficeSqft: number | null;
+  solarCredit: string | null;
+  donationsNone: boolean;
+  fixedAssetsEkcNone: boolean;
+  /** Legacy single "total retirement/HSA contributions" answer, cents. */
+  retirementContributionCents: number | null;
+  /** Legacy single "federal + state estimated payments" answer, cents. Cannot be split. */
+  estimatedPaymentsCombinedCents: number | null;
+}
+
+/**
+ * Typed answers that the Phase 1b questionnaires will supply. All optional: absent =
+ * not answered (a MISSING leaf, never 0). The 1a loader leaves these undefined.
+ */
+export interface RawAnswers {
+  federalEstimates?: EstimatedPayment[];
+  ctEstimates?: EstimatedPayment[];
+  federalExtensionPaymentCents?: number;
+  ctExtensionPaymentCents?: number;
+  federalOverpaymentAppliedCents?: number;
+  ctOverpaymentAppliedCents?: number;
+  ctPriorYearBalancePaidIn2025Cents?: number;
+  ctUseTaxCents?: number;
+  ctAdditionsCents?: number;
+  ctSubtractionsCents?: number;
+  sch1aCents?: number;
+  hsaCents?: number;
+  iraCents?: number;
+  seRetirementCents?: number;
+  seHealthInsuranceCents?: number;
+  foreignTaxCreditCents?: number;
+  saversCreditCents?: number;
+  noInterestConfirmed?: boolean;
+  noDividendsConfirmed?: boolean;
+  noPropertyTaxConfirmed?: boolean;
+  statedNone?: Partial<Record<NoneGroupId, boolean>>;
+  /** Owner classification per property tax bill document id. */
+  billClassifications?: Record<string, PropertyBillKind>;
+}
+
+export interface RawTy2025Inputs {
+  taxYear: 2025;
+  people: { userId: string; name: string }[];
+  /** The household member who owns EK Consulting, with how that was determined. */
+  scheduleCOwner: { userId: string; basis: Basis; note: string } | null;
+  /** All Personal-entity documents, any year (this resolver filters by year and type). */
+  documents: RawDocument[];
+  planning: RawPlanning;
+  answers?: RawAnswers;
+  /** Address of the primary residence and how it was determined (a derived value must say so). */
+  primaryResidence: { address: string; basis: Basis; note?: string } | null;
+  paystubs: { federalWithheldCents: number; ctWithheldCents: number };
+  ekc: {
+    glLines: GlLineFact[];
+    booksEmpty: boolean;
+    glExcludedTransactionCount: number;
+    mileage: { id?: string; miles: number; ratePerMile: string; dateIso: string }[];
+    fixedAssets: FixedAssetFact[];
+  };
+  donations: DonationFact[];
+}
+
+export interface ResolvedFacts {
+  facts: Ty2025Facts;
+  conflicts: FactConflict[];
+  openItems: OpenItem[];
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+type Rec = Record<string, unknown>;
+
+function dataOf(doc: RawDocument): Rec {
+  const d = (doc.extractionData as { data?: unknown } | null)?.data;
+  return typeof d === "object" && d !== null && !Array.isArray(d) ? (d as Rec) : {};
+}
+
+function intOrNull(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) ? v : null;
+}
+
+function strOrNull(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+}
+
+function docBasis(doc: RawDocument): "doc_verified" | "doc_unverified" {
+  return doc.verified ? "doc_verified" : "doc_unverified";
+}
+
+function docLabel(doc: RawDocument, what: string): string {
+  return doc.documentName && doc.documentName.trim() !== "" ? doc.documentName : what;
+}
+
+function docRef(doc: RawDocument, what: string): Ref {
+  return { kind: "document", id: doc.id, label: docLabel(doc, what) };
+}
+
+function planningRef(key: string, label: string): Ref {
+  return { kind: "planning", id: key, label };
+}
+
+/** Blank box on a current-format document = 0; on a legacy document = unknown (null). */
+function boxValue(doc: RawDocument, data: Rec, key: string): number | null {
+  const v = intOrNull(data[key]);
+  if (v !== null) return v;
+  return doc.legacyFormat ? null : 0;
+}
+
+/** Normalizes an address for matching: lower case, no punctuation, common street suffixes abbreviated. */
+export function normalizeAddress(a: string): string {
+  return a
+    .toLowerCase()
+    .replace(/[.,#]/g, " ")
+    .replace(/\broad\b/g, "rd")
+    .replace(/\bstreet\b/g, "st")
+    .replace(/\bavenue\b/g, "ave")
+    .replace(/\bdrive\b/g, "dr")
+    .replace(/\blane\b/g, "ln")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Two addresses refer to the same property when the street number and street name agree. */
+export function addressesMatch(a: string, b: string): boolean {
+  const ta = normalizeAddress(a).split(" ");
+  const tb = normalizeAddress(b).split(" ");
+  if (ta.length < 2 || tb.length < 2) return normalizeAddress(a) === normalizeAddress(b);
+  return ta[0] === tb[0] && ta[1] === tb[1];
+}
+
+/** W-2 box 12 codes that are employee deferrals or HSA contributions (used only for the conflict check). */
+const BOX12_DEFERRAL_CODES = new Set(["D", "E", "F", "G", "H", "S", "AA", "BB", "W"]);
+
+// ── Resolver ──────────────────────────────────────────────────────────────────
+
+export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
+  const year = raw.taxYear;
+  const conflicts: FactConflict[] = [];
+  const openItems: OpenItem[] = [];
+  const addItem = (item: Omit<OpenItem, "lineKeys" | "refs"> & Partial<Pick<OpenItem, "lineKeys" | "refs">>) => {
+    openItems.push({ lineKeys: [], refs: [], ...item });
+  };
+  const answers = raw.answers ?? {};
+  const answered = <T>(v: T | undefined, label: string, key: string): Sourced<T> =>
+    v === undefined ? missingLeaf<T>() : sourced(v, "answer_owner", [{ kind: "questionnaire", id: key, label }]);
+
+  const docsForYear = raw.documents.filter((d) => d.taxYear === year && (d.extractionStatus === "complete" || d.reextractIncomplete === true));
+
+  // ── Household ────────────────────────────────────────────────────────────────
+  const p = raw.planning;
+  const filingStatus: Sourced<string> =
+    p.filingStatus === null
+      ? missingLeaf("Filing status was not recorded; the engine assumes married filing jointly.")
+      : sourced(p.filingStatus, "answer_owner", [planningRef("filing_status", "Filing status")]);
+  if (p.filingStatus === null) {
+    addItem({
+      id: "filing-status-unanswered",
+      severity: "advisory",
+      message: "Filing status is not recorded on the Planning screen; the engine assumes married filing jointly (MFJ is the only status it computes).",
+      action: "Record the filing status answer (MFJ).",
+    });
+  } else if (p.filingStatus !== "mfj") {
+    addItem({
+      id: "filing-status-not-mfj",
+      severity: "blocking",
+      message: `The Planning answer says "${p.filingStatus}"; this engine computes married filing jointly only, so no TY2025 amount is produced.`,
+      action: "Confirm the filing status with the CPA.",
+      refs: [planningRef("filing_status", "Filing status")],
+    });
+    conflicts.push({
+      factKey: "household.filingStatus",
+      candidates: [
+        { basis: "answer_owner", label: "Planning answer", value: p.filingStatus, refs: [planningRef("filing_status", "Filing status")] },
+        { basis: "derived", label: "Engine assumption", value: "mfj", refs: [] },
+      ],
+      chosen: null,
+      reason: "The engine only computes MFJ; a different answer stops the computation instead of being ignored.",
+    });
+  }
+  const noDependents: Sourced<boolean> =
+    p.householdMembers === null
+      ? missingLeaf()
+      : sourced(p.householdMembers === "none", "answer_owner", [planningRef("household_members", "Dependents")]);
+  const noEvPurchase: Sourced<boolean> =
+    p.evVehicle === null ? missingLeaf() : sourced(p.evVehicle === "no", "answer_owner", [planningRef("ev_vehicle", "EV purchase")]);
+
+  // ── W-2s ────────────────────────────────────────────────────────────────────
+  const w2s: W2Fact[] = [];
+  const w2Unusable: { docId: string; reason: string }[] = [];
+  for (const doc of docsForYear.filter((d) => d.docType === "w2")) {
+    const data = dataOf(doc);
+    const wages = intOrNull(data.wagesCents);
+    if (wages === null) {
+      const reason = "extraction has no numeric wages (box 1): likely a mistagged or garbled document; excluded, never counted as $0";
+      w2Unusable.push({ docId: doc.id, reason });
+      addItem({
+        id: `w2-unusable:${doc.id}`,
+        severity: "blocking",
+        message: `A W-2 document cannot be used: ${reason}.`,
+        action: "Open the document, fix its type or re-extract it.",
+        refs: [docRef(doc, "W-2")],
+      });
+      continue;
+    }
+    const stateLinesRaw = Array.isArray(data.stateLines) ? (data.stateLines as unknown[]) : [];
+    const stateLines = stateLinesRaw.map((l) => {
+      const rec: Rec = typeof l === "object" && l !== null ? (l as Rec) : {};
+      return {
+        stateCode: strOrNull(rec.stateCode),
+        wagesCents: intOrNull(rec.stateWagesCents),
+        withheldCents: intOrNull(rec.stateWithheldCents),
+      };
+    });
+    let ctWithheld: number | null;
+    if (stateLinesRaw.length > 0) ctWithheld = sumCtWithholding(stateLinesRaw) ?? 0;
+    else if (intOrNull(data.stateWithheldCents) !== null) ctWithheld = intOrNull(data.stateWithheldCents); // legacy: assumed CT
+    else ctWithheld = doc.legacyFormat ? null : 0;
+    const box12 = (Array.isArray(data.box12) ? (data.box12 as unknown[]) : []).flatMap((e) => {
+      const rec: Rec = typeof e === "object" && e !== null ? (e as Rec) : {};
+      const code = strOrNull(rec.code);
+      const amt = intOrNull(rec.amountCents);
+      return code !== null && amt !== null ? [{ code: code.toUpperCase(), amountCents: amt }] : [];
+    });
+    const box14 = (Array.isArray(data.box14) ? (data.box14 as unknown[]) : []).flatMap((e) => {
+      const rec: Rec = typeof e === "object" && e !== null ? (e as Rec) : {};
+      const label = strOrNull(rec.label);
+      const amt = intOrNull(rec.amountCents);
+      return label !== null && amt !== null ? [{ label, amountCents: amt }] : [];
+    });
+    const personUserId = doc.subjectType === "person" ? doc.subjectUserId : null;
+    const employer = strOrNull(data.employerName);
+    const w2: W2Fact = {
+      docId: doc.id,
+      employer,
+      employerEin: strOrNull(data.employerEIN),
+      personUserId,
+      subjectType: doc.subjectType,
+      basis: docBasis(doc),
+      legacyFormat: doc.legacyFormat,
+      refs: [docRef(doc, `W-2 ${employer ?? ""}`.trim())],
+      wagesCents: wages,
+      fedWithheldCents: intOrNull(data.federalWithheldCents),
+      socialSecurityWagesCents: intOrNull(data.socialSecurityWagesCents),
+      socialSecurityWithheldCents: intOrNull(data.socialSecurityWithheldCents),
+      medicareWagesCents: intOrNull(data.medicareWagesCents),
+      medicareWithheldCents: intOrNull(data.medicareWithheldCents),
+      socialSecurityTipsCents: intOrNull(data.socialSecurityTipsCents),
+      dependentCareBenefitsCents: intOrNull(data.dependentCareBenefitsCents),
+      box12,
+      retirementPlan: typeof data.retirementPlan === "boolean" ? data.retirementPlan : null,
+      box14,
+      stateLines,
+      ctWithheldCents: ctWithheld,
+    };
+    w2s.push(w2);
+    if (personUserId === null) {
+      addItem({
+        id: `w2-no-person:${doc.id}`,
+        severity: "blocking",
+        message: `The W-2 from ${employer ?? "an employer"} is not assigned to a person (${doc.subjectType === "joint" ? "marked joint" : "unassigned"}); wages by person, Schedule SE and excess Social Security cannot be figured.`,
+        action: "Set the person on the document (Documents screen).",
+        refs: w2.refs,
+      });
+    }
+    if (stateLines.some((l) => l.stateCode !== null && l.stateCode !== "CT")) {
+      addItem({
+        id: `w2-non-ct-state:${doc.id}`,
+        severity: "advisory",
+        message: `The W-2 from ${employer ?? "an employer"} shows state withholding for a state other than Connecticut; it is excluded from CT withholding and a credit for tax paid to another state is a CPA item.`,
+        action: "Review the state lines on the document and tell the CPA.",
+        refs: w2.refs,
+      });
+    }
+  }
+  // duplicate W-2s
+  for (let i = 0; i < w2s.length; i++) {
+    for (let j = i + 1; j < w2s.length; j++) {
+      const a = w2s[i]!;
+      const b = w2s[j]!;
+      if (a.employer !== null && a.employer === b.employer && a.wagesCents === b.wagesCents && a.fedWithheldCents === b.fedWithheldCents) {
+        addItem({
+          id: `w2-duplicate:${a.docId}:${b.docId}`,
+          severity: "advisory",
+          message: `Two W-2 documents from ${a.employer} have identical wages and withholding: one may be a duplicate.`,
+          action: "Archive the duplicate if it is one.",
+          refs: [...a.refs, ...b.refs],
+        });
+      }
+    }
+  }
+
+  // ── 1099s ───────────────────────────────────────────────────────────────────
+  const interest: InterestFact[] = [];
+  const dividends: DividendFact[] = [];
+  const otherIncomeBoxes: OtherIncomeBox[] = [];
+  let federal1099Withheld = 0;
+  for (const doc of docsForYear.filter((d) => d.docType === "1099")) {
+    const data = dataOf(doc);
+    const formVariant = strOrNull(data.formVariant);
+    const payer = strOrNull(data.payerName);
+    const basis = docBasis(doc);
+    const ref = docRef(doc, `1099 ${payer ?? ""}`.trim());
+
+    const int1 = intOrNull(data.int_box1Cents);
+    const legacyInterest = int1 === null && formVariant === "1099-INT" ? intOrNull(data.amountCents) : null;
+    if (int1 !== null || legacyInterest !== null) {
+      const box1 = int1 ?? legacyInterest;
+      interest.push({
+        docId: doc.id,
+        payer,
+        basis,
+        legacyFormat: doc.legacyFormat,
+        refs: [ref],
+        box1Cents: box1,
+        usedLegacyHeadline: int1 === null,
+        box3Cents: boxValue(doc, data, "int_box3Cents"),
+        box4Cents: intOrNull(data.int_box4Cents),
+        box6Cents: boxValue(doc, data, "int_box6Cents"),
+        box8Cents: boxValue(doc, data, "int_box8Cents"),
+        box9Cents: boxValue(doc, data, "int_box9Cents"),
+      });
+      if (int1 !== null && formVariant === "1099-INT") {
+        const headline = intOrNull(data.amountCents);
+        if (headline !== null && headline !== int1) {
+          conflicts.push({
+            factKey: `income.interest.${doc.id}`,
+            candidates: [
+              { basis, label: "Interest box 1", value: int1, refs: [ref] },
+              { basis, label: "Headline amount", value: headline, refs: [ref] },
+            ],
+            chosen: "Interest box 1",
+            reason: "The 1099-INT headline amount differs from interest box 1; box 1 is used.",
+          });
+        }
+      }
+    }
+
+    const hasDiv = ["div_box1aCents", "div_box1bCents", "div_box2aCents", "div_box3Cents", "div_box5Cents", "div_box7Cents", "div_box11Cents"].some(
+      (k) => intOrNull(data[k]) !== null
+    );
+    const legacyDividend = !hasDiv && formVariant === "1099-DIV" ? intOrNull(data.amountCents) : null;
+    if (hasDiv || legacyDividend !== null) {
+      dividends.push({
+        docId: doc.id,
+        payer,
+        basis,
+        legacyFormat: doc.legacyFormat,
+        refs: [ref],
+        box1aCents: hasDiv ? boxValue(doc, data, "div_box1aCents") : legacyDividend,
+        box1bCents: hasDiv ? boxValue(doc, data, "div_box1bCents") : null,
+        box2aCents: hasDiv ? boxValue(doc, data, "div_box2aCents") : null,
+        box3Cents: boxValue(doc, data, "div_box3Cents"),
+        box4Cents: intOrNull(data.div_box4Cents),
+        box5Cents: hasDiv ? boxValue(doc, data, "div_box5Cents") : null,
+        box7Cents: boxValue(doc, data, "div_box7Cents"),
+        box11Cents: boxValue(doc, data, "div_box11Cents"),
+      });
+    }
+
+    // withholding on the 1099 (all forms): headline sum when present, else the per-box values
+    const headlineWithheld = intOrNull(data.federalWithheldCents);
+    if (!doc.legacyFormat || formVariant === "1099-INT") {
+      if (headlineWithheld !== null) federal1099Withheld += headlineWithheld;
+      else {
+        for (const k of ["int_box4Cents", "div_box4Cents", "nec_box4Cents", "misc_box4Cents"]) federal1099Withheld += intOrNull(data[k]) ?? 0;
+      }
+    }
+
+    // income this engine does not compute: captured, never dropped
+    for (const e of Array.isArray(data.otherBoxes) ? (data.otherBoxes as unknown[]) : []) {
+      const rec: Rec = typeof e === "object" && e !== null ? (e as Rec) : {};
+      otherIncomeBoxes.push({
+        docId: doc.id,
+        payer,
+        basis,
+        variant: strOrNull(rec.variant) ?? "other",
+        box: strOrNull(rec.box) ?? "",
+        label: strOrNull(rec.label) ?? "",
+        amountCents: intOrNull(rec.amountCents),
+      });
+    }
+    for (const [k, variant, box] of [
+      ["nec_box1Cents", "1099-NEC", "1"],
+      ["misc_box1Cents", "1099-MISC", "1"],
+      ["misc_box2Cents", "1099-MISC", "2"],
+      ["misc_box3Cents", "1099-MISC", "3"],
+    ] as const) {
+      const v = intOrNull(data[k]);
+      if (v !== null && v !== 0) {
+        otherIncomeBoxes.push({ docId: doc.id, payer, basis, variant, box, label: `${variant} box ${box}`, amountCents: v });
+      }
+    }
+  }
+  if (otherIncomeBoxes.length > 0) {
+    addItem({
+      id: "other-income-boxes",
+      severity: "blocking",
+      message: `${otherIncomeBoxes.length} 1099 box(es) outside interest and dividends were read (${[...new Set(otherIncomeBoxes.map((b) => b.variant))].join(", ")}); this engine does not compute them, so the lines they belong to are not computed.`,
+      action: "Review the boxes with the CPA (Schedule D / 8949, 1099-R, 1099-NEC income).",
+      refs: [...new Set(otherIncomeBoxes.map((b) => b.docId))].map((id): Ref => ({ kind: "document", id, label: "1099" })),
+    });
+  }
+  const box3Total = interest.reduce((s, i) => s + (i.box3Cents ?? 0), 0);
+  if (box3Total > 0) {
+    addItem({
+      id: "interest-box3",
+      severity: "advisory",
+      message: `1099-INT box 3 (US savings bond / Treasury interest) of $${(box3Total / 100).toFixed(2)} is included in federal taxable interest (1040 line 2b); Connecticut exempts it (CT Schedule 1 subtraction, a later phase).`,
+      action: "Tell the CPA so the CT subtraction is taken.",
+    });
+  }
+  const foreignTax = interest.reduce((s, i) => s + (i.box6Cents ?? 0), 0) + dividends.reduce((s, d) => s + (d.box7Cents ?? 0), 0);
+  if (foreignTax > 0) {
+    addItem({
+      id: "foreign-tax-paid",
+      severity: "advisory",
+      message: `Foreign tax paid of $${(foreignTax / 100).toFixed(2)} is reported (1099-INT box 6 / 1099-DIV box 7). The direct credit on Schedule 3 line 1 is a Phase 1b rule; until then only a stated credit is used.`,
+      action: "Phase 1b computes the credit (direct credit if $600 MFJ or less).",
+    });
+  }
+
+  // ── 1098s ───────────────────────────────────────────────────────────────────
+  const mortgages: MortgageFact[] = [];
+  for (const doc of docsForYear.filter((d) => d.docType === "mortgage_interest" || d.docType === "form_1098")) {
+    const data = dataOf(doc);
+    if (intOrNull(data.interestCents) === null) continue;
+    const lender = strOrNull(data.servicerName);
+    mortgages.push({
+      docId: doc.id,
+      lender,
+      basis: docBasis(doc),
+      legacyFormat: doc.legacyFormat,
+      refs: [docRef(doc, `1098 ${lender ?? ""}`.trim())],
+      interestCents: intOrNull(data.interestCents),
+      principalCents: intOrNull(data.principalBalanceCents),
+      originationDate: strOrNull(data.originationDate),
+      mortgageInsuranceCents: intOrNull(data.mortgageInsurancePremiumsCents),
+      pointsCents: intOrNull(data.pointsPaidCents),
+      box10Cents: intOrNull(data.box10Cents),
+      propertyAddress: strOrNull(data.propertyAddress),
+    });
+  }
+
+  // ── Primary residence and property tax bills ───────────────────────────────
+  const primaryAddress = raw.primaryResidence;
+  const deductionsPrimary: Sourced<string> = primaryAddress
+    ? sourced(primaryAddress.address, primaryAddress.basis, [], primaryAddress.note)
+    : missingLeaf("The primary residence address is not recorded: real estate bills cannot be classified.");
+  if (primaryAddress && primaryAddress.basis === "derived") {
+    addItem({
+      id: "primary-residence-derived",
+      severity: "advisory",
+      message: `The primary residence is taken to be ${primaryAddress.address} (${primaryAddress.note ?? "derived"}); the property tax credit and Schedule A classification depend on it.`,
+      action: "Confirm the primary residence address.",
+    });
+  }
+  const propertyTaxBills: PropertyTaxBill[] = [];
+  for (const doc of docsForYear.filter((d) => d.docType === "property_tax")) {
+    const data = dataOf(doc);
+    const taxType = strOrNull(data.taxType);
+    const address = strOrNull(data.propertyAddress);
+    const label = strOrNull(data.jurisdictionName) ?? docLabel(doc, "property tax bill");
+    const ownerKind = answers.billClassifications?.[doc.id];
+    let kind: PropertyBillKind = "unclassified";
+    let kindBasis: Basis | null = null;
+    let kindNote: string | undefined;
+    if (ownerKind !== undefined) {
+      kind = ownerKind;
+      kindBasis = "answer_owner";
+    } else if (taxType === "motor_vehicle") {
+      kind = "motor_vehicle";
+      kindBasis = docBasis(doc);
+    } else if (taxType === "personal_property") {
+      kind = "other_personal_property";
+      kindBasis = docBasis(doc);
+    } else if (taxType === "real_estate" || (taxType === null && address !== null)) {
+      if (primaryAddress && address) {
+        if (addressesMatch(address, primaryAddress.address)) {
+          kind = "primary_residence";
+          kindNote = `Address matches the primary residence (${primaryAddress.basis}).`;
+        } else {
+          kind = "other_real_estate";
+          kindNote = "Address differs from the primary residence.";
+        }
+        kindBasis = "derived";
+      }
+    }
+    propertyTaxBills.push({
+      docId: doc.id,
+      label,
+      basis: docBasis(doc),
+      legacyFormat: doc.legacyFormat,
+      refs: [docRef(doc, `Property tax ${label}`)],
+      taxType,
+      address,
+      billedCents: intOrNull(data.totalTaxBilledCents),
+      paidInYearCents: intOrNull(data.paidInTaxYearCents),
+      kind,
+      kindBasis,
+      ...(kindNote ? { kindNote } : {}),
+    });
+  }
+  for (const b of propertyTaxBills) {
+    if (b.paidInYearCents === null) {
+      addItem({
+        id: `bill-no-paid:${b.docId}`,
+        severity: "blocking",
+        message: `The property tax bill "${b.label}"${b.address ? ` (${b.address})` : ""} has no "paid in the tax year" amount entered, so it cannot count toward Schedule A or the CT credit.`,
+        action: "Enter the amount paid in 2025 on the bill's review screen.",
+        refs: b.refs,
+      });
+    }
+    if (b.kind === "unclassified") {
+      addItem({
+        id: `bill-unclassified:${b.docId}`,
+        severity: "blocking",
+        message: `The property tax bill "${b.label}" cannot be classified (primary residence / other real estate / vehicle)${primaryAddress ? "" : " because the primary residence address is not recorded"}.`,
+        action: "Record the primary residence address or classify the bill.",
+        refs: b.refs,
+      });
+    }
+  }
+  if (!propertyTaxBills.some((b) => b.kind === "other_real_estate")) {
+    addItem({
+      id: "no-second-property-bill",
+      severity: "advisory",
+      message:
+        "No 2025 property tax bill is on file for a property other than the primary residence. If tax was paid on another property in 2025 (for example 56 Arbor Rd, a personal Schedule A item in 2025 that is excluded from the CT credit), upload the bill and enter the amount paid.",
+      action: "Upload the bill (or confirm none) and enter the paid amount.",
+    });
+  }
+  for (const m of mortgages) {
+    if (m.box10Cents !== null && m.box10Cents > 0 && m.propertyAddress) {
+      const bill = propertyTaxBills.find((b) => b.address && addressesMatch(b.address, m.propertyAddress!));
+      if (bill && bill.paidInYearCents !== null && bill.paidInYearCents !== m.box10Cents) {
+        conflicts.push({
+          factKey: `deductions.propertyTax.${bill.docId}`,
+          candidates: [
+            { basis: bill.basis, label: "Bill: paid in 2025 (owner entered)", value: bill.paidInYearCents, refs: bill.refs },
+            { basis: m.basis, label: "1098 box 10 (other / escrowed tax)", value: m.box10Cents, refs: m.refs },
+          ],
+          chosen: "Bill: paid in 2025 (owner entered)",
+          reason: "The 1098 box 10 amount differs from the property tax paid entered on the bill; the bill amount is used and box 10 is never added on top of it.",
+        });
+      }
+    }
+  }
+
+  // ── Retirement conflict (owner answer vs W-2 box 12) ───────────────────────
+  const box12Total = w2s.reduce((s, w) => s + w.box12.filter((e) => BOX12_DEFERRAL_CODES.has(e.code)).reduce((a, e) => a + e.amountCents, 0), 0);
+  if (p.retirementContributionCents !== null && box12Total > 0 && p.retirementContributionCents < box12Total) {
+    conflicts.push({
+      factKey: "adjustments.retirementContributions",
+      candidates: [
+        { basis: "answer_owner", label: "Owner answer (total retirement + HSA contributions)", value: p.retirementContributionCents, refs: [planningRef("retirement_contribution_amount", "Retirement contributions")] },
+        { basis: w2s.every((w) => w.basis === "doc_verified") ? "doc_verified" : "doc_unverified", label: "W-2 box 12 (deferrals and HSA, codes D E F G H S AA BB W)", value: box12Total, refs: w2s.flatMap((w) => w.refs) },
+      ],
+      chosen: null,
+      reason:
+        "The owner's total is lower than the contributions printed on the W-2s. No 1a line uses either figure (they feed Phase 1b IRA / HSA / saver's credit rules); both are kept for that phase.",
+    });
+  }
+
+  // ── Mileage vs the "no business mileage" answer ────────────────────────────
+  if (p.businessMileage === "no" && raw.ekc.mileage.length > 0) {
+    conflicts.push({
+      factKey: "scheduleC.mileage",
+      candidates: [
+        { basis: "answer_owner", label: "Planning answer: no business mileage", value: "no", refs: [planningRef("business_mileage", "Business mileage")] },
+        { basis: "books", label: "Mileage log entries", value: raw.ekc.mileage.length, refs: [] },
+      ],
+      chosen: null,
+      reason: "The owner says there was no business mileage but the log has entries; Schedule C line 9 is a CPA call until one is corrected.",
+    });
+  }
+
+  // ── Estimated payments: legacy combined answer cannot be split ─────────────
+  const federalEstimates = answered(answers.federalEstimates, "Federal estimated payments", "federal_estimates");
+  const ctEstimates = answered(answers.ctEstimates, "CT estimated payments", "ct_estimates");
+  const combined: Sourced<number> =
+    p.estimatedPaymentsCombinedCents === null
+      ? missingLeaf()
+      : sourced(p.estimatedPaymentsCombinedCents, "answer_owner", [planningRef("estimated_tax_payments_amount", "Estimated tax payments (federal + state)")]);
+  if (p.estimatedPaymentsCombinedCents !== null && (federalEstimates.value === null || ctEstimates.value === null)) {
+    addItem({
+      id: "estimates-combined-unsplittable",
+      severity: "blocking",
+      message: `The only estimated-payment answer is one combined "federal + state" figure of $${(p.estimatedPaymentsCombinedCents / 100).toFixed(2)}; it cannot be split, so neither the federal (1040 line 26) nor the Connecticut (CT-1040 line 19) payments are used.`,
+      action: "Enter the federal and the Connecticut estimated payments separately (dates and amounts).",
+      refs: [planningRef("estimated_tax_payments_amount", "Estimated tax payments (federal + state)")],
+    });
+  }
+
+  // ── Schedule C facts ───────────────────────────────────────────────────────
+  const owner = raw.scheduleCOwner;
+  if (owner === null) {
+    addItem({
+      id: "schedule-c-owner-unknown",
+      severity: "blocking",
+      message: "The household member who owns EK Consulting could not be determined, so Schedule SE (and the W-2 Social Security wage base it uses) cannot be attributed to a spouse.",
+      action: "Record who owns EK Consulting.",
+    });
+  } else if (owner.basis === "derived") {
+    addItem({
+      id: "schedule-c-owner-derived",
+      severity: "advisory",
+      message: `EK Consulting's owner is taken to be the household member whose name matches the entity name (${owner.note}).`,
+      action: "Confirm the Schedule C owner.",
+    });
+  }
+  const mileageNone: Sourced<boolean> =
+    p.businessMileage === null
+      ? missingLeaf()
+      : sourced(p.businessMileage === "no", "answer_owner", [planningRef("business_mileage", "Business mileage")]);
+  const homeElig: Sourced<"yes_exclusive" | "yes_shared" | "no"> =
+    p.homeOfficeEligibility === "yes_exclusive" || p.homeOfficeEligibility === "yes_shared" || p.homeOfficeEligibility === "no"
+      ? sourced(p.homeOfficeEligibility, "answer_owner", [planningRef("home_office_ekc", "Home office")])
+      : missingLeaf();
+  const homeSqft: Sourced<number> =
+    p.homeOfficeSqft === null ? missingLeaf() : sourced(p.homeOfficeSqft, "answer_owner", [planningRef("home_office_sqft", "Home office square footage")]);
+
+  // ── Prior-year return (2024): read ONLY as documents ───────────────────────
+  const priorReturns = raw.documents.filter(
+    (d) => d.docType === "tax_return" && d.taxYear === year - 1 && d.extractionStatus === "complete" && strOrNull(dataOf(d).formType) === "1040"
+  );
+  let priorTotalTax: Sourced<number> = missingLeaf();
+  let priorAgi: Sourced<number> = missingLeaf();
+  if (priorReturns.length === 1) {
+    const doc = priorReturns[0]!;
+    const data = dataOf(doc);
+    const basis = docBasis(doc);
+    const ref = docRef(doc, "2024 federal return");
+    const tax = intOrNull(data.totalTaxCents);
+    const agi = intOrNull(data.agiCents);
+    if (tax !== null) priorTotalTax = sourced(tax, basis, [ref]);
+    if (agi !== null) priorAgi = sourced(agi, basis, [ref]);
+  } else {
+    addItem({
+      id: "prior-year-return",
+      severity: "advisory",
+      message:
+        priorReturns.length === 0
+          ? "No 2024 federal return (document type tax_return, formType 1040) with a finished extraction is on file: the Form 2210 safe harbor (2024 total tax and AGI) and any Form 5695 / QBI loss carryforward cannot be read."
+          : "More than one 2024 federal return document is on file; which one is the filed return is unclear.",
+      action: "Upload or review the 2024 federal return.",
+    });
+  }
+
+  // ── Stated "none" statements ───────────────────────────────────────────────
+  const statedNone: Ty2025Facts["statedNone"] = {};
+  for (const g of NONE_GROUP_IDS) {
+    const v = answers.statedNone?.[g];
+    if (v !== undefined) statedNone[g] = sourced(v, "answer_owner", [{ kind: "questionnaire", id: `none:${g}`, label: `Stated: ${g}` }]);
+  }
+  if (p.solarCredit === "claimed_already") {
+    statedNone.solar_credit = sourced(true, "answer_owner", [planningRef("solar_credit", "Solar credit already claimed")]);
+  }
+
+  // ── Document provenance advisories ─────────────────────────────────────────
+  const contributing = [
+    ...w2s.map((w) => ({ id: w.docId, label: `W-2 ${w.employer ?? ""}`.trim(), basis: w.basis, legacy: w.legacyFormat })),
+    ...interest.map((i) => ({ id: i.docId, label: `1099 ${i.payer ?? ""}`.trim(), basis: i.basis, legacy: i.legacyFormat })),
+    ...dividends.map((d) => ({ id: d.docId, label: `1099 ${d.payer ?? ""}`.trim(), basis: d.basis, legacy: d.legacyFormat })),
+    ...mortgages.map((m) => ({ id: m.docId, label: `1098 ${m.lender ?? ""}`.trim(), basis: m.basis, legacy: m.legacyFormat })),
+    ...propertyTaxBills.map((b) => ({ id: b.docId, label: `Property tax ${b.label}`, basis: b.basis, legacy: b.legacyFormat })),
+  ];
+  const seen = new Set<string>();
+  for (const c of contributing) {
+    if (seen.has(c.id)) continue;
+    seen.add(c.id);
+    if (c.basis === "doc_unverified") {
+      addItem({
+        id: `doc-unverified:${c.id}`,
+        severity: "advisory",
+        message: `${c.label} is an unverified AI extraction feeding the return.`,
+        action: "Open the document and mark it verified.",
+        refs: [{ kind: "document", id: c.id, label: c.label }],
+      });
+    }
+    if (c.legacy) {
+      addItem({
+        id: `doc-legacy:${c.id}`,
+        severity: "advisory",
+        message: `${c.label} was read in the older extraction format: newer boxes were never read.`,
+        action: "Re-extract the document.",
+        refs: [{ kind: "document", id: c.id, label: c.label }],
+      });
+    }
+  }
+
+  if (raw.paystubs.federalWithheldCents !== 0 || raw.paystubs.ctWithheldCents !== 0) {
+    addItem({
+      id: "paystub-withholding-not-added",
+      severity: "advisory",
+      message: `Paystub withholding for ${year} (federal $${(raw.paystubs.federalWithheldCents / 100).toFixed(2)}, CT $${(raw.paystubs.ctWithheldCents / 100).toFixed(2)}) is NOT added to the return: the W-2s are the year-end source and adding both would double count.`,
+      action: "Reconcile the paystubs against the W-2s if a W-2 is missing.",
+    });
+  }
+
+  // ── Assemble ────────────────────────────────────────────────────────────────
+  const statedLeaf = (v: number | undefined, label: string, key: string): Sourced<number> => answered(v, label, key);
+  const facts: Ty2025Facts = {
+    taxYear: 2025,
+    household: { filingStatus, people: raw.people, noDependents, noEvPurchase },
+    income: {
+      w2s,
+      w2Unusable,
+      interest,
+      noInterestConfirmed: answered(answers.noInterestConfirmed, "No interest income", "no_interest"),
+      dividends,
+      noDividendsConfirmed: answered(answers.noDividendsConfirmed, "No dividend income", "no_dividends"),
+      otherIncomeBoxes,
+      scheduleC: {
+        ownerUserId: owner ? sourced(owner.userId, owner.basis, [], owner.note) : missingLeaf(),
+        glLines: raw.ekc.glLines,
+        booksEmpty: raw.ekc.booksEmpty,
+        glExcludedTransactionCount: raw.ekc.glExcludedTransactionCount,
+        mileage: raw.ekc.mileage,
+        mileageNoneConfirmed: mileageNone,
+        homeOfficeEligibility: homeElig,
+        homeOfficeSqft: homeSqft,
+        fixedAssets: raw.ekc.fixedAssets,
+        fixedAssetsNoneConfirmed: p.fixedAssetsEkcNone,
+      },
+    },
+    adjustments: {
+      sch1a: statedLeaf(answers.sch1aCents, "Schedule 1-A deduction", "sch1a"),
+      hsa: statedLeaf(answers.hsaCents, "HSA deduction", "hsa"),
+      ira: statedLeaf(answers.iraCents, "IRA deduction", "ira"),
+      seRetirement: statedLeaf(answers.seRetirementCents, "SE retirement contributions", "se_retirement"),
+      seHealthInsurance: statedLeaf(answers.seHealthInsuranceCents, "SE health insurance", "se_health_insurance"),
+    },
+    credits: {
+      foreignTax: statedLeaf(answers.foreignTaxCreditCents, "Foreign tax credit", "foreign_tax_credit"),
+      savers: statedLeaf(answers.saversCreditCents, "Saver's credit", "savers_credit"),
+    },
+    statedNone,
+    deductions: {
+      mortgages,
+      propertyTaxBills,
+      noPropertyTaxConfirmed: answered(answers.noPropertyTaxConfirmed, "No property tax", "no_property_tax"),
+      donations: raw.donations,
+      noDonationsConfirmed: p.donationsNone ? sourced(true, "answer_owner", [planningRef("donations_none", "No charitable gifts")]) : missingLeaf(),
+      primaryResidenceAddress: deductionsPrimary,
+    },
+    payments: {
+      federal1099WithheldCents: federal1099Withheld,
+      federalPaystubWithheldCents: raw.paystubs.federalWithheldCents,
+      ctPaystubWithheldCents: raw.paystubs.ctWithheldCents,
+      federalEstimates,
+      federalExtensionPayment: statedLeaf(answers.federalExtensionPaymentCents, "Federal extension payment", "federal_extension_payment"),
+      federalPriorYearOverpaymentApplied: statedLeaf(answers.federalOverpaymentAppliedCents, "Federal overpayment applied", "federal_overpayment_applied"),
+      ctEstimates,
+      ctExtensionPayment: statedLeaf(answers.ctExtensionPaymentCents, "CT extension payment", "ct_extension_payment"),
+      ctPriorYearOverpaymentApplied: statedLeaf(answers.ctOverpaymentAppliedCents, "CT overpayment applied", "ct_overpayment_applied"),
+      ctPriorYearBalancePaidIn2025: statedLeaf(answers.ctPriorYearBalancePaidIn2025Cents, "2024 CT balance paid in 2025", "ct_prior_balance_paid"),
+      combinedEstimatesAnswer: combined,
+    },
+    ct: {
+      useTax: statedLeaf(answers.ctUseTaxCents, "CT use tax", "ct_use_tax"),
+      additions: statedLeaf(answers.ctAdditionsCents, "CT Schedule 1 additions", "ct_additions"),
+      subtractions: statedLeaf(answers.ctSubtractionsCents, "CT Schedule 1 subtractions", "ct_subtractions"),
+    },
+    priorYear: { totalTaxCents: priorTotalTax, agiCents: priorAgi },
+  };
+  return { facts, conflicts, openItems };
+}

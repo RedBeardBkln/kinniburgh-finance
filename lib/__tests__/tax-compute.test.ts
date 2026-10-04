@@ -347,30 +347,32 @@ describe("computeCtPhaseOutAddback (CT Table C)", () => {
     expect(computeCtPhaseOutAddback(D("90000")).toString()).toBe("0");
   });
 
-  it("CT AGI at $145,500 exactly -> $500 (cap anchor, per the documented fence-post formula)", () => {
-    expect(computeCtPhaseOutAddback(D("145500")).toString()).toBe("500");
+  // Updated 2026-10-03 (defect D7) to the PRINTED MFJ table in ct-1040-tcs_1225.pdf: each $50 band is
+  // "more than X, not more than X + 5,000", i.e. step count = ceil((AGI - 100,500) / 5,000), capped at 10.
+  it("CT AGI at $145,500 exactly -> $450 (last band is ($140,500, $145,500])", () => {
+    expect(computeCtPhaseOutAddback(D("145500")).toString()).toBe("450");
   });
 
-  it("CT AGI at $145,501+ -> still capped at $500", () => {
+  it("CT AGI at $145,501+ -> $500 (more than $145,500), capped", () => {
     expect(computeCtPhaseOutAddback(D("145501")).toString()).toBe("500");
     expect(computeCtPhaseOutAddback(D("300000")).toString()).toBe("500");
   });
 
-  // NOTE: the plan's own Test Expectations illustrative mid-range example
-  // ("$110,500, one $5,000 step in -> $50") is NOT reproduced verbatim here.
-  // Under this table's implementation (a fence-post `floor(excess/5000)+1`
-  // step count, chosen specifically so the $145,500 -> $500 cap anchor spec
-  // 09 states explicitly lands exactly), $110,500 actually computes to $150
-  // (2 full $5,000 bands crossed -> 3 fence-post steps), not $50 — the two
-  // anchors ($0 at $100,500, $500 at $145,500) are mutually incompatible
-  // with a plain per-$5,000 formula that also produces $50 at $110,500 (see
-  // this function's own doc comment for the full derivation). This deviation
-  // is called out explicitly in the implementation report.
-  it("mid-range value, one $5,000 step in ($105,000) -> $50", () => {
+  it("first band: $100,501 through $105,500 -> $50; $105,501 -> $100 (acceptance 8)", () => {
+    expect(computeCtPhaseOutAddback(D("100501")).toString()).toBe("50");
     expect(computeCtPhaseOutAddback(D("105000")).toString()).toBe("50");
+    expect(computeCtPhaseOutAddback(D("105500")).toString()).toBe("50");
+    expect(computeCtPhaseOutAddback(D("105501")).toString()).toBe("100");
   });
-  it("mid-range value, two $5,000 steps in ($110,500) -> $150 (see NOTE above)", () => {
-    expect(computeCtPhaseOutAddback(D("110500")).toString()).toBe("150");
+  it("every printed band edge: AGI at the band top stays in the band, one dollar more moves up", () => {
+    for (let step = 1; step <= 9; step++) {
+      const top = 100500 + step * 5000;
+      expect(computeCtPhaseOutAddback(D(String(top))).toString()).toBe(String(step * 50));
+      expect(computeCtPhaseOutAddback(D(String(top + 1))).toString()).toBe(String((step + 1) * 50));
+    }
+  });
+  it("mid-range value ($110,500) -> $100 (second band's top)", () => {
+    expect(computeCtPhaseOutAddback(D("110500")).toString()).toBe("100");
   });
 });
 

@@ -49,10 +49,11 @@ raised the standard deduction above the original Rev. Proc. 2024-40 figures but 
 - **SALT (state and local tax) deduction cap, 2025: $40,000** (MFJ; $20,000 MFS), up from the prior
   $10,000 cap — OBBBA raised it for tax years 2025–2029. Phases down by 30% of the amount MAGI exceeds
   **$500,000** (MFJ), with a floor of $10,000 (i.e., never drops below the old cap). Source: multiple
-  consistent post-OBBBA summaries (Venable LLP SALT Alert, HCVT, Bipartisan Policy Center) — not yet
-  cross-checked against the actual 2025 Schedule A instructions/worksheet; do that before finalizing if
-  MAGI is anywhere near the $500,000 phase-down threshold (unlikely to bind at this household's income
-  level, but verify rather than assume).
+  consistent post-OBBBA summaries (Venable LLP SALT Alert, HCVT, Bipartisan Policy Center), and
+  **cross-checked 2026-10-03 against the actual 2025 Schedule A instructions/worksheet**
+  (`https://www.irs.gov/instructions/i1040sca`): worksheet line 1 = $40,000; line 6 = MAGI excess over
+  $500,000; line 7 = line 6 x 30%; line 9 = the larger of line 8 or $10,000. The earlier "not yet
+  cross-checked" caveat is closed. Property tax is deductible if assessed before 2026 and paid.
 
 ## Connecticut (DRS, Form CT-1040 TCS, Rev. 12/25 — fetched directly from portal.ct.gov 2026-09-17)
 
@@ -75,6 +76,14 @@ per $1,000 of CT AGI above that, reaching $0 at CT AGI ≥ $71,000.
 
 **Table C — 2% rate phase-out add-back** (based on CT AGI): $0 until CT AGI > $100,500, then adds $50
 per $5,000 of CT AGI above that, capping at $500 once CT AGI > $145,500.
+
+> **Corrected 2026-10-03 (defect D7).** Re-read from the printed table in `ct-1040-tcs_1225.pdf`, the
+> MFJ column is: CT AGI <= $100,500 -> $0; more than $100,500 but not more than $105,500 -> $50; ($105,500,
+> $110,500] -> $100; ... ($140,500, $145,500] -> $450; more than $145,500 -> $500. The step count is
+> therefore `ceil((CT AGI - 100,500) / 5,000)` capped at 10 (so AGI exactly $105,500 is $50, $105,501 is
+> $100, $145,500 is $450, $145,501 is $500). The earlier `floor(excess / 5,000) + 1` reading was wrong at
+> every exact band edge, and the worry above that the table was "one step short" was a misreading of the
+> printed bands, not a defect in the source. Table A (MFJ) as coded matches the printed table.
 
 **Tax Calculation Schedule mechanic (Form CT-1040 TCS, page 1, lines 1–10) — how A–E combine.** This
 resolves what was flagged as an "unverified assumption" during the tax-compute-engine build: the
@@ -151,6 +160,61 @@ and/or up to two motor vehicles if MFJ, and Form CT‑1040 Line 10 is nonzero).
   Line 10 → Line 11).
 
 Full source PDF (all 5 tables, exact text): `https://portal.ct.gov/-/media/drs/forms/2025/income/ct-1040-tcs_1225.pdf`
+
+## Additional TY2025 constants (verified 2026-10-03)
+
+Fetched from irs.gov / portal.ct.gov on 2026-10-03 (text read, TY2025 editions) by the
+`filing-packet-compute-roadmap` planner (`.claude/pipeline/filing-packet-compute-roadmap/01-plan.md`,
+section 5.1). The code registry for these is `lib/tax2025/constants.ts`: every entry there carries the
+`url` and `verifiedOn` below, and a test fails if one is missing. **Only these values may be hardcoded by
+the TY2025 return engine (`lib/tax2025/`)**; anything in the "not verified" list further down is emitted as
+`needs_cpa_rule_unverified` instead of being estimated.
+
+| Item | Verified value | Source URL |
+|---|---|---|
+| Standard deduction MFJ | $31,500 (single/MFS $15,750; HOH $23,625) | `https://www.irs.gov/instructions/i1040gi` (What's New) |
+| Tax Table rule | Taxable income under $100,000 must use the Tax Table; otherwise the Tax Computation Worksheet. A row's tax is the tax at the row midpoint, rounded. Row widths from the printed table: 5 below $5, 10 from $5 to $25, 25 from $25 to $3,000, 50 from $3,000 to $100,000. **Re-verified 2026-10-04 against the full printed MFJ column (2,062 contiguous rows, $0 to $100,000, fixture `lib/__tests__/fixtures/tax-table-2025-mfj.json`)**: the midpoint rule reproduces every row (e.g. 95,000-95,050 = $10,926; 98,000-98,050 = $11,394) | same |
+| Rounding | May round to whole dollars; if so, round **all** amounts; add with cents, round the total | same ("Rounding Off to Whole Dollars") |
+| QDCG worksheet thresholds | $96,700 (0% limit, MFJ), $600,050 (15% limit, MFJ) | same |
+| Schedule 1-A (new for 2025) | Tips: max $25,000 total (not per spouse), reduced starting at MAGI $300,000 MFJ by $100 per $1,000 over (rounded down). Overtime: max $25,000 MFJ, same MAGI/reduction. Car-loan interest: max $10,000, MAGI start $200,000 MFJ, reduced $200 per $1,000 over (rounded **up**); vehicle bought in 2025, personal use, VIN, US final assembly. Seniors: $6,000 each (born before Jan 2, 1961), MAGI start $150,000 MFJ, reduced by 6% of the excess. Valid SSN required; must file jointly. Result goes to 1040 line 13b | `https://www.irs.gov/pub/irs-pdf/f1040s1a.pdf`, `https://www.irs.gov/instructions/i1040gi` |
+| Overtime reporting for 2025 | No W-2 change; the employer may show it in box 14; otherwise the taxpayer figures the FLSA overtime premium | `i1040gi` (Schedule 1-A) |
+| SALT cap | $40,000 ($20,000 MFS); reduced by 30% of MAGI over $500,000; floor $10,000 | `https://www.irs.gov/instructions/i1040sca` |
+| Mortgage interest limit | $750,000 of acquisition debt for loans after Dec 15, 2017 | `i1040sca` |
+| Noncash gifts | Form 8283 required if the deduction is over $500 | `i1040sca` |
+| Schedule SE | 92.35% (line 4a); $400 floor (line 4c); wage base $176,100 (line 7); line 8a = W-2 boxes 3 + 7; 12.4% on the smaller of line 6 or line 9; 2.9% on line 6; half to Schedule 1 line 15 | `https://www.irs.gov/pub/irs-pdf/f1040sse.pdf`, `https://www.irs.gov/instructions/i1040sse` |
+| Additional Medicare Tax | Not indexed: MFJ $250,000, MFS $125,000, others $200,000; Form 8959 required if any W-2 box 5 is over $200,000 or combined wages + SE is over the threshold; Part V reconciles withholding; line 24 goes to 1040 line 25c | `https://www.irs.gov/instructions/i8959`, `i1040gi` |
+| NIIT | 3.8% of the lesser of net investment income or MAGI over the threshold; MFJ $250,000 | `https://www.irs.gov/instructions/i8960` |
+| QBI | Form 8995 if taxable income before QBI is at most $394,600 MFJ ($197,300 others), else 8995-A; phase-in band to $494,600 MFJ; limited to 20% of (taxable income before QBI minus net capital gain including qualified dividends); QBI is net of the deductible half of SE tax, SE health insurance and qualified-plan contributions | `https://www.irs.gov/instructions/i8995` |
+| HSA | $4,300 self-only, $8,550 family, +$1,000 age 55 or older; reduced by employer contributions; none for months on Medicare or if someone's dependent | `https://www.irs.gov/instructions/i8889` |
+| IRA | $7,000 ($8,000 age 50 or older); deduction phase-out if covered by a workplace plan: MFJ MAGI $126,000-$146,000; not covered but spouse is: $236,000-$246,000 | `https://www.irs.gov/publications/p590a` (2025) |
+| Saver's credit | Contribution cap $2,000 per person; MFJ credit rates 50% to $47,500, 20% to $51,000, 10% to $79,000, 0% above; the form states no credit if 1040 line 11a is more than $79,000 MFJ; line 2 includes 401(k)/403(b)/457(b)/SEP/SIMPLE/TSP deferrals including designated Roth; MFS is in the "all other filers" column | `https://www.irs.gov/pub/irs-pdf/f8880.pdf`, `https://www.irs.gov/retirement-plans/plan-participant-employee/retirement-savings-contributions-savers-credit` |
+| Form 5695 | 30% for property placed in service 2022-2025; no residential clean energy credit for expenditures after Dec 31, 2025; under 80% nonbusiness use -> only the nonbusiness-allocable cost; carryforward handled on the form | `https://www.irs.gov/instructions/i5695` |
+| Schedule 3 line map | 1 foreign tax; 4 saver's; 5a Form 5695 line 15; 8 total to 1040 line 20; 10 extension payment; 11 excess Social Security; 15 total to 1040 line 31 | `https://www.irs.gov/pub/irs-pdf/f1040s3.pdf` |
+| Foreign tax direct credit | No Form 1116 if all foreign income is passive 1099 interest/dividends and total foreign tax is at most $300 ($600 MFJ) | `i1040gi` |
+| Schedule C | 70 cents/mile; meals generally 50%; simplified home office $5/sq ft, max 300 sq ft, per-year irrevocable election; de minimis safe harbor exists; 100% bonus for property acquired and placed in service after Jan 19, 2025 | `https://www.irs.gov/instructions/i1040sc` |
+| Form 4562 | Section 179 max $2,500,000, reduced above $4,000,000 of 179 property; SUV cap $31,300; bonus changes for property acquired after Jan 19, 2025 | `https://www.irs.gov/instructions/i4562` |
+| MACRS 39-year (Pub 946 Table A-7a) | Nonresidential real property, mid-month, straight line: year 1 (placed in service in July) = 1.177%; years 2-39 = 2.564% | `https://www.irs.gov/pub/irs-pdf/p946.pdf` |
+| AMT | 2025 exemption $137,000 MFJ; phase-out begins $1,252,700; 26% on the first $239,100 of the excess, 28% above | `https://www.irs.gov/instructions/i6251` |
+| Form 2210 | Penalty if payments are under the smaller of 90% of 2025 tax or 100% of 2024 tax (110% if 2024 AGI is over $150,000); none if tax minus withholding is under $1,000; the IRS will figure the penalty for you | `https://www.irs.gov/instructions/i2210` |
+| Underpayment interest rates | 2025: 7% each quarter. 2026: Q1 7%, Q2 6%, Q3 7%, Q4 7% | `https://www.irs.gov/payments/quarterly-interest-rates` |
+| CT-1040 | Line 1 = federal 1040 line 11a; line 6 tax (tax tables if CT AGI is at most $102,000, else TCS or calculator; $24,000 or less MFJ = $0); line 9 CT AMT via CT-6251 only if federal AMT was required; line 11 property-tax credit (max $300, MFJ full at CT AGI at most $70,500, decimal table to 1.00 above $130,500); line 15 use tax (must enter 0 or an amount); line 18 CT withholding; 19 CT estimates (including 2025 estimates paid in 2026); 20 CT-1040 EXT payment; 27 late payment penalty 10%; 28 interest 1% per month; Schedule 1 additions include line 36 (100% of 168(k) bonus) and 36a (80% of 179); subtractions include line 39 (US-obligation interest) and 42 (state refunds) | `https://portal.ct.gov/-/media/drs/forms/2025/income/2025-ct-1040-instructions_1225.pdf` |
+| CT TCS tables | Tables A-E and the property-tax decimal table re-read; consistent with this file after the Table C correction above | `https://portal.ct.gov/-/media/drs/forms/2025/income/ct-1040-tcs_1225.pdf` |
+
+### Not verified (the engine emits `needs_cpa_rule_unverified`, never an estimate)
+
+- Charitable AGI limits for gifts (60% cash to public charities): only the 30%/20% sentences were found.
+  The engine therefore deducts gifts in full only up to 20% of AGI (the lowest limit that can apply) and
+  flags anything above that.
+- Whether home mortgage insurance premiums (1098 box 5) are deductible for 2025; treatment of points (box 6).
+- Form 8829 actual-method line rules beyond the Part III basis lines; the Section 179 taxable-income
+  limitation; Pub 946 Table A-1 (5- and 7-year property).
+- Self-employed health insurance (Form 7206) eligibility and SEP/solo-401(k) establishment deadlines.
+- Form 2210: how withholding is treated for timing; the annualized method.
+- Late filing / late payment penalty rates (federal) and any further extension beyond Oct 15; the CT
+  late-payment minimum penalty and month-counting rule.
+- CT: the printed CT tax table used for CT AGI up to $102,000; CT Schedule 3/4 forms, CT-6251, CT-2210.
+- The AMT exemption phase-out reduction rate above $1,252,700, and Form 6251 Part III (preferential-rate
+  AMT).
 
 ## Known real data gaps (not fabricated — genuinely missing from the system as of 2026-09-17)
 
