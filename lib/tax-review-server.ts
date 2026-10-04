@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { currentReturnFingerprint, loadReviewInputs } from "@/lib/tax-review-build";
+import { loadReviewInputs } from "@/lib/tax-review-build";
 import { getRunWithFindings, listApprovals, listDispositionDetails, listRuns } from "@/lib/tax-review-store";
 import { resolveApprover, type ApproverResolution } from "@/lib/tax-review/approver";
 import type { GateEngineState } from "@/lib/tax-review/gate";
@@ -55,12 +55,6 @@ export async function loadReviewContext(year: 2025, userId: string): Promise<Con
       approver: resolveApprover(users, inputs.ekcName, user.id),
     },
   };
-}
-
-/** The current fingerprint only (cheap: no packet): for the clean-copy routes' own use and the actions that need nothing else. */
-export async function currentFingerprintFor(year: 2025, userName: string): Promise<{ entityId: string; fingerprint: string } | { error: string }> {
-  const r = await currentReturnFingerprint(year, userName);
-  return "error" in r ? r : { entityId: r.entityId, fingerprint: r.fingerprint.fingerprint };
 }
 
 export interface ReviewRecords {

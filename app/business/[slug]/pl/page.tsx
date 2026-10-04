@@ -376,7 +376,7 @@ export default async function PLPage({ params, searchParams }: PageProps) {
                 {slug === "sudden-valley" && (
                   <p className="text-xs text-muted-foreground">
                     Sudden Valley&rsquo;s chart of accounts is still a placeholder, not yet
-                    reconciled against an accountant's or QuickBooks export — treat these figures as rough.
+                    reconciled against an accountant&rsquo;s or QuickBooks export — treat these figures as rough.
                   </p>
                 )}
               </div>

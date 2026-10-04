@@ -114,7 +114,9 @@ export const unkeyedLinesCheck: L1Check = {
           })
         );
       }
-      if (others.length > 0) {
+      // a line printed as a row of several fields (Schedule 1-A line 22a/22b: VIN, two amount columns) is ONE printed line
+      const lineIds = [...new Set(others)];
+      if (lineIds.length > 0) {
         out.push(
           makeFinding({
             layer: "L1",
@@ -123,8 +125,8 @@ export const unkeyedLinesCheck: L1Check = {
             area: "forms",
             formKey: gap.formId,
             ruleTag: "list",
-            message: `${gap.formId}: ${others.length} printed money line(s) are not modeled by the app and are left blank (${others.slice(0, 10).join(", ")}${others.length > 10 ? ", ..." : ""}). A blank is a zero on the form; check the list against your own situation.`,
-            evidence: [{ ref: `form:${gap.formId}`, amount: others.length, status: "count" }],
+            message: `${gap.formId}: ${lineIds.length} printed money line(s) are not modeled by the app and are left blank (${lineIds.slice(0, 10).join(", ")}${lineIds.length > 10 ? ", ..." : ""}). A blank is a zero on the form; check the list against your own situation.`,
+            evidence: [{ ref: `form:${gap.formId}`, amount: lineIds.length, status: "count" }],
             recommendedAction: "Read the list and make sure none of those lines applies to you.",
             acceptable: true,
           })
