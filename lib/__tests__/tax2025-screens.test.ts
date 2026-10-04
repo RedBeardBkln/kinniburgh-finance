@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { D } from "@/lib/tax2025/money";
-import {
-  computeAmtScreen,
-  computeNiitScreen,
-  type AmtScreenInput,
-  type NiitScreenInput,
-} from "@/lib/tax2025/rules/screens";
+import { computeAmtScreen, type AmtScreenInput } from "@/lib/tax2025/rules/screens";
 import type { LineKey, RuleResult } from "@/lib/tax2025/types";
 
 function amt(r: RuleResult, key: LineKey): string | null {
@@ -112,53 +107,4 @@ describe("computeAmtScreen (Form 6251)", () => {
   });
 });
 
-function niitInput(over: Partial<NiitScreenInput> = {}): NiitScreenInput {
-  return {
-    magi: D(300000),
-    taxableInterest: D(5000),
-    ordinaryDividends: D(10000),
-    capitalGainDistributions: D(5000),
-    otherInvestmentIncomePresent: false,
-    ...over,
-  };
-}
-
-// Form 8960 instructions: 3.8% of the lesser of net investment income or MAGI over $250,000 (MFJ).
-describe("computeNiitScreen (Form 8960)", () => {
-  it("MAGI at the threshold -> no NIIT, whatever the investment income", () => {
-    const r = computeNiitScreen(niitInput({ magi: D(250000) }));
-    expect(r.status).toBe("computed");
-    expect(amt(r, "sch2.12")).toBe("0");
-    expect(r.conclusion).toBe("ineligible");
-    expect(r.reasons[0]).toContain("not over");
-  });
-
-  it("MAGI 300,000, NII 20,000: lesser is NII -> 3.8% x 20,000 = $760", () => {
-    const r = computeNiitScreen(niitInput());
-    expect(amt(r, "f8960.nii")).toBe("20000");
-    expect(amt(r, "f8960.niit")).toBe("760");
-    expect(amt(r, "sch2.12")).toBe("760");
-    expect(r.conclusion).toBe("eligible");
-  });
-
-  it("MAGI 255,000, NII 20,000: lesser is the 5,000 excess -> $190", () => {
-    expect(amt(computeNiitScreen(niitInput({ magi: D(255000) })), "sch2.12")).toBe("190");
-  });
-
-  it("$1 over the threshold: 3.8% of $1 rounds to $0", () => {
-    expect(amt(computeNiitScreen(niitInput({ magi: D(250001) })), "sch2.12")).toBe("0");
-  });
-
-  it("investment income the engine does not compute + MAGI over the threshold -> needs_cpa_judgment, no amount", () => {
-    const r = computeNiitScreen(niitInput({ otherInvestmentIncomePresent: true }));
-    expect(r.status).toBe("needs_cpa_judgment");
-    expect(amt(r, "sch2.12")).toBeNull();
-    // but below the threshold the conclusion does not depend on it
-    expect(computeNiitScreen(niitInput({ magi: D(200000), otherInvestmentIncomePresent: true })).status).toBe("computed");
-  });
-
-  it("missing inputs -> missing_input", () => {
-    expect(computeNiitScreen(niitInput({ magi: null })).status).toBe("missing_input");
-    expect(computeNiitScreen(niitInput({ taxableInterest: null })).status).toBe("missing_input");
-  });
-});
+// The Form 8960 (net investment income tax) cases moved to tax2025-form-8960.test.ts when the screen became the full form.

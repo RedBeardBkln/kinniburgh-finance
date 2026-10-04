@@ -497,9 +497,13 @@ function reference(s: Scenario): RefOut {
   } else {
     tax = R(refTax(D(ti)));
   }
-  // NIIT and AMT screens
+  // NIIT (Form 8960) and the AMT screen. Part II line 9b (itemizers): the state income tax deducted on Schedule A (CT withholding) is allocated
+  // to investment income by the ratio of line 8 to AGI (the Form 8960 instructions' example method); when the SALT cap binds the instructions do
+  // not say how to split it, so the engine hands line 9b to the CPA and the case is skipped.
   const nii = interest + ordDiv;
-  const niit = agi > 250000 ? R(D(Math.min(nii, agi - 250000)).times("0.038")) : D(0);
+  if (agi > 250000 && itemizes && nii > 0 && ctWh + s.propTaxPaid > cap) return { skip: "NIIT line 9b under the SALT cap", agi, ti: 0, totalTax: 0, totalPayments: 0, balance: 0, ctAgi: agi, ctTax: null, ctBalance: null };
+  const l9b = agi > 250000 && itemizes && nii > 0 ? R(D(ctWh).times(Math.min(nii, agi)).div(agi)).toNumber() : 0;
+  const niit = agi > 250000 ? R(D(Math.min(Math.max(0, nii - l9b), agi - 250000)).times("0.038")) : D(0);
   const amti = ti + (itemizes ? salt : 31500);
   if (amti > 1252700) return { skip: "AMT phase-out", agi, ti, totalTax: 0, totalPayments: 0, balance: 0, ctAgi: agi, ctTax: null, ctBalance: null };
   const ex = amti - 137000 > 0 ? amti - 137000 : 0;

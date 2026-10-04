@@ -63,6 +63,9 @@ export const NONE_GROUP_TEXT = {
     "No income earned in or connected with another state or qualifying jurisdiction that was taxed by it, so no credit for income taxes paid to another jurisdiction (CT-1040 line 7, Schedule 2).",
   ct_other_credits:
     "No Connecticut credit other than the property tax credit: none from Schedule CT-IT Credit (youth development, ABLE, stillborn child, employer CHET, angel investor, real estate conveyance, theater, UConn, workforce housing, CT-8801), no Connecticut earned income credit, claim of right credit, pass-through entity tax credit or historic home credit (CT-1040 lines 13, 20a, 20b, 20c, 20d).",
+  // Form 8960 lines 6, 7 and 10 (rules/form-8960.ts reads it; no catalog line names it as its `group`).
+  niit_other:
+    "No stock in a foreign corporation (a controlled foreign corporation or a passive foreign investment company), no distribution from an estate or trust (Schedule K-1 (Form 1041) box 14 code H), no net operating loss that applies to net investment income, no recovery of a deduction counted against investment income in an earlier year, and no trading business (Form 8960 lines 6, 7 and 10).",
 } as const;
 
 export type NoneGroupId = keyof typeof NONE_GROUP_TEXT;
@@ -593,7 +596,32 @@ const EXTRA = [
   ["f2210.8", "Form 2210", "8", "Maximum required annual payment based on the prior year's tax"],
   ["f2210.9", "Form 2210", "9", "Required annual payment"],
   ["f2210.19", "Form 2210", "19", "Estimated penalty (regular method estimate)"],
+  // Form 8960 (Net Investment Income Tax, individuals): every printed money line of Parts I-III for an individual. Lines 18a-21 are
+  // for estates and trusts and have no key. Line 12 and line 17 keep the keys they had as a screen (nii, niit).
+  ["f8960.1", "Form 8960", "1", "Taxable interest"],
+  ["f8960.2", "Form 8960", "2", "Ordinary dividends"],
+  ["f8960.3", "Form 8960", "3", "Annuities"],
+  ["f8960.4a", "Form 8960", "4a", "Rental real estate, royalties, partnerships, S corporations, trusts, trades or businesses"],
+  ["f8960.4b", "Form 8960", "4b", "Adjustment for net income or loss derived in the ordinary course of a non-section 1411 trade or business"],
+  ["f8960.4c", "Form 8960", "4c", "Combine lines 4a and 4b"],
+  ["f8960.5a", "Form 8960", "5a", "Net gain or loss from disposition of property"],
+  ["f8960.5b", "Form 8960", "5b", "Net gain or loss from disposition of property that is not subject to net investment income tax"],
+  ["f8960.5c", "Form 8960", "5c", "Adjustment from disposition of partnership interest or S corporation stock"],
+  ["f8960.5d", "Form 8960", "5d", "Combine lines 5a through 5c"],
+  ["f8960.6", "Form 8960", "6", "Adjustments to investment income for certain CFCs and PFICs"],
+  ["f8960.7", "Form 8960", "7", "Other modifications to investment income"],
+  ["f8960.8", "Form 8960", "8", "Total investment income"],
+  ["f8960.9a", "Form 8960", "9a", "Investment interest expenses"],
+  ["f8960.9b", "Form 8960", "9b", "State, local, and foreign income tax"],
+  ["f8960.9c", "Form 8960", "9c", "Miscellaneous investment expenses"],
+  ["f8960.9d", "Form 8960", "9d", "Add lines 9a, 9b, and 9c"],
+  ["f8960.10", "Form 8960", "10", "Additional modifications"],
+  ["f8960.11", "Form 8960", "11", "Total deductions and modifications"],
   ["f8960.nii", "Form 8960", "12", "Net investment income"],
+  ["f8960.13", "Form 8960", "13", "Modified adjusted gross income"],
+  ["f8960.14", "Form 8960", "14", "Threshold based on filing status"],
+  ["f8960.15", "Form 8960", "15", "Subtract line 14 from line 13"],
+  ["f8960.16", "Form 8960", "16", "The smaller of line 12 or line 15"],
   ["f8960.niit", "Form 8960", "17", "Net investment income tax"],
   ["ct1040.1", "CT-1040", "1", "Federal adjusted gross income (1040 line 11a)"],
   // CT-1040 Schedule 1 detail lines (rules/ct-schedule1.ts owns them; none carries a `group`). The totals below are line 38 / line 50.

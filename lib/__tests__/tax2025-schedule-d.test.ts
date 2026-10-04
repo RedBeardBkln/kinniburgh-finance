@@ -7,7 +7,7 @@ import { LINE_KEYS, NONE_GROUP_IDS, lineMeta } from "@/lib/tax2025/line-catalog"
 import { D } from "@/lib/tax2025/money";
 import { computeTy2025Return, duplicateEmissions } from "@/lib/tax2025/return";
 import { computeCapitalLossCarryoverOut, computeScheduleD, type ScheduleDOutput } from "@/lib/tax2025/rules/schedule-d";
-import { computeNiitScreen } from "@/lib/tax2025/rules/screens";
+import { computeForm8960, type Form8960Input } from "@/lib/tax2025/rules/form-8960";
 import { qdcgWorksheet } from "@/lib/tax2025/rules/tax-calc";
 import { missingLeaf, type LineKey, type Ref, type Sourced, type Ty2025Return } from "@/lib/tax2025/types";
 import { resolveFacts, type RawDocument, type RawTy2025Inputs } from "@/lib/tax2025/resolve-facts";
@@ -838,18 +838,41 @@ describe("forms required and the NIIT screen", () => {
   });
 
   it("NIIT: Form 8960 line 5a is the signed 1040 line 7a; net investment income cannot go below zero", () => {
-    const input = { magi: D(300_000), taxableInterest: D(500), ordinaryDividends: D(1000), otherInvestmentIncomePresent: false };
+    const lead = (n: number) => ({ amount: D(n), status: "computed" as const });
+    const base: Form8960Input = {
+      agi: lead(300_000),
+      magiExclusionsNone: { state: "answered", value: true },
+      interest: lead(500),
+      dividends: lead(1000),
+      pensions: lead(0),
+      gain7a: lead(0),
+      sch1Line3: lead(0),
+      sch1Line4: lead(0),
+      sch1Line5: lead(0),
+      sch1Line6: lead(0),
+      schA5a: lead(0),
+      schA5d: lead(0),
+      schA5e: lead(0),
+      schA9: lead(0),
+      itemizing: false,
+      itemizingStatus: undefined,
+      statedNoOtherIncome: true,
+      statedNoCapitalOther: true,
+      niitOther: true,
+      otherInvestmentIncomePresent: false,
+    };
+    const line = (r: ReturnType<typeof computeForm8960>, key: LineKey) => r.lines.find((l) => l.key === key)?.amount?.toString();
     // gain: NII = 500 + 1,000 + 5,557 = 7,057; MAGI excess 50,000; 3.8% x 7,057 = 268.166 -> 268
-    const gain = computeNiitScreen({ ...input, capitalGainDistributions: D(5557) });
-    expect(gain.lines.find((l) => l.key === "f8960.nii")?.amount?.toString()).toBe("7057");
-    expect(gain.lines.find((l) => l.key === "f8960.niit")?.amount?.toString()).toBe("268");
+    const gain = computeForm8960({ ...base, gain7a: lead(5557) });
+    expect(line(gain, "f8960.nii")).toBe("7057");
+    expect(line(gain, "f8960.niit")).toBe("268");
     // limited loss: 500 + 1,000 - 3,000 = -1,500 -> line 12 = 0 -> no tax
-    const loss = computeNiitScreen({ ...input, capitalGainDistributions: D(-3000) });
-    expect(loss.lines.find((l) => l.key === "f8960.nii")?.amount?.toString()).toBe("0");
-    expect(loss.lines.find((l) => l.key === "f8960.niit")?.amount?.toString()).toBe("0");
+    const loss = computeForm8960({ ...base, gain7a: lead(-3000) });
+    expect(line(loss, "f8960.nii")).toBe("0");
+    expect(line(loss, "f8960.niit")).toBe("0");
     // a loss that does not exceed the other income: 500 + 1,000 - 1,000 = 500; 3.8% = 19
-    const small = computeNiitScreen({ ...input, capitalGainDistributions: D(-1000) });
-    expect(small.lines.find((l) => l.key === "f8960.niit")?.amount?.toString()).toBe("19");
+    const small = computeForm8960({ ...base, gain7a: lead(-1000) });
+    expect(line(small, "f8960.niit")).toBe("19");
   });
 
   it("NIIT through the return above the threshold: MAGI 273,524 -> 3.8% x the smaller of NII 7,057 or the 23,524 excess = 268", () => {

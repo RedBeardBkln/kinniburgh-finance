@@ -1,7 +1,7 @@
-// Screens for Form 6251 (alternative minimum tax) and Form 8960 (net investment
-// income tax), TY2025, MFJ. A screen answers one question: "does this return owe
-// the tax?" and either concludes "no" with the numbers, or produces the amount, or
-// says exactly why it cannot (needs_cpa_*). It is not a full Form 6251 / 8960.
+// Screen for Form 6251 (alternative minimum tax), TY2025, MFJ. A screen answers one question: "does this
+// return owe the tax?" and either concludes "no" with the numbers, or produces the amount, or says exactly
+// why it cannot (needs_cpa_*). It is not a full Form 6251. (Form 8960, the net investment income tax, is a
+// full line-by-line rule: rules/form-8960.ts.)
 //
 // Form 6251 screen. AMTI = taxable income + the Schedule A taxes deduction (or the
 // standard deduction when not itemizing; Form 6251 line 2a) + private activity
@@ -14,12 +14,6 @@
 // present). With preferential income present the screen treats the straight 26/28%
 // figure as an UPPER BOUND on the tentative minimum tax: if even that is not above
 // the regular tax there is no AMT; if it is, the CPA decides.
-//
-// Form 8960 screen. NIIT = 3.8% x the lesser of net investment income or the MAGI
-// excess over $250,000 (MFJ). Below the threshold the conclusion is "no NIIT"
-// whatever the investment income. Above it, net investment income is taken as the
-// GROSS taxable interest + ordinary dividends + capital gain distributions (Form
-// 8960 line 9 deductions are not modeled: an upper bound, said so on the line).
 //
 // Pure. Constants from lib/tax2025/constants.ts only.
 
@@ -155,98 +149,6 @@ export function computeAmtScreen(input: AmtScreenInput): RuleResult {
     lines,
     reasons: [
       `AMT applies: tentative minimum tax ${fmt(tmt)} exceeds the regular tax ${fmt(regular)} by ${fmt(amt)}. Connecticut then requires CT-6251 (not built: the CT AMT line is flagged for the CPA).`,
-    ],
-    inputsMissing: [],
-  };
-}
-
-// ── Form 8960 ─────────────────────────────────────────────────────────────────
-
-export interface NiitScreenInput {
-  /** 1040 line 11a (MAGI: no foreign income exclusions modeled). */
-  magi: Decimal | null;
-  /** Gross taxable interest (1040 line 2b). */
-  taxableInterest: Decimal | null;
-  /** Ordinary dividends (1040 line 3b). */
-  ordinaryDividends: Decimal | null;
-  /**
-   * Form 8960 line 5a: Form 1040 line 7a, SIGNED (capital gain distributions, net gain, or the capital loss limited to $3,000 by Schedule D
-   * line 21, which reduces net investment income). The name predates Schedule D; the amount is the whole of line 7a.
-   */
-  capitalGainDistributions: Decimal | null;
-  /** True when the return has investment income this engine does not compute (Section 1256 / 1099-DA / unread 1099-B, other 1099 boxes, K-1). */
-  otherInvestmentIncomePresent: boolean;
-}
-
-const NIIT_CITATIONS = ["NIIT_RATE", "NIIT_THRESHOLD_MFJ"];
-
-export function computeNiitScreen(input: NiitScreenInput): RuleResult {
-  const base = { ruleId: "niit-screen-8960", form: "Form 8960", citations: NIIT_CITATIONS, inputsUsed: [] };
-  if (
-    input.magi === null ||
-    input.taxableInterest === null ||
-    input.ordinaryDividends === null ||
-    input.capitalGainDistributions === null
-  ) {
-    const reason = "The NIIT screen needs AGI, interest, dividends and capital gain distributions.";
-    return {
-      ...base,
-      status: "missing_input",
-      lines: [
-        blockedLine("f8960.niit", "Net investment income tax", "8960 line 17", "missing_input", reason),
-        blockedLine("sch2.12", "Net investment income tax", "Sch 2 line 12", "missing_input", reason),
-      ],
-      reasons: [reason],
-      inputsMissing: ["AGI", "interest / dividend / capital gain income"],
-    };
-  }
-  const threshold = D(K.NIIT_THRESHOLD_MFJ.value);
-  const magi = roundLine(input.magi);
-  const excess = maxD(ZERO, magi.minus(threshold));
-  // Form 8960 line 12: "If zero or less, enter -0-" (a limited capital loss can pull it below zero)
-  const nii = maxD(ZERO, roundLine(input.taxableInterest.plus(input.ordinaryDividends).plus(input.capitalGainDistributions)));
-
-  if (excess.isZero()) {
-    const why = `No net investment income tax: MAGI ${fmt(magi)} is not over the ${fmt(threshold)} threshold.`;
-    return {
-      ...base,
-      status: "computed",
-      conclusion: "ineligible",
-      lines: [
-        amountLine("f8960.nii", "Net investment income", "8960 line 12", nii),
-        amountLine("f8960.niit", "Net investment income tax", "8960 line 17", ZERO),
-        amountLine("sch2.12", "Net investment income tax", "Sch 2 line 12", ZERO),
-      ],
-      reasons: [why],
-      inputsMissing: [],
-    };
-  }
-  if (input.otherInvestmentIncomePresent) {
-    const reason = `MAGI ${fmt(magi)} is over ${fmt(threshold)} and the return has investment income this engine does not compute (1099-B / other boxes / K-1), so net investment income is incomplete; the CPA must figure Form 8960.`;
-    return {
-      ...base,
-      status: "needs_cpa_judgment",
-      lines: [
-        amountLine("f8960.nii", "Net investment income (computed items only)", "8960 line 12", nii),
-        blockedLine("f8960.niit", "Net investment income tax", "8960 line 17", "needs_cpa_judgment", reason),
-        blockedLine("sch2.12", "Net investment income tax", "Sch 2 line 12", "needs_cpa_judgment", reason),
-      ],
-      reasons: [reason],
-      inputsMissing: [],
-    };
-  }
-  const niit = roundLine(minD(nii, excess).times(K.NIIT_RATE.value));
-  return {
-    ...base,
-    status: "computed",
-    conclusion: "eligible",
-    lines: [
-      amountLine("f8960.nii", "Net investment income", "8960 line 12", nii),
-      amountLine("f8960.niit", "Net investment income tax", "8960 line 17", niit),
-      amountLine("sch2.12", "Net investment income tax", "Sch 2 line 12", niit),
-    ],
-    reasons: [
-      `NIIT: 3.8% of the lesser of net investment income ${fmt(nii)} or MAGI over the threshold ${fmt(excess)} = ${fmt(niit)}. Upper bound: Form 8960 line 9 deductions are not modeled.`,
     ],
     inputsMissing: [],
   };

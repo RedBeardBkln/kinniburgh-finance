@@ -20,8 +20,8 @@ function s1Facts(): Ty2025Facts {
 }
 
 describe("engine version", () => {
-  it("is ty2025-1b.4 (CT-1040 derived lines, credits gates, Schedule 3 / 4 detail: rules and catalog changed)", () => {
-    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.4");
+  it("is ty2025-1b.5 (Schedule 1-A and Form 8960 emitted line by line, Form 8960 line 9b allocation, Form 8829 verdict)", () => {
+    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.5");
   });
 });
 

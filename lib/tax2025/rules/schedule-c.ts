@@ -481,7 +481,7 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
         isDefault: true,
         inForce: chosen === "simplified",
         lines: [simplifiedLine],
-        effect: { amount: simplifiedLine.amount, note: `Deduction ${fmt(simplifiedLine.amount as Decimal)} on Schedule C line 30.` },
+        effect: { amount: simplifiedLine.amount, note: `Deduction ${fmt(simplifiedLine.amount as Decimal)} on Schedule C line 30; no Form 8829 is filed with this method.` },
         reasons: [
           sqft.greaterThan(K.HOME_OFFICE_MAX_SQFT.value)
             ? `${input.homeOfficeSqft} sq ft entered; only ${K.HOME_OFFICE_MAX_SQFT.value} sq ft count under this method.`

@@ -38,7 +38,6 @@ export const ENGINE_FORM_TITLES: Readonly<Record<FormId, string>> = {
 /** Engine form ids this packet has no PDF map for (the CPA prepares them). */
 export const EXPLICIT_NO_PDF: readonly FormId[] = [
   "f6251",
-  "f8960",
   "f8283",
   "f2210",
   "f8889",

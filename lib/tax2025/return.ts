@@ -68,7 +68,8 @@ import { computeScheduleC } from "@/lib/tax2025/rules/schedule-c";
 import { computeStateRefund } from "@/lib/tax2025/rules/state-refund";
 import { carryoverOutOpenItem, computeCapitalLossCarryoverOut, computeScheduleD, type ScheduleDOutput } from "@/lib/tax2025/rules/schedule-d";
 import { computeForm8959, computeScheduleSe } from "@/lib/tax2025/rules/se-medicare";
-import { computeAmtScreen, computeNiitScreen } from "@/lib/tax2025/rules/screens";
+import { computeAmtScreen } from "@/lib/tax2025/rules/screens";
+import { FORM_8960_KEYS, computeForm8960, type Form8960Lead } from "@/lib/tax2025/rules/form-8960";
 import { computeIncomeTax } from "@/lib/tax2025/rules/tax-calc";
 import {
   LINE_KEYS,
@@ -97,7 +98,7 @@ import {
 } from "@/lib/tax2025/types";
 
 /** Bumped whenever a rule, the constants or the line catalog changes (stale-output detection for stored overrides / PDFs). */
-export const TY2025_ENGINE_VERSION = "ty2025-1b.4";
+export const TY2025_ENGINE_VERSION = "ty2025-1b.5";
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
 
@@ -786,15 +787,33 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     hasPreferentialIncome: (A.num("f1040.3a") ?? ZERO).greaterThan(0) || (A.num("qdcg.3") ?? ZERO).greaterThan(0),
   });
   A.register(amtScreen, { owns: ["f6251.amti", "f6251.tmt", "f6251.amt", "sch2.2"] });
-  const niit = computeNiitScreen({
-    magi: A.num("f1040.11a"),
-    taxableInterest: A.num("f1040.2b"),
-    ordinaryDividends: A.num("f1040.3b"),
-    // Form 8960 line 5a is Form 1040 line 7a, signed (a loss limited to $3,000 reduces net investment income)
-    capitalGainDistributions: A.num("f1040.7a"),
+  // Form 8960: every printed line of Parts I-III (rules/form-8960.ts). The provisional pass assumes the unanswered statements.
+  const leadOf = (key: LineKey): Form8960Lead => ({ amount: A.num(key), status: A.statusOf(key) });
+  const niitOtherStated = facts.statedNone.niit_other?.value ?? undefined;
+  if (fill && niitOtherStated === undefined) A.assumedFacts.push("No foreign corporation stock, estate or trust distribution, net operating loss, recovered deduction or trading business (Form 8960 lines 6, 7 and 10, not stated)");
+  const niit = computeForm8960({
+    agi: leadOf("f1040.11a"),
+    magiExclusionsNone: ans(ra.magiExclusionsNone),
+    interest: leadOf("f1040.2b"),
+    dividends: leadOf("f1040.3b"),
+    pensions: leadOf("f1040.5b"),
+    gain7a: leadOf("f1040.7a"),
+    sch1Line3: leadOf("sch1.3"),
+    sch1Line4: leadOf("sch1.4"),
+    sch1Line5: leadOf("sch1.5"),
+    sch1Line6: leadOf("sch1.6"),
+    schA5a: leadOf("scha.5a"),
+    schA5d: leadOf("scha.5d"),
+    schA5e: leadOf("scha.5e"),
+    schA9: leadOf("scha.9"),
+    itemizing,
+    itemizingStatus: A.statusOf("scha.17"),
+    statedNoOtherIncome: facts.statedNone.other_income?.value ?? undefined,
+    statedNoCapitalOther: facts.statedNone.capital_gain_other?.value ?? undefined,
+    niitOther: fill ? (niitOtherStated ?? true) : niitOtherStated,
     otherInvestmentIncomePresent: inv.hasOtherIncomeBoxes || scheduleDUnmodeledInvestmentIncome(facts, inv),
   });
-  A.register(niit, { owns: ["f8960.nii", "f8960.niit", "sch2.12"] });
+  A.register(niit, { owns: FORM_8960_KEYS });
   A.sum("sch2.1z", ["sch2.1a", "sch2.1b", "sch2.1c", "sch2.1d", "sch2.1e", "sch2.1f", "sch2.1y"]);
   A.sum("sch2.3", ["sch2.1z", "sch2.2"]);
   A.sum("sch2.7", ["sch2.5", "sch2.6"]);
@@ -1291,7 +1310,7 @@ const STANDING_ADVISORIES: readonly OpenItem[] = [
 // ── Forms required (C7) ───────────────────────────────────────────────────────
 
 export function computeFormsRequired(
-  ret: Pick<Ty2025Return, "lines" | "results"> & { scheduleD?: ScheduleDDetail | null },
+  ret: Pick<Ty2025Return, "lines" | "results" | "decisions"> & { scheduleD?: ScheduleDDetail | null },
   facts: Ty2025Facts
 ): Partial<Record<FormId, FormRequirement>> {
   const L = ret.lines;
@@ -1353,9 +1372,20 @@ export function computeFormsRequired(
   const amt = amount("sch2.2");
   out.f6251 =
     amt === null ? { required: "blocking", reason: "The AMT screen is not computed yet." } : amt > 0 ? { required: true, reason: "AMT applies." } : { required: false, reason: "The AMT screen shows no AMT." };
-  const niitAmt = amount("sch2.12");
+  // Form 8960 is attached when the MAGI is over the threshold (line 15 > 0) and there is investment income (line 8 > 0); a return whose
+  // tax rounds to $0 still files it (Instructions for Form 8960, "Who Must File").
+  const nii15 = amount("f8960.15");
+  const nii8 = amount("f8960.8");
   out.f8960 =
-    niitAmt === null ? { required: "blocking", reason: "The NIIT screen is not computed yet." } : niitAmt > 0 ? { required: true, reason: "Net investment income tax applies." } : { required: false, reason: "No net investment income tax." };
+    nii15 === null
+      ? { required: "blocking", reason: "The modified adjusted gross income for the net investment income tax is not final yet." }
+      : nii15 === 0
+        ? { required: false, reason: "No net investment income tax: the modified adjusted gross income is not over the threshold." }
+        : nii8 === null
+          ? { required: "blocking", reason: "The modified adjusted gross income is over the threshold; Form 8960 cannot be ruled out until total investment income (line 8) is resolved." }
+          : nii8 > 0
+            ? { required: true, reason: "The modified adjusted gross income is over the threshold and there is net investment income: Form 8960 is attached." }
+            : { required: false, reason: "No net investment income (Form 8960 line 8 is not above zero)." };
   const noncash = facts.deductions.donations.filter((d) => d.kind === "noncash").reduce((s, d) => s + d.amountCents, 0);
   out.f8283 = noncash > K.FORM_8283_NONCASH_THRESHOLD.value * 100 ? { required: true, reason: "Noncash gifts are over $500." } : { required: false, reason: "Noncash gifts are not over $500." };
   const s1a = amount("sch1a.38");
@@ -1396,9 +1426,22 @@ export function computeFormsRequired(
   out.f4562 = facts.income.scheduleC.fixedAssets.length > 0
     ? { required: "blocking", reason: "Depreciable assets are on the register: Form 4562 (decision X2) is a CPA call and is not computed yet." }
     : { required: false, reason: "No depreciable EK Consulting assets on the register." };
-  out.f8829 = facts.income.scheduleC.homeOfficeEligibility.value === "yes_exclusive"
-    ? { required: "blocking", reason: "A home office is claimed: Form 8829 is needed only if the CPA chooses the actual method (decision X1)." }
-    : { required: false, reason: "No home office deduction claimed." };
+  // Form 8829 is the ACTUAL-expense home office method (decision X1); it is not filed under the simplified method. This packet does not
+  // generate it (the engine does not compute the actual method: it needs the area percentage, home basis and land value, insurance, utilities,
+  // repairs and prior-year carryovers, none of which the app holds), so a CPA choice of "actual" is listed on the cover as required but not generated.
+  const x1 = ret.decisions.find((d) => d.id === "X1");
+  const homeEligibility = facts.income.scheduleC.homeOfficeEligibility.value;
+  out.f8829 =
+    homeEligibility !== "yes_exclusive"
+      ? { required: false, reason: "No home office deduction claimed." }
+      : x1 === undefined
+        ? { required: "blocking", reason: "A home office is claimed: Form 8829 is needed only if the CPA chooses the actual method (decision X1), which cannot be formed until the home office answers (square footage) are complete." }
+        : x1.chosen === "actual"
+          ? { required: true, reason: "The CPA chose the actual home-office method (decision X1): Form 8829 is required. This packet does not generate it and Schedule C line 30 is not computed." }
+          : {
+              required: false,
+              reason: `The simplified home-office method is in force (decision X1, ${x1.status === "decided" ? "decided" : "default, undecided"}): no Form 8829 is filed and Schedule C line 30 comes from the simplified worksheet. Form 8829 is needed only if the CPA chooses the actual method.`,
+            };
   const sd = ret.scheduleD;
   if (sd === undefined || sd === null) {
     // Schedule D was not assessed (an older caller): a 1099-B in the facts cannot be ruled out
@@ -1595,6 +1638,32 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
       lineKeys: ["sch1a.38"],
       refs: [],
     });
+  }
+  // Form 8960 assumptions the owner / CPA should see (only when the form is attached)
+  const f8960Required = (A.peek("f8960.15") ?? ZERO).greaterThan(0) && (A.peek("f8960.8") ?? ZERO).greaterThan(0);
+  if (f8960Required) {
+    const sch3 = A.peek("sch1.3");
+    if (sch3 !== null && !sch3.isZero()) {
+      openItems.push({
+        id: "niit-sch-c-nonpassive",
+        severity: "advisory",
+        message: `Form 8960 line 4b assumes the owner materially participates in EK Consulting, so its Schedule C result (${fmt(sch3)}) is income of a trade or business that is not passive and is NOT net investment income (it is reversed on line 4b). If the business were passive, that result would instead enter net investment income.`,
+        action: "CPA to confirm material participation in EK Consulting (the owner does the work).",
+        lineKeys: ["f8960.4a", "f8960.4b"],
+        refs: [],
+      });
+    }
+    const b9 = A.results.find((r) => r.ruleId === "niit-8960")?.reasons.find((x) => x.startsWith("Line 9b"));
+    if (b9 !== undefined) {
+      openItems.push({
+        id: "niit-allocation-9b",
+        severity: "advisory",
+        message: b9,
+        action: "CPA to confirm the allocation method for Form 8960 line 9b (a CPA override of the line is possible).",
+        lineKeys: ["f8960.9b"],
+        refs: [],
+      });
+    }
   }
   const blockingItemCount = openItems.filter((o) => o.severity === "blocking").length;
   const strictHeadline = buildHeadline(A, blockingItemCount, null, openItems);

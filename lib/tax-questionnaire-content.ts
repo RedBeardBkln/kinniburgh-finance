@@ -1384,6 +1384,9 @@ const RC_GROUP_PROMPTS: Readonly<Record<RcNoneGroupId, string>> = {
     "income that another state (or a city or county in another state) also taxed, for example wages for work you did in another state, or rent or business income from outside Connecticut, which can earn a credit on the Connecticut return for the tax paid to that state",
   ct_other_credits:
     "a Connecticut credit other than the property tax credit, for example the Connecticut earned income tax credit, the credit for tax paid on income you later had to give back (claim of right), the credit for Connecticut pass-through entity tax paid by a partnership or S corporation you own, the historic home credit, or a credit listed on Schedule CT-IT Credit (such as the angel investor, employer CHET contribution or real estate conveyance tax credit)",
+  // Federal Form 8960 (net investment income tax) lines 6, 7 and 10: items the app cannot read from any document, so a Yes goes to the CPA.
+  niit_other:
+    "stock in a company based outside the United States that the IRS treats as a controlled foreign corporation or a passive foreign investment company, a payout from an estate or a trust (Schedule K-1 from Form 1041, box 14 code H), a net operating loss (a business loss carried over from another year) that applies to investment income, a deduction from an earlier year that you got back and that was counted against investment income, or a business that mainly trades stocks, bonds or commodities",
 };
 
 /** Group id -> a short plain-language name used in the follow-up amount question. */
@@ -1412,6 +1415,7 @@ const RC_GROUP_LABELS: Readonly<Record<RcNoneGroupId, string>> = {
   ct_other_subtractions: "other Connecticut subtractions",
   ct_other_state_tax: "income taxed by another state",
   ct_other_credits: "other Connecticut credits",
+  niit_other: "foreign company stock, estate or trust payouts and other net investment income tax items",
 };
 
 /** Every "stated none" group this flow asks about: NONE_GROUP_IDS plus the capital-gain groups (no duplicates). */

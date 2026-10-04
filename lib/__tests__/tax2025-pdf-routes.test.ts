@@ -177,7 +177,10 @@ describe("packet route (authenticated, injected builder)", () => {
     expect(entry.forms).toContain("f1040");
     expect(entry.fingerprint).toMatch(/^[0-9a-f]{64}$/);
     // No amount from the return, no name, no free text anywhere in the serialised entry.
-    const json = JSON.stringify(entry);
+    // (the 64-hex-digit fingerprint is a hash, not a value: a run of digits inside it can match an amount by coincidence)
+    const { fingerprint: _fingerprint, ...withoutHash } = entry;
+    void _fingerprint;
+    const json = JSON.stringify(withoutHash);
     const view = makeView();
     for (const line of Object.values(view.lines)) {
       if (line && line.amount !== null && Math.abs(line.amount) >= 10_000) expect(json).not.toContain(String(line.amount));

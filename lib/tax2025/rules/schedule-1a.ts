@@ -38,9 +38,9 @@
 import type { Decimal } from "@prisma/client/runtime/library";
 import type { Ans } from "@/lib/tax2025/answer-state";
 import { K } from "@/lib/tax2025/constants";
-import { lineMeta } from "@/lib/tax2025/line-catalog";
-import { D, ZERO, amountLine, blockedLine, fmt, maxD, minD, roundLine } from "@/lib/tax2025/money";
-import { aggregateStatus, worstBlocked, type LineKey, type RuleLine, type RuleResult, type RuleStatus } from "@/lib/tax2025/types";
+import { block, makeEmitters, mergeBlocked, type BlockedVal, type Blocked, type Emitters, type Val } from "@/lib/tax2025/rules/line-emit";
+import { D, ZERO, fmt, maxD, minD, roundLine } from "@/lib/tax2025/money";
+import { aggregateStatus, type LineKey, type RuleLine, type RuleResult } from "@/lib/tax2025/types";
 
 export interface Sch1aPersonInput {
   name: string;
@@ -78,19 +78,8 @@ export interface Sch1aInput {
   scheduleCOwnerTips: Ans<"none" | "some" | "ask_employer"> | null;
 }
 
-type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
-
 /** An amount, or why there is none (used for the owner's tips / overtime / seniors answers). */
 type Piece = { kind: "amount"; value: Decimal; notes: string[] } | { kind: "blocked"; status: Blocked; reason: string; missing: string };
-
-/** A printed line's whole-dollar value, or why it has none. */
-interface BlockedVal {
-  ok: false;
-  status: Blocked;
-  reason: string;
-  missing: string;
-}
-type Val = { ok: true; v: Decimal } | BlockedVal;
 
 const CITES = [
   "SCH1A_TIPS_MAX",
@@ -109,22 +98,11 @@ const CITES = [
   "SCH1A_SENIOR_BORN_BEFORE",
 ];
 
-function block(status: Blocked, reason: string, missing: string): BlockedVal {
-  return { ok: false, status, reason, missing };
-}
-
 /** The owner's answer as a blocking reason (missing / not sure), or null when it is answered. */
 function ansBlock<T>(a: Ans<T>, who: string, what: string, askWhom: string): BlockedVal | null {
   if (a.state === "missing") return block("missing_input", `${who}: ${what} has not been answered.`, `${what} (${who})`);
   if (a.state === "unsure") return block("needs_cpa_judgment", `${who}: the owner is not sure about ${what}; ${askWhom}.`, `${what} (${who})`);
   return null;
-}
-
-/** Several blocking values as one: worst status, every distinct reason. */
-function mergeBlocked(bad: readonly BlockedVal[]): BlockedVal {
-  const status = (worstBlocked(bad.map((b) => b.status)) ?? "missing_input") as Blocked;
-  const uniq = (xs: string[]): string[] => [...new Set(xs)];
-  return { ok: false, status, reason: uniq(bad.map((b) => b.reason)).join(" "), missing: uniq(bad.map((b) => b.missing)).join("; ") };
 }
 
 /** Tips or overtime for one person after the SSN check; amount may be zero. */
@@ -188,30 +166,6 @@ function sumPieces(pieces: Piece[]): Piece {
   }
   return { kind: "amount", value: total, notes };
 }
-
-/** Line emitters: each pushes one RuleLine and returns the value later lines build on. */
-function makeEmitters(lines: RuleLine[]) {
-  const amt = (key: LineKey, exact: Decimal, status: "computed" | "not_applicable", reason: string): Val => {
-    const m = lineMeta(key);
-    lines.push(amountLine(key, m.label, m.formLine, exact, status, reason));
-    return { ok: true, v: roundLine(exact) };
-  };
-  const blk = (key: LineKey, b: BlockedVal, informational = false): BlockedVal => {
-    const m = lineMeta(key);
-    const l = blockedLine(key, m.label, m.formLine, b.status, b.reason);
-    lines.push(informational ? { ...l, informational: true } : l);
-    return b;
-  };
-  /** key = fn(whole-dollar values of deps); blocked (worst status, merged reasons) when a dep has no value. */
-  const calc = (key: LineKey, deps: readonly Val[], fn: (v: Decimal[]) => Decimal, reason: string, status: "computed" | "not_applicable" = "computed"): Val => {
-    const bad = deps.filter((d): d is BlockedVal => !d.ok);
-    if (bad.length > 0) return blk(key, mergeBlocked(bad));
-    return amt(key, fn(deps.map((d) => (d as { ok: true; v: Decimal }).v)), status, reason);
-  };
-  const na = (key: LineKey, reason: string): Val => amt(key, ZERO, "not_applicable", reason);
-  return { amt, blk, calc, na };
-}
-type Emitters = ReturnType<typeof makeEmitters>;
 
 interface ReductionKeys {
   l8: LineKey;
