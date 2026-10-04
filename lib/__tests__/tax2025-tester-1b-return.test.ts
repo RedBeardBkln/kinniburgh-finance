@@ -618,7 +618,9 @@ describe("scope", () => {
     const { join, resolve, dirname } = await import("node:path");
     const root = resolve(__dirname, "..", "..");
     const listing = (d: string): string[] => readdirSync(join(root, d), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? listing(`${d}/${e.name}`) : [`${d}/${e.name}`]));
-    const start = listing("lib/tax2025").filter((f) => f.endsWith(".ts"));
+    // The PDF layer (lib/tax2025/pdf/**) legitimately uses pdf-lib/fflate/node built-ins and has its own purity test;
+    // this test guards the RULES.
+    const start = listing("lib/tax2025").filter((f) => f.endsWith(".ts") && !f.startsWith("lib/tax2025/pdf/"));
     const seen = new Set<string>();
     const bad: string[] = [];
     const resolveImport = (from: string, spec: string): string | null => {
