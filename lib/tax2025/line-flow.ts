@@ -283,12 +283,30 @@ const PAIRS: readonly (readonly [Keys, Keys])[] = [
   [["f1040.4b", "f1040.5b", "f1040.6b"], ["ct1040.s1.33", "ct1040.s1.41", "ct1040.s1.43", "ct1040.s1.44", "ct1040.s1.45", "ct1040.s1.48b"]],
   ["sch1.5", ["ct1040.s1.34", "ct1040.s1.46", "ct1040.s1.36", "ct1040.s1.36a"]],
   ["schc.13", ["ct1040.s1.36", "ct1040.s1.36a"]],
-  [["ct1040.additions", "ct1040.subtractions"], "ct1040.ctAgi"],
-  ["ct1040.ctAgi", ["ct1040.6", "ct1040.11"]],
+  // Line 3 = line 1 + additions; CT AGI = line 3 - subtractions (CT-1040 lines 1-5)
+  [["ct1040.1", "ct1040.additions"], "ct1040.3"],
+  [["ct1040.3", "ct1040.subtractions"], "ct1040.ctAgi"],
+  ["ct1040.ctAgi", "ct1040.6"],
   ["sch2.2", "ct1040.9"],
-  [["ct1040.6", "ct1040.9"], "ct1040.10"],
-  ["ct1040.10", ["ct1040.11", "ct1040.balance"]],
-  [["ct1040.11", "ct1040.15", "ct1040.18", "ct1040.19", "ct1040.20"], "ct1040.balance"],
+  [["ct1040.6", "ct1040.7"], "ct1040.8"],
+  [["ct1040.8", "ct1040.9"], "ct1040.10"],
+  // Property tax credit (Schedule 3 lines 63-68; rules/ct-credits.ts and ct-settlement.ts)
+  [["ct1040.ctAgi", "ct1040.10"], ["ct1040.s3.63", "ct1040.s3.65", "ct1040.s3.67", "ct1040.11"]],
+  ["ct1040.s3.63", "ct1040.s3.65"],
+  ["ct1040.s3.65", "ct1040.s3.67"],
+  [["ct1040.s3.65", "ct1040.s3.67"], "ct1040.11"],
+  // Tax, payments and settlement spine
+  [["ct1040.10", "ct1040.11"], "ct1040.12"],
+  [["ct1040.12", "ct1040.13"], "ct1040.14"],
+  [["ct1040.14", "ct1040.15"], "ct1040.16"],
+  ["ct1040.15", "ct1040.s4.69b"], // both come from the same use-tax input
+  ["ct1040.16", "ct1040.17"],
+  [["ct1040.18", "ct1040.19", "ct1040.20", "ct1040.20a", "ct1040.20b", "ct1040.20c", "ct1040.20d"], "ct1040.21"],
+  [["ct1040.17", "ct1040.21"], "ct1040.22"],
+  [["ct1040.17", "ct1040.21"], "ct1040.26"],
+  [["ct1040.17", "ct1040.21"], "ct1040.balance"],
+  // Settlement lines read the withholding, credits, overpayment and tax due
+  [["ct1040.14", "ct1040.18", "ct1040.20c", "ct1040.22", "ct1040.26"], ["ct1040.25", "ct1040.27", "ct1040.28", "ct1040.29", "ct1040.30"]],
 ];
 
 function asList(k: Keys): readonly LineKey[] {
