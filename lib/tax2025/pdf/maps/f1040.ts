@@ -22,7 +22,7 @@
 //     exists the box stays unchecked and an "Answer needed" item is raised, because the
 //     boxes change the standard deduction the engine prints on 12e (31,500 assumes none).
 //   - Everything else the engine/answers do not model (12a-12c, "check if" boxes on lines
-//     3c-7b, 16, 27b-c, 35a, deceased/combat-zone/other-tax-year header, the one-line
+//     3c-7b (except the "Schedule D not required" box, which follows the engine), 16, 27b-c, 35a, deceased/combat-zone/other-tax-year header, the one-line
 //     "type/specify" texts) is `not_modeled`: left blank, counted on the cover, and the
 //     boxes with a decision attached carry a `note` so the cover LISTS each one.
 
@@ -103,6 +103,8 @@ export const f1040Map: FormMap = {
     { kind: "check", field: `${FS}c1_8[2]`, choice: "filingStatus", equals: "mfs", required: true, label: "filing status" },
     { kind: "check", field: `${P1}c1_8[0]`, choice: "filingStatus", equals: "hoh", required: true, label: "filing status" },
     { kind: "check", field: `${P1}c1_8[1]`, choice: "filingStatus", equals: "qss", required: true, label: "filing status" },
+    // ── Line 7b "Schedule D not required": checked only when the engine says Exception 1 applies (answers.schdNotRequired = true) ──
+    { kind: "check", field: `${P1}c1_43[0]`, choice: "schdNotRequired", equals: true, label: "line 7b: Schedule D not required" },
     // ── Digital assets Y/N: both stay unchecked until an attestation exists (open item) ──
     { kind: "check", field: `${P1}c1_10[0]`, choice: "digitalAssets", equals: "yes", required: true, label: "digital assets (yes/no)" },
     { kind: "check", field: `${P1}c1_10[1]`, choice: "digitalAssets", equals: "no", required: true, label: "digital assets (yes/no)" },
@@ -153,7 +155,7 @@ export const f1040Map: FormMap = {
     ...notedBlanks("not_modeled", "line 5c: pension/annuity boxes (rollover, PSO, other + specify)", ...ids(P1, "c1_38", "c1_39", "c1_40", "f1_67")),
     ...notedBlanks("not_modeled", "line 6c: lump-sum election method box (Social Security)", ...ids(P1, "c1_41")),
     ...notedBlanks("not_modeled", "line 6d: MFS lived apart the entire year box (Social Security)", ...ids(P1, "c1_42")),
-    ...notedBlanks("not_modeled", "line 7b: 'Schedule D not required' and 'includes child's capital gain or (loss)' boxes", ...ids(P1, "c1_43", "c1_44")),
+    ...notedBlanks("not_modeled", "line 7b: 'includes child's capital gain or (loss)' box (Form 8814 is not modeled)", ...ids(P1, "c1_44")),
     ...notedBlanks("not_modeled", "line 12a: someone can claim you or your spouse as a dependent boxes", ...ids(P2, "c2_1", "c2_2")),
     ...notedBlanks("not_modeled", "line 12b: spouse itemizes on a separate return box", ...ids(P2, "c2_3")),
     ...notedBlanks("not_modeled", "line 12c: you were a dual-status alien box", ...ids(P2, "c2_4")),

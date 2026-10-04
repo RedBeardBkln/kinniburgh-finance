@@ -30,6 +30,7 @@ export {
 } from "@/lib/tax2025/pdf/format";
 export { formInclusion, resolveFieldValue, type Inclusion, type MoneyDecision } from "@/lib/tax2025/pdf/policy";
 export { fillForm, OVERFLOW_LABEL } from "@/lib/tax2025/pdf/fill";
+export { copiesOf, fillFormCopies, viewForCopy, type FilledCopy } from "@/lib/tax2025/pdf/copies";
 export { ALTERNATIVE_STAMP_TEXT, draftStampText, stampPages } from "@/lib/tax2025/pdf/stamp";
 export { buildCoverModel, renderCover, type CoverForm, type CoverInput, type CoverModel } from "@/lib/tax2025/pdf/cover";
 export {
@@ -44,8 +45,10 @@ export {
 export { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 export { safeText, SSN_PLACEHOLDER, type SafeText } from "@/lib/tax2025/pdf/safe-text";
 export {
+  BROKER_NOT_READ,
   EMPLOYER_NOT_READ,
   PAYER_NOT_READ,
+  SEE_ATTACHED_STATEMENT,
   TABLE_COLUMNS,
   centsToWholeDollars,
   toPdfReturnView,

@@ -371,6 +371,10 @@ function fillTable(
     data.forEach((row, i) => writeRow(i, row.cells));
     return;
   }
+  if (table.overflow === "none") {
+    // Never truncate or summarise silently: the map's `copies` must have split the rows (Form 8949).
+    throw new Error(`fillForm ${formId}: table ${table.table} has ${data.length} rows but the form holds ${capacity} and the table does not overflow`);
+  }
 
   // Overflow: rows 1..N-1 as-is; the last row carries "Other (see statement)" and the remainder's sum.
   for (let i = 0; i < capacity - 1; i++) {

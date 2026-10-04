@@ -24,7 +24,8 @@ describe("gap report", () => {
     expect(gaps.map((g) => g.formId)).toEqual(FORM_MAPS.map((m) => m.formId));
     for (const g of gaps) {
       expect(g.filledMoneyLines + g.blankLines.length).toBe(g.mappedMoneyLines);
-      expect(g.mappedMoneyLines).toBeGreaterThan(0);
+      // Form 8949 is all table rows (no engine money line is mapped to a field): it reports 0 mapped money lines.
+      if (g.formId !== "f8949") expect(g.mappedMoneyLines).toBeGreaterThan(0);
     }
   });
 

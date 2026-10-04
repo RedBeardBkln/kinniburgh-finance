@@ -80,7 +80,13 @@ export type TableKey =
   | "ct.withholding"
   | "ct.propertyTax"
   | "schc.otherExpenses"
-  | "f8283.sectionA";
+  | "f8283.sectionA"
+  // Form 8949 (all copies together; maps/f8949.ts splits them into copies, see FormMap.copies). Every row carries
+  // a `box` cell ("A".."L"); the totals tables carry the engine's Schedule D line totals per box.
+  | "f8949.partI"
+  | "f8949.partII"
+  | "f8949.totalsI"
+  | "f8949.totalsII";
 
 export interface PdfTableRow {
   /** Column id -> value. Numbers are whole dollars (money columns); strings are text columns. */
@@ -146,7 +152,8 @@ export type BlankReason =
   | "preparer"
   | "contact_address"
   | "owner_statement_na"
-  | "not_modeled";
+  | "not_modeled"
+  | "form_na";
 
 export const BLANK_REASON_LABELS: Readonly<Record<BlankReason, string>> = {
   ssn: "Social security numbers",
@@ -157,6 +164,7 @@ export const BLANK_REASON_LABELS: Readonly<Record<BlankReason, string>> = {
   contact_address: "Address, phone, email, occupation",
   owner_statement_na: "Does not apply (owner statement)",
   not_modeled: "Not modeled by the engine yet",
+  form_na: "Not used by this return (the form directs it elsewhere or has no such entry)",
 };
 
 export type HeaderSource =
@@ -222,7 +230,14 @@ export interface MapTable {
   amountColumn: string;
   /** Column id holding the row label, set to "Other (see statement)" in the overflow row. */
   labelColumn: string;
-  overflow: "summary_row_and_statement";
+  /**
+   * What happens when there are more rows than the table holds. "summary_row_and_statement": the last
+   * row becomes "Other (see statement)" with the rest summed (fine for Schedule B style lists).
+   * "none": the table must never overflow (Form 8949: the IRS forbids a summary total without the
+   * statement, so the map's `copies` splits rows over more copies); more rows than capacity is a defect and throws.
+   * amountColumn / labelColumn are unused for "none".
+   */
+  overflow: "summary_row_and_statement" | "none";
   /**
    * List every row on the cover even when they all fit (for tables where the printed form has
    * no column that identifies a row, e.g. the CT-1040 withholding schedule has no employer name).
@@ -234,6 +249,22 @@ export type MapBlank =
   | { field: string; reason: BlankReason; note?: string }
   | { match: RegExp; reason: BlankReason; note?: string };
 
+/**
+ * One physical copy of a form that may be filed several times (Form 8949: one Part I box and one Part II
+ * box per copy). The map fills the unchanged blank once per copy against a derived view (the base view with
+ * `answers` merged and `tables` replaced); every copy is a separate PDF in the packet.
+ */
+export interface FormCopy {
+  /** File-name suffix: lowercase letters, digits and dashes, unique within the form ("a-1", "ad-2"). */
+  suffix: string;
+  /** One line for the cover: what this copy holds ("Part I box A (1 row); Part II not used"). */
+  label: string;
+  /** Merged over view.answers for this copy (the box checkboxes). */
+  answers: Readonly<Record<string, PdfAnswer>>;
+  /** Replaces the same keys of view.tables for this copy (the rows that belong on it). */
+  tables: Partial<Record<TableKey, PdfTableRow[]>>;
+}
+
 export interface FormMap {
   formId: string;
   /** The engine's FormId for this form (Ty2025Return.formsRequired key), when the engine decides inclusion. */
@@ -242,6 +273,12 @@ export interface FormMap {
   tables: MapTable[];
   header: MapHeaderEntry[];
   blank: MapBlank[];
+  /**
+   * Present only for a form filed in several copies. Pure function of the view. An empty result means "nothing
+   * to put on a copy": the packet then emits ONE copy filled from the view as it is (a blank form) when the
+   * form is included at all (the engine's verdict decides inclusion, never this function).
+   */
+  copies?: (view: PdfReturnView) => FormCopy[];
 }
 
 // ── Fill output ───────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
 import { zipSync, type Zippable } from "fflate";
 import { buildCoverModel, renderCover, type CoverForm } from "@/lib/tax2025/pdf/cover";
 import { FLAT_FORM_COVER_NOTES } from "@/lib/tax2025/pdf/ct-overlay";
-import { fillForm } from "@/lib/tax2025/pdf/fill";
+import { fillFormCopies } from "@/lib/tax2025/pdf/copies";
 import { formatNewYorkDate, shortFingerprint } from "@/lib/tax2025/pdf/format";
 import { requiredFormsWithoutPdf } from "@/lib/tax2025/pdf/no-pdf-forms";
 import { formInclusion } from "@/lib/tax2025/pdf/policy";
@@ -24,6 +24,8 @@ export const PACKET_ORDER: readonly string[] = [
   "f1040sa",
   "f1040sb",
   "f1040sc",
+  "f1040sd",
+  "f8949",
   "f1040sse",
 ];
 
@@ -90,23 +92,36 @@ export async function buildPacket(view: PdfReturnView, options: PacketOptions): 
       forms.push({ formId: map.formId, title: entry.title, included: false, reason: inclusion.reason, blankByDesign: {} });
       continue;
     }
-    const result = await fillForm(map.formId, view, map, { stamp, fingerprint: fp12, stampDate });
-    n += 1;
-    const prefix = String(n).padStart(2, "0");
-    const name = isCt(map.formId) ? `ct/${map.formId}.pdf` : `${prefix}-${map.formId}.pdf`;
-    files.push({ name, formId: map.formId, bytes: result.bytes });
-    const note = FLAT_FORM_COVER_NOTES[map.formId];
+    // A form filed in several copies (Form 8949) yields one file per copy; every other form exactly one.
+    const filled = await fillFormCopies(map.formId, view, map, { stamp, fingerprint: fp12, stampDate });
+    const first = filled[0];
+    if (!first) throw new Error(`fillFormCopies returned no sheet for ${map.formId}`);
+    const copyLines: string[] = [];
+    for (const { copy, result } of filled) {
+      n += 1;
+      const prefix = String(n).padStart(2, "0");
+      const name = isCt(map.formId)
+        ? `ct/${map.formId}.pdf`
+        : copy === null
+          ? `${prefix}-${map.formId}.pdf`
+          : `${prefix}-${map.formId}-${copy.suffix}.pdf`;
+      files.push({ name, formId: map.formId, bytes: result.bytes });
+      if (copy !== null) copyLines.push(`${name}: ${copy.label}`);
+      for (const item of result.openItems) if (!itemById.has(item.id)) itemById.set(item.id, item);
+      continuations.push(...result.continuations);
+    }
+    const flatNote = FLAT_FORM_COVER_NOTES[map.formId];
+    const copiesNote = copyLines.length > 0 ? `${copyLines.length} sheet(s) - ${copyLines.join("; ")}.` : undefined;
+    const note = [flatNote, copiesNote].filter((t): t is string => t !== undefined).join(" ");
     forms.push({
       formId: map.formId,
       title: entry.title,
       included: true,
       reason: inclusion.reason,
-      blankByDesign: result.blankByDesign,
-      blankNotes: result.blankNotes,
-      ...(note === undefined ? {} : { note }),
+      blankByDesign: first.result.blankByDesign,
+      blankNotes: first.result.blankNotes,
+      ...(note === "" ? {} : { note }),
     });
-    for (const item of result.openItems) if (!itemById.has(item.id)) itemById.set(item.id, item);
-    continuations.push(...result.continuations);
   }
 
   const openItems = [...itemById.values()];

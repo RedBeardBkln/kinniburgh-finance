@@ -9,8 +9,9 @@
 // return state (fingerprint) were exported; ids and counts only, never a value.
 // Responses are never cacheable (private, no-store) because they carry tax data.
 
+import { zipSync, type Zippable } from "fflate";
 import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
-import { fillForm } from "@/lib/tax2025/pdf/fill";
+import { fillFormCopies } from "@/lib/tax2025/pdf/copies";
 import { formatNewYorkDate, shortFingerprint } from "@/lib/tax2025/pdf/format";
 import { buildPacket } from "@/lib/tax2025/pdf/packet";
 import { SUPPORTED_YEAR, isKnownFormId } from "@/lib/tax2025/pdf/registry";
@@ -113,7 +114,8 @@ export async function handlePacketRequest(req: PacketRequest, deps: PdfRouteDeps
     if ("error" in built) return jsonError(500, built.error);
     const { view } = built;
     const packet = await buildPacket(view, { stamp, maps: deps.maps ?? FORM_MAPS });
-    const forms = packet.files.flatMap((f) => (f.formId === null ? [] : [f.formId]));
+    // A form filed in several copies (Form 8949) appears once in the audit row.
+    const forms = [...new Set(packet.files.flatMap((f) => (f.formId === null ? [] : [f.formId])))];
     await deps.recordExport({
       userId: req.user.id,
       taxYear: year.year,
@@ -151,7 +153,8 @@ export async function handleFormRequest(req: FormRequest, deps: PdfRouteDeps): P
     const { view } = built;
     const fp12 = shortFingerprint(view.fingerprint);
     // An explicitly requested form is filled even when the packet's inclusion rule would omit it.
-    const result = await fillForm(map.formId, view, map, {
+    // A form filed in several copies (Form 8949) comes back as a zip with one PDF per copy.
+    const sheets = await fillFormCopies(map.formId, view, map, {
       stamp,
       fingerprint: fp12,
       stampDate: formatNewYorkDate(view.generatedAt),
@@ -165,10 +168,19 @@ export async function handleFormRequest(req: FormRequest, deps: PdfRouteDeps): P
       fingerprint: view.fingerprint,
       engineVersion: view.engineVersion ?? null,
       openItemCount: view.openItems.length,
-      fileCount: 1,
+      fileCount: sheets.length,
     });
-    const name = `ty${year.year}-${map.formId}-${fp12}${stamp ? "" : "-clean"}.pdf`;
-    return fileResponse(result.bytes, "application/pdf", name);
+    const only = sheets[0];
+    if (sheets.length === 1 && only) {
+      const name = `ty${year.year}-${map.formId}-${fp12}${stamp ? "" : "-clean"}.pdf`;
+      return fileResponse(only.result.bytes, "application/pdf", name);
+    }
+    const mtime = new Date(view.generatedAt);
+    const zippable: Zippable = {};
+    sheets.forEach(({ copy, result }, i) => {
+      zippable[`${map.formId}-${copy?.suffix ?? String(i + 1)}.pdf`] = [result.bytes, { mtime, level: 0 }];
+    });
+    return fileResponse(zipSync(zippable), "application/zip", `ty${year.year}-${map.formId}-${fp12}${stamp ? "" : "-clean"}.zip`);
   } catch (err) {
     logFailure(`form ${map.formId}`, err);
     return jsonError(500, "The form could not be built.");

@@ -47,8 +47,6 @@ export const EXPLICIT_NO_PDF: readonly FormId[] = [
   "f5695",
   "f4562",
   "f8829",
-  "schd",
-  "f8949",
 ];
 
 export interface MissingRequiredForm {

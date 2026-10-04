@@ -35,6 +35,9 @@ const ANSWERED_FIXTURE_ANSWERS = {
   blindTaxpayer: false,
   age65Spouse: false,
   blindSpouse: false,
+  // Schedule D: the golden household has no sales (Exception 1: 1040 line 7b box) and stated "none" for the special-rate sales (QOF "no").
+  schdNotRequired: true,
+  "schd.qof": "no",
 } as const;
 
 function build(facts: Ty2025Facts, decisions: Parameters<typeof computeTy2025Return>[1] = {}) {
@@ -592,7 +595,7 @@ describe("the adapter feeds the real packet builder", () => {
   // With the engine's verdict wired (view.formsRequired), the packet holds exactly the forms the engine says
   // the return needs: for the golden fixture the standard deduction wins (no Schedule A), interest and
   // dividends are under the Schedule B threshold, there is no Schedule 3 amount and no Form 8959.
-  const GOLDEN_OMITTED = ["f1040s3", "f1040sa", "f1040sb", "f8959"];
+  const GOLDEN_OMITTED = ["f1040s3", "f1040sa", "f1040sb", "f1040sd", "f8949", "f8959"];
 
   it("fills every INCLUDED map from the fixture view: each computed mapped line is written once with its formatted amount", async () => {
     const f = fullFacts();
