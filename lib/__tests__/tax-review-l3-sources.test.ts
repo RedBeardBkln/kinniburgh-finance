@@ -39,6 +39,11 @@ describe("source pack files", () => {
     expect(hostAllowed("https://portal.ct.gov/-/media/x.pdf")).toBe(true);
     expect(hostAllowed("not a url")).toBe(false);
   });
+  it("the deployed Final review page ships the pack (the file tracer cannot see the dynamic paths)", () => {
+    const cfg = readFileSync(path.join(process.cwd(), "next.config.ts"), "utf8");
+    expect(cfg).toMatch(/"\/tax\/forms\/\*\*": \[[^\]]*"\.\/data\/tax-sources\/\*\*\/\*"/);
+    expect(cfg).toMatch(/"\/api\/tax\/forms\/\*\*": \["\.\/data\/forms\/\*\*\/\*"\]/);
+  });
   it("the fetch script only downloads from the allow-list (source scan) and writes nothing outside data/tax-sources", () => {
     const src = readFileSync(path.join(process.cwd(), "scripts", "tax-sources", "fetch.ts"), "utf8");
     expect(src).toContain("ALLOWED_HOSTS");
