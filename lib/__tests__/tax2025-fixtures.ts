@@ -41,6 +41,7 @@ export function emptyFacts(): Ty2025Facts {
       dividends: [],
       noDividendsConfirmed: missingLeaf(),
       otherIncomeBoxes: [],
+      brokerSales: [],
       scheduleC: {
         ownerUserId: missingLeaf(),
         glLines: [],

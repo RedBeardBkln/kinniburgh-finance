@@ -29,7 +29,7 @@ import {
   type EffectiveAnswers,
   type QuestionnaireContext,
 } from "@/lib/tax-questionnaire";
-import { RC_PAYMENT_WINDOWS, RC_PERSONS, RETURN_COMPLETENESS_ID, questionnaireById } from "@/lib/tax-questionnaire-content";
+import { RC_NONE_GROUP_IDS, RC_PAYMENT_WINDOWS, RC_PERSONS, RETURN_COMPLETENESS_ID, questionnaireById } from "@/lib/tax-questionnaire-content";
 import { emptyReturnAnswers, type EstimatedPayment, type PersonAnswers, type ReturnAnswers } from "@/lib/tax2025/facts";
 import { NONE_GROUP_IDS, type NoneGroupId } from "@/lib/tax2025/line-catalog";
 import { missingLeaf, sourced, type Ref, type Sourced } from "@/lib/tax2025/types";
@@ -49,6 +49,11 @@ export interface CompletenessParse {
   seRetirementCents?: number;
   statedNone: Partial<Record<NoneGroupId, boolean>>;
   returnAnswers: ReturnAnswers;
+}
+
+/** True when `id` is a group the engine knows (line-catalog.ts NONE_GROUP_IDS). A group the questionnaire asks about before the engine lists it is parsed only once it is listed. */
+function isNoneGroupId(id: string): id is NoneGroupId {
+  return (NONE_GROUP_IDS as readonly string[]).includes(id);
 }
 
 /** The questionnaire context used to decide which nodes are visible (only the year matters for this definition). */
@@ -239,8 +244,17 @@ export function parseCompletenessAnswers(
     ra.useTax.taxPaidToOtherStateCents = paidTax === null ? missing() : paidTax === "unsure" ? unsure("uttax", "Tax paid to another state") : leaf(paidTax, "uttax", "Tax paid to another state");
   }
 
+  // ── capital gains (Schedule D): carryover from 2024 and the two completeness questions ─────────────────────
+  // cgco: No -> both carryovers are a stated 0, Yes -> the two amounts, Not sure -> not sure, unanswered -> missing.
+  ra.capitalGains.carryoverShortCents = noneSomeCents("cgco", "cgcos", "Capital loss carried over from 2024 (short-term)");
+  ra.capitalGains.carryoverLongCents = noneSomeCents("cgco", "cgcol", "Capital loss carried over from 2024 (long-term)");
+  // cgall: Yes = the Robinhood statement lists every sale (true); cgadj: Yes = something the broker could not know (true).
+  ra.capitalGains.salesComplete = yn("cgall", "Robinhood statement lists every 2025 sale");
+  ra.capitalGains.brokerAdjustments = yn("cgadj", "Something the broker could not know about the Robinhood sales");
+
   // ── "stated none" statements and the optional amounts ──────────────────────
-  for (const g of NONE_GROUP_IDS) {
+  for (const g of RC_NONE_GROUP_IDS) {
+    if (!isNoneGroupId(g)) continue;
     const c = choice(`g_${g}`);
     if (c === "none") out.statedNone[g] = true;
     else if (c === "some") {

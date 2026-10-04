@@ -12,7 +12,7 @@ import {
   type EffectiveAnswers,
   type QNode,
 } from "@/lib/tax-questionnaire";
-import { SOURCE_IDS, QUESTIONNAIRES, RETURN_COMPLETENESS_ID, RC_PAYMENT_WINDOWS, questionnaireById } from "@/lib/tax-questionnaire-content";
+import { SOURCE_IDS, QUESTIONNAIRES, RETURN_COMPLETENESS_ID, RC_PAYMENT_WINDOWS, RC_NONE_GROUP_IDS, questionnaireById } from "@/lib/tax-questionnaire-content";
 import { RC_CONTEXT, parseCompletenessAnswers } from "@/lib/tax2025/answers";
 import { NONE_GROUP_IDS, NONE_GROUP_TEXT, LINE_CATALOG } from "@/lib/tax2025/line-catalog";
 import { computeTy2025Return } from "@/lib/tax2025/return";
@@ -270,8 +270,8 @@ describe("Return completeness questionnaire: tree integrity", () => {
   it("the all-none path is ~45 questions (the report says 45 of 107 nodes) and terminates", () => {
     const a = walk(noneOrNo);
     expect(Object.keys(a).length).toBeGreaterThanOrEqual(40);
-    expect(Object.keys(a).length).toBeLessThanOrEqual(50);
-    expect(def.nodes.length).toBe(114); // 109 + utbuy2 (round 2) + the four SE health / retirement nodes (round 3)
+    expect(Object.keys(a).length).toBeLessThanOrEqual(55); // + cgco, cgall, cgadj and two capital-gain stated-none groups (schedule-d-capture)
+    expect(def.nodes.length).toBe(123); // 109 + utbuy2 (round 2) + the four SE health / retirement nodes (round 3) + cgco/cgcos/cgcol/cgall/cgadj + 2 capital none groups (g_ + ga_)
   });
   it("every showWhen references only EARLIER nodes (no dangling / forward reference) and the unsure option exists on every choice node", () => {
     const idx = new Map(def.nodes.map((n, i) => [n.id, i]));
@@ -313,7 +313,14 @@ describe("Return completeness questionnaire: tree integrity", () => {
       expect(NONE_GROUP_TEXT[g].length, g).toBeGreaterThan(10);
       expect(LINE_CATALOG.some((m) => m.group === g), `${g} gates at least one catalog line`).toBe(true);
     }
-    expect(def.nodes.filter((n) => n.id.startsWith("g_"))).toHaveLength(14);
+    // the questionnaire also asks the two capital-gain groups (capital_gain_other, capital_special_rates), whether or not line-catalog lists them yet
+    expect(def.nodes.filter((n) => n.id.startsWith("g_"))).toHaveLength(RC_NONE_GROUP_IDS.length);
+    for (const g of NONE_GROUP_IDS) expect(RC_NONE_GROUP_IDS).toContain(g);
+    for (const g of ["capital_gain_other", "capital_special_rates"]) {
+      expect(RC_NONE_GROUP_IDS).toContain(g);
+      expect(ids.has(`g_${g}`), g).toBe(true);
+      expect(ids.has(`ga_${g}`), g).toBe(true);
+    }
   });
   it("no new file uses window.confirm", async () => {
     const { readFileSync, readdirSync, statSync } = await import("node:fs");

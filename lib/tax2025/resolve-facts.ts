@@ -14,10 +14,12 @@
 // defaulted: null stays null and the rule says missing_input.
 
 import { sumCtWithholding } from "@/lib/tax-extraction-schema";
+import { readBrokerSummary } from "@/lib/tax-broker-summary";
 import { RC_PERSONS } from "@/lib/tax-questionnaire-content";
 import { matchPerson, uniquePersonMatch } from "@/lib/tax2025/answers";
 import {
   emptyReturnAnswers,
+  type BrokerSaleFact,
   type DividendFact,
   type DonationFact,
   type EstimatedPayment,
@@ -432,6 +434,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
   const interest: InterestFact[] = [];
   const dividends: DividendFact[] = [];
   const otherIncomeBoxes: OtherIncomeBox[] = [];
+  const brokerSales: BrokerSaleFact[] = [];
   let federal1099Withheld = 0;
   for (const doc of docsForYear.filter((d) => d.docType === "1099")) {
     const data = dataOf(doc);
@@ -518,14 +521,52 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       });
     }
 
+    // sales summary (Form 1099-B / 1099-DA category totals): kept per document, never summed here (the Schedule D rule does that)
+    const sales = readBrokerSummary(data);
+    if (sales.summaryRead || sales.signalled1099B || sales.forms1099DaPresent || sales.sec1256AggregateCents !== null) {
+      brokerSales.push({
+        docId: doc.id,
+        payer,
+        basis,
+        legacyFormat: doc.legacyFormat,
+        refs: [ref],
+        summaryRead: sales.summaryRead,
+        signalled1099B: sales.signalled1099B,
+        rows: sales.rows,
+        sec1256AggregateCents: sales.sec1256AggregateCents,
+        forms1099DaPresent: sales.forms1099DaPresent,
+      });
+      if (!sales.summaryRead && sales.signalled1099B) {
+        addItem({
+          id: `broker-summary-unread:${doc.id}`,
+          severity: "blocking",
+          message: `The 1099 from ${payer ?? "a broker"} includes sales (Form 1099-B), but its sales summary (totals by Form 8949 category) has not been read, so capital gains and losses cannot be figured.`,
+          action: "Open the document's review screen, use \"Re-read this document with the new fields\", check each sales summary row against the document and confirm it.",
+          refs: [ref],
+        });
+      }
+      if (sales.rows.some((r) => r.form === null || r.box === null)) {
+        addItem({
+          id: `broker-row-incomplete:${doc.id}`,
+          severity: "blocking",
+          message: `A sales summary row on the 1099 from ${payer ?? "a broker"} has no form or no Form 8949 box letter, so it cannot be placed on Schedule D or Form 8949.`,
+          action: "Open the document's review screen and choose the form and the box for every sales summary row.",
+          refs: [ref],
+        });
+      }
+    }
+
     // income this engine does not compute: captured, never dropped
     for (const e of Array.isArray(data.otherBoxes) ? (data.otherBoxes as unknown[]) : []) {
       const rec: Rec = typeof e === "object" && e !== null ? (e as Rec) : {};
+      const variant = strOrNull(rec.variant) ?? "other";
+      // Once the sales summary has been read it supersedes the raw 1099-B boxes of an older read.
+      if (sales.summaryRead && variant === "1099-B") continue;
       otherIncomeBoxes.push({
         docId: doc.id,
         payer,
         basis,
-        variant: strOrNull(rec.variant) ?? "other",
+        variant,
         box: strOrNull(rec.box) ?? "",
         label: strOrNull(rec.label) ?? "",
         amountCents: intOrNull(rec.amountCents),
@@ -1074,6 +1115,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       dividends,
       noDividendsConfirmed: answered(answers.noDividendsConfirmed, "No dividend income", "no_dividends"),
       otherIncomeBoxes,
+      brokerSales,
       scheduleC: {
         ownerUserId: owner ? sourced(owner.userId, owner.basis, [], owner.note) : missingLeaf(),
         glLines: raw.ekc.glLines,
