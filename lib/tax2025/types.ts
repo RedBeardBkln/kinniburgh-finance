@@ -483,8 +483,13 @@ export interface ScheduleDCategory {
 export interface ScheduleDDetail {
   /** true = Schedule D is filed; false = Exception 1 (only capital gain distributions, 1040 line 7b box); "blocking" = cannot tell yet. */
   required: boolean | "blocking";
-  /** Exception 1 applies: 1040 line 7a = Form 1099-DIV box 2a and the "Schedule D not required" box on line 7b is checked. */
+  /**
+   * Exception 1 applies: no Schedule D AND every Form 1099-DIV box 2b, 2c, 2d is confirmed zero (or there is no 1099-DIV). 1040 line 7a = Form
+   * 1099-DIV box 2a and the "Schedule D not required" box on line 7b may be checked ONLY when this is true.
+   */
   exception1: boolean;
+  /** Schedule D is not required, but 1099-DIV boxes 2b-2d are not confirmed zero: do NOT check the line 7b box (Exception 1 needs them empty). */
+  boxes2b2dUnconfirmed: boolean;
   /** Some category goes through Form 8949 (summary rows + attached statement). "blocking" = a category's routing cannot be decided yet. */
   form8949Required: boolean | "blocking";
   categories: ScheduleDCategory[];

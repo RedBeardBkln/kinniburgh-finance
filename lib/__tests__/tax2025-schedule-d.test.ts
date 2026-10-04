@@ -282,7 +282,16 @@ describe("a household with no capital gains rows is unchanged (golden)", () => {
     expect(ret.headline.connecticut.tax.amount).toBe(8788);
     expect(rAmt(ret, "f1040.7a")).toBe(0);
     expect(rAmt(ret, "qdcg.3")).toBe(0);
-    expect(ret.scheduleD).toMatchObject({ required: false, exception1: true, form8949Required: false, categories: [] });
+    // Schedule D is not required, but the 1099-DIV boxes 2b-2d are not confirmed zero (fullFacts has a 1099-DIV): the 7b box must NOT be ticked
+    expect(ret.scheduleD).toMatchObject({ required: false, exception1: false, boxes2b2dUnconfirmed: true, form8949Required: false, categories: [] });
+    const confirmed = fullFacts();
+    confirmed.income.dividendBoxes2b2dConfirmedZero = true;
+    expect(computeTy2025Return(confirmed).scheduleD).toMatchObject({ required: false, exception1: true, boxes2b2dUnconfirmed: false });
+    // no 1099-DIV at all: nothing to confirm
+    const noDiv = fullFacts();
+    noDiv.income.dividends = [];
+    noDiv.income.noDividendsConfirmed = owner(true);
+    expect(computeTy2025Return(noDiv).scheduleD?.exception1).toBe(true);
     expect(ret.formsRequired.schd?.required).toBe(false);
     expect(ret.formsRequired.f8949?.required).toBe(false);
     expect(rSt(ret, "schd.16")).toBe("not_applicable");
@@ -294,7 +303,7 @@ describe("a household with no capital gains rows is unchanged (golden)", () => {
     const ret = computeTy2025Return(f);
     expect(ret.headline.federal.totalTax.amount).toBe(27_015);
     expect(ret.headline.connecticut.tax.amount).toBe(8788);
-    expect(ret.scheduleD?.exception1).toBe(true);
+    expect(ret.scheduleD?.required).toBe(false);
     expect(rAmt(ret, "f1040.7a")).toBe(0);
     // the Schedule D lines 4, 5, 11, 12 and 18, 19 are none-group lines: blocked until the owner states "none"
     expect(rSt(ret, "schd.4")).toBe("not_yet_computed");
@@ -302,17 +311,41 @@ describe("a household with no capital gains rows is unchanged (golden)", () => {
     expect(ret.openItems.some((i) => i.id === "none:capital_gain_other")).toBe(true);
   });
 
-  it("all-zero category rows are ignored: a box B / E row of zeros does not trigger Form 8949 or Schedule D", () => {
-    const f = withCg([row("B", 0, 0), row("E", 0, null, { washSaleCents: null, accruedMarketDiscountCents: null })]);
+  it("rows whose five figures are all KNOWN zeros are ignored: a box B / E row of printed zeros does not trigger Form 8949 or Schedule D", () => {
+    const f = withCg([row("B", 0, 0, { brokerGainCents: 0 }), row("E", 0, 0, { brokerGainCents: 0 })]);
     const ret = computeTy2025Return(f);
     expect(ret.scheduleD?.required).toBe(false);
     expect(ret.formsRequired.f8949?.required).toBe(false);
     expect(ret.headline.federal.totalTax.amount).toBe(27_015);
   });
 
+  it("D1: a row with printed-zero proceeds but an UNREAD cost / wash sale / discount / gain is unknown, not zero: it blocks (never 'Schedule D not required')", () => {
+    for (const over of [{ costCents: null }, { washSaleCents: null }, { accruedMarketDiscountCents: null }]) {
+      const f = withCg([row("A", 0, 0, { brokerGainCents: 0, ...over })]);
+      const ret = computeTy2025Return(f);
+      expect(ret.scheduleD?.required, JSON.stringify(over)).toBe(true);
+      expect(rSt(ret, "f1040.7a"), JSON.stringify(over)).not.toBe("computed");
+    }
+    // only the printed gain unread: every figure the arithmetic needs is a known 0, so the row is kept (Schedule D required) and computes 0
+    const g = computeTy2025Return(withCg([row("A", 0, 0, { brokerGainCents: null })]));
+    expect(g.scheduleD?.required).toBe(true);
+    expect(rAmt(g, "f1040.7a")).toBe(0);
+    // proceeds not read at all with the rest zero is also kept
+    expect(computeTy2025Return(withCg([row("A", null, 0, { brokerGainCents: 0 })])).scheduleD?.required).toBe(true);
+  });
+
+  it("a Schedule D that is required carries the advisory that printed lines can differ by $1 from the sum of the printed cells", () => {
+    const out = sd(withCg(REAL_ROWS()));
+    const item = out.openItems.find((i) => i.id === "schd-rounding");
+    expect(item?.severity).toBe("advisory");
+    expect(item?.message).toContain("round off only the total");
+    expect(sd(fullFacts()).openItems.find((i) => i.id === "schd-rounding")).toBeUndefined();
+  });
+
   it("Exception 1: only capital gain distributions -> 1040 line 7a = box 2a, Schedule D lines not applicable, qdcg.3 = line 7a", () => {
     const f = fullFacts();
     f.income.dividends = [dividend({ docId: "div-1", box1aCents: 100_000, box1bCents: 80_000, box2aCents: 30_000 })];
+    f.income.dividendBoxes2b2dConfirmedZero = true;
     const out = sd(f);
     expect(out.detail.exception1).toBe(true);
     expect(amt(out, "f1040.7a")).toBe("300");
