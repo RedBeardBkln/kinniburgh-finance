@@ -249,7 +249,7 @@ export function buildIndexLines(input: IndexInput): Line[] {
     l.push(chrome({ kind: "para", text: "None: every form the return needs is in this package." }));
   } else {
     l.push(chrome({ kind: "para", text: "The return needs the forms below, but there is no PDF for them here. Prepare each one yourself and file it with the return." }));
-    for (const m of input.notIncluded) l.push(data({ kind: "bullet", text: `${m.title} (${m.formId})` }));
+    for (const m of input.notIncluded) l.push(data({ kind: "bullet", text: m.title }));
   }
 
   l.push(chrome({ kind: "heading", text: "Enter by hand before filing" }));

@@ -175,7 +175,8 @@ describe("the package index", () => {
     const text = lines.join("\n");
     expect(text).toContain("Not included in this package (1)");
     expect(text).toContain("Prepare each one yourself");
-    expect(text).toContain("Form 8960 (Net Investment Income Tax) (f8960)");
+    expect(text).toContain("\nForm 8960 (Net Investment Income Tax)");
+    expect(text).not.toContain("(f8960)");
     expect(text).toContain("Your broker's Form 1099-B detail pages");
   });
 
