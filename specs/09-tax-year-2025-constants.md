@@ -246,6 +246,47 @@ ABLE accounts, earlier Connecticut depreciation add-backs, other additions, othe
 (missing input / CPA). The percentages 100, 80 and 25 are only named in reasons; no bonus / Section 179 amount is
 computed from them yet.
 
+### CT-1040 lines 3-30 and Schedules 3-4 (form text verified 2026-10-04)
+
+Read by the Planner on 2026-10-04 from `data/forms/2025/ct1040.pdf` (Rev. 12/25, `pdftotext`) and the CT-1040
+instructions (`https://portal.ct.gov/-/media/drs/forms/2025/income/2025-ct-1040-instructions_1225.pdf`, pp. 2-4, 11-14,
+27); the CT-2210 rule from `https://portal.ct.gov/-/media/drs/forms/2025/income/ct-2210_1225.pdf` (sha256
+`9559ebc66de7385d50f7597909e505b13786944623c5b4d950d67b5ca9fe56b8`). Implemented in `lib/tax2025/return.ts` (the CT
+`derive` spine), `rules/ct.ts`, `rules/ct-credits.ts`, `rules/ct-settlement.ts`.
+
+| Line | Form text | Engine |
+|---|---|---|
+| 3 | "Add Line 1 and Line 2" (federal AGI plus Schedule 1 additions, NOT CT AGI) | L1 + L2 |
+| 5 | CT AGI = line 3 minus line 4 | existing |
+| 7 | Credit for income taxes paid to qualifying jurisdictions (Schedule 2 line 59) | owner statement `ct_other_state_tax`; never computed here |
+| 8 | Subtract line 7 from line 6; "If Line 7 is greater than Line 6, enter 0" | max(0, L6 - L7) |
+| 10 | Add lines 8 and 9 | L8 + L9 |
+| 11 | Property tax credit (Schedule 3 line 68); "If Line 10 is zero, skip Line 11 and Line 12 and go to Line 13" | capped at line 10 |
+| 12 | Subtract line 11 from line 10; "If less than zero, enter 0" | max(0, L10 - L11) |
+| 13 | Allowable credits, Schedule CT-IT Credit Part 1 line 10 | owner statement `ct_other_credits`; never computed here |
+| 14 | CT income tax: subtract line 13 from line 12; "If less than zero, enter 0" | max(0, L12 - L13) |
+| 15 | Use tax (Schedule 4 line 69); "If no tax is due, enter 0" | existing |
+| 16 | Add lines 14 and 15 | L14 + L15 |
+| 17 | "Enter amount from Line 16" | = L16 |
+| 18 / 19 / 20 | withholding (18a-18e Column C, 18f from CT-1040WH), estimates and prior-year overpayment, CT-1040 EXT payment | existing |
+| 20a-20d | CT EITC (Schedule CT-EITC line 16, 40% of the federal EIC), claim of right credit (CT-1040 CRC line 6), pass-through entity tax credit (Schedule CT-PE line 1), historic home credit | owner statement `ct_other_credits` |
+| 21 | Add lines 18, 19, 20, 20a, 20b, 20c, 20d | sum |
+| 22 | "If Line 21 is more than Line 17, subtract Line 17 from Line 21" (overpayment) | max(0, L21 - L17) |
+| 23 / 24 / 24a / 25 | amount applied to 2026 estimated tax / CHET (Schedule CT-CHET line 4) / charities (Schedule 5 line 70) / refund = line 22 less 23, 24, 24a | owner's irrevocable elections: 23, 24, 24a blank; 25 informational |
+| 26 | "If Line 17 is more than Line 21, subtract Line 21 from Line 17" (tax due) | max(0, L17 - L21) |
+| 27 / 28 | late payment penalty 10% of line 26; interest 1% per month | 0 when line 26 is 0, otherwise informational (month counting not verified) |
+| 29 | Interest on underpayment of estimated tax (Form CT-2210) | see below |
+| 30 | Add lines 26 through 29 | sum |
+| Sch 3 | 63 = 60 + 61 + 62; 64 = $300 (pre-printed); 65 = lesser of 63 and 64; 66 = decimal (0 when CT AGI is at most $70,500 MFJ); 67 = 65 x 66; 68 = 65 - 67 | `rules/ct.ts` |
+| Sch 4 | 69 = 69a + 69b + 69c + 69d | `rules/ct.ts` (rule-derived use tax is all general-rate 69b) |
+
+CT-2210 interest threshold (`CT_ESTIMATED_TAX_INTEREST_MIN`, $1,000): Part 2 line 1 is the income tax shown on the
+2025 CT-1040 (line 14), line 4 = line 1 minus CT withholding (line 3) minus the pass-through entity tax credit
+(line 3a); "If the result is less than $1,000, stop here. Do not complete or file this form" and "you are not subject to
+interest on the underpayment". The CT-1040 instructions (line 29) repeat the test (line 14 minus line 18 and line 20c)
+and let the filer leave line 29 blank so DRS bills the interest. The engine therefore prints line 29 = 0 below the
+threshold and marks it informational (CT-2210 not modeled) at or above it.
+
 ### Not verified (the engine emits `needs_cpa_rule_unverified`, never an estimate)
 
 - Charitable AGI limits for gifts (60% cash to public charities): only the 30%/20% sentences were found.
@@ -263,7 +304,7 @@ computed from them yet.
 - Form 2210: the annualized income installment method (Schedule AI) and waiver rules (the withholding timing rule is verified above).
 - Late filing / late payment penalty rates (federal) and any further extension beyond Oct 15; the CT
   late-payment minimum penalty and month-counting rule.
-- CT: the printed CT tax table used for CT AGI up to $102,000; CT Schedule 3/4 forms, CT-6251, CT-2210.
+- CT: the printed CT tax table used for CT AGI up to $102,000; CT Schedule 3/4 forms, CT-6251, the CT-2210 computation (only its $1,000 threshold is verified, above).
 - The AMT exemption phase-out reduction rate above $1,252,700, and Form 6251 Part III (preferential-rate
   AMT).
 

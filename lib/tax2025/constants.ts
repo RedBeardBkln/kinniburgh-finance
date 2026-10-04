@@ -79,6 +79,7 @@ const URL_2210_FORM = `${IRS}/pub/irs-pdf/f2210.pdf`;
 const URL_INTEREST_RATES = `${IRS}/payments/quarterly-interest-rates`;
 const URL_CT_INSTR = "https://portal.ct.gov/-/media/drs/forms/2025/income/2025-ct-1040-instructions_1225.pdf";
 const URL_CT_TCS = "https://portal.ct.gov/-/media/drs/forms/2025/income/ct-1040-tcs_1225.pdf";
+const URL_CT_2210 = "https://portal.ct.gov/-/media/drs/forms/2025/income/ct-2210_1225.pdf";
 const URL_PUB_936 = `${IRS}/publications/p936`;
 
 function def<T>(
@@ -624,6 +625,13 @@ export const CONSTANTS = {
   ),
   CT_LATE_PAYMENT_PENALTY_RATE: def("CT_LATE_PAYMENT_PENALTY_RATE", 0.1, URL_CT_INSTR, "CT-1040 line 27 late payment penalty rate (10%); the minimum-penalty and month-counting rules are not verified."),
   CT_INTEREST_RATE_PER_MONTH: def("CT_INTEREST_RATE_PER_MONTH", 0.01, URL_CT_INSTR, "CT-1040 line 28 interest, 1% per month."),
+  CT_ESTIMATED_TAX_INTEREST_MIN: def(
+    "CT_ESTIMATED_TAX_INTEREST_MIN",
+    1000,
+    URL_CT_2210,
+    "CT-2210 (Rev. 12/25) page 1 and Part 2 line 4: if the 2025 CT income tax (CT-1040 line 14) less CT withholding and the pass-through entity tax credit (line 20c) is less than $1,000, there is no interest on underpayment of estimated tax and the form is not filed. The 2025 CT-1040 instructions (line 29, https://portal.ct.gov/-/media/drs/forms/2025/income/2025-ct-1040-instructions_1225.pdf) repeat the $1,000 test and let the filer leave line 29 blank for DRS to bill.",
+    VERIFIED_ON_2026_10_04
+  ),
 } as const;
 
 export type ConstantId = keyof typeof CONSTANTS;
