@@ -43,3 +43,15 @@ export {
 } from "@/lib/tax2025/pdf/packet";
 export { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 export { safeText, SSN_PLACEHOLDER, type SafeText } from "@/lib/tax2025/pdf/safe-text";
+export {
+  EMPLOYER_NOT_READ,
+  PAYER_NOT_READ,
+  TABLE_COLUMNS,
+  centsToWholeDollars,
+  toPdfReturnView,
+  type AdapterOverrides,
+  type EffectiveLineLike,
+  type EffectiveReturnLike,
+  type LineOverrideLike,
+  type ToPdfViewOptions,
+} from "@/lib/tax2025/pdf/adapter";
