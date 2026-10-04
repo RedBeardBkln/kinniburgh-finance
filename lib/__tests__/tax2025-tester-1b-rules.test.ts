@@ -38,6 +38,8 @@ function s1a(magi: number | null, people: Sch1aPersonInput[], car: Partial<Sch1a
     magiExclusionsNone: answered(true),
     people,
     carLoan: { choice: answered("none"), qualifies: MISSING, interestPaid: MISSING, deductedElsewhere: MISSING, ...car },
+    tipsEmployers: null,
+    scheduleCOwnerTips: answered("none"),
   });
 }
 const otPerson = (name: string, premium: number): Sch1aPersonInput => s1aPerson(name, { overtime: answered("premium"), overtimeAmount: answered(D(premium)) });

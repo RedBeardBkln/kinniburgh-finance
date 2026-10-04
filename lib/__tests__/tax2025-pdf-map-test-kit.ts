@@ -78,8 +78,14 @@ function blankedNames(map: FormMap, fieldNames: readonly string[]): Set<string> 
   return out;
 }
 
-/** No field whose IRS description is sensitive (SSN, EIN, bank, PIN, preparer, address ...) is mapped to a line, header or table. */
-export function assertPrivateFieldsNeverFilled(map: FormMap): void {
+/**
+ * No field whose IRS description is sensitive (SSN, EIN, bank, PIN, preparer, address ...) is mapped to a line, header or table.
+ * `moneyFieldsWithPartCaption` names money fields whose accessibility text merely QUOTES a part caution ("must have a valid social
+ * security number"): each must be a mapped money line, so the exemption can never hide a real SSN box.
+ */
+export function assertPrivateFieldsNeverFilled(map: FormMap, moneyFieldsWithPartCaption: readonly string[] = []): void {
+  const moneyFields = new Set(map.lines.flatMap((l) => (l.kind === "money" ? [l.field] : [])));
+  for (const name of moneyFieldsWithPartCaption) expect(moneyFields.has(name), `${map.formId}: exempt field ${name} must be a mapped money line`).toBe(true);
   const cat = loadCatalog(map.formId);
   const names = cat.fields.map((f) => f.name);
   const blank = blankedNames(map, names);
@@ -87,6 +93,7 @@ export function assertPrivateFieldsNeverFilled(map: FormMap): void {
   for (const f of cat.fields) {
     if (!PRIVATE_SPEAK.test(f.speak ?? "")) continue;
     seen += 1;
+    if (moneyFieldsWithPartCaption.includes(f.name)) continue;
     expect(blank.has(f.name), `${map.formId}: sensitive field ${f.name} ("${f.speak}") must be blank by design`).toBe(true);
   }
   expect(seen, `${map.formId}: expected at least the SSN field`).toBeGreaterThan(0);
@@ -102,6 +109,8 @@ export interface CommonMapSuite {
   expected: Readonly<Record<string, FieldValue>>;
   /** At least 10 hand-picked (field, speak pattern) spot checks. */
   spot: ReadonlyArray<readonly [string, RegExp]>;
+  /** Money fields whose speak text only quotes a part caution about social security numbers (see assertPrivateFieldsNeverFilled). */
+  moneyFieldsWithPartCaption?: readonly string[];
 }
 
 /** The checks every form map must pass (T2a/T2b acceptance): completeness, real keys, speak match, privacy, golden read-back. */
@@ -131,7 +140,7 @@ export function registerCommonMapTests(s: CommonMapSuite): void {
     });
 
     it("SSN, EIN, bank, PIN, preparer, address, phone, email, occupation and signature fields are blank by design", () => {
-      assertPrivateFieldsNeverFilled(s.map);
+      assertPrivateFieldsNeverFilled(s.map, s.moneyFieldsWithPartCaption ?? []);
     });
   });
 

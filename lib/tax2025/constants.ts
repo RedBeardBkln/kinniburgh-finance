@@ -58,7 +58,10 @@ export const VERIFIED_ON_2026_10_04 = "2026-10-04";
 const IRS = "https://www.irs.gov";
 const URL_1040_INSTR = `${IRS}/instructions/i1040gi`;
 const URL_SCH_A_INSTR = `${IRS}/instructions/i1040sca`;
-const URL_SCH_1A = `${IRS}/pub/irs-pdf/f1040s1a.pdf`;
+// Schedule 1-A has no standalone instructions: they are printed inside the 2025 Form 1040 instructions (pp. 101-110);
+// the form itself is https://www.irs.gov/pub/irs-pdf/f1040s1a.pdf.
+const URL_SCH_1A = `${IRS}/pub/irs-prior/i1040gi--2025.pdf`;
+const URL_8960_INSTR_PDF = `${IRS}/pub/irs-pdf/i8960.pdf`;
 const URL_SCH_SE_FORM = `${IRS}/pub/irs-pdf/f1040sse.pdf`;
 const URL_8959_INSTR = `${IRS}/instructions/i8959`;
 const URL_8960_INSTR = `${IRS}/instructions/i8960`;
@@ -251,6 +254,20 @@ export const CONSTANTS = {
     URL_8960_INSTR,
     "NIIT applies to the lesser of net investment income or MAGI over this amount, MFJ."
   ),
+  NIIT_ALLOCATION_METHOD: def(
+    "NIIT_ALLOCATION_METHOD",
+    "line8_over_agi",
+    URL_8960_INSTR_PDF,
+    "Form 8960 line 9b (Part II, 'Reasonable method allocations'): state and local income tax deducted on Schedule A may be allocated to net investment income by any reasonable method; the instructions' own example method is the ratio of gross investment income (Form 8960 line 8) to AGI. The CPA may use another method.",
+    VERIFIED_ON_2026_10_04
+  ),
+  NIIT_MISC_INVESTMENT_EXPENSES_DEDUCTIBLE: def(
+    "NIIT_MISC_INVESTMENT_EXPENSES_DEDUCTIBLE",
+    false,
+    URL_8960_INSTR_PDF,
+    "Form 8960 line 9c: miscellaneous investment expenses are generally no longer deductible (P.L. 119-21 section 70110 makes the disallowance of miscellaneous itemized deductions permanent); the 'Lines 9 and 10' limitation worksheet is 'Not for use in 2025'.",
+    VERIFIED_ON_2026_10_04
+  ),
 
   // ── QBI ───────────────────────────────────────────────────────────────────
   QBI_RATE: def("QBI_RATE", QBI_RATE, URL_8995_INSTR, "Section 199A deduction: 20%."),
@@ -330,6 +347,20 @@ export const CONSTANTS = {
   SCH1A_TIPS_MAGI_START_MFJ: def("SCH1A_TIPS_MAGI_START_MFJ", 300000, URL_SCH_1A, "Tips/overtime MAGI reduction starts (MFJ)."),
   SCH1A_TIPS_REDUCTION_PER_1000: def("SCH1A_TIPS_REDUCTION_PER_1000", 100, URL_SCH_1A, "Tips/overtime: reduce by $100 per $1,000 over (rounded down)."),
   SCH1A_OVERTIME_MAX_MFJ: def("SCH1A_OVERTIME_MAX_MFJ", 25000, URL_SCH_1A, "Qualified overtime deduction maximum, MFJ."),
+  SCH1A_OVERTIME_MAGI_START_MFJ: def(
+    "SCH1A_OVERTIME_MAGI_START_MFJ",
+    300000,
+    URL_SCH_1A,
+    "Schedule 1-A line 17 (overtime): enter $300,000 if married filing jointly; the reduction starts above it (same value as the tips line 9).",
+    VERIFIED_ON_2026_10_04
+  ),
+  SCH1A_OVERTIME_REDUCTION_PER_1000: def(
+    "SCH1A_OVERTIME_REDUCTION_PER_1000",
+    100,
+    URL_SCH_1A,
+    "Schedule 1-A line 20 (overtime): multiply line 19 by $100 (line 19 is the MAGI excess over $1,000 steps, rounded DOWN).",
+    VERIFIED_ON_2026_10_04
+  ),
   SCH1A_CAR_LOAN_MAX: def("SCH1A_CAR_LOAN_MAX", 10000, URL_SCH_1A, "Car-loan interest deduction maximum."),
   SCH1A_CAR_LOAN_MAGI_START_MFJ: def("SCH1A_CAR_LOAN_MAGI_START_MFJ", 200000, URL_SCH_1A, "Car-loan interest MAGI reduction starts (MFJ)."),
   SCH1A_CAR_LOAN_REDUCTION_PER_1000: def("SCH1A_CAR_LOAN_REDUCTION_PER_1000", 200, URL_SCH_1A, "Car-loan interest: reduce by $200 per $1,000 over (rounded UP)."),

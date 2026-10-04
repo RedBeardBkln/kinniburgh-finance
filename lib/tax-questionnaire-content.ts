@@ -1647,13 +1647,13 @@ function rcPersonNodes(): QNode[] {
         `Did ${P.name} receive overtime pay in 2025 that the federal Fair Labor Standards Act (FLSA) required (employers may show it in box 14 of the W-2)?`,
         [
           o("premium", "Yes - I know the overtime premium (the 'half' of time-and-a-half)"),
-          o("total", "Yes - I know the total pay for the overtime hours (premium plus regular wages)"),
+          o("total", "Yes - I know the total pay for the overtime hours (premium plus regular wages), and my employer pays time-and-a-half"),
           o("ask_employer", "Yes - I do not know the amount yet, I will ask the employer"),
           o("none", "No overtime"),
           UNSURE,
         ],
         {
-          help: "The IRS says qualified overtime is the amount above the regular rate that the FLSA requires (generally the 'half' in time-and-a-half); employers may show it in W-2 box 14; if a statement shows the total pay for the overtime hours (premium plus regular wages), the instructions let you divide that total by three; you can rely on an amount your employer provides.",
+          help: "The IRS says qualified overtime is the amount above the regular rate that the FLSA requires (generally the 'half' in time-and-a-half); employers may show it in W-2 box 14; if a statement shows the total pay for the overtime hours (premium plus regular wages), the instructions let you divide that total by three, which is right only when the employer pays time-and-a-half (for double time or any other rate, answer Not sure so the CPA works it out); you can rely on an amount your employer provides.",
           sources: ["1040GI"],
         }
       ),

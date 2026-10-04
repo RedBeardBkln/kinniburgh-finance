@@ -713,6 +713,14 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
         interestPaid: dollarsAns(ra.carLoan.interestPaidCents),
         deductedElsewhere: dollarsAns(ra.carLoan.deductedElsewhereCents),
       },
+      tipsEmployers: (() => {
+        const box7 = facts.income.w2s.map((w) => w.socialSecurityTipsCents ?? 0).filter((c) => c > 0);
+        return { employersWithBox7: box7.length, box7Total: centsToDollars(box7.reduce((a, c) => a + c, 0)) };
+      })(),
+      scheduleCOwnerTips: (() => {
+        const owner = ra.people.find((p) => p.userId !== null && p.userId === sc.ownerUserId.value);
+        return owner === undefined ? null : ans(owner.tipsChoice);
+      })(),
     });
     const s1aRefs = [...ra.people.flatMap(personRefs), ...refsFrom(ra.magiExclusionsNone, ra.carLoan.choice, ra.carLoan.qualifies, ra.carLoan.interestPaidCents, ra.carLoan.deductedElsewhereCents)];
     A.register(s1a, { refs: s1aRefs });
@@ -1572,6 +1580,19 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
       message: `CT-1040 Schedule 1 ${ctOther.map((k) => `line ${k.slice("ct1040.s1.".length)}`).join(" and ")} (Other) has a stated amount: the printed form requires a description ("Other - specify"), which this packet does not print.`,
       action: "The CPA adds the description on the form.",
       lineKeys: ctOther,
+      refs: [],
+    });
+  }
+  // Schedule 1-A rests on owner statements the app cannot verify (the occupation behind qualified tips, the character of the overtime)
+  const sch1aTotal = A.peek("sch1a.38");
+  if (sch1aTotal !== null && sch1aTotal.greaterThan(0)) {
+    const vin = (A.peek("sch1a.23") ?? ZERO).greaterThan(0);
+    openItems.push({
+      id: "sch1a-owner-statements",
+      severity: "advisory",
+      message: `Schedule 1-A (${fmt(sch1aTotal)} on Form 1040 line 13b) rests on owner statements the app cannot verify: that the qualified tips were received in an occupation listed at IRS.gov/TippedOccupations (the app records neither the occupation nor its code), that they are cash, voluntary tips and not automatic service charges, that the overtime is FLSA overtime premium only (an employer's W-2 box 14 "OT PREMIUM" amount may be relied on; the divide-by-three method is right only for time-and-a-half pay), and, for line 4a, that W-2 box 5 is not above the Social Security wage base and no tips beyond box 7 apply${vin ? "; Part IV also needs the vehicle identification number(s) (line 22), which the app does not store" : ""}.`,
+      action: "CPA to confirm the occupation, the tip and overtime character and the amounts with the owner.",
+      lineKeys: ["sch1a.38"],
       refs: [],
     });
   }

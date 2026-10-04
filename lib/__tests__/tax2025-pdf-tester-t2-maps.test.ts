@@ -28,7 +28,7 @@ import geometry from "./fixtures/tester-pdf-line-geometry-2025.json";
 const FORMS = ["f1040", "f1040s1", "f1040s2", "f1040s3", "f1040sa", "f1040sc", "f1040sse"] as const;
 // Integration (T9): the registry now also holds the MVP-2 / CT maps. This file keeps testing the seven T2 maps
 // (the later maps have their own map tests); the registry itself is pinned below so a new map is a deliberate change.
-const LATER_FORMS = ["f1040sb", "f1040sd", "f8949", "f8995", "f8959", "ct1040"] as const;
+const LATER_FORMS = ["f1040sb", "f1040sd", "f8949", "f8995", "f8959", "ct1040", "f1040s1a"] as const;
 const T2_MAPS: readonly FormMap[] = FORM_MAPS.filter((m) => (FORMS as readonly string[]).includes(m.formId));
 
 function mapOf(formId: string): FormMap {
@@ -44,7 +44,7 @@ async function realFieldNames(formId: string): Promise<string[]> {
 }
 
 describe("tester T2: own completeness against the real blank PDFs", () => {
-  it("the registry holds exactly the seven T2 maps plus the six later maps (Schedule B, Schedule D, 8949, 8995, 8959, CT-1040)", () => {
+  it("the registry holds exactly the seven T2 maps plus the later maps (Schedule B, Schedule D, 8949, 8995, 8959, CT-1040, Schedule 1-A)", () => {
     expect(FORM_MAPS.map((m) => m.formId).sort()).toEqual([...FORMS, ...LATER_FORMS].sort());
     expect(T2_MAPS.map((m) => m.formId).sort()).toEqual([...FORMS].sort());
   });

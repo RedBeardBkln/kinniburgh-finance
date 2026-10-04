@@ -352,19 +352,19 @@ describe("B1: forms the engine requires but the packet cannot generate are liste
       ...view,
       formsRequired: {
         ...view.formsRequired,
-        sch1a: { required: "blocking", reason: "Cannot tell until a blocking item is resolved." },
+        f6251: { required: "blocking", reason: "Cannot tell until a blocking item is resolved." },
         f8889: { required: true, reason: "HSA contributions or distributions exist." },
         f8283: { required: false, reason: "Noncash gifts are not over $500." },
       },
     };
     const missing = requiredFormsWithoutPdf(v);
-    expect(missing.map((m) => m.formId)).toEqual(["sch1a", "f8889"]); // the explicit-list order
+    expect(missing.map((m) => m.formId)).toEqual(["f6251", "f8889"]); // the explicit-list order
     const model = buildCoverModel({ view: v, forms: [], fillItems: [], continuations: [], stamp: true, missingForms: missing });
     const heading = model.blocks.find((b) => b.kind === "heading" && b.text.startsWith("Required forms this packet does NOT contain"));
     expect(heading && "text" in heading ? heading.text : "").toContain("(2)");
     const bullets = bulletsAfter(model.blocks, "Required forms this packet does NOT contain");
     expect(bullets).toHaveLength(2);
-    const s1a = bullets.find((t) => t.includes("Schedule 1-A"));
+    const s1a = bullets.find((t) => t.includes("Form 6251"));
     const f8889 = bullets.find((t) => t.includes("Form 8889"));
     expect(s1a).toContain("cannot rule it out yet");
     expect(s1a).toContain("Cannot tell until a blocking item is resolved.");

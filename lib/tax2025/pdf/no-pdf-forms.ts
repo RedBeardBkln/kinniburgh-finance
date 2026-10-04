@@ -41,7 +41,6 @@ export const EXPLICIT_NO_PDF: readonly FormId[] = [
   "f8960",
   "f8283",
   "f2210",
-  "sch1a",
   "f8889",
   "f8880",
   "f5695",

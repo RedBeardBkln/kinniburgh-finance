@@ -1053,7 +1053,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       });
     }
     // overtime versus W-2 box 14
-    const box14Overtime = mine.reduce((sum, w) => sum + w.box14.filter((e) => /overtime|flsa/i.test(e.label)).reduce((a, e) => a + e.amountCents, 0), 0);
+    const box14Overtime = mine.reduce((sum, w) => sum + w.box14.filter((e) => /overtime|flsa|\bot\b/i.test(e.label)).reduce((a, e) => a + e.amountCents, 0), 0);
     if (box14Overtime > 0 && pa.overtimeChoice.value === "none") {
       conflicts.push({
         factKey: `returnAnswers.${pa.slot}.overtime`,

@@ -269,7 +269,7 @@ describe("failure surface: a throwing copies() is a blocking packet item; the si
     const copies = copiesOf(f8949Map, many);
     expect(copies.map((c) => c.tables["f8949.partI"]?.length)).toEqual([11, 2]);
     const pk = await buildPacket(many, { stamp: false, maps: FORM_MAPS });
-    expect(pk.files.map((f) => f.name).filter((n) => n.includes("8949"))).toEqual(["06-f8949-b-1.pdf", "07-f8949-b-2.pdf"]);
+    expect(pk.files.map((f) => f.name).filter((n) => n.includes("8949"))).toEqual(["07-f8949-b-1.pdf", "08-f8949-b-2.pdf"]);
   });
 });
 

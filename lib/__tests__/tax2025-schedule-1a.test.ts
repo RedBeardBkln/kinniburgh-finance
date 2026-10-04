@@ -33,6 +33,8 @@ function input(over: Partial<Sch1aInput> = {}): Sch1aInput {
     magiExclusionsNone: answered(true),
     people: [person("Eric"), person("Eva")],
     carLoan: { choice: answered("none"), qualifies: MISSING, interestPaid: MISSING, deductedElsewhere: MISSING },
+    tipsEmployers: null,
+    scheduleCOwnerTips: answered("none"),
     ...over,
   };
 }

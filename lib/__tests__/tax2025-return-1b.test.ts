@@ -360,6 +360,17 @@ describe("resolveFacts: Return completeness cross-checks and open items", () => 
     expect(conflicts.find((c) => c.factKey === "returnAnswers.a.hsa")?.chosen).toBeNull();
   });
 
+  it("overtime none versus a W-2 box 14 labelled 'OT PREMIUM' (an employer's real label) raises the overtime conflict; an unrelated label does not", () => {
+    const withLabel = (label: string) =>
+      resolveFacts(
+        raw([w2doc("w-eric", ERIC_ID, { box14: [{ label, amountCents: 240_800 }] })], answers((a) => {
+          a.people[0]!.overtimeChoice = owner("none");
+        }))
+      ).conflicts.map((c) => c.factKey);
+    for (const label of ["OT PREMIUM", "ot premium", "OT", "Overtime premium", "FLSA OT"]) expect(withLabel(label), label).toContain("returnAnswers.a.overtime");
+    for (const label of ["PILOT FUND", "PARKING", "ROTATE"]) expect(withLabel(label), label).not.toContain("returnAnswers.a.overtime");
+  });
+
   it("a stale saved row is an advisory item; the 2024 filing status is read from the prior return", () => {
     const r = raw([], answers(() => undefined));
     r.returnCompletenessStale = true;
