@@ -29,7 +29,7 @@ import {
   type EffectiveAnswers,
   type QuestionnaireContext,
 } from "@/lib/tax-questionnaire";
-import { RC_PAYMENT_WINDOWS, RC_PERSONS, RETURN_COMPLETENESS_ID, questionnaireById } from "@/lib/tax-questionnaire-content";
+import { RC_OTHER_INCOME_KINDS, RC_PAYMENT_WINDOWS, RC_PERSONS, RETURN_COMPLETENESS_ID, questionnaireById } from "@/lib/tax-questionnaire-content";
 import { emptyReturnAnswers, type EstimatedPayment, type PersonAnswers, type ReturnAnswers } from "@/lib/tax2025/facts";
 import { NONE_GROUP_IDS, type NoneGroupId } from "@/lib/tax2025/line-catalog";
 import { missingLeaf, sourced, type Ref, type Sourced } from "@/lib/tax2025/types";
@@ -307,10 +307,23 @@ export function parseCompletenessAnswers(
       };
       const ded = choice("rfitem");
       const refund = amt("rfamt", "State income tax refund");
-      // when the state refund is the ONLY kind of other income, the amount already given for the group is the refund
+      // Several kinds: the refund amount is its own per-kind answer (rfamt). Exactly one kind (the refund): that amount IS the total
+      // given for the group (an older saved rfamt answer for the same case is still honoured).
       const onlyRefund = oi.kinds.value !== null && oi.kinds.value.length === 1 && oi.kinds.value[0] === "refund";
       const groupAmount = ra.statedSomeAmounts.other_income;
-      oi.refundCents = refund.value === null && refund.basis === null && onlyRefund && groupAmount !== undefined ? groupAmount : refund;
+      const legacy = effective.rfamt;
+      if (onlyRefund && legacy !== undefined && typeof legacy.value === "number") oi.refundCents = leaf(legacy.value, "rfamt", "State income tax refund");
+      else if (onlyRefund && groupAmount !== undefined) oi.refundCents = groupAmount;
+      else oi.refundCents = refund;
+      // the split of the total by kind (only asked when more than one kind was picked)
+      if (oi.kinds.value !== null && oi.kinds.value.length > 1) {
+        const split: Record<string, number> = {};
+        for (const k of RC_OTHER_INCOME_KINDS) {
+          const v = cents(k.amountNode);
+          if (typeof v === "number" && oi.kinds.value.includes(k.id)) split[k.id] = v;
+        }
+        oi.kindAmountsCents = leaf(split, "oik", "Other income split by kind");
+      }
       oi.deduction2024 =
         ded === null ? missing() : ded === "unsure" ? unsure("rfitem", "How the 2024 return deducted state taxes") : leaf(ded === "itemized_income" ? "itemized_income" : ded === "itemized_sales" ? "itemized_sales" : "standard", "rfitem", "How the 2024 return deducted state taxes");
       oi.sch5dCents = amt("rfdd", "2024 Schedule A line 5d");

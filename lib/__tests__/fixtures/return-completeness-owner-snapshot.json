@@ -1,0 +1,685 @@
+{
+ "stored": {
+  "age_eric": "no",
+  "age_eva": "no",
+  "blind_eric": "no",
+  "blind_eva": "no",
+  "plan_eric": "no",
+  "def_eric": "none",
+  "ira_eric": "none",
+  "plan_eva": "no",
+  "def_eva": "none",
+  "ira_eva": "none",
+  "hsa_eric": "none",
+  "hsa_eva": "none",
+  "hsadist_eric": "none",
+  "hsadist_eva": "none",
+  "tips_eric": "none",
+  "ot_eric": "none",
+  "tips_eva": "none",
+  "ot_eva": "none",
+  "car": "none",
+  "sehi": "no",
+  "serp": "yes",
+  "serpamt": 650000,
+  "fe": "some",
+  "fe1": 150000,
+  "fe2": 0,
+  "fe3": 150000,
+  "fe4": 0,
+  "fe5": 160000,
+  "ce": "none",
+  "fext": "none",
+  "cext": "none",
+  "fov": "none",
+  "cov": "none",
+  "cpy": "none",
+  "ut": "none",
+  "pyjoint": "no",
+  "pyextra": "no",
+  "div2b": "yes",
+  "digital": "no",
+  "foreign": "no",
+  "g_other_earned_income": "none",
+  "g_retirement_ss_income": "none",
+  "g_other_income": "some",
+  "ga_other_income": 150000,
+  "g_other_adjustments": "none",
+  "g_other_taxes": "none",
+  "g_other_nonrefundable_credits": "none",
+  "g_solar_credit": "none",
+  "g_other_refundable_credits": "none",
+  "g_medical_expenses": "none",
+  "g_sch_a_other": "none",
+  "g_savings_bond_exclusion": "none",
+  "g_sch_c_other_lines": "none",
+  "g_se_other": "none",
+  "g_qbi_carryforwards": "none",
+  "oik": [
+   "refund"
+  ],
+  "rfamt": 150000,
+  "rfitem": "standard"
+ },
+ "parsed": {
+  "statedNone": {
+   "other_earned_income": true,
+   "retirement_ss_income": true,
+   "other_income": false,
+   "other_adjustments": true,
+   "other_taxes": true,
+   "other_nonrefundable_credits": true,
+   "solar_credit": true,
+   "other_refundable_credits": true,
+   "medical_expenses": true,
+   "sch_a_other": true,
+   "savings_bond_exclusion": true,
+   "sch_c_other_lines": true,
+   "se_other": true,
+   "qbi_carryforwards": true
+  },
+  "returnAnswers": {
+   "people": [
+    {
+     "slot": "a",
+     "userId": "u-eric",
+     "name": "Eric Kinniburgh",
+     "bornBefore1961": {
+      "value": false,
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.age_eric",
+        "label": "Eric: born before January 2, 1961"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "blind": {
+      "value": false,
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.blind_eric",
+        "label": "Eric: blind at the end of 2025"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "age50Plus": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "age55Plus": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "validSsn": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "coveredByWorkplacePlan": {
+      "value": false,
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.plan_eric",
+        "label": "Eric: covered by a retirement plan at work"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "deferralsCents": {
+      "value": 0,
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.def_eric",
+        "label": "Eric: elective deferrals: none"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "traditionalIraCents": {
+      "value": 0,
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.ira_eric",
+        "label": "Eric: traditional IRA contributions: none"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "rothIraCents": {
+      "value": 0,
+      "basis": "derived",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.ira_eric",
+        "label": "Eric: Roth IRA contributions"
+       }
+      ],
+      "note": "follows from the owner's answer"
+     },
+     "hsaCoverage": {
+      "value": "none",
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.hsa_eric",
+        "label": "Eric: HDHP coverage"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "hsaMonthsEligible": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "hsaEligibleDec1": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "hsaMedicareOrDependent": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "hsaDirectContributionsCents": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "hsaEmployerOtherYear": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "hsaDistributions": {
+      "value": "none",
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.hsadist_eric",
+        "label": "Eric: HSA distributions"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "tipsChoice": {
+      "value": "none",
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.tips_eric",
+        "label": "Eric: tips"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "tipsCents": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "overtimeChoice": {
+      "value": "none",
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.ot_eric",
+        "label": "Eric: overtime"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "overtimeCents": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     }
+    },
+    {
+     "slot": "b",
+     "userId": "u-eva",
+     "name": "Eva-Laura Ramirez-Wisiackas",
+     "bornBefore1961": {
+      "value": false,
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.age_eva",
+        "label": "Eva: born before January 2, 1961"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "blind": {
+      "value": false,
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.blind_eva",
+        "label": "Eva: blind at the end of 2025"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "age50Plus": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "age55Plus": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "validSsn": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "coveredByWorkplacePlan": {
+      "value": false,
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.plan_eva",
+        "label": "Eva: covered by a retirement plan at work"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "deferralsCents": {
+      "value": 0,
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.def_eva",
+        "label": "Eva: elective deferrals: none"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "traditionalIraCents": {
+      "value": 0,
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.ira_eva",
+        "label": "Eva: traditional IRA contributions: none"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "rothIraCents": {
+      "value": 0,
+      "basis": "derived",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.ira_eva",
+        "label": "Eva: Roth IRA contributions"
+       }
+      ],
+      "note": "follows from the owner's answer"
+     },
+     "hsaCoverage": {
+      "value": "none",
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.hsa_eva",
+        "label": "Eva: HDHP coverage"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "hsaMonthsEligible": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "hsaEligibleDec1": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "hsaMedicareOrDependent": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "hsaDirectContributionsCents": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "hsaEmployerOtherYear": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "hsaDistributions": {
+      "value": "none",
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.hsadist_eva",
+        "label": "Eva: HSA distributions"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "tipsChoice": {
+      "value": "none",
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.tips_eva",
+        "label": "Eva: tips"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "tipsCents": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     },
+     "overtimeChoice": {
+      "value": "none",
+      "basis": "answer_owner",
+      "refs": [
+       {
+        "kind": "questionnaire",
+        "id": "return-completeness.ot_eva",
+        "label": "Eva: overtime"
+       }
+      ],
+      "note": "answered 2026-10-04"
+     },
+     "overtimeCents": {
+      "value": null,
+      "basis": null,
+      "refs": []
+     }
+    }
+   ],
+   "retirementDistributionSince2022": {
+    "value": false,
+    "basis": "derived",
+    "refs": [
+     {
+      "kind": "questionnaire",
+      "id": "return-completeness.rdist",
+      "label": "No retirement contributions, so no distribution reduces them"
+     }
+    ],
+    "note": "follows from the owner's answer"
+   },
+   "studentOrDependent": {
+    "value": false,
+    "basis": "derived",
+    "refs": [
+     {
+      "kind": "questionnaire",
+      "id": "return-completeness.student",
+      "label": "No retirement contributions, so the student / dependent test is not needed"
+     }
+    ],
+    "note": "follows from the owner's answer"
+   },
+   "magiExclusionsNone": {
+    "value": null,
+    "basis": null,
+    "refs": []
+   },
+   "carLoan": {
+    "choice": {
+     "value": "none",
+     "basis": "answer_owner",
+     "refs": [
+      {
+       "kind": "questionnaire",
+       "id": "return-completeness.car",
+       "label": "New vehicle loan"
+      }
+     ],
+     "note": "answered 2026-10-04"
+    },
+    "qualifies": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    },
+    "interestPaidCents": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    },
+    "deductedElsewhereCents": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    }
+   },
+   "attestations": {
+    "digitalAssets": {
+     "value": false,
+     "basis": "answer_owner",
+     "refs": [
+      {
+       "kind": "questionnaire",
+       "id": "return-completeness.digital",
+       "label": "Digital assets (Form 1040 page 1 question)"
+      }
+     ],
+     "note": "answered 2026-10-04"
+    },
+    "foreignAccounts": {
+     "value": false,
+     "basis": "answer_owner",
+     "refs": [
+      {
+       "kind": "questionnaire",
+       "id": "return-completeness.foreign",
+       "label": "Foreign accounts and trusts (Schedule B Part III)"
+      }
+     ],
+     "note": "answered 2026-10-04"
+    }
+   },
+   "priorYear": {
+    "filedJoint": {
+     "value": false,
+     "basis": "answer_owner",
+     "refs": [
+      {
+       "kind": "questionnaire",
+       "id": "return-completeness.pyjoint",
+       "label": "2024 return was joint"
+      }
+     ],
+     "note": "answered 2026-10-04"
+    },
+    "hadExcludedTaxOrRefundable": {
+     "value": false,
+     "basis": "answer_owner",
+     "refs": [
+      {
+       "kind": "questionnaire",
+       "id": "return-completeness.pyextra",
+       "label": "2024 return had a refundable credit or a Schedule 2 tax for unreported tips (lines 5-7, 13)"
+      }
+     ],
+     "note": "answered 2026-10-04"
+    }
+   },
+   "useTax": {
+    "choice": {
+     "value": "none",
+     "basis": "answer_owner",
+     "refs": [
+      {
+       "kind": "questionnaire",
+       "id": "return-completeness.ut",
+       "label": "Out-of-state purchases"
+      }
+     ],
+     "note": "answered 2026-10-04"
+    },
+    "generalRatePurchasesCents": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    },
+    "otherRateItems": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    },
+    "taxPaidToOtherStateCents": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    },
+    "untaxedPurchasesCents": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    }
+   },
+   "statedSomeAmounts": {
+    "other_income": {
+     "value": 150000,
+     "basis": "answer_owner",
+     "refs": [
+      {
+       "kind": "questionnaire",
+       "id": "return-completeness.ga_other_income",
+       "label": "Estimated amount: other_income"
+      }
+     ],
+     "note": "answered 2026-10-04"
+    }
+   },
+   "otherIncome": {
+    "kinds": {
+     "value": [
+      "refund"
+     ],
+     "basis": "answer_owner",
+     "refs": [
+      {
+       "kind": "questionnaire",
+       "id": "return-completeness.oik",
+       "label": "Kinds of other income"
+      }
+     ],
+     "note": "answered 2026-10-04"
+    },
+    "refundCents": {
+     "value": 150000,
+     "basis": "answer_owner",
+     "refs": [
+      {
+       "kind": "questionnaire",
+       "id": "return-completeness.rfamt",
+       "label": "State income tax refund"
+      }
+     ],
+     "note": "answered 2026-10-04"
+    },
+    "deduction2024": {
+     "value": "standard",
+     "basis": "answer_owner",
+     "refs": [
+      {
+       "kind": "questionnaire",
+       "id": "return-completeness.rfitem",
+       "label": "How the 2024 return deducted state taxes"
+      }
+     ],
+     "note": "answered 2026-10-04"
+    },
+    "sch5dCents": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    },
+    "sch5eCents": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    },
+    "sch17Cents": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    },
+    "boxes2024": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    },
+    "exceptionApplies": {
+     "value": null,
+     "basis": null,
+     "refs": []
+    }
+   }
+  },
+  "federalEstimates": [
+   {
+    "paidOn": "2025-04-15",
+    "amountCents": 150000,
+    "appliesToTaxYear": 2025
+   },
+   {
+    "paidOn": "2025-09-15",
+    "amountCents": 150000,
+    "appliesToTaxYear": 2025
+   },
+   {
+    "paidOn": "2026-01-15",
+    "amountCents": 160000,
+    "appliesToTaxYear": 2025
+   }
+  ],
+  "ctEstimates": [],
+  "federalExtensionPaymentCents": 0,
+  "ctExtensionPaymentCents": 0,
+  "federalOverpaymentAppliedCents": 0,
+  "ctOverpaymentAppliedCents": 0,
+  "dividendBoxes2b2dConfirmedZero": true,
+  "seHealthInsuranceCents": 0,
+  "seRetirementCents": 650000,
+  "ctPriorYearBalancePaidIn2025Cents": 0
+ }
+}

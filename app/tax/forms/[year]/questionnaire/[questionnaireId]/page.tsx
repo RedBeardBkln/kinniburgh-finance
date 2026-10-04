@@ -7,6 +7,8 @@ import { QuestionnaireRunner } from "@/components/tax/forms/questionnaire-runner
 import { loadQuestionnairePage } from "@/lib/tax-questionnaire-build";
 import { renderCopy } from "@/lib/tax-questionnaire";
 import { SOURCES } from "@/lib/tax-questionnaire-content";
+import { YearNotice } from "@/components/tax/forms/year-notice";
+import { defaultFilingTaxYear } from "@/lib/tax-default-year";
 
 interface PageProps {
   params: Promise<{ year: string; questionnaireId: string }>;
@@ -33,6 +35,11 @@ export default async function TaxQuestionnairePage({ params, searchParams }: Pag
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-5">
+        <YearNotice
+          viewedYear={year}
+          defaultYear={defaultFilingTaxYear()}
+          hrefForDefaultYear={`/tax/forms/${defaultFilingTaxYear()}/questionnaire/${questionnaireId}${typeof entity === "string" ? `?entity=${encodeURIComponent(entity)}` : ""}`}
+        />
         <div>
           <div className="mb-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <Link href="/tax" className="hover:underline">

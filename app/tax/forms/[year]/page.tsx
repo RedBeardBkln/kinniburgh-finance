@@ -12,6 +12,8 @@ import { FormCard } from "@/components/tax/forms/form-card";
 import { FormsSummary } from "@/components/tax/forms/forms-summary";
 import { PDF_SUPPORTED_YEAR, PdfDownloadButtons } from "@/components/tax/forms/pdf-download-buttons";
 import { EntityFormsSectionView } from "@/components/tax/forms/entity-forms-section";
+import { YearNotice } from "@/components/tax/forms/year-notice";
+import { defaultFilingTaxYear } from "@/lib/tax-default-year";
 
 interface PageProps {
   params: Promise<{ year: string }>;
@@ -49,6 +51,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
+        <YearNotice viewedYear={year} defaultYear={defaultFilingTaxYear()} hrefForDefaultYear={`/tax/forms/${defaultFilingTaxYear()}`} />
         <div>
           <div className="mb-1 flex items-center gap-2 text-sm text-muted-foreground">
             <Link href="/tax" className="hover:underline">

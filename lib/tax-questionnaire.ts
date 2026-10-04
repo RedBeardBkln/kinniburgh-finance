@@ -81,6 +81,11 @@ export interface NumberNode extends NodeBase {
   min: number;
   max: number;
   binding?: NumberBinding;
+  /**
+   * This amount is one part of a total asked earlier: the runner shows "allocated X of TOTAL, R left to
+   * allocate" under it. `partNodeIds` are all the part questions (this one included).
+   */
+  allocation?: { totalNodeId: string; partNodeIds: readonly string[] };
 }
 export type QNode = ChoiceNode | NumberNode;
 
@@ -584,6 +589,46 @@ export const OWNER_LINE: Readonly<Record<Outcome, string>> = {
   not_applies: "Owner reports this likely does not apply - confirm with the CPA.",
   unsure: "Owner is unsure - the CPA decides.",
 };
+
+// ── Allocation helper (a total split into per-kind amounts) ──────────────────
+
+export interface AllocationSummary {
+  allocatedCents: number;
+  totalCents: number | null;
+  /** total - allocated; null when the total is not answered. */
+  leftCents: number | null;
+  /** Every VISIBLE part question has a number. */
+  complete: boolean;
+  text: string;
+}
+
+/** "Allocated $X of $TOTAL, $R left to allocate" for a part question; null when the node has no allocation. */
+export function allocationSummary(node: QNode, effective: EffectiveAnswers, visibleIds: ReadonlySet<string>): AllocationSummary | null {
+  if (isChoiceNode(node) || !node.allocation) return null;
+  const num = (id: string): number | null => {
+    const v = effective[id]?.value;
+    return typeof v === "number" ? v : null;
+  };
+  let allocated = 0;
+  let complete = true;
+  for (const id of node.allocation.partNodeIds) {
+    if (!visibleIds.has(id)) continue;
+    const v = num(id);
+    if (v === null) complete = false;
+    else allocated += v;
+  }
+  const total = num(node.allocation.totalNodeId);
+  if (total === null) {
+    return { allocatedCents: allocated, totalCents: null, leftCents: null, complete, text: `Allocated ${formatCentsDisplay(allocated)} so far. Enter the total above first.` };
+  }
+  const left = total - allocated;
+  let text: string;
+  if (left > 0) text = `Allocated ${formatCentsDisplay(allocated)} of ${formatCentsDisplay(total)}; ${formatCentsDisplay(left)} left to allocate.`;
+  else if (left === 0) text = complete ? `Fully allocated: ${formatCentsDisplay(allocated)} of ${formatCentsDisplay(total)}.` : `Allocated ${formatCentsDisplay(allocated)} of ${formatCentsDisplay(total)}; nothing left, but answer the other amounts (0 if none).`;
+  else text = `Too much: the amounts add up to ${formatCentsDisplay(allocated)} but the total is ${formatCentsDisplay(total)} (${formatCentsDisplay(-left)} over). Change an amount or the total above.`;
+  if (complete && left > 0) text += " The amounts must add up to the total.";
+  return { allocatedCents: allocated, totalCents: total, leftCents: left, complete, text };
+}
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 

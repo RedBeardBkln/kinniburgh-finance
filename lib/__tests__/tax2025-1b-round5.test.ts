@@ -75,7 +75,8 @@ describe("Round 5: questionnaire nodes and mapping", () => {
     expect(shown(eff({ g_other_income: "some" }))).toContain("oik");
     expect(shown(eff({ g_other_income: "some", oik: ["unemployment"] }))).not.toContain("rfitem");
     const std = shown(eff({ g_other_income: "some", oik: ["refund"], rfitem: "standard" }));
-    expect(std).toEqual(expect.arrayContaining(["rfamt", "rfitem"]));
+    expect(std).toContain("rfitem");
+    expect(std).not.toContain("rfamt"); // one kind only: its amount is the total
     expect(std).not.toContain("rfdd");
     const item = shown(eff({ g_other_income: "some", oik: ["refund"], rfitem: "itemized_income" }));
     expect(item).toEqual(expect.arrayContaining(["rfdd", "rfee", "rfa17", "rfboxes", "rfexc"]));

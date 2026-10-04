@@ -339,6 +339,8 @@ export const returnAnswersSchema = z.object({
     .object({
       /** Kind ids chosen: refund, unemployment, gambling, canceled_debt, crypto, alimony, other. */
       kinds: sourcedSchema(z.array(z.string())),
+      /** Amount per kind (kind id -> cents), present only when MORE THAN ONE kind was picked; must add up to the group total. */
+      kindAmountsCents: sourcedSchema(z.record(z.string(), cents)).optional(),
       refundCents: sourcedSchema(cents),
       /** 2024 return: standard deduction, itemized (income taxes deducted) or itemized with general sales taxes. */
       deduction2024: sourcedSchema(z.enum(["standard", "itemized_income", "itemized_sales"])),

@@ -903,6 +903,31 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       action: "Re-open the Return completeness questionnaire and confirm every answer.",
     });
   }
+  // Other income picked in several kinds: the amounts by kind must add up to the total given for the group (within a cent)
+  {
+    const oi = returnAnswers.otherIncome;
+    const kinds = oi?.kinds.value ?? null;
+    const total = returnAnswers.statedSomeAmounts.other_income?.value ?? null;
+    if (oi !== undefined && kinds !== null && kinds.length > 1) {
+      const split = oi.kindAmountsCents?.value ?? {};
+      const missingKinds = kinds.filter((k) => split[k] === undefined);
+      const sum = Object.values(split).reduce((a, b) => a + b, 0);
+      const money = (c: number): string => `$${(c / 100).toFixed(2)}`;
+      let problem: string | null = null;
+      if (total === null) problem = `The other income is split into ${kinds.length} kinds (${money(sum)} entered) but the total has not been given.`;
+      else if (missingKinds.length > 0) problem = `Allocated ${money(sum)} of ${money(total)}, ${money(total - sum)} left to allocate: no amount yet for ${missingKinds.join(", ")}.`;
+      else if (Math.abs(total - sum) > 1) problem = `The amounts by kind add up to ${money(sum)} but the total is ${money(total)} (${sum > total ? `${money(sum - total)} over` : `${money(total - sum)} left to allocate`}).`;
+      if (problem !== null) {
+        addItem({
+          id: "other-income-allocation",
+          severity: "blocking",
+          message: problem,
+          action: "Open Return completeness, the other-income questions, and make the amounts by kind add up to the total.",
+          refs: [...(oi.kindAmountsCents?.refs ?? [])],
+        });
+      }
+    }
+  }
   const DEFERRAL_CODES = new Set(["D", "E", "F", "G", "H", "S", "AA", "BB", "EE"]);
   for (const pa of returnAnswers.people) {
     if (pa.userId === null) {

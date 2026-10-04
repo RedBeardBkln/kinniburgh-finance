@@ -26,6 +26,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 import { saveQuestionnaireAnswer, saveQuestionnaireNote, resetQuestionnaire } from "@/actions/tax-questionnaires";
 import { QUESTIONNAIRES, questionnaireById } from "@/lib/tax-questionnaire-content";
 import {
+  coveringAnswerPaths,
   enumerateAnswerPaths,
   nodeOptions,
   resolveBoundWrite,
@@ -73,7 +74,8 @@ function validValue(node: QNode, ctx: QuestionnaireContext): AnswerValue {
 function stateMakingVisible(def: QuestionnaireDef, targetId: string) {
   const ctx = FULL_CTX(def);
   const { paths } = enumerateAnswerPaths(def, ctx, 50000);
-  const p: EffectiveAnswers | undefined = paths.find((x) => x[targetId] !== undefined);
+  // a node behind several gates may be missing from the (capped) full enumeration: fall back to the covering walks
+  const p: EffectiveAnswers | undefined = paths.find((x) => x[targetId] !== undefined) ?? coveringAnswerPaths(def, ctx).find((x) => x[targetId] !== undefined);
   if (!p) throw new Error(`no path shows ${def.id}.${targetId}`);
   const stored: Record<string, { v: unknown; at: string; by: string | null }> = {};
   const planning: { key: string; answer: unknown; skippedReason: null; answeredAt: Date }[] = [];

@@ -11,6 +11,7 @@ import { NO_PREFILL, combineContributions, ruleForNode, type PrefillAnswer, type
 import {
   UNSURE_ID,
   answerLabel,
+  allocationSummary,
   buildSummary,
   describeAnswerSource,
   centsToDollarString,
@@ -507,6 +508,17 @@ export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
                     </button>
                   </div>
                 )}
+
+                {(() => {
+                  const alloc = allocationSummary(node, effective, new Set(visible.map((n) => n.id)));
+                  if (alloc === null) return null;
+                  const bad = alloc.leftCents !== null && (alloc.leftCents < 0 || (alloc.complete && alloc.leftCents !== 0));
+                  return (
+                    <p role="status" className={`mt-2 text-sm ${bad ? "font-medium text-red-700" : "text-muted-foreground"}`}>
+                      {alloc.text}
+                    </p>
+                  );
+                })()}
 
                 {info && (
                   <p className="mt-2 text-xs text-muted-foreground">

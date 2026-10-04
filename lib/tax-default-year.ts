@@ -7,3 +7,20 @@
 export function defaultFilingTaxYear(now: Date = new Date()): number {
   return now.getUTCFullYear() - 1;
 }
+
+/**
+ * The notice shown on the Forms page and every questionnaire page when the viewed tax year is not the year
+ * being filed (null = no notice). `hrefForDefaultYear` is the same page for the default filing year.
+ */
+export function yearNotice(
+  viewedYear: number,
+  defaultYear: number,
+  hrefForDefaultYear: string
+): { message: string; linkText: string; href: string } | null {
+  if (viewedYear === defaultYear) return null;
+  return {
+    message: `You are viewing ${viewedYear}. The return due Oct 15, ${defaultYear + 1} is for ${defaultYear}:`,
+    linkText: `open this page for ${defaultYear}`,
+    href: hrefForDefaultYear,
+  };
+}

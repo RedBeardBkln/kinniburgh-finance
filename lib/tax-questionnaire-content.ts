@@ -177,7 +177,7 @@ function whole(
 function dollars(
   id: string,
   prompt: string,
-  extra: NodeExtra & { binding?: NumberBinding } = {}
+  extra: NodeExtra & { binding?: NumberBinding; allocation?: NumberNode["allocation"] } = {}
 ): NumberNode {
   const { showWhen, ...rest } = extra;
   return { id, kind: "dollars", prompt, min: 0, max: 10_000_000, showWhen: showWhen ?? null, ...rest };
@@ -1375,6 +1375,95 @@ const RC_GROUP_LABELS: Readonly<Record<NoneGroupId, string>> = {
 
 const SOME_NONE: readonly QOption[] = [o("some", "Yes"), o("none", "No"), UNSURE];
 
+/** The kinds of "other income" (option ids of `oik`) and the dollars question that holds each kind's part of the total. */
+export const RC_OTHER_INCOME_KINDS = [
+  { id: "refund", label: "the state or local income tax refund", amountNode: "rfamt" },
+  { id: "unemployment", label: "unemployment compensation", amountNode: "okamt_unemployment" },
+  { id: "gambling", label: "gambling winnings", amountNode: "okamt_gambling" },
+  { id: "canceled_debt", label: "canceled debt", amountNode: "okamt_canceled_debt" },
+  { id: "crypto", label: "digital assets or cryptocurrency income", amountNode: "okamt_crypto" },
+  { id: "alimony", label: "alimony received", amountNode: "okamt_alimony" },
+  { id: "other", label: "something else", amountNode: "okamt_other" },
+] as const;
+
+/** Step 1 after "Yes": which kinds of income was it. */
+function otherIncomeKinds(): QNode[] {
+  return [
+    multi(
+      "oik",
+      "Which kinds of income was it (pick every kind that applies)?",
+      [
+        o("refund", "A state or local income tax refund (or a credit or offset of it)"),
+        o("unemployment", "Unemployment compensation"),
+        o("gambling", "Gambling winnings"),
+        o("canceled_debt", "Canceled debt"),
+        o("crypto", "Digital assets or cryptocurrency income"),
+        o("alimony", "Alimony received"),
+        o("other", "Something else"),
+        UNSURE,
+      ],
+      { showWhen: inn("g_other_income", "some") }
+    ),
+  ];
+}
+
+/**
+ * Steps 3 and 4: with MORE THAN ONE kind picked, one amount per picked kind (they must add up to the total above); with exactly one
+ * kind its amount IS the total, so nothing extra is asked. Then the kind-specific follow-ups for the state refund.
+ */
+function otherIncomeSplit(): QNode[] {
+  const parts = RC_OTHER_INCOME_KINDS.map((k) => k.amountNode);
+  const allocation = { totalNodeId: "ga_other_income", partNodeIds: parts };
+  const kindAndAnother = (kind: string): Cond =>
+    allOf(inn("oik", kind), inn("oik", ...RC_OTHER_INCOME_KINDS.map((k) => k.id).filter((id) => id !== kind)));
+  const REFUND = inn("oik", "refund");
+  const ITEMIZED = inn("rfitem", "itemized_income");
+  const out: QNode[] = [];
+  for (const k of RC_OTHER_INCOME_KINDS) {
+    out.push(
+      dollars(
+        k.amountNode,
+        k.id === "refund"
+          ? "Of that total, how much was the state or local income tax refund (Form 1099-G, box 2; include any part you applied to your {year} estimated tax), in dollars?"
+          : `Of that total, how much was ${k.label}, in dollars?`,
+        { showWhen: kindAndAnother(k.id), allocation }
+      )
+    );
+  }
+  out.push(
+    single(
+      "rfitem",
+      "On your {prevYear} federal return (Form 1040), did you take the standard deduction, or itemize deductions on Schedule A?",
+      [
+        o("standard", "Standard deduction (no Schedule A)"),
+        o("itemized_income", "Itemized, and I deducted state and local INCOME taxes"),
+        o("itemized_sales", "Itemized, but I deducted general SALES taxes instead of income taxes"),
+        UNSURE,
+      ],
+      {
+        help: "The IRS says none of a state or local income tax refund is taxable if, in the year you paid the tax, you did not itemize deductions or you deducted general sales taxes instead of state and local income taxes.",
+        sources: ["1040GI"],
+        showWhen: REFUND,
+      }
+    ),
+    dollars("rfdd", "From your {prevYear} Schedule A: the amount on line 5d (total state and local taxes, before the limit), in dollars?", { showWhen: ITEMIZED }),
+    dollars("rfee", "From your {prevYear} Schedule A: the amount on line 5e (the amount you could deduct after the limit), in dollars?", { showWhen: ITEMIZED }),
+    dollars("rfa17", "From your {prevYear} Schedule A: the amount on line 17 (total itemized deductions), in dollars?", { showWhen: ITEMIZED }),
+    whole("rfboxes", "On your {prevYear} Form 1040, how many boxes were checked on line 12d (you or your spouse born before January 2, 1960, or blind; enter 0 if none)?", 0, 4, { showWhen: ITEMIZED }),
+    single(
+      "rfexc",
+      "Did any of these apply: the refund was for a tax year other than {prevYear}; it was not an income tax refund; you owed alternative minimum tax in {prevYear}; you could not use all your {prevYear} credits; someone else could claim you as a dependent in {prevYear}; you paid your last {prevYear} state estimate in {year}; or your {prevYear} tax on Form 1040 line 16 was zero although line 15 was more than zero?",
+      YES_NO,
+      {
+        help: "The IRS says to use Pub. 525 (itemized deduction recoveries) instead of the refund worksheet in these cases, so the CPA would figure the taxable part.",
+        sources: ["1040GI"],
+        showWhen: ITEMIZED,
+      }
+    )
+  );
+  return out;
+}
+
 function rcPersonNodes(): QNode[] {
   const out: QNode[] = [];
   const BY_AGE = (k: string) => inn(`age_${k}`, "yes");
@@ -1659,65 +1748,17 @@ function rcPersonNodes(): QNode[] {
   // I. "none" statements for the rare lines
   for (const id of NONE_GROUP_IDS) {
     out.push(
-      single(`g_${id}`, `In 2025, did Eric or Eva have any of these: ${RC_GROUP_PROMPTS[id]}? (Answer No only if none of them applies. The app does not calculate these items, so a Yes passes them to the CPA.)`, [o("some", "Yes - at least one"), o("none", "No - none of these"), UNSURE]),
+      single(`g_${id}`, `In 2025, did Eric or Eva have any of these: ${RC_GROUP_PROMPTS[id]}? (Answer No only if none of them applies. The app does not calculate these items, so a Yes passes them to the CPA.)`, [o("some", "Yes - at least one"), o("none", "No - none of these"), UNSURE])
+    );
+    // Other income: right after the Yes / No, ask WHICH kinds, then the total, then the split by kind (see otherIncomeKinds / otherIncomeSplit)
+    if (id === "other_income") out.push(...otherIncomeKinds());
+    out.push(
       dollars(`ga_${id}`, `In 2025, about how much was the total for ${RC_GROUP_LABELS[id]}, in dollars (an estimate is fine and only the CPA sees it)?`, {
         showWhen: inn(`g_${id}`, "some"),
       })
     );
+    if (id === "other_income") out.push(...otherIncomeSplit());
   }
-  // J. What the "other income" was (shown only after Yes on the other-income group)
-  const OTHER = inn("g_other_income", "some");
-  const REFUND = inn("oik", "refund");
-  const ITEMIZED = inn("rfitem", "itemized_income");
-  out.push(
-    multi(
-      "oik",
-      "Which kinds of income was it (pick every kind that applies)?",
-      [
-        o("refund", "A state or local income tax refund (or a credit or offset of it)"),
-        o("unemployment", "Unemployment compensation"),
-        o("gambling", "Gambling winnings"),
-        o("canceled_debt", "Canceled debt"),
-        o("crypto", "Digital assets or cryptocurrency income"),
-        o("alimony", "Alimony received"),
-        o("other", "Something else"),
-        UNSURE,
-      ],
-      { showWhen: OTHER }
-    ),
-    dollars("rfamt", "If the refund is the only kind of income you picked, it is the amount you gave above. How much was the state or local income tax refund in total (Form 1099-G, box 2; include any part you applied to your {year} estimated tax)?", {
-      showWhen: REFUND,
-    }),
-    single(
-      "rfitem",
-      "On your {prevYear} federal return (Form 1040), did you take the standard deduction, or itemize deductions on Schedule A?",
-      [
-        o("standard", "Standard deduction (no Schedule A)"),
-        o("itemized_income", "Itemized, and I deducted state and local INCOME taxes"),
-        o("itemized_sales", "Itemized, but I deducted general SALES taxes instead of income taxes"),
-        UNSURE,
-      ],
-      {
-        help: "The IRS says none of a state or local income tax refund is taxable if, in the year you paid the tax, you did not itemize deductions or you deducted general sales taxes instead of state and local income taxes.",
-        sources: ["1040GI"],
-        showWhen: REFUND,
-      }
-    ),
-    dollars("rfdd", "From your {prevYear} Schedule A: the amount on line 5d (total state and local taxes, before the limit), in dollars?", { showWhen: ITEMIZED }),
-    dollars("rfee", "From your {prevYear} Schedule A: the amount on line 5e (the amount you could deduct after the limit), in dollars?", { showWhen: ITEMIZED }),
-    dollars("rfa17", "From your {prevYear} Schedule A: the amount on line 17 (total itemized deductions), in dollars?", { showWhen: ITEMIZED }),
-    whole("rfboxes", "On your {prevYear} Form 1040, how many boxes were checked on line 12d (you or your spouse born before January 2, 1960, or blind; enter 0 if none)?", 0, 4, { showWhen: ITEMIZED }),
-    single(
-      "rfexc",
-      "Did any of these apply: the refund was for a tax year other than {prevYear}; it was not an income tax refund; you owed alternative minimum tax in {prevYear}; you could not use all your {prevYear} credits; someone else could claim you as a dependent in {prevYear}; you paid your last {prevYear} state estimate in {year}; or your {prevYear} tax on Form 1040 line 16 was zero although line 15 was more than zero?",
-      YES_NO,
-      {
-        help: "The IRS says to use Pub. 525 (itemized deduction recoveries) instead of the refund worksheet in these cases, so the CPA would figure the taxable part.",
-        sources: ["1040GI"],
-        showWhen: ITEMIZED,
-      }
-    )
-  );
   return out;
 }
 
