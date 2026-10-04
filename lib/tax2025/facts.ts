@@ -323,7 +323,7 @@ export const returnAnswersSchema = z.object({
   priorYear: z.object({
     /** The 2024 federal return was a joint return. */
     filedJoint: sourcedSchema(z.boolean()),
-    /** The 2024 return had Additional Medicare Tax, NIIT or a refundable credit (they change the Form 2210 "2024 tax"). */
+    /** The 2024 return had a refundable credit or a Schedule 2 tax for unreported tips (lines 5-7, 13): they make the Form 2210 line 8 "2024 tax" differ from the extracted total tax. (Additional Medicare Tax and NIIT are INCLUDED in it.) */
     hadExcludedTaxOrRefundable: sourcedSchema(z.boolean()),
   }),
   useTax: z.object({
@@ -331,6 +331,8 @@ export const returnAnswersSchema = z.object({
     generalRatePurchasesCents: sourcedSchema(cents),
     otherRateItems: sourcedSchema(z.boolean()),
     taxPaidToOtherStateCents: sourcedSchema(cents),
+    /** Second purchase row: purchases on which NO tax was paid anywhere (each worksheet row is floored at 0 on its own). Optional for older callers. */
+    untaxedPurchasesCents: sourcedSchema(cents).optional(),
   }),
   /** Optional "about how much" amounts the owner gave for a "none" group answered "some" (shown to the CPA; never computed). */
   statedSomeAmounts: z.record(z.enum(NONE_GROUP_IDS as [NoneGroupId, ...NoneGroupId[]]), sourcedSchema(cents)),
@@ -372,7 +374,7 @@ export function emptyReturnAnswers(people: readonly { slot: PersonSlot; userId: 
     carLoan: { choice: m(), qualifies: m(), interestPaidCents: m(), deductedElsewhereCents: m() },
     attestations: { digitalAssets: m(), foreignAccounts: m() },
     priorYear: { filedJoint: m(), hadExcludedTaxOrRefundable: m() },
-    useTax: { choice: m(), generalRatePurchasesCents: m(), otherRateItems: m(), taxPaidToOtherStateCents: m() },
+    useTax: { choice: m(), generalRatePurchasesCents: m(), otherRateItems: m(), taxPaidToOtherStateCents: m(), untaxedPurchasesCents: m() },
     statedSomeAmounts: {},
   };
 }

@@ -76,7 +76,8 @@ describe("parseCompletenessAnswers", () => {
   it("matches the questions' people to household users by first name", () => {
     expect(matchPerson("Eric Kinniburgh", "eric")).toBe(true);
     expect(matchPerson("  eva-laura", "eva")).toBe(true);
-    expect(matchPerson("Evan", "eva")).toBe(true); // first-name prefix, documented: an open item is raised when a name cannot be matched
+    expect(matchPerson("Evan", "eva")).toBe(false); // exact first-name token (round 2, L5)
+    expect(matchPerson("Eva-Laura Ramirez-Wisiackas", "eva")).toBe(true);
     const parsed = parseCompletenessAnswers(answerAll(allNone), PEOPLE);
     expect(parsed.returnAnswers.people.map((p) => [p.slot, p.userId])).toEqual([
       ["a", "u-eric"],

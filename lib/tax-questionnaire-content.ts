@@ -1568,9 +1568,12 @@ function rcPersonNodes(): QNode[] {
       help: "Connecticut says use tax is due on goods or taxable services bought out of state for use in Connecticut when no Connecticut sales tax was paid, and that CT-1040 line 15 must show 0 if none is due.",
       sources: ["CT1040I"],
     }),
-    dollars("utbuy", "Total purchase price of those items at the general rate (whole dollars)", {
-      help: "Connecticut says the CT-1040 use tax worksheet applies the general rate of 6.35% to these purchases.",
+    dollars("utbuy", "Total purchase price of those items on which you paid sales or use tax to another state (whole dollars; 0 if none)", {
+      help: "Connecticut says the CT-1040 use tax worksheet applies the general rate of 6.35% to the purchase price and subtracts tax already paid on the purchase.",
       sources: ["CT1040I"],
+      showWhen: inn("ut", "some"),
+    }),
+    dollars("utbuy2", "Total purchase price of those items on which NO sales or use tax was paid anywhere (whole dollars; 0 if none)", {
       showWhen: inn("ut", "some"),
     }),
     single("utother", "Were any of them luxury items (most expensive vehicles, jewelry, clothing, footwear, handbags, luggage, umbrellas, wallets or watches above the prices in the CT-1040 instructions), computer or data processing services, or a vessel?", YES_NO, {
@@ -1578,7 +1581,7 @@ function rcPersonNodes(): QNode[] {
       sources: ["CT1040I"],
       showWhen: inn("ut", "some"),
     }),
-    dollars("uttax", "Sales or use tax already paid to another state on those purchases (whole dollars; 0 if none)", {
+    dollars("uttax", "Sales or use tax paid to another state on the items in the first amount above (whole dollars; 0 if none)", {
       help: "Connecticut says the CT-1040 use tax worksheet subtracts tax already paid on the purchase (column 6).",
       sources: ["CT1040I"],
       showWhen: inn("ut", "some"),
@@ -1590,8 +1593,8 @@ function rcPersonNodes(): QNode[] {
       help: "The IRS says the prior-year tax used for the estimated tax penalty safe harbor is the sum of both spouses' 2024 tax if you file jointly for 2025 but did not file jointly for 2024.",
       sources: ["2210"],
     }),
-    single("pyextra", "Did your 2024 federal return show Additional Medicare Tax (Form 8959), net investment income tax (Form 8960) or any refundable credit (earned income, additional child tax, American opportunity, premium tax credit)?", YES_NO, {
-      help: "The IRS says the 2024 tax used for the estimated tax penalty safe harbor does not include Additional Medicare Tax or net investment income tax, and is reduced by refundable credits.",
+    single("pyextra", "Did your 2024 federal return show any refundable credit (earned income, additional child tax, American opportunity, premium tax credit, fuel credit) or a Schedule 2 tax for unreported tips (lines 5 to 7 or 13)?", YES_NO, {
+      help: "The IRS says the 2024 tax used for the estimated tax penalty safe harbor includes Additional Medicare Tax and net investment income tax, leaves out some Schedule 2 lines (for example 5 to 7 and 13), and is reduced by refundable credits.",
       sources: ["2210"],
     })
   );
@@ -1622,7 +1625,7 @@ const RC_NODES: readonly QNode[] = rcPersonNodes();
 
 const FORM_RETURN_COMPLETENESS: QuestionnaireDef = {
   id: RETURN_COMPLETENESS_ID,
-  version: 1,
+  version: 2,
   title: "Return completeness",
   formLabel: "Form 1040 and Connecticut CT-1040",
   scope: "household",

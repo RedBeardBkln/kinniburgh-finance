@@ -15,6 +15,7 @@
 
 import { sumCtWithholding } from "@/lib/tax-extraction-schema";
 import { RC_PERSONS } from "@/lib/tax-questionnaire-content";
+import { matchPerson, uniquePersonMatch } from "@/lib/tax2025/answers";
 import {
   emptyReturnAnswers,
   type DividendFact,
@@ -208,7 +209,7 @@ export function addressesMatch(a: string, b: string): boolean {
 }
 
 /** W-2 box 12 codes that are employee deferrals or HSA contributions (used only for the conflict check). */
-const BOX12_DEFERRAL_CODES = new Set(["D", "E", "F", "G", "H", "S", "AA", "BB", "W"]);
+const BOX12_DEFERRAL_CODES = new Set(["D", "E", "F", "G", "H", "S", "AA", "BB", "EE", "W"]);
 
 /** Signature of a document for exact-duplicate detection; null for types this resolver does not de-duplicate. */
 function duplicateKey(doc: RawDocument): string | null {
@@ -879,7 +880,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
     emptyReturnAnswers(
       RC_PERSONS.map((P) => ({
         slot: P.slot,
-        userId: raw.people.find((u) => u.name.trim().toLowerCase().startsWith(P.key))?.userId ?? null,
+        userId: uniquePersonMatch(raw.people, P.key)?.userId ?? null,
         name: P.name,
       }))
     );
@@ -899,15 +900,15 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       action: "Re-open the Return completeness questionnaire and confirm every answer.",
     });
   }
-  const DEFERRAL_CODES = new Set(["D", "E", "F", "G", "H", "S", "AA", "BB"]);
+  const DEFERRAL_CODES = new Set(["D", "E", "F", "G", "H", "S", "AA", "BB", "EE"]);
   for (const pa of returnAnswers.people) {
     if (pa.userId === null) {
       if (raw.people.length > 0) {
         addItem({
           id: `rc-person-unmatched:${pa.slot}`,
-          severity: "advisory",
-          message: `The Return completeness questions about ${pa.name} could not be matched to a household member by name, so W-2 cross-checks and ${pa.name}'s compensation for the IRA limit are not available.`,
-          action: "Check the household member names (the questions match on the first name).",
+          severity: "blocking",
+          message: `The Return completeness questions about ${pa.name} ${raw.people.filter((u) => matchPerson(u.name, RC_PERSONS.find((P) => P.slot === pa.slot)?.key ?? "")).length > 1 ? "match more than one household member" : "match no household member"} by first name, so ${pa.name}'s W-2 cross-checks and compensation for the IRA limit are not available (never guessed).`,
+          action: "Make exactly one household member's first name match (Eric / Eva).",
         });
       }
       continue;
@@ -924,7 +925,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
         factKey: `returnAnswers.${pa.slot}.deferrals`,
         candidates: [
           owner(`${pa.name}: owner answer (elective deferrals)`, pa.deferralsCents.value, pa.deferralsCents.refs),
-          { basis: docBasisOfMine, label: `${pa.name}: W-2 box 12 deferral codes (D E F G H S AA BB)`, value: box12Deferrals, refs },
+          { basis: docBasisOfMine, label: `${pa.name}: W-2 box 12 deferral codes (D E F G H S AA BB EE)`, value: box12Deferrals, refs },
         ],
         chosen: `${pa.name}: owner answer (elective deferrals)`,
         reason: "The owner's elective deferrals differ from the W-2 box 12 deferral codes; the saver's credit uses the owner answer. Confirm which is right (a 457(b) or after-tax amount may not be on the W-2).",
