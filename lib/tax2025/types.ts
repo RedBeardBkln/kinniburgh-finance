@@ -12,6 +12,7 @@
 //     members here and a rule that emits them; Ty2025Return.lines is keyed by it.
 
 import type { Decimal } from "@prisma/client/runtime/library";
+import type { BrokerBox } from "@/lib/tax2025/facts";
 
 // ── Provenance ────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,8 @@ export interface RuleLine {
   status?: RuleStatus;
   /** Why this particular line is not computed / what it means. */
   reason?: string;
+  /** Provenance of this particular line; when absent the refs given to the assembler for the whole rule result are used. */
+  refs?: Ref[];
   /**
    * Informational line: its amount is deliberately NOT estimated (for example CT late-payment penalty and interest, whose
    * minimum / month-counting rules are unverified). It never blocks completeness; it appears as an advisory item.
@@ -417,6 +420,7 @@ export type FormId =
   | "f4562"
   | "f8829"
   | "schd"
+  | "f8949"
   | "ct1040";
 
 /** Whether a form belongs in the filing packet, derived from the computed return. */
@@ -436,6 +440,71 @@ export interface AttestationAnswer {
   refs: Ref[];
 }
 
+/** Schedule D line a Form 8949 category's totals land on (lines 1b, 2, 3, 8b, 9, 10) or is entered directly (1a, 8a). */
+export type ScheduleDLineId = "1a" | "1b" | "2" | "3" | "8a" | "8b" | "9" | "10";
+
+/** One broker summary row of a category: the Form 8949 "Exception 2" summary row for that broker. Exact integer cents. */
+export interface ScheduleDSummaryRow {
+  docIds: string[];
+  /** Broker name as read, null when not read. */
+  payer: string | null;
+  proceedsCents: number | null;
+  costCents: number | null;
+  /** Column (g): the wash sale loss disallowed, as a POSITIVE number (null = not read). */
+  washSaleCents: number | null;
+  /** Column (h) = proceeds - cost + column (g), exact cents; null when any input is null. */
+  gainCents: number | null;
+  /** The broker-printed gain, summed over this row's documents (null when any is not read); a cross-check only. */
+  brokerGainCents: number | null;
+}
+
+/** One Form 8949 category (information return + box), summed over the documents that report it. */
+export interface ScheduleDCategory {
+  form: "1099-B" | "1099-DA";
+  box: BrokerBox;
+  part: "I" | "II";
+  /** The Schedule D line this category's totals are entered on. */
+  line: ScheduleDLineId;
+  /** schedule_d_direct = lines 1a / 8a (no Form 8949); form_8949_summary = a Form 8949 summary row per broker (Exception 2) with an attached statement. */
+  routing: "schedule_d_direct" | "form_8949_summary";
+  proceedsCents: number | null;
+  costCents: number | null;
+  washSaleCents: number | null;
+  gainCents: number | null;
+  /** Form 8949 column (f) code(s) for a summary row in alphabetical order ("M", or "MW" with wash sales); "" when entered directly. */
+  codes: string;
+  /** Form 8949 column (a) text for a summary row: the broker name followed by "see attached statement" (columns (b) and (c) stay blank). */
+  description: string;
+  /** One row per broker (the instructions: totals from each broker on a separate row). */
+  rows: ScheduleDSummaryRow[];
+}
+
+/** Schedule D / Form 8949 detail for the PDF layer and the review sheet (the engine's own numbers are in the `schd.*` lines). */
+export interface ScheduleDDetail {
+  /** true = Schedule D is filed; false = Exception 1 (only capital gain distributions, 1040 line 7b box); "blocking" = cannot tell yet. */
+  required: boolean | "blocking";
+  /**
+   * Exception 1 applies: no Schedule D AND every Form 1099-DIV box 2b, 2c, 2d is confirmed zero (or there is no 1099-DIV). 1040 line 7a = Form
+   * 1099-DIV box 2a and the "Schedule D not required" box on line 7b may be checked ONLY when this is true.
+   */
+  exception1: boolean;
+  /** Schedule D is not required, but 1099-DIV boxes 2b-2d are not confirmed zero: do NOT check the line 7b box (Exception 1 needs them empty). */
+  boxes2b2dUnconfirmed: boolean;
+  /** Some category goes through Form 8949 (summary rows + attached statement). "blocking" = a category's routing cannot be decided yet. */
+  form8949Required: boolean | "blocking";
+  categories: ScheduleDCategory[];
+  /** Line 17 "Are lines 15 and 16 both gains?" (null = not known / not asked). */
+  line17: boolean | null;
+  /** Line 20 "Are lines 18 and 19 both zero or blank and you are not filing Form 4952?" (null = not asked / not known). Form 4952 is not modeled. */
+  line20: boolean | null;
+  /** Line 22 "Do you have qualified dividends on Form 1040 line 3a?" (null = not asked). */
+  line22: boolean | null;
+  /** The Schedule D Tax Worksheet (not implemented) would be needed: lines 15 and 16 gains and line 18 or 19 not known to be zero. */
+  taxWorksheetNeeded: boolean;
+  /** Capital loss carried to 2026, provisional (the 2026 Capital Loss Carryover Worksheet governs); null when there is none or it cannot be figured. */
+  carryoverOut: { shortCents: number; longCents: number; totalCents: number } | null;
+}
+
 export interface Ty2025Return {
   /** Bumped whenever a rule or the line catalog changes (stale-output detection). */
   engineVersion: string;
@@ -451,6 +520,8 @@ export interface Ty2025Return {
   citations: string[];
   /** Schedule C per-account breakdown (null when the books could not be read at all). */
   scheduleC: ScheduleCDetail | null;
+  /** Schedule D / Form 8949 detail (null when the whole return is blocked before Schedule D is assessed). */
+  scheduleD: ScheduleDDetail | null;
   /** Which forms the packet needs (C7). */
   formsRequired: Partial<Record<FormId, FormRequirement>>;
   /** Header yes / no questions answered by the owner (Phase 1b). */

@@ -17,6 +17,7 @@
 import type { Ty2025Facts } from "@/lib/tax2025/facts";
 import { centsToDollars, roundLine } from "@/lib/tax2025/money";
 import { ctPropertyTaxRows } from "@/lib/tax2025/pdf/ct-property-tax";
+import { F8949_BOX_CELL, F8949_TOTAL_COLUMNS } from "@/lib/tax2025/pdf/f8949-layout";
 import { fingerprintOf } from "@/lib/tax2025/pdf/format";
 import type {
   PdfAnswer,
@@ -338,6 +339,158 @@ function buildTables(ret: Ty2025Return, facts: Ty2025Facts): TableBuild {
   return { tables, items };
 }
 
+// ── Form 8949 rows (from the engine's Schedule D detail) ─────────────────────
+
+/** Column (f) code(s) and the text of column (a) of a summary row (IRS Exception 2). */
+export const BROKER_NOT_READ = "Broker not read";
+export const SEE_ATTACHED_STATEMENT = "see attached statement";
+
+function schdKey(line: string, column: "d" | "e" | "g" | "h"): LineKey | null {
+  const key = `schd.${line}.${column}`;
+  return (LINE_KEYS as readonly string[]).includes(key) ? (key as LineKey) : null;
+}
+
+/** Whole dollars of a Schedule D cell as the view carries it (effective, so CPA overrides print), or null when it has none. */
+function cellAmount(lines: Partial<Record<LineKey, PdfLine>>, line: string, column: "d" | "e" | "g" | "h"): number | null {
+  const key = schdKey(line, column);
+  const l = key === null ? undefined : lines[key];
+  if (l === undefined || !carriesAmount(l.status)) return null;
+  return l.amount;
+}
+
+interface F8949Build {
+  tables: Partial<Record<TableKey, PdfTableRow[]>>;
+  items: PdfOpenItem[];
+}
+
+/**
+ * Form 8949 summary rows, one per broker per box (the categories the engine routes through Form 8949; clean A / D
+ * categories go straight to Schedule D lines 1a / 8a and never appear here). Every row carries its box so
+ * maps/f8949.ts can split them into copies. The Totals rows are the engine's own Schedule D line totals (the
+ * numbers on lines 1b / 2 / 3 / 8b / 9 / 10). Rows come from cents with the engine's rounding; a column (g) of
+ * zero is blank (a blank is zero); nothing is invented: a null stays blank.
+ */
+function buildF8949(ret: Ty2025Return, lines: Partial<Record<LineKey, PdfLine>>): F8949Build {
+  const items: PdfOpenItem[] = [];
+  const detail = ret.scheduleD;
+  // No Form 8949 category: no tables at all (the view of a return without sales is unchanged).
+  if (!detail || !detail.categories.some((c) => c.routing === "form_8949_summary")) return { tables: {}, items };
+  const partI: PdfTableRow[] = [];
+  const partII: PdfTableRow[] = [];
+  const totalsI: PdfTableRow[] = [];
+  const totalsII: PdfTableRow[] = [];
+  const dollars = (cents: number | null): number | null => (cents === null ? null : centsToWholeDollars(cents));
+  const via8949 = detail.categories.filter((c) => c.routing === "form_8949_summary");
+  for (const cat of via8949) {
+    const rows = cat.part === "I" ? partI : partII;
+    const rowsOfBox: PdfTableRow[] = [];
+    for (const r of cat.rows) {
+      const wash = r.washSaleCents;
+      const row: PdfTableRow = {
+        cells: {
+          [F8949_BOX_CELL]: cat.box,
+          a: `${r.payer ?? BROKER_NOT_READ} - ${SEE_ATTACHED_STATEMENT}`,
+          b: null,
+          c: null,
+          d: dollars(r.proceedsCents),
+          e: dollars(r.costCents),
+          f: wash !== null && wash > 0 ? "MW" : "M",
+          g: wash !== null && wash > 0 ? centsToWholeDollars(wash) : null,
+          h: dollars(r.gainCents),
+        },
+      };
+      rows.push(row);
+      rowsOfBox.push(row);
+    }
+    // A Schedule D line normally has one Form 8949 category, so the sheet's Totals are the line's own (effective) cells.
+    // Boxes A + G, B + H, D + J, E + K and F + L share a line (1b, 2, 8b, 9, 10) but are separate sheets: each sheet's
+    // Totals are THAT category's own figures (from its cents, rounded once like the line cells); the combined line is
+    // only on Schedule D.
+    const sharers = via8949.filter((o) => o.line === cat.line);
+    const shared = sharers.length > 1;
+    const own: Readonly<Record<(typeof F8949_TOTAL_COLUMNS)[number], number | null>> = {
+      d: dollars(cat.proceedsCents),
+      e: dollars(cat.costCents),
+      g: cat.washSaleCents === null ? null : centsToWholeDollars(cat.washSaleCents),
+      h: dollars(cat.gainCents),
+    };
+    const totalCells: Record<string, string | number | null> = { [F8949_BOX_CELL]: cat.box };
+    for (const c of F8949_TOTAL_COLUMNS) {
+      const v = shared ? own[c] : cellAmount(lines, cat.line, c);
+      totalCells[c] = c === "g" && v === 0 ? null : v;
+    }
+    if (shared && cat === sharers[0]) {
+      items.push({
+        id: `adapter:f8949.shared-line:${cat.line}`,
+        severity: "advisory",
+        formLabel: "Form 8949",
+        lineKeys: [],
+        message: `Schedule D line ${cat.line} combines Form 8949 boxes ${sharers.map((s) => s.box).join(" and ")}, which are separate sheets: each sheet's Totals row shows that box's own figures and only Schedule D line ${cat.line} shows the combined total (rounded once from the cents).`,
+        action: "No action: add the sheet totals if you want to tie them to the Schedule D line (a $1 rounding difference is possible).",
+      });
+    }
+    (cat.part === "I" ? totalsI : totalsII).push({ cells: totalCells });
+    // The printed rows (each rounded) against the Schedule D line (rounded once from cents): rounding only.
+    for (const c of F8949_TOTAL_COLUMNS) {
+      const total = totalCells[c];
+      const cellsOfRows = rowsOfBox.map((r) => r.cells[c]);
+      if (typeof total !== "number" || !cellsOfRows.every((v) => v === null || typeof v === "number")) continue;
+      const sum = cellsOfRows.reduce<number>((acc, v) => acc + (typeof v === "number" ? v : 0), 0);
+      if (sum !== total) {
+        items.push({
+          id: `adapter:f8949.rounding:${cat.box}:${c}`,
+          severity: "advisory",
+          formLabel: "Form 8949",
+          lineKeys: [],
+          message: `Form 8949 box ${cat.box} column (${c}): the printed summary rows (each rounded to whole dollars) total $${sum} but ${shared ? `the box's Totals show $${total}` : `Schedule D line ${cat.line} shows $${total}`}: the engine rounds the sum once, as the IRS instructs. Difference is rounding only.`,
+          action: "Check the rows against the broker's 1099-B; the Schedule D line total is the engine's.",
+        });
+      }
+    }
+  }
+  return { tables: { "f8949.partI": partI, "f8949.partII": partII, "f8949.totalsI": totalsI, "f8949.totalsII": totalsII }, items };
+}
+
+const SCHEDULE_D_CELL_LINES = ["1a", "1b", "2", "3", "8a", "8b", "9", "10"] as const;
+
+/**
+ * One advisory item when a printed (h) is not (d) - (e) + (g) of the printed whole-dollar cells next to it (a Schedule D line
+ * or a Form 8949 row / Totals). The engine's (h) is figured from the cents and rounded once ("include cents when adding the
+ * amounts and round off only the total", Instructions for Schedule D) and is kept as it is; this only tells the CPA why.
+ */
+function columnHRoundingItem(lines: Partial<Record<LineKey, PdfLine>>, tables: Partial<Record<TableKey, PdfTableRow[]>>): PdfOpenItem | null {
+  const places: string[] = [];
+  const check = (where: string, d: unknown, e: unknown, g: unknown, h: unknown): void => {
+    if (typeof d !== "number" || typeof e !== "number" || typeof h !== "number") return;
+    const adj = typeof g === "number" ? g : 0;
+    if (d - e + adj !== h) places.push(`${where}: ${d} - ${e}${adj === 0 ? "" : ` + ${adj}`} = ${d - e + adj}, printed (h) ${h}`);
+  };
+  for (const line of SCHEDULE_D_CELL_LINES) {
+    check(`Schedule D line ${line}`, cellAmount(lines, line, "d"), cellAmount(lines, line, "e"), line === "1a" || line === "8a" ? 0 : cellAmount(lines, line, "g"), cellAmount(lines, line, "h"));
+  }
+  for (const key of ["f8949.partI", "f8949.partII"] as const) {
+    for (const r of tables[key] ?? []) {
+      const c = r.cells;
+      check(`Form 8949 row, box ${String(c[F8949_BOX_CELL])}`, c["d"], c["e"], c["g"], c["h"]);
+    }
+  }
+  for (const key of ["f8949.totalsI", "f8949.totalsII"] as const) {
+    for (const r of tables[key] ?? []) {
+      const c = r.cells;
+      check(`Form 8949 Totals, box ${String(c[F8949_BOX_CELL])}`, c["d"], c["e"], c["g"], c["h"]);
+    }
+  }
+  if (places.length === 0) return null;
+  return {
+    id: "adapter:schd.h-rounding",
+    severity: "advisory",
+    formLabel: "Schedule D",
+    lineKeys: [],
+    message: `A printed column (h) differs by $1 from (d) - (e) + (g) of the printed whole-dollar columns: ${places.join("; ")}. Each (h) is figured from the cents and rounded once (IRS: "include cents when adding the amounts and round off only the total"); the printed (h) is the engine's figure.`,
+    action: "No action: rounding only. The cent-accurate amounts are in each line's reason on the CPA review sheet.",
+  };
+}
+
 // ── Header ────────────────────────────────────────────────────────────────────
 
 interface HeaderBuild {
@@ -396,6 +549,10 @@ function buildHeader(facts: Ty2025Facts, ekcName: string | null): HeaderBuild {
  * Answers the maps read (checkboxes and text boxes). Only what the engine/facts already carry
  * is derived; everything else stays undefined (unchecked + an advisory "answer needed" item):
  *   filingStatus          the engine's (MFJ only)
+ *   schdNotRequired       Form 1040 line 7b box: ret.scheduleD.exception1 and not boxes2b2dUnconfirmed (boolean, set whenever the detail exists)
+ *   schdLine16Zero        true only when Schedule D is required and line 16 is exactly 0 (1040 line 7a then prints 0)
+ *   schd.l17 / l20 / l22  Schedule D lines 17 / 20 / 22 from ret.scheduleD ("yes" | "no"); 17 only when line 16 is a gain
+ *   schd.qof              Schedule D page 1 QOF box: "no" only when the owner stated none for capital_special_rates
  *   schC.officeSqft       facts home-office square footage, only for an exclusive-use office
  *   digitalAssets         ret.attestations.digitalAssets, "yes" / "no" only when status is "answered"
  *   foreignAccounts, foreignTrust, fincenRequired
@@ -439,6 +596,27 @@ function buildAnswers(ret: Ty2025Return, facts: Ty2025Facts, extra: Readonly<Rec
   if (t?.blind != null) answers["blindTaxpayer"] = t.blind;
   if (s?.age != null) answers["age65Spouse"] = s.age;
   if (s?.blind != null) answers["blindSpouse"] = s.blind;
+  // Schedule D / Form 1040 line 7b (the engine's Schedule D detail; nothing is set when the detail is absent).
+  const sd = ret.scheduleD;
+  if (sd) {
+    // The 7b box only when Exception 1 holds: no Schedule D AND 1099-DIV boxes 2b-2d confirmed zero (never when unconfirmed).
+    answers["schdNotRequired"] = sd.exception1 && !sd.boxes2b2dUnconfirmed;
+    // Form 1040 line 7a prints 0 (not blank) when Schedule D is filed and line 16 is exactly 0 ("enter -0-").
+    const l16z = ret.lines["schd.16"];
+    if (sd.required === true && l16z !== undefined && l16z.status === "computed" && l16z.amount === 0) answers["schdLine16Zero"] = true;
+    // Line 17 is asked only when line 16 is a gain (a loss or zero skips lines 17-20). Line 20 follows a Yes on 17.
+    const l16 = ret.lines["schd.16"];
+    const gain16 = l16 !== undefined && hasAmount(l16.status) && l16.amount !== null && l16.amount > 0;
+    if (gain16 && sd.line17 !== null) {
+      answers["schd.l17"] = sd.line17 ? "yes" : "no";
+      if (sd.line17 && sd.line20 !== null) answers["schd.l20"] = sd.line20 ? "yes" : "no";
+    }
+    if (sd.line22 !== null) answers["schd.l22"] = sd.line22 ? "yes" : "no";
+  }
+  // Schedule D page 1: "did you dispose of an investment in a qualified opportunity fund?" is part of the owner's
+  // "capital_special_rates" none-group statement (collectibles, QSB stock, depreciated real estate, QOF). Only a
+  // stated "none" answers it ("no"); a yes / not-sure / missing statement leaves both boxes unchecked.
+  if (facts.statedNone.capital_special_rates?.value === true) answers["schd.qof"] = "no";
   for (const [k, v] of Object.entries(extra ?? {})) answers[k] = v;
   answers["filingStatus"] = ret.filingStatus;
   return answers;
@@ -505,6 +683,11 @@ export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
   const formsRequired = formsRequiredOf(ret);
   const built = buildTables(ret, facts);
   openItems.push(...built.items);
+  const f8949 = buildF8949(ret, lines);
+  built.tables = { ...built.tables, ...f8949.tables };
+  openItems.push(...f8949.items);
+  const hRounding = columnHRoundingItem(lines, built.tables);
+  if (hRounding) openItems.push(hRounding);
 
   const answers = buildAnswers(ret, facts, opts.answers);
   const header = buildHeader(facts, opts.ekcName ?? null);

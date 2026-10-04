@@ -169,9 +169,12 @@ export interface NiitScreenInput {
   taxableInterest: Decimal | null;
   /** Ordinary dividends (1040 line 3b). */
   ordinaryDividends: Decimal | null;
-  /** Capital gain distributions (1040 line 7). */
+  /**
+   * Form 8960 line 5a: Form 1040 line 7a, SIGNED (capital gain distributions, net gain, or the capital loss limited to $3,000 by Schedule D
+   * line 21, which reduces net investment income). The name predates Schedule D; the amount is the whole of line 7a.
+   */
   capitalGainDistributions: Decimal | null;
-  /** True when the return has investment income this engine does not compute (1099-B, other boxes, K-1). */
+  /** True when the return has investment income this engine does not compute (Section 1256 / 1099-DA / unread 1099-B, other 1099 boxes, K-1). */
   otherInvestmentIncomePresent: boolean;
 }
 
@@ -200,7 +203,8 @@ export function computeNiitScreen(input: NiitScreenInput): RuleResult {
   const threshold = D(K.NIIT_THRESHOLD_MFJ.value);
   const magi = roundLine(input.magi);
   const excess = maxD(ZERO, magi.minus(threshold));
-  const nii = roundLine(input.taxableInterest.plus(input.ordinaryDividends).plus(input.capitalGainDistributions));
+  // Form 8960 line 12: "If zero or less, enter -0-" (a limited capital loss can pull it below zero)
+  const nii = maxD(ZERO, roundLine(input.taxableInterest.plus(input.ordinaryDividends).plus(input.capitalGainDistributions)));
 
   if (excess.isZero()) {
     const why = `No net investment income tax: MAGI ${fmt(magi)} is not over the ${fmt(threshold)} threshold.`;

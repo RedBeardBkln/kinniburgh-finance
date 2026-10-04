@@ -12,7 +12,7 @@ import {
   type EffectiveAnswers,
   type QNode,
 } from "@/lib/tax-questionnaire";
-import { SOURCE_IDS, QUESTIONNAIRES, RETURN_COMPLETENESS_ID, RC_PAYMENT_WINDOWS, questionnaireById } from "@/lib/tax-questionnaire-content";
+import { SOURCE_IDS, QUESTIONNAIRES, RETURN_COMPLETENESS_ID, RC_PAYMENT_WINDOWS, RC_NONE_GROUP_IDS, questionnaireById } from "@/lib/tax-questionnaire-content";
 import { RC_CONTEXT, parseCompletenessAnswers } from "@/lib/tax2025/answers";
 import { NONE_GROUP_IDS, NONE_GROUP_TEXT, LINE_CATALOG } from "@/lib/tax2025/line-catalog";
 import { computeTy2025Return } from "@/lib/tax2025/return";
@@ -270,8 +270,8 @@ describe("Return completeness questionnaire: tree integrity", () => {
   it("the all-none path is ~45 questions (the report says 45 of 107 nodes) and terminates", () => {
     const a = walk(noneOrNo);
     expect(Object.keys(a).length).toBeGreaterThanOrEqual(40);
-    expect(Object.keys(a).length).toBeLessThanOrEqual(50);
-    expect(def.nodes.length).toBe(129); // round 6 adds the six per-kind amount nodes; 123 (round 5: 8 other-income follow-ups); 109 + utbuy2 (round 2) + the four SE health / retirement nodes (round 3) + div2b (round 4)
+    expect(Object.keys(a).length).toBeLessThanOrEqual(55); // + cgco, cgall, cgadj and two capital-gain stated-none groups (schedule-d-capture)
+    expect(def.nodes.length).toBe(138); // 129 (round 6: other-income flow) + 9 capital-gain nodes (cgco/cgcos/cgcol/cgall/cgadj + 2 none groups g_ + ga_)
   });
   it("every showWhen references only EARLIER nodes (no dangling / forward reference) and the unsure option exists on every choice node", () => {
     const idx = new Map(def.nodes.map((n, i) => [n.id, i]));
@@ -304,8 +304,8 @@ describe("Return completeness questionnaire: tree integrity", () => {
       for (const o of n.options) expect(seen.has(`${n.id}:${o.id}`), `${n.id}:${o.id} unreachable`).toBe(true);
     }
   });
-  it("each of the 14 stated-none groups has exactly one g_ question and one ga_ amount node, and every NoneGroupId has line-catalog text", () => {
-    expect(NONE_GROUP_IDS).toHaveLength(14);
+  it("each of the 16 stated-none groups has exactly one g_ question and one ga_ amount node, and every NoneGroupId has line-catalog text", () => {
+    expect(NONE_GROUP_IDS).toHaveLength(16); // + capital_gain_other and capital_special_rates (Schedule D)
     const ids = new Set(def.nodes.map((n) => n.id));
     for (const g of NONE_GROUP_IDS) {
       expect(ids.has(`g_${g}`), g).toBe(true);
@@ -313,7 +313,14 @@ describe("Return completeness questionnaire: tree integrity", () => {
       expect(NONE_GROUP_TEXT[g].length, g).toBeGreaterThan(10);
       expect(LINE_CATALOG.some((m) => m.group === g), `${g} gates at least one catalog line`).toBe(true);
     }
-    expect(def.nodes.filter((n) => n.id.startsWith("g_"))).toHaveLength(14);
+    // the questionnaire also asks the two capital-gain groups (capital_gain_other, capital_special_rates), whether or not line-catalog lists them yet
+    expect(def.nodes.filter((n) => n.id.startsWith("g_"))).toHaveLength(RC_NONE_GROUP_IDS.length);
+    for (const g of NONE_GROUP_IDS) expect(RC_NONE_GROUP_IDS).toContain(g);
+    for (const g of ["capital_gain_other", "capital_special_rates"]) {
+      expect(RC_NONE_GROUP_IDS).toContain(g);
+      expect(ids.has(`g_${g}`), g).toBe(true);
+      expect(ids.has(`ga_${g}`), g).toBe(true);
+    }
   });
   it("no new file uses window.confirm", async () => {
     const { readFileSync, readdirSync, statSync } = await import("node:fs");
@@ -381,7 +388,7 @@ describe("answers.ts: answers -> facts", () => {
     expect(g[3]! in p.statedNone).toBe(false);
     expect(p.returnAnswers.statedSomeAmounts[g[1]!]?.value).toBe(50_000);
   });
-  it("all-none answers set statedNone for exactly the 14 groups and the engine finishes the rare lines as explicit not_applicable zeros", () => {
+  it("all-none answers set statedNone for exactly the 16 groups and the engine finishes the rare lines as explicit not_applicable zeros", () => {
     const answers: EffectiveAnswers = {};
     for (const gid of NONE_GROUP_IDS) answers[`g_${gid}`] = { value: "none", source: "questionnaire", at: null, by: null };
     const p = parseCompletenessAnswers(answers, people);
@@ -473,7 +480,8 @@ describe("all-none questionnaire path -> parse -> engine", () => {
     return computeTy2025Return(f);
   }
   it("with 'No' to everything except 'was the 2024 return joint' the golden numbers reproduce from the REAL parse (federal 27,015, CT tax 8,788), the headline is complete, and no 1b line is blocked", () => {
-    const r = engineFrom(allNone({ pyjoint: "yes" }));
+    // cgall (Is every sale listed on the Robinhood statement?) is a Yes/No whose "Yes" is the clean answer: a blanket "No" would say sales are missing
+    const r = engineFrom(allNone({ pyjoint: "yes", cgall: "yes" }));
     expect(r.headline.federal.totalTax.amount).toBe(27015);
     expect(r.headline.connecticut.tax.amount).toBe(8788);
     expect(r.headline.complete).toBe(true);
@@ -482,7 +490,7 @@ describe("all-none questionnaire path -> parse -> engine", () => {
     expect(r.openItems.filter((o) => o.severity === "blocking").map((o) => o.id)).toEqual(expect.not.arrayContaining(["return-completeness-not-started"]));
   });
   it("answering 'No' to 'was the 2024 return a joint return' (the naive all-No path) hands the Form 2210 estimate to the CPA instead of guessing (advisory only)", () => {
-    const r = engineFrom(allNone());
+    const r = engineFrom(allNone({ cgall: "yes" }));
     expect(amt(r, "f2210.19")).toBeNull();
     expect(r.openItems.find((o) => o.id === "rule:penalty-2210-estimate")?.severity).toBe("advisory");
     expect(r.headline.complete).toBe(true);

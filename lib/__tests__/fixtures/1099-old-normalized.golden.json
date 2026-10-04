@@ -1,0 +1,359 @@
+{
+  "single 1099-INT": {
+    "docType": "1099",
+    "summary": "1099-INT from a bank.",
+    "data": {
+      "taxYear": 2025,
+      "formVariant": "1099-INT",
+      "variantsPresent": [
+        "1099-INT"
+      ],
+      "payerName": "TD Bank",
+      "payerEIN": "22-1234567",
+      "amountCents": 112432,
+      "federalWithheldCents": 0,
+      "nec_box1Cents": null,
+      "nec_box4Cents": null,
+      "int_box1Cents": 112432,
+      "int_box2Cents": null,
+      "int_box3Cents": 0,
+      "int_box4Cents": null,
+      "int_box5Cents": null,
+      "int_box6Cents": null,
+      "int_box8Cents": null,
+      "int_box9Cents": null,
+      "div_box1aCents": null,
+      "div_box1bCents": null,
+      "div_box2aCents": null,
+      "div_box3Cents": null,
+      "div_box4Cents": null,
+      "div_box5Cents": null,
+      "div_box7Cents": null,
+      "div_box11Cents": null,
+      "misc_box1Cents": null,
+      "misc_box2Cents": null,
+      "misc_box3Cents": null,
+      "misc_box4Cents": null,
+      "otherBoxes": [],
+      "stateLines": []
+    },
+    "warnings": [],
+    "schemaVersion": 2
+  },
+  "consolidated, old read with 1099-B boxes in otherBoxes": {
+    "docType": "1099",
+    "summary": "Consolidated 1099.",
+    "data": {
+      "taxYear": 2025,
+      "formVariant": "consolidated",
+      "variantsPresent": [
+        "1099-INT",
+        "1099-DIV",
+        "1099-B"
+      ],
+      "payerName": "Robinhood Markets",
+      "payerEIN": "46-4136152",
+      "amountCents": 358,
+      "federalWithheldCents": 0,
+      "nec_box1Cents": null,
+      "nec_box4Cents": null,
+      "int_box1Cents": 120,
+      "int_box2Cents": null,
+      "int_box3Cents": null,
+      "int_box4Cents": null,
+      "int_box5Cents": null,
+      "int_box6Cents": null,
+      "int_box8Cents": null,
+      "int_box9Cents": null,
+      "div_box1aCents": 238,
+      "div_box1bCents": 200,
+      "div_box2aCents": 0,
+      "div_box3Cents": null,
+      "div_box4Cents": null,
+      "div_box5Cents": null,
+      "div_box7Cents": null,
+      "div_box11Cents": null,
+      "misc_box1Cents": null,
+      "misc_box2Cents": null,
+      "misc_box3Cents": null,
+      "misc_box4Cents": null,
+      "otherBoxes": [
+        {
+          "variant": "1099-B",
+          "box": "1d",
+          "label": "Proceeds",
+          "amountCents": 2287399
+        },
+        {
+          "variant": "1099-B",
+          "box": "1e",
+          "label": "Cost or other basis",
+          "amountCents": 1732278
+        }
+      ],
+      "stateLines": [
+        {
+          "stateCode": "CT",
+          "statePayerId": "123",
+          "stateIncomeCents": 100,
+          "stateWithheldCents": 5
+        }
+      ]
+    },
+    "warnings": [],
+    "schemaVersion": 2
+  },
+  "junk values, unknown keys, SSN-shaped text, caps": {
+    "docType": "1099",
+    "summary": "Summary withheld: it contained text that looked like a Social Security Number.",
+    "data": {
+      "taxYear": 2025,
+      "formVariant": null,
+      "variantsPresent": null,
+      "payerName": null,
+      "payerEIN": null,
+      "amountCents": null,
+      "federalWithheldCents": 500,
+      "nec_box1Cents": null,
+      "nec_box4Cents": null,
+      "int_box1Cents": null,
+      "int_box2Cents": null,
+      "int_box3Cents": null,
+      "int_box4Cents": null,
+      "int_box5Cents": null,
+      "int_box6Cents": null,
+      "int_box8Cents": null,
+      "int_box9Cents": null,
+      "div_box1aCents": null,
+      "div_box1bCents": null,
+      "div_box2aCents": null,
+      "div_box3Cents": null,
+      "div_box4Cents": null,
+      "div_box5Cents": null,
+      "div_box7Cents": null,
+      "div_box11Cents": null,
+      "misc_box1Cents": null,
+      "misc_box2Cents": null,
+      "misc_box3Cents": null,
+      "misc_box4Cents": null,
+      "otherBoxes": [
+        {
+          "variant": "1099-R",
+          "box": "0",
+          "label": "x",
+          "amountCents": 0
+        },
+        {
+          "variant": "1099-R",
+          "box": "1",
+          "label": "x",
+          "amountCents": 1
+        },
+        {
+          "variant": "1099-R",
+          "box": "2",
+          "label": "x",
+          "amountCents": 2
+        },
+        {
+          "variant": "1099-R",
+          "box": "3",
+          "label": "x",
+          "amountCents": 3
+        },
+        {
+          "variant": "1099-R",
+          "box": "4",
+          "label": "x",
+          "amountCents": 4
+        },
+        {
+          "variant": "1099-R",
+          "box": "5",
+          "label": "x",
+          "amountCents": 5
+        },
+        {
+          "variant": "1099-R",
+          "box": "6",
+          "label": "x",
+          "amountCents": 6
+        },
+        {
+          "variant": "1099-R",
+          "box": "7",
+          "label": "x",
+          "amountCents": 7
+        },
+        {
+          "variant": "1099-R",
+          "box": "8",
+          "label": "x",
+          "amountCents": 8
+        },
+        {
+          "variant": "1099-R",
+          "box": "9",
+          "label": "x",
+          "amountCents": 9
+        },
+        {
+          "variant": "1099-R",
+          "box": "10",
+          "label": "x",
+          "amountCents": 10
+        },
+        {
+          "variant": "1099-R",
+          "box": "11",
+          "label": "x",
+          "amountCents": 11
+        },
+        {
+          "variant": "1099-R",
+          "box": "12",
+          "label": "x",
+          "amountCents": 12
+        },
+        {
+          "variant": "1099-R",
+          "box": "13",
+          "label": "x",
+          "amountCents": 13
+        },
+        {
+          "variant": "1099-R",
+          "box": "14",
+          "label": "x",
+          "amountCents": 14
+        },
+        {
+          "variant": "1099-R",
+          "box": "15",
+          "label": "x",
+          "amountCents": 15
+        },
+        {
+          "variant": "1099-R",
+          "box": "16",
+          "label": "x",
+          "amountCents": 16
+        },
+        {
+          "variant": "1099-R",
+          "box": "17",
+          "label": "x",
+          "amountCents": 17
+        },
+        {
+          "variant": "1099-R",
+          "box": "18",
+          "label": "x",
+          "amountCents": 18
+        },
+        {
+          "variant": "1099-R",
+          "box": "19",
+          "label": "x",
+          "amountCents": 19
+        }
+      ],
+      "stateLines": [
+        {
+          "stateCode": "NY",
+          "statePayerId": null,
+          "stateIncomeCents": null,
+          "stateWithheldCents": null
+        }
+      ]
+    },
+    "warnings": [
+      "Form type: is not one of the allowed values - cleared",
+      "removed text that looked like an SSN",
+      "Payer EIN: must be formatted NN-NNNNNNN - cleared",
+      "Headline amount (primary form): must be a whole number of cents - cleared",
+      "NEC box 1 nonemployee compensation: cannot be negative - cleared",
+      "MISC box 3 other income: must be a whole number of cents - cleared",
+      "Other boxes (raw): kept the first 20 of 25 rows"
+    ],
+    "schemaVersion": 2
+  },
+  "empty data": {
+    "docType": "1099",
+    "summary": "",
+    "data": {
+      "taxYear": null,
+      "formVariant": null,
+      "variantsPresent": null,
+      "payerName": null,
+      "payerEIN": null,
+      "amountCents": null,
+      "federalWithheldCents": null,
+      "nec_box1Cents": null,
+      "nec_box4Cents": null,
+      "int_box1Cents": null,
+      "int_box2Cents": null,
+      "int_box3Cents": null,
+      "int_box4Cents": null,
+      "int_box5Cents": null,
+      "int_box6Cents": null,
+      "int_box8Cents": null,
+      "int_box9Cents": null,
+      "div_box1aCents": null,
+      "div_box1bCents": null,
+      "div_box2aCents": null,
+      "div_box3Cents": null,
+      "div_box4Cents": null,
+      "div_box5Cents": null,
+      "div_box7Cents": null,
+      "div_box11Cents": null,
+      "misc_box1Cents": null,
+      "misc_box2Cents": null,
+      "misc_box3Cents": null,
+      "misc_box4Cents": null,
+      "otherBoxes": null,
+      "stateLines": null
+    },
+    "warnings": [],
+    "schemaVersion": 2
+  },
+  "unparseable": {
+    "docType": "1099",
+    "summary": "",
+    "data": {
+      "taxYear": null,
+      "formVariant": null,
+      "variantsPresent": null,
+      "payerName": null,
+      "payerEIN": null,
+      "amountCents": null,
+      "federalWithheldCents": null,
+      "nec_box1Cents": null,
+      "nec_box4Cents": null,
+      "int_box1Cents": null,
+      "int_box2Cents": null,
+      "int_box3Cents": null,
+      "int_box4Cents": null,
+      "int_box5Cents": null,
+      "int_box6Cents": null,
+      "int_box8Cents": null,
+      "int_box9Cents": null,
+      "div_box1aCents": null,
+      "div_box1bCents": null,
+      "div_box2aCents": null,
+      "div_box3Cents": null,
+      "div_box4Cents": null,
+      "div_box5Cents": null,
+      "div_box7Cents": null,
+      "div_box11Cents": null,
+      "misc_box1Cents": null,
+      "misc_box2Cents": null,
+      "misc_box3Cents": null,
+      "misc_box4Cents": null,
+      "otherBoxes": null,
+      "stateLines": null
+    },
+    "warnings": [],
+    "schemaVersion": 2
+  }
+}

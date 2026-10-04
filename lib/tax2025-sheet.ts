@@ -299,6 +299,8 @@ const ID_TO_FORM: Readonly<Record<string, FormId>> = {
   "Schedule A": "scha",
   "Schedule B": "schb",
   "Schedule C": "schc",
+  "Schedule D": "schd",
+  "Form 8949": "f8949",
   "Schedule SE": "schse",
   "Form 8995": "f8995",
   "Form 8959": "f8959",

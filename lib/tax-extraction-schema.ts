@@ -314,8 +314,55 @@ const W2_SCHEMA: TaxSchema = {
 
 // ── 1099 ──────────────────────────────────────────────────────────────────────
 
-const VARIANTS = ["1099-NEC", "1099-INT", "1099-DIV", "1099-MISC", "1099-B", "1099-R", "1099-SSA", "other"] as const;
+const VARIANTS = ["1099-NEC", "1099-INT", "1099-DIV", "1099-MISC", "1099-B", "1099-DA", "1099-R", "1099-SSA", "other"] as const;
 const FORM_VARIANT_OPTIONS = [...VARIANTS, "consolidated"] as const;
+
+// ── 1099-B / 1099-DA sales summary (schedule-d-capture) ───────────────────────
+//
+// One row per (form, Form 8949 box) category printed in the document's "summary of proceeds, gains and
+// losses" table: the broker's own CATEGORY TOTALS, never transaction lines. Schedule D needs only these
+// totals (one row of Schedule D per Form 8949 box). Rows hold no text column, so no account number,
+// CUSIP, security name or taxpayer id can be stored in them.
+
+export const BSUMMARY_FORMS = ["1099-B", "1099-DA"] as const;
+export const BSUMMARY_BOXES = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"] as const;
+
+const BSUMMARY_FORM_LABELS: Readonly<Record<string, string>> = {
+  "1099-B": "Form 1099-B (stocks, funds, options)",
+  "1099-DA": "Form 1099-DA (digital assets such as crypto)",
+};
+
+/** Plain-language names of the Form 8949 boxes (2025 Form 8949: Part I short-term A B C G H I, Part II long-term D E F J K L). */
+export const BSUMMARY_BOX_LABELS: Readonly<Record<string, string>> = {
+  A: "Short-term, basis reported to the IRS (Form 8949 box A)",
+  B: "Short-term, basis NOT reported to the IRS (Form 8949 box B)",
+  C: "Short-term, no Form 1099-B received (Form 8949 box C)",
+  D: "Long-term, basis reported to the IRS (Form 8949 box D)",
+  E: "Long-term, basis NOT reported to the IRS (Form 8949 box E)",
+  F: "Long-term, no Form 1099-B received (Form 8949 box F)",
+  G: "Short-term digital assets, basis reported to the IRS (Form 8949 box G)",
+  H: "Short-term digital assets, basis NOT reported to the IRS (Form 8949 box H)",
+  I: "Short-term digital assets, no Form 1099-DA received (Form 8949 box I)",
+  J: "Long-term digital assets, basis reported to the IRS (Form 8949 box J)",
+  K: "Long-term digital assets, basis NOT reported to the IRS (Form 8949 box K)",
+  L: "Long-term digital assets, no Form 1099-DA received (Form 8949 box L)",
+};
+
+/** Boxes that belong to each form: 1099-B rows use A-F, 1099-DA rows use G-L. */
+export const BSUMMARY_BOXES_BY_FORM: Readonly<Record<(typeof BSUMMARY_FORMS)[number], readonly string[]>> = {
+  "1099-B": ["A", "B", "C", "D", "E", "F"],
+  "1099-DA": ["G", "H", "I", "J", "K", "L"],
+};
+
+const BSUMMARY_ITEM_FIELDS: readonly ScalarFieldSpec[] = [
+  { key: "form", kind: "enum", label: "Form", options: BSUMMARY_FORMS, optionLabels: BSUMMARY_FORM_LABELS },
+  { key: "box", kind: "enum", label: "Category (Form 8949 box)", options: BSUMMARY_BOXES, optionLabels: BSUMMARY_BOX_LABELS },
+  MONEY_ITEM("proceedsCents", "Proceeds"),
+  MONEY_ITEM("costCents", "Cost or other basis"),
+  MONEY_ITEM("accruedMarketDiscountCents", "Accrued market discount"),
+  MONEY_ITEM("washSaleLossDisallowedCents", "Wash sale loss disallowed"),
+  MONEY_ITEM("gainLossCents", "Gain or (loss) printed by the broker", true),
+];
 
 const F1099_SCHEMA: TaxSchema = {
   docType: "1099",
@@ -327,7 +374,8 @@ const F1099_SCHEMA: TaxSchema = {
     { id: "int", label: "1099-INT (interest)" },
     { id: "div", label: "1099-DIV (dividends)" },
     { id: "misc", label: "1099-MISC (miscellaneous)" },
-    { id: "other", label: "Other forms (1099-B, 1099-R, 1099-SSA, ...) and state" },
+    { id: "b", label: "1099-B / 1099-DA sales summary (totals by Form 8949 category)" },
+    { id: "other", label: "Other forms (1099-R, 1099-SSA, ...) and state" },
   ],
   fields: [
     TAX_YEAR("common"),
@@ -337,7 +385,7 @@ const F1099_SCHEMA: TaxSchema = {
     }),
     field("enumList", "variantsPresent", "Forms present", "1099 form types", "common", {
       options: VARIANTS,
-      maxItems: 8,
+      maxItems: 10,
       hint: "Every 1099 form type found in the document.",
     }),
     field("text", "payerName", "Payer name", "1099 payer", "common"),
@@ -374,7 +422,27 @@ const F1099_SCHEMA: TaxSchema = {
     money("misc_box2Cents", "MISC box 2 royalties", "1099-MISC box 2", "misc"),
     money("misc_box3Cents", "MISC box 3 other income", "1099-MISC box 3", "misc"),
     money("misc_box4Cents", "MISC box 4 federal tax withheld", "1099-MISC box 4", "misc"),
-    field("list", "otherBoxes", "Other boxes (raw)", "1099-B / 1099-R / 1099-SSA / other", "other", {
+    field("list", "bSummary", "Sales summary rows", "1099-B / 1099-DA summary of proceeds, gains and losses", "b", {
+      signal: true,
+      maxItems: 12,
+      itemFields: BSUMMARY_ITEM_FIELDS,
+      hint: "One row per Form 8949 category printed in the document's sales summary table (for example short-term with basis reported = box A, long-term with basis reported = box D). Copy the printed totals; never add up transactions. Use an empty list when the document has no 1099-B or 1099-DA sales; null only when you cannot read it.",
+    }),
+    money("sec1256AggregateCents", "Section 1256 contracts: aggregate profit or (loss)", "1099-B box 11 (Section 1256 contracts section)", "b", {
+      signal: false,
+      signed: true,
+      hint: "Only from a printed Section 1256 contracts section (regulated futures and options taxed at year end). A printed 0.00 is 0. Null when no such section is printed.",
+    }),
+    money("bSummaryTotalProceedsCents", "Summary table: printed total of all categories - proceeds", "1099-B summary total line", "b", {
+      signal: false,
+      hint: "ONLY when the summary table itself prints a combined total line across ALL categories; copy that printed total. Null otherwise. Never add the rows yourself.",
+    }),
+    money("bSummaryTotalGainCents", "Summary table: printed total of all categories - gain or (loss)", "1099-B summary total line", "b", {
+      signal: false,
+      signed: true,
+      hint: "ONLY when the summary table itself prints a combined total gain or (loss) across ALL categories; copy that printed total (negative for a loss). Null otherwise. Never add the rows yourself.",
+    }),
+    field("list", "otherBoxes", "Other boxes (raw)", "1099-R / 1099-SSA / other", "other", {
       maxItems: 20,
       itemFields: [
         TEXT_ITEM("variant", "Form"),
@@ -382,7 +450,7 @@ const F1099_SCHEMA: TaxSchema = {
         TEXT_ITEM("label", "Description"),
         MONEY_ITEM("amountCents", "Amount", true),
       ],
-      hint: "Boxes from 1099-B, 1099-R, 1099-SSA or any other form. Captured only; never summed by the app.",
+      hint: "Boxes from 1099-R, 1099-SSA or any other form EXCEPT 1099-B and 1099-DA sales (those go in bSummary). Captured only; never summed by the app.",
     }),
     field("list", "stateLines", "State lines", "1099 state boxes", "other", {
       maxItems: 4,
@@ -811,7 +879,12 @@ export function isUsableTaxExtraction(docType: string, extractionData: unknown):
   if (!isRecord(extractionData)) return false;
   const data = extractionData.data;
   if (!isRecord(data)) return false;
-  return keys.some((key) => data[key] !== null && data[key] !== undefined);
+  return keys.some((key) => {
+    const value = data[key];
+    if (value === null || value === undefined) return false;
+    // A list counts as a signal only when it has at least one row (an empty list is "nothing read").
+    return Array.isArray(value) ? value.length > 0 : true;
+  });
 }
 
 // ── SSN / ITIN scrubbing ──────────────────────────────────────────────────────
@@ -1151,6 +1224,92 @@ export interface WarningContext {
   documentTaxYear?: number | null;
 }
 
+const fmtCents = (cents: number): string => formatCentsDisplay(cents);
+
+/**
+ * Non-blocking warnings for the 1099 sales summary rows (`bSummary`). All arithmetic is on integer cents.
+ * The broker's printed net gain is a cross-check ONLY: it must equal proceeds - cost (or proceeds - cost +
+ * wash sale loss disallowed, which the broker adds back) within one cent, otherwise a column was misread.
+ */
+export function salesSummaryWarnings(data: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const int = (v: unknown): number | null => (typeof v === "number" && Number.isSafeInteger(v) ? v : null);
+  const variants = Array.isArray(data.variantsPresent) ? data.variantsPresent : [];
+  const rowsRaw = data.bSummary;
+  const rows = Array.isArray(rowsRaw) ? rowsRaw.filter(isRecord) : null;
+
+  if (rows !== null && rows.length === 0 && variants.includes("1099-B")) {
+    out.push("Forms present lists a 1099-B but the sales summary has no rows - add the categories printed in the document's summary of proceeds.");
+  }
+  if (rows !== null && rows.some((r) => r.form === "1099-B") && !variants.includes("1099-B")) {
+    out.push("There are 1099-B sales summary rows but 1099-B is not marked in Forms present.");
+  }
+  if (rows !== null && rows.some((r) => r.form === "1099-DA") && !variants.includes("1099-DA")) {
+    out.push("There are 1099-DA sales summary rows but 1099-DA is not marked in Forms present.");
+  }
+  if (rows === null) return out;
+
+  const seen = new Set<string>();
+  let sumProceeds = 0;
+  let sumGain = 0;
+  let allProceeds = true;
+  let allGain = true;
+  rows.forEach((row, index) => {
+    const form = typeof row.form === "string" ? row.form : null;
+    const box = typeof row.box === "string" ? row.box : null;
+    const name = form && box ? `${form} box ${box}` : `Sales summary row ${index + 1}`;
+    if (form === null || box === null) {
+      out.push(`${name} has no form or box letter, so it cannot be placed on Form 8949.`);
+    } else {
+      const allowed = BSUMMARY_BOXES_BY_FORM[form as (typeof BSUMMARY_FORMS)[number]];
+      if (allowed && !allowed.includes(box)) {
+        out.push(`${name}: a ${form} category uses box ${allowed[0]}-${allowed[allowed.length - 1]}, not box ${box}.`);
+      }
+      const key = `${form}|${box}`;
+      if (seen.has(key)) out.push(`Two rows are for ${name}: each category should appear once.`);
+      seen.add(key);
+    }
+    const proceeds = int(row.proceedsCents);
+    const cost = int(row.costCents);
+    const wash = int(row.washSaleLossDisallowedCents);
+    const gain = int(row.gainLossCents);
+    const discount = int(row.accruedMarketDiscountCents);
+    if (discount !== null && discount !== 0) {
+      out.push(`${name}: accrued market discount of ${fmtCents(discount)} is shown; the app does not compute it, so the CPA decides.`);
+    }
+    if (proceeds !== null && cost !== null && gain !== null) {
+      const plain = proceeds - cost;
+      const withWash = plain + (wash ?? 0);
+      if (Math.abs(gain - plain) > 1 && Math.abs(gain - withWash) > 1) {
+        out.push(
+          `${name}: the printed gain ${fmtCents(gain)} does not equal proceeds minus cost (${fmtCents(plain)})` +
+            `${wash !== null && wash !== 0 ? ` or proceeds minus cost plus the wash sale loss (${fmtCents(withWash)})` : ""} - a column may have been misread.`
+        );
+      }
+    }
+    if (proceeds === null) allProceeds = false;
+    else sumProceeds += proceeds;
+    if (gain === null) allGain = false;
+    else sumGain += gain;
+  });
+  if (rows.some((r) => r.form === "1099-DA")) {
+    out.push("Digital asset (1099-DA) rows are shown: the app does not compute these; the CPA decides how they are reported.");
+  }
+  const sec1256 = int(data.sec1256AggregateCents);
+  if (sec1256 !== null && sec1256 !== 0) {
+    out.push(`Section 1256 contracts show ${fmtCents(sec1256)}; the app does not compute them (Form 6781), so the CPA decides.`);
+  }
+  const totalProceeds = int(data.bSummaryTotalProceedsCents);
+  if (totalProceeds !== null && allProceeds && Math.abs(sumProceeds - totalProceeds) > 1) {
+    out.push(`The rows' proceeds add up to ${fmtCents(sumProceeds)} but the summary prints a total of ${fmtCents(totalProceeds)} - a category may be missing.`);
+  }
+  const totalGain = int(data.bSummaryTotalGainCents);
+  if (totalGain !== null && allGain && Math.abs(sumGain - totalGain) > 1) {
+    out.push(`The rows' gains add up to ${fmtCents(sumGain)} but the summary prints a total of ${fmtCents(totalGain)} - a category may be missing.`);
+  }
+  return out;
+}
+
 /**
  * Plausibility warnings for the review screen. NEVER blocks a save: the owner
  * may know better than the heuristic. Operates on effective (corrected) data.
@@ -1196,6 +1355,7 @@ export function crossFieldWarnings(
     if (a !== null && b !== null && b > a) {
       out.push("DIV box 1b (qualified dividends) is larger than box 1a (total ordinary dividends).");
     }
+    out.push(...salesSummaryWarnings(data));
   }
 
   if (schemaType === "w2") {
@@ -1371,7 +1531,12 @@ const TYPE_RULES: Partial<Record<TaxSchemaDocType, string[]>> = {
   "1099": [
     "- A consolidated 1099 contains several forms. Fill the boxes of EACH form present using the nec_, int_, div_ and misc_ prefixed fields, list every form found in variantsPresent, and set formVariant to consolidated when more than one form is present.",
     "- amountCents is the primary form's headline amount; federalWithheldCents is the SUM of every box 4 amount across all forms.",
-    "- 1099-B, 1099-R, 1099-SSA and any other form: put their boxes in otherBoxes only, never in the prefixed fields.",
+    "- 1099-R, 1099-SSA and any other form EXCEPT 1099-B and 1099-DA: put their boxes in otherBoxes only, never in the prefixed fields.",
+    "- bSummary: read ONLY the printed summary of proceeds, gains and losses (the table of totals by Form 8949 category, for example 'Short-term, basis reported to the IRS, Form 8949 box A'). Return one row per category that has activity, copying the printed totals exactly. Never add, subtract, estimate or infer a number; never sum transaction rows; never invent a category that is not printed in the summary; leave out a category printed with all zeros.",
+    "- bSummary box: use the Form 8949 box letter the summary (or the heading of that category's detail pages, for example 'Report on Form 8949, Part I with Box A checked') prints. Short-term or long-term alone, or covered or noncovered alone, is not enough: leave box null rather than guess. A 1099-B row uses box A-F; a 1099-DA (digital assets, crypto) row uses form 1099-DA with box G-L and must never be put in a 1099-B row.",
+    "- bSummary columns: proceedsCents = total proceeds; costCents = total cost or other basis (null when the category prints no cost); accruedMarketDiscountCents = total accrued market discount (a printed 0.00 is 0, an absent column is null); washSaleLossDisallowedCents = total wash sale loss disallowed (a printed 0.00 is 0, an absent column is null); gainLossCents = the net gain or (loss) the broker prints for the category (negative for a loss).",
+    "- bSummary is an empty list when the document has no 1099-B or 1099-DA sales summary at all (for example a 1099-INT only); it is null only when you cannot read the page. A Section 1256 contracts section (regulated futures and options) is NOT a bSummary row: put its aggregate profit or (loss) only in sec1256AggregateCents, and leave that null when no such section is printed.",
+    "- Never output an account number, CUSIP, security name, share quantity or transaction date in any field, and never copy a total from a different table.",
   ],
   form_1098: [
     "- This is the annual Form 1098 (not a monthly statement). interestCents is box 1; principalBalanceCents is box 2 (outstanding principal).",

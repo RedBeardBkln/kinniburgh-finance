@@ -4,7 +4,10 @@
 // one contributing value is null. Nothing is ever defaulted to 0 here.
 
 import type { Decimal } from "@prisma/client/runtime/library";
+import { MISSING, ans, mapAns } from "@/lib/tax2025/answer-state";
 import type { PersonSsWithholding } from "@/lib/tax2025/rules/payments";
+import type { AnsRef, ScheduleDInput } from "@/lib/tax2025/rules/schedule-d";
+import type { Ref, Sourced } from "@/lib/tax2025/types";
 import type { DonationInput, MortgageInput, PropertyBillInput } from "@/lib/tax2025/rules/schedule-a";
 import { ZERO, centsToDollars } from "@/lib/tax2025/money";
 import type { EstimatedPayment, Ty2025Facts } from "@/lib/tax2025/facts";
@@ -89,7 +92,7 @@ export interface InvestmentAggregates {
   privateActivityBondInterest: Decimal | null;
   /** 1099-INT box 6 + 1099-DIV box 7 (foreign tax paid); null when interest or dividends are not fully known. */
   foreignTaxPaid: Decimal | null;
-  /** 1099-B / other boxes this engine does not compute are present. */
+  /** A 1099-B appears among the old "other boxes" (the pre-Schedule D signal). Schedule D uses `facts.income.capitalGains` when present; this is only its fallback. */
   hasCapitalTransactionBoxes: boolean;
   hasRetirementOrSsBoxes: boolean;
   hasOtherIncomeBoxes: boolean;
@@ -121,6 +124,87 @@ export function aggregateInvestments(facts: Ty2025Facts): InvestmentAggregates {
     hasCapitalTransactionBoxes: otherIncomeBoxes.some((b) => b.variant === "1099-B"),
     hasRetirementOrSsBoxes: otherIncomeBoxes.some((b) => b.variant === "1099-R" || b.variant === "1099-SSA"),
     hasOtherIncomeBoxes: otherIncomeBoxes.some((b) => b.variant !== "1099-B" && b.variant !== "1099-R" && b.variant !== "1099-SSA"),
+  };
+}
+
+/** Section 1256 contracts present: a 1099 prints a Section 1256 aggregate that is not zero (a printed 0.00 is "no 1256 activity"). Never computed (Form 6781). */
+export function section1256Present(facts: Ty2025Facts): boolean {
+  return facts.income.brokerSales.some((b) => b.sec1256AggregateCents !== null && b.sec1256AggregateCents !== 0);
+}
+
+/**
+ * The Schedule D rule's input, from the facts: `income.brokerSales` (the 1099 sales summaries), `returnAnswers.capitalGains` (carryover,
+ * every sale listed, broker adjustments), the two capital none-groups in `statedNone` and the 1099-DIV box 2a total.
+ *
+ * Unread documents: a 1099 with a 1099-B (or 1099-DA) signal whose summary was not read. A 1099-B that exists only in the old
+ * `otherIncomeBoxes` (no `brokerSales` entry at all: facts built before the capture side) counts as unread too, flagged `unreadIsLegacy`,
+ * which keeps the old "a 1099-B needs the CPA" status when nothing else is unread.
+ */
+export function scheduleDInput(facts: Ty2025Facts, inv: InvestmentAggregates, fill: boolean): ScheduleDInput {
+  const sales = facts.income.brokerSales;
+  const cap = facts.returnAnswers.capitalGains;
+  const dollars = (leaf: Sourced<number>): AnsRef<Decimal> => ({ a: mapAns(ans(leaf), centsToDollars), refs: leaf.refs });
+  const flag = (leaf: Sourced<boolean>): AnsRef<boolean> => ({ a: ans(leaf), refs: leaf.refs });
+  const noneGroup = (g: "capital_gain_other" | "capital_special_rates"): AnsRef<boolean> => {
+    const leaf = facts.statedNone[g];
+    return leaf === undefined ? { a: MISSING, refs: [] } : flag(leaf);
+  };
+  const toDollars = (v: number | null) => (v === null ? null : centsToDollars(v));
+  const dividendRefs = facts.income.dividends.flatMap((d) => d.refs);
+  const docRef = (docId: string): Ref => ({ kind: "document", id: docId, label: "1099" });
+
+  const rows: ScheduleDInput["rows"] = [];
+  const unread: ScheduleDInput["unreadDocuments"] = [];
+  let aggregate1256: Decimal | null = null;
+  for (const doc of sales) {
+    // a document whose summary was not read, but which signals 1099-B or 1099-DA sales
+    if (!doc.summaryRead && (doc.signalled1099B || doc.forms1099DaPresent)) unread.push({ docId: doc.docId, payer: doc.payer, refs: doc.refs });
+    if (doc.sec1256AggregateCents !== null) aggregate1256 = (aggregate1256 ?? ZERO).plus(centsToDollars(doc.sec1256AggregateCents));
+    if (!doc.summaryRead) continue;
+    for (const r of doc.rows) {
+      rows.push({
+        docId: doc.docId,
+        payer: doc.payer,
+        refs: doc.refs,
+        form: r.form,
+        box: r.box,
+        proceeds: toDollars(r.proceedsCents),
+        cost: toDollars(r.costCents),
+        accruedMarketDiscount: toDollars(r.accruedMarketDiscountCents),
+        washSale: toDollars(r.washSaleLossDisallowedCents),
+        brokerGain: toDollars(r.gainLossCents),
+      });
+    }
+  }
+  const known = new Set(sales.map((d) => d.docId));
+  const legacyUnread: ScheduleDInput["unreadDocuments"] = [];
+  for (const b of facts.income.otherIncomeBoxes) {
+    if (b.variant !== "1099-B" || known.has(b.docId) || legacyUnread.some((u) => u.docId === b.docId)) continue;
+    legacyUnread.push({ docId: b.docId, payer: b.payer, refs: [docRef(b.docId)] });
+  }
+  return {
+    fill,
+    rows,
+    unreadDocuments: [...unread, ...legacyUnread],
+    unreadIsLegacy: unread.length === 0 && legacyUnread.length > 0,
+    section1256: {
+      present: section1256Present(facts),
+      aggregate: aggregate1256,
+      refs: sales.filter((d) => d.sec1256AggregateCents !== null).flatMap((d) => d.refs),
+    },
+    dividendBoxes2b2dZero: facts.income.dividends.length === 0 || facts.income.dividendBoxes2b2dConfirmedZero === true,
+    digitalAssetsPresent: sales.some((d) => d.forms1099DaPresent) || rows.some((r) => r.form === "1099-DA"),
+    capGainDistributions: inv.capitalGainDistributions,
+    capGainDistributionRefs: dividendRefs,
+    carryoverShort: dollars(cap.carryoverShortCents),
+    carryoverLong: dollars(cap.carryoverLongCents),
+    salesComplete: flag(cap.salesComplete),
+    // the answer is "is there something the broker could not know" (Yes = true); the rule wants "confirmed none" (true = none)
+    noBrokerAdjustments: { a: mapAns(ans(cap.brokerAdjustments), (v) => !v), refs: cap.brokerAdjustments.refs },
+    otherLinesNone: noneGroup("capital_gain_other"),
+    specialRatesNone: noneGroup("capital_special_rates"),
+    digitalAssets: ans(facts.returnAnswers.attestations.digitalAssets),
+    qualifiedDividends: inv.qualifiedDividends,
   };
 }
 

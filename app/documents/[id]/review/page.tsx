@@ -12,6 +12,8 @@ import { listEntityAccounts, listBankStatements } from "@/actions/bank-statement
 import { getEntityBySlug } from "@/lib/entity";
 import { DocumentReviewClient } from "@/components/documents/document-review-client";
 import { TaxReviewClient } from "@/components/documents/tax-review-client";
+import { RereadSalesSummaryPanel } from "@/components/documents/reread-sales-summary-panel";
+import { offersSummaryReread, readBrokerSummary } from "@/lib/tax-broker-summary";
 import { ExtractionRunner } from "@/components/documents/extraction-runner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ReceiptToDonation } from "@/components/donations/receipt-to-donation";
@@ -339,6 +341,16 @@ export default async function DocumentReviewPage({ params, searchParams }: PageP
         )}
 
         {runner}
+
+        {/* Not keyed with the review form: its before / after table must survive the refresh that follows a re-read. */}
+        {showReview && extraction && taxSchemaType === "1099" && (
+          <RereadSalesSummaryPanel
+            documentId={id}
+            offer={offersSummaryReread(extraction.data)}
+            salesKnown={readBrokerSummary(extraction.data).signalled1099B}
+            verified={doc.extractionConfirmedAt !== null}
+          />
+        )}
 
         {showReview && extraction && taxSchemaType && taxReview && (
           <TaxReviewClient

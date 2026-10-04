@@ -40,6 +40,10 @@ export const NONE_GROUP_TEXT = {
   se_other:
     "No farm income, church employee income, unreported tips (Form 4137), Form 8919 wages, railroad (RRTA) compensation or optional SE methods.",
   qbi_carryforwards: "No prior-year qualified business loss or REIT / PTP loss carryforwards (Form 8995).",
+  capital_gain_other:
+    "No installment sale (Form 6252), casualty or theft loss (Form 4684), Section 1256 contract (Form 6781), like-kind exchange (Form 8824), Form 2439 undistributed capital gain, or capital gain or loss on a Schedule K-1 (partnership, S corporation, estate or trust): Schedule D lines 4, 5, 11 and 12.",
+  capital_special_rates:
+    "No sale of collectibles (including gold or silver trust shares), qualified small business (QSB) stock, depreciated real estate or a partnership interest, and no qualified opportunity fund (QOF) investment: Schedule D lines 18 and 19 and the page 1 QOF box.",
 } as const;
 
 export type NoneGroupId = keyof typeof NONE_GROUP_TEXT;
@@ -426,12 +430,69 @@ const F8959 = [
   ["24", "Total Additional Medicare Tax withholding"],
 ] as const satisfies readonly Row[];
 
+// ── Schedule D (2025) ─────────────────────────────────────────────────────────
+//
+// Keys for the cells of the eight transaction lines are `<line>.<column>`: d = proceeds, e = cost or other basis, g = adjustments
+// (Form 8949 column (g) total), h = gain or (loss). Lines 1a and 8a have no (g) key: the form's own text sends adjustments to Form 8949, so
+// the direct-entry rows never carry one. The printed `formLine` is the line number alone (the column is in the label).
+// Lines 6, 14 and 21 are stored as the MAGNITUDE the form prints between its pre-printed parentheses (the engine math uses negatives);
+// lines 7, 15 and 16 and every cell are signed. Lines 17, 20 and 22 are yes / no boxes, not money lines (see ScheduleDDetail).
+// Source: the 2025 Schedule D (Form 1040), Created 10/6/25.
+
+const SCHD = [
+  ["1a.d", "Short-term, basis reported to the IRS and no adjustments: proceeds (column d)"],
+  ["1a.e", "Short-term, basis reported to the IRS and no adjustments: cost or other basis (column e)"],
+  ["1a.h", "Short-term, basis reported to the IRS and no adjustments: gain or (loss) (column h)"],
+  ["1b.d", "Short-term, Form 8949 box A or G: proceeds (column d)"],
+  ["1b.e", "Short-term, Form 8949 box A or G: cost or other basis (column e)"],
+  ["1b.g", "Short-term, Form 8949 box A or G: adjustments (column g)"],
+  ["1b.h", "Short-term, Form 8949 box A or G: gain or (loss) (column h)"],
+  ["2.d", "Short-term, Form 8949 box B or H: proceeds (column d)"],
+  ["2.e", "Short-term, Form 8949 box B or H: cost or other basis (column e)"],
+  ["2.g", "Short-term, Form 8949 box B or H: adjustments (column g)"],
+  ["2.h", "Short-term, Form 8949 box B or H: gain or (loss) (column h)"],
+  ["3.d", "Short-term, Form 8949 box C or I: proceeds (column d)"],
+  ["3.e", "Short-term, Form 8949 box C or I: cost or other basis (column e)"],
+  ["3.g", "Short-term, Form 8949 box C or I: adjustments (column g)"],
+  ["3.h", "Short-term, Form 8949 box C or I: gain or (loss) (column h)"],
+  ["4", "Short-term gain from Form 6252 and short-term gain or (loss) from Forms 4684, 6781 and 8824", "capital_gain_other"],
+  ["5", "Net short-term gain or (loss) from partnerships, S corporations, estates and trusts (Schedule K-1)", "capital_gain_other"],
+  ["6", "Short-term capital loss carryover (the positive amount; the form prints it in parentheses)"],
+  ["7", "Net short-term capital gain or (loss)"],
+  ["8a.d", "Long-term, basis reported to the IRS and no adjustments: proceeds (column d)"],
+  ["8a.e", "Long-term, basis reported to the IRS and no adjustments: cost or other basis (column e)"],
+  ["8a.h", "Long-term, basis reported to the IRS and no adjustments: gain or (loss) (column h)"],
+  ["8b.d", "Long-term, Form 8949 box D or J: proceeds (column d)"],
+  ["8b.e", "Long-term, Form 8949 box D or J: cost or other basis (column e)"],
+  ["8b.g", "Long-term, Form 8949 box D or J: adjustments (column g)"],
+  ["8b.h", "Long-term, Form 8949 box D or J: gain or (loss) (column h)"],
+  ["9.d", "Long-term, Form 8949 box E or K: proceeds (column d)"],
+  ["9.e", "Long-term, Form 8949 box E or K: cost or other basis (column e)"],
+  ["9.g", "Long-term, Form 8949 box E or K: adjustments (column g)"],
+  ["9.h", "Long-term, Form 8949 box E or K: gain or (loss) (column h)"],
+  ["10.d", "Long-term, Form 8949 box F or L: proceeds (column d)"],
+  ["10.e", "Long-term, Form 8949 box F or L: cost or other basis (column e)"],
+  ["10.g", "Long-term, Form 8949 box F or L: adjustments (column g)"],
+  ["10.h", "Long-term, Form 8949 box F or L: gain or (loss) (column h)"],
+  ["11", "Gain from Form 4797 Part I; long-term gain from Forms 2439 and 6252; long-term gain or (loss) from Forms 4684, 6781 and 8824", "capital_gain_other"],
+  ["12", "Net long-term gain or (loss) from partnerships, S corporations, estates and trusts (Schedule K-1)", "capital_gain_other"],
+  ["13", "Capital gain distributions (Form 1099-DIV box 2a)"],
+  ["14", "Long-term capital loss carryover (the positive amount; the form prints it in parentheses)"],
+  ["15", "Net long-term capital gain or (loss)"],
+  ["16", "Combine lines 7 and 15"],
+  ["18", "28% Rate Gain Worksheet, line 7", "capital_special_rates"],
+  ["19", "Unrecaptured Section 1250 Gain Worksheet, line 18", "capital_special_rates"],
+  ["21", "Capital loss deduction: the smaller of the loss on line 16 or $3,000 (the positive amount; the form prints it in parentheses)"],
+] as const satisfies readonly Row[];
+
 // ── Extra lines (worksheets, screens, Connecticut) ───────────────────────────
 
 type ExtraRow = readonly [key: string, form: string, formLine: string, label: string];
 
 const EXTRA = [
   ["qdcg.25", "Form 1040 worksheet", "25", "Qualified Dividends and Capital Gain Tax Worksheet, line 25"],
+  // The worksheet's line 3 is NOT 1040 line 7a: with Schedule D it is the smaller of Schedule D line 15 or 16 (0 if either is a loss or blank)
+  ["qdcg.3", "Form 1040 worksheet", "3", "Qualified Dividends and Capital Gain Tax Worksheet, line 3 (smaller of Schedule D line 15 or 16, not below 0)"],
   ["f6251.amti", "Form 6251", "4", "Alternative minimum taxable income"],
   ["f6251.tmt", "Form 6251", "10", "Tentative minimum tax"],
   ["f6251.amt", "Form 6251", "11", "Alternative minimum tax"],
@@ -518,6 +579,7 @@ export type LineKey =
   | KeysOf<"se", typeof SE>
   | KeysOf<"f8995", typeof F8995>
   | KeysOf<"f8959", typeof F8959>
+  | KeysOf<"schd", typeof SCHD>
   | (typeof EXTRA)[number][0];
 
 export interface LineMeta {
@@ -548,6 +610,8 @@ export const LINE_CATALOG: readonly LineMeta[] = [
   ...expand("se", "Schedule SE", SE),
   ...expand("f8995", "Form 8995", F8995),
   ...expand("f8959", "Form 8959", F8959),
+  // Schedule D: a cell key is "<line>.<column>"; the printed line id is the part before the dot
+  ...expand("schd", "Schedule D", SCHD).map((m): LineMeta => ({ ...m, formLine: m.formLine.split(".")[0] ?? m.formLine })),
   ...EXTRA.map((e): LineMeta => ({ key: e[0] as LineKey, form: e[1], formLine: e[2], label: e[3] })),
 ];
 

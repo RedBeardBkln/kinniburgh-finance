@@ -29,7 +29,7 @@ describe("blank-form manifest", () => {
 
   it("lists the planned forms and only TY2025", () => {
     expect(manifest.taxYear).toBe(2025);
-    for (const id of ["f1040", "f1040s1", "f1040s2", "f1040s3", "f1040sa", "f1040sc", "f1040sse", "f1040sb", "f8995", "f8959", "ct1040", "f5695"]) {
+    for (const id of ["f1040", "f1040s1", "f1040s2", "f1040s3", "f1040sa", "f1040sc", "f1040sse", "f1040sb", "f8995", "f8959", "ct1040", "f5695", "f1040sd", "f8949"]) {
       expect(isKnownFormId(id), id).toBe(true);
     }
     expect(listFormIds().length).toBe(manifest.forms.length);
@@ -45,6 +45,21 @@ describe("blank-form manifest", () => {
       expect(sha256Hex(bytes), e.formId).toBe(e.sha256);
       expect(bytes.length, e.formId).toBe(e.bytes);
       expect(String.fromCharCode(...bytes.subarray(0, 5)), e.formId).toBe("%PDF-");
+    }
+  });
+
+  it("Schedule D and Form 8949 are pinned to the IRS 2025 files (recomputed sha256, size, pages, fields) and sequence 12", () => {
+    const expected: ReadonlyArray<readonly [string, string, number, number]> = [
+      ["f1040sd", "90564c8b7e49280363612639b804d113ebedb516c2e87c70649f29c844da1d2e", 97968, 55],
+      ["f8949", "274513891e4e281d11e14286f14b9df724c24b6030fca0f0681da64fb2e7f525", 128770, 202],
+    ];
+    for (const [id, sha, bytes, fields] of expected) {
+      const e = getManifestEntry(id);
+      expect(e.url, id).toBe(`https://www.irs.gov/pub/irs-prior/${id}--2025.pdf`);
+      expect([e.sha256, e.bytes, e.pages, e.fieldCount, e.attachmentSeq, e.sourceKind], id).toEqual([sha, bytes, 2, fields, 12, "acroform_hybrid_xfa"]);
+      const file = new Uint8Array(readFileSync(blankPath(id)));
+      expect(sha256Hex(file), id).toBe(sha);
+      expect(file.length, id).toBe(bytes);
     }
   });
 

@@ -31,6 +31,7 @@ export const ENGINE_FORM_TITLES: Readonly<Record<FormId, string>> = {
   f4562: "Form 4562 (Depreciation and Amortization)",
   f8829: "Form 8829 (Business Use of Your Home)",
   schd: "Schedule D (Form 1040), Capital Gains and Losses",
+  f8949: "Form 8949 (Sales and Other Dispositions of Capital Assets)",
   ct1040: "CT-1040",
 };
 
@@ -46,7 +47,6 @@ export const EXPLICIT_NO_PDF: readonly FormId[] = [
   "f5695",
   "f4562",
   "f8829",
-  "schd",
 ];
 
 export interface MissingRequiredForm {

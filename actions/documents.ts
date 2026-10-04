@@ -49,6 +49,13 @@ import { resolveEffectiveExtraction } from "@/lib/extraction-effective";
 import { generateDocumentName } from "@/lib/doc-naming";
 import { RETYPE_TARGETS, isPlaceholderName, retypeBlockReason } from "@/lib/document-retype";
 import { DOCUMENT_NAME_MAX } from "@/lib/document-rename";
+import {
+  compareSnapshots,
+  offersSummaryReread,
+  readBrokerSummary,
+  snapshotNonIdentifying1099,
+  type ValueComparisonRow,
+} from "@/lib/tax-broker-summary";
 
 async function requireAuth() {
   const session = await auth();
@@ -627,6 +634,60 @@ export async function runDocumentExtraction(
   };
   const run = await runExtraction(documentId, safeOptions, user.id);
   return run.result ? { ok: true } : { ok: false, error: run.error ?? "Extraction failed" };
+}
+
+// ── Re-read a 1099 with the sales-summary fields (schedule-d-capture) ─────────
+
+const rereadSummarySchema = z.object({ documentId: z.string().uuid() });
+
+export type RereadSummaryResult =
+  | {
+      ok: true;
+      /** The document was verified before the re-read; the verification is now removed and must be redone. */
+      wasVerified: boolean;
+      /** Rows in the new sales summary; null when the new read could not read the summary at all. */
+      summaryRows: number | null;
+      /** Non-identifying values (money boxes, form types) before and after the re-read. */
+      comparison: ValueComparisonRow[];
+    }
+  | { ok: false; error: string };
+
+/**
+ * "Re-read this document with the new fields": the one forced re-extract of a 1099 whose sales summary was never
+ * read. It reuses runExtraction (force + discardVerification: the corrections overlay is kept, only the
+ * verification is cleared, a failed read restores the old data) and returns the non-identifying values before
+ * and after so the owner can compare. Refuses any other document type and a document whose summary is already
+ * read (the ordinary Re-extract button covers that).
+ */
+export async function rereadDocumentWithSalesSummary(input: { documentId: string }): Promise<RereadSummaryResult> {
+  const user = await requireAuth();
+  const parsed = rereadSummarySchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "That is not a valid document." };
+  const { documentId } = parsed.data;
+
+  const doc = await db.document.findFirst({
+    where: { id: documentId, archivedAt: null },
+    select: { docType: true, extractionData: true, extractionConfirmedAt: true },
+  });
+  if (!doc) return { ok: false, error: "Document not found" };
+  if (doc.docType !== "1099") return { ok: false, error: "Only a 1099 document can be re-read for its sales summary." };
+  const oldData = (doc.extractionData as { data?: unknown } | null)?.data;
+  if (!offersSummaryReread(oldData)) {
+    return { ok: false, error: "The sales summary of this document was already read. Use Re-extract to read it again." };
+  }
+
+  const before = snapshotNonIdentifying1099(oldData);
+  const run = await runExtraction(documentId, { force: true, discardVerification: true }, user.id);
+  if (!run.result) return { ok: false, error: run.error ?? "Extraction failed" };
+
+  const newData = run.result.data;
+  const read = readBrokerSummary(newData);
+  return {
+    ok: true,
+    wasVerified: doc.extractionConfirmedAt !== null,
+    summaryRows: read.summaryRead ? read.rows.length : null,
+    comparison: compareSnapshots(before, snapshotNonIdentifying1099(newData)),
+  };
 }
 
 // ── Change a document's type (the /documents "Change type" control) ──────────

@@ -140,6 +140,44 @@ export const otherIncomeBoxSchema = z.object({
 });
 export type OtherIncomeBox = z.infer<typeof otherIncomeBoxSchema>;
 
+export const BROKER_FORMS = ["1099-B", "1099-DA"] as const;
+export const BROKER_BOXES = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"] as const;
+export type BrokerForm = (typeof BROKER_FORMS)[number];
+export type BrokerBox = (typeof BROKER_BOXES)[number];
+
+/** One Form 8949 category total read from a 1099 document's sales summary (extraction field `bSummary`). null = not read (never 0). */
+export const brokerSaleRowSchema = z.object({
+  form: z.enum(BROKER_FORMS).nullable(),
+  box: z.enum(BROKER_BOXES).nullable(),
+  proceedsCents: centsOrNull,
+  /** null when the category prints no basis (noncovered). */
+  costCents: centsOrNull,
+  accruedMarketDiscountCents: centsOrNull,
+  washSaleLossDisallowedCents: centsOrNull,
+  /** The broker-PRINTED net gain or (loss): cross-check only, never the computed figure. */
+  gainLossCents: centsOrNull,
+});
+export type BrokerSaleRow = z.infer<typeof brokerSaleRowSchema>;
+
+export const brokerSaleFactSchema = z.object({
+  docId: z.string(),
+  payer: z.string().nullable(),
+  basis: docBasisSchema,
+  legacyFormat: z.boolean(),
+  refs: z.array(refSchema),
+  /** `bSummary` is non-null in the EFFECTIVE extraction (corrections overlaid). false = old read / never read. */
+  summaryRead: z.boolean(),
+  /** The old read signals a 1099-B (variantsPresent has 1099-B, or an otherBoxes entry with variant 1099-B). */
+  signalled1099B: z.boolean(),
+  /** One row per (form, box) category printed in the summary. [] with summaryRead = read, no sales. */
+  rows: z.array(brokerSaleRowSchema),
+  /** Section 1256 aggregate profit or (loss) (1099-B box 11); null = no such section read. Never computed. */
+  sec1256AggregateCents: centsOrNull,
+  /** variantsPresent has 1099-DA or a row has form 1099-DA. */
+  forms1099DaPresent: z.boolean(),
+});
+export type BrokerSaleFact = z.infer<typeof brokerSaleFactSchema>;
+
 export const glLineFactSchema = z.object({
   /** The GL code row's id and code as stored. */
   glCodeId: z.string(),
@@ -351,6 +389,17 @@ export const returnAnswersSchema = z.object({
       exceptionApplies: sourcedSchema(z.boolean()),
     })
     .optional(),
+  /** Capital-gains questions (Return completeness cgco / cgcos / cgcol / cgall / cgadj). */
+  capitalGains: z.object({
+    /** Short-term capital loss carried over from 2024 (Schedule D line 6 amount, a POSITIVE magnitude). cgco None -> 0 (basis answer_owner). */
+    carryoverShortCents: sourcedSchema(cents),
+    /** Long-term capital loss carried over from 2024 (Schedule D line 14 amount, positive). */
+    carryoverLongCents: sourcedSchema(cents),
+    /** cgall: true = the broker statement lists every 2025 sale the household made. false = No, null+owner = Not sure. */
+    salesComplete: sourcedSchema(z.boolean()),
+    /** cgadj: true = YES, there is something the broker could not know (wash sale elsewhere, inherited/gifted/related-party shares, wrong or blank cost). false = No: broker totals may be used as printed. */
+    brokerAdjustments: sourcedSchema(z.boolean()),
+  }),
   /** Optional "about how much" amounts the owner gave for a "none" group answered "some" (shown to the CPA; never computed). */
   statedSomeAmounts: z.record(z.enum(NONE_GROUP_IDS as [NoneGroupId, ...NoneGroupId[]]), sourcedSchema(cents)),
 });
@@ -392,6 +441,7 @@ export function emptyReturnAnswers(people: readonly { slot: PersonSlot; userId: 
     attestations: { digitalAssets: m(), foreignAccounts: m() },
     priorYear: { filedJoint: m(), hadExcludedTaxOrRefundable: m() },
     useTax: { choice: m(), generalRatePurchasesCents: m(), otherRateItems: m(), taxPaidToOtherStateCents: m(), untaxedPurchasesCents: m() },
+    capitalGains: { carryoverShortCents: m(), carryoverLongCents: m(), salesComplete: m(), brokerAdjustments: m() },
     statedSomeAmounts: {},
     otherIncome: {
       kinds: m(),
@@ -427,7 +477,11 @@ export const ty2025FactsSchema = z.object({
     noInterestConfirmed: sourcedSchema(z.boolean()),
     dividends: z.array(dividendFactSchema),
     noDividendsConfirmed: sourcedSchema(z.boolean()),
+    /** The owner confirmed 1099-DIV boxes 2b, 2c and 2d are all zero (1040 line 7a Exception 1 needs it for the "Schedule D not required" box). Absent / false = not confirmed. */
+    dividendBoxes2b2dConfirmedZero: z.boolean().optional(),
     otherIncomeBoxes: z.array(otherIncomeBoxSchema),
+    /** Sales summaries (Form 1099-B / 1099-DA category totals) per 1099 document. Empty = no 1099 mentions sales. */
+    brokerSales: z.array(brokerSaleFactSchema),
     scheduleC: scheduleCSchema,
   }),
   /** Above-the-line adjustments STATED by the owner/CPA (cents). Null = not stated: the line stays not-yet-computed / missing, never 0. */

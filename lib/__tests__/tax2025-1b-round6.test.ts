@@ -118,7 +118,11 @@ describe("Round 6: saved answers still parse exactly as before", () => {
   it("the owner's saved answer set parses byte-for-byte the same as with the old tree", () => {
     const stored = snapshot.stored as Record<string, AnswerValue>;
     const parsed = parseCompletenessAnswers(eff(stored), people);
-    expect(JSON.stringify(parsed)).toBe(JSON.stringify(snapshot.parsed));
+    // The Schedule D capture work added a returnAnswers.capitalGains leaf after the snapshot was taken (unanswered
+    // here); everything the owner had already answered must still parse identically.
+    const { capitalGains: capitalGainsLeaf, ...returnAnswersWithoutCg } = parsed.returnAnswers as unknown as Record<string, unknown>;
+    void capitalGainsLeaf;
+    expect(JSON.stringify({ ...parsed, returnAnswers: returnAnswersWithoutCg })).toBe(JSON.stringify(snapshot.parsed));
     // and the saved answers still show the same visible nodes: the single refund kind adds no new question
     expect(shown(eff(stored))).not.toContain("okamt_refund");
   });

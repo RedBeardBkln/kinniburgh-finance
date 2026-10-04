@@ -107,6 +107,32 @@
       "retrievedOn": "2026-10-03"
     },
     {
+      "formId": "f1040sd",
+      "title": "Schedule D (Form 1040), Capital Gains and Losses",
+      "taxYear": 2025,
+      "url": "https://www.irs.gov/pub/irs-prior/f1040sd--2025.pdf",
+      "sha256": "90564c8b7e49280363612639b804d113ebedb516c2e87c70649f29c844da1d2e",
+      "bytes": 97968,
+      "pages": 2,
+      "fieldCount": 55,
+      "sourceKind": "acroform_hybrid_xfa",
+      "attachmentSeq": 12,
+      "retrievedOn": "2026-10-04"
+    },
+    {
+      "formId": "f8949",
+      "title": "Form 8949, Sales and Other Dispositions of Capital Assets",
+      "taxYear": 2025,
+      "url": "https://www.irs.gov/pub/irs-prior/f8949--2025.pdf",
+      "sha256": "274513891e4e281d11e14286f14b9df724c24b6030fca0f0681da64fb2e7f525",
+      "bytes": 128770,
+      "pages": 2,
+      "fieldCount": 202,
+      "sourceKind": "acroform_hybrid_xfa",
+      "attachmentSeq": 12,
+      "retrievedOn": "2026-10-04"
+    },
+    {
       "formId": "f1040sse",
       "title": "Schedule SE (Form 1040), Self-Employment Tax",
       "taxYear": 2025,

@@ -216,7 +216,7 @@ export async function fillForm(
 
   for (const entry of map.lines) {
     if (entry.kind === "money") {
-      const decision = resolveFieldValue(formId, view.lines[entry.line], entry);
+      const decision = resolveFieldValue(formId, view.lines[entry.line], entry, view.answers);
       for (const item of decision.items) addItem(item);
       if (decision.write !== null) writeText(entry.field, decision.write, decision.tooltip);
       else textField(entry.field); // type-check the target even when blank
@@ -370,6 +370,10 @@ function fillTable(
   if (data.length <= capacity) {
     data.forEach((row, i) => writeRow(i, row.cells));
     return;
+  }
+  if (table.overflow === "none") {
+    // Never truncate or summarise silently: the map's `copies` must have split the rows (Form 8949).
+    throw new Error(`fillForm ${formId}: table ${table.table} has ${data.length} rows but the form holds ${capacity} and the table does not overflow`);
   }
 
   // Overflow: rows 1..N-1 as-is; the last row carries "Other (see statement)" and the remainder's sum.

@@ -107,6 +107,8 @@ export const SOURCES: Readonly<Record<SourceId, QuestionnaireSource>> = {
   "8880F": { title: "Form 8880 (2025)", url: "https://www.irs.gov/pub/irs-pdf/f8880.pdf", verifiedOn: VERIFIED, basisTaxYear: 2025 },
   "590A": { title: "Publication 590-A (2025), Contributions to Individual Retirement Arrangements", url: "https://www.irs.gov/publications/p590a", verifiedOn: VERIFIED, basisTaxYear: 2025 },
   "2210F": { title: "Form 2210 (2025)", url: "https://www.irs.gov/pub/irs-pdf/f2210.pdf", verifiedOn: VERIFIED, basisTaxYear: 2025 },
+  SCHD: { title: "Instructions for Schedule D (2025)", url: "https://www.irs.gov/instructions/i1040sd", verifiedOn: "2026-10-04", basisTaxYear: 2025 },
+  "8949": { title: "Instructions for Form 8949 (2025)", url: "https://www.irs.gov/instructions/i8949", verifiedOn: "2026-10-04", basisTaxYear: 2025 },
   CT1040I: {
     title: "Form CT-1040 instructions (Rev. 12/25)",
     url: "https://portal.ct.gov/-/media/drs/forms/2025/income/2025-ct-1040-instructions_1225.pdf",
@@ -1329,8 +1331,16 @@ export const RC_PAYMENT_WINDOWS = [
   { n: "5", label: "paid January 1 through January 15, 2026", date: "2026-01-15" },
 ] as const;
 
-/** Group id -> the question text for the "stated none" statements (every NoneGroupId has one; a test pins that). */
-const RC_GROUP_PROMPTS: Readonly<Record<NoneGroupId, string>> = {
+/**
+ * The two capital-gain "stated none" groups (schedule-d-capture). They are asked here whether or not line-catalog.ts
+ * already lists them in NONE_GROUP_IDS (the engine side adds them to NONE_GROUP_TEXT); RC_NONE_GROUP_IDS below is the
+ * union without duplicates, so the questionnaire is the same before and after that change.
+ */
+const CAPITAL_NONE_GROUP_IDS = ["capital_gain_other", "capital_special_rates"] as const;
+type RcNoneGroupId = NoneGroupId | (typeof CAPITAL_NONE_GROUP_IDS)[number];
+
+/** Group id -> the question text for the "stated none" statements (every group asked has one; a test pins that). */
+const RC_GROUP_PROMPTS: Readonly<Record<RcNoneGroupId, string>> = {
   other_earned_income:
     "wages as a household employee (for example a nanny or housekeeper) that were not on a W-2, tips you did not report to your employer, Medicaid waiver payments, taxable dependent care or adoption benefits from an employer, wages reported on Form 8919, or other earned income",
   retirement_ss_income: "withdrawals (distributions) from an Individual Retirement Account (IRA), pension or annuity payments, or Social Security benefits",
@@ -1353,10 +1363,14 @@ const RC_GROUP_PROMPTS: Readonly<Record<NoneGroupId, string>> = {
   se_other:
     "farm income, income as a church employee, tips you did not report to your employer (Form 4137), wages reported on Form 8919, railroad retirement compensation, or the optional methods for figuring self-employment tax",
   qbi_carryforwards: "a qualified business loss, or a loss from a real estate investment trust (REIT) or a publicly traded partnership, carried forward from an earlier year (Form 8995)",
+  capital_gain_other:
+    "a sale where the buyer pays you over several years (an installment sale), a loss from a casualty or theft, futures or stock-index options that are taxed at year end (Section 1256 contracts), a trade of business or investment property for similar property (a like-kind exchange), capital gains a fund kept for you instead of paying them out (undistributed capital gains), or a capital gain or loss reported to you on a Schedule K-1 from a partnership, S corporation, estate or trust",
+  capital_special_rates:
+    "a sale of collectibles held more than a year (coins, art, antiques, or shares of a fund that holds physical gold, silver or platinum, such as GLD, SLV or IAU), stock in a qualified small business (QSB) where part of the gain was left out of income, a sale of real estate or a partnership interest on which depreciation was claimed, or an investment in a qualified opportunity fund (QOF)",
 };
 
 /** Group id -> a short plain-language name used in the follow-up amount question. */
-const RC_GROUP_LABELS: Readonly<Record<NoneGroupId, string>> = {
+const RC_GROUP_LABELS: Readonly<Record<RcNoneGroupId, string>> = {
   other_earned_income: "other earned income",
   retirement_ss_income: "retirement and Social Security income",
   other_income: "other income",
@@ -1371,7 +1385,15 @@ const RC_GROUP_LABELS: Readonly<Record<NoneGroupId, string>> = {
   sch_c_other_lines: "other EK Consulting Schedule C items",
   se_other: "other self-employment tax items",
   qbi_carryforwards: "qualified business income carryforwards",
+  capital_gain_other: "other capital gain and loss items",
+  capital_special_rates: "collectibles, small business stock, depreciated real estate and opportunity fund items",
 };
+
+/** Every "stated none" group this flow asks about: NONE_GROUP_IDS plus the capital-gain groups (no duplicates). */
+export const RC_NONE_GROUP_IDS: readonly RcNoneGroupId[] = [
+  ...NONE_GROUP_IDS,
+  ...CAPITAL_NONE_GROUP_IDS.filter((id) => !(NONE_GROUP_IDS as readonly string[]).includes(id)),
+];
 
 const SOME_NONE: readonly QOption[] = [o("some", "Yes"), o("none", "No"), UNSURE];
 
@@ -1745,8 +1767,35 @@ function rcPersonNodes(): QNode[] {
       sources: ["1040GI"],
     })
   );
+  // H2. Investments: capital gains and losses (feeds Schedule D; schedule-d-capture)
+  out.push(
+    single("cgco", "Did Eric or Eva have a capital loss carried over from 2024 into 2025 (a loss from selling stocks or funds that was too big to use all at once in an earlier year, so the rest was carried forward)?", [
+      o("some", "Yes - a loss was carried over from 2024"),
+      o("none", "No - nothing was carried over from 2024"),
+      UNSURE,
+    ], {
+      help: "The IRS says you can deduct capital losses only up to your capital gains plus a yearly limit, that a loss over the limit may be used in future years, and that the Capital Loss Carryover Worksheet in the Schedule D instructions figures the amounts carried from 2024 to 2025 (a short-term amount and a long-term amount).",
+      sources: ["SCHD"],
+    }),
+    dollars("cgcos", "How much of the carried-over loss came from things held one year or less (short-term loss), in dollars (enter 0 if none)?", {
+      help: "The IRS says the Capital Loss Carryover Worksheet from the 2024 Schedule D instructions gives the short-term and the long-term carryover to 2025 separately.",
+      sources: ["SCHD"],
+      showWhen: inn("cgco", "some"),
+    }),
+    dollars("cgcol", "How much of the carried-over loss came from things held more than one year (long-term loss), in dollars (enter 0 if none)?", {
+      showWhen: inn("cgco", "some"),
+    }),
+    single("cgall", "Is every sale of stocks, funds, options or crypto that Eric or Eva made in 2025 listed on the Robinhood year-end tax statement (the 1099)? (Answer No if there was also a sale at another broker or bank, a private sale of stock, or a sale of land or a home.)", YES_NO, {
+      help: "The IRS says to report all of your capital gains and losses on Schedule D even if you cannot use all of the losses in 2025, so a sale that is missing from the Robinhood statement still has to be reported.",
+      sources: ["SCHD"],
+    }),
+    single("cgadj", "Is there anything about the Robinhood sales that Robinhood could not know: for example, buying the same stock again within 30 days before or after selling it at a loss in a different account (another broker, an IRA, or each other's account), shares that were inherited, gifted, or sold to a relative or related company, or a cost shown for a sale that looks wrong or is blank?", YES_NO, {
+      help: "The IRS says a wash sale happens when you sell stock at a loss and, within 30 days before or after the sale, buy substantially identical stock, and that the basis of inherited or gifted property is not always the actual cost. The Form 8949 instructions say these adjustments are reported on Form 8949 instead of directly on Schedule D.",
+      sources: ["SCHD", "8949"],
+    })
+  );
   // I. "none" statements for the rare lines
-  for (const id of NONE_GROUP_IDS) {
+  for (const id of RC_NONE_GROUP_IDS) {
     out.push(
       single(`g_${id}`, `In 2025, did Eric or Eva have any of these: ${RC_GROUP_PROMPTS[id]}? (Answer No only if none of them applies. The app does not calculate these items, so a Yes passes them to the CPA.)`, [o("some", "Yes - at least one"), o("none", "No - none of these"), UNSURE])
     );
@@ -1779,8 +1828,8 @@ const FORM_RETURN_COMPLETENESS: QuestionnaireDef = {
   ],
   nodes: RC_NODES,
   outcomeRules: [
-    { when: anyOf(...NONE_GROUP_IDS.map((id) => inn(`g_${id}`, "some"))), outcome: "applies" },
-    { when: allOf(...NONE_GROUP_IDS.map((id) => inn(`g_${id}`, "none"))), outcome: "not_applies" },
+    { when: anyOf(...RC_NONE_GROUP_IDS.map((id) => inn(`g_${id}`, "some"))), outcome: "applies" },
+    { when: allOf(...RC_NONE_GROUP_IDS.map((id) => inn(`g_${id}`, "none"))), outcome: "not_applies" },
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
