@@ -231,6 +231,7 @@ class Assembly {
         amount: hasAmount(status) && l.amount !== null ? l.amount.toNumber() : null,
         exact: hasAmount(status) && l.exact !== undefined && l.exact !== null ? l.exact.toString() : hasAmount(status) && l.amount !== null ? l.amount.toString() : null,
         reason: l.reason ?? null,
+        ...(l.informational ? { informational: true } : {}),
         ruleId: working.ruleId,
         citations: working.citations,
         refs: opts.refs ?? [],
@@ -480,7 +481,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     if (sa.propertyBills.some((b) => b.kind === "unclassified" || b.paid === null)) A.assumedFacts.push("Unclassified / unpaid property tax bills, assumed $0");
     if (sa.mortgages.some((m) => m.interest === null || m.principal === null)) A.assumedFacts.push("Missing Form 1098 boxes, assumed $0");
   }
-  const mortgages = fill ? sa.mortgages.map((m) => ({ ...m, interest: m.interest ?? ZERO, principal: m.principal ?? ZERO })) : sa.mortgages;
+  const mortgages = fill ? sa.mortgages.map((m) => ({ ...m, interest: m.interest ?? ZERO, principal: m.principal ?? ZERO, needsReview: false })) : sa.mortgages;
   const donationsNone = facts.deductions.noDonationsConfirmed.value === true || (fill && sa.donations.length === 0);
   const propertyNone = facts.deductions.noPropertyTaxConfirmed.value === true || (fill && bills.length === 0);
   if (fill && sa.donations.length === 0 && facts.deductions.noDonationsConfirmed.value !== true) A.assumedFacts.push("No charitable gifts (not confirmed)");
@@ -697,7 +698,8 @@ function buildHeadline(A: Assembly, blockingItemCount: number, provisional: Prov
   };
   const all = [...Object.values(federal), ...Object.values(connecticut)];
   return {
-    complete: all.every((h) => h.status === "computed" || h.status === "not_applicable"),
+    // complete = every headline amount is computed AND no blocking item (unresolved duplicates, unassigned W-2 ...) remains
+    complete: all.every((h) => h.status === "computed" || h.status === "not_applicable") && blockingItemCount === 0,
     federal,
     connecticut,
     blockingItemCount,
@@ -750,6 +752,23 @@ function ruleOpenItems(A: Assembly): OpenItem[] {
             ? "Computed in a later phase (or state the amount)."
             : "The CPA decides or supplies the rule.",
       lineKeys: keys.slice(0, 40),
+      refs: [],
+    });
+  }
+  return out;
+}
+
+/** Informational lines (amount deliberately not estimated) become one advisory item each; they never block. */
+function informationalOpenItems(A: Assembly): OpenItem[] {
+  const out: OpenItem[] = [];
+  for (const l of A.lines.values()) {
+    if (l.informational !== true || hasAmount(l.status)) continue;
+    out.push({
+      id: `info:${l.key}`,
+      severity: "advisory",
+      message: `${l.form} ${l.formLine} (${l.label}) is informational and not estimated: ${l.reason ?? ""}`.trim(),
+      action: "The CPA figures it if it applies.",
+      lineKeys: [l.key],
       refs: [],
     });
   }
@@ -948,6 +967,7 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
   const openItems: OpenItem[] = [
     ...(extras.openItems ?? []),
     ...ruleOpenItems(A),
+    ...informationalOpenItems(A),
     ...noneGroupOpenItems(A),
     ...decisionOpenItems(A.decisions),
     ...STANDING_ADVISORIES,

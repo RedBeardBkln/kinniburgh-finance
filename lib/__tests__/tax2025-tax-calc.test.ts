@@ -139,13 +139,13 @@ describe("missing inputs", () => {
 // Qualified Dividends and Capital Gain Tax Worksheet (1040 instructions), hand-worked line by line.
 describe("Qualified Dividends and Capital Gain Tax Worksheet", () => {
   it("example A: taxable income 150,000, qualified dividends 10,000 -> $22,128", () => {
-    // L1 150,000; L2 10,000; L3 0; L4 10,000; L6 10,000; L7 140,000; L8 min(150,000, 96,700) = 96,700;
-    // L9 min(140,000, 96,700) = 96,700; L10 0; L11 min(150,000, 10,000) = 10,000; L12 10,000; L13 600,050;
+    // printed lines: 1 = 150,000; 2 = 10,000; 3 = 0; 4 = 10,000; 5 = 140,000; 6 = 96,700; 7 = min(150,000, 96,700) = 96,700;
+    // 8 = min(140,000, 96,700) = 96,700; 9 (taxed at 0%) = 0; 10 = min(150,000, 10,000) = 10,000; 11 = 0; 12 = 10,000; 13 = 600,050;
     // L14 150,000; L15 140,000; L16 10,000; L17 10,000; L18 1,500; L19 10,000; L20 0; L21 0;
     // L22 tax on 140,000 = 11,157 + 22% x 43,050 = 9,471 -> 20,628; L23 = 22,128;
     // L24 tax on 150,000 = 11,157 + 22% x 53,050 = 11,671 -> 22,828; L25 = min = 22,128
     const ws = qdcgWorksheet(D(150000), D(10000), D(0))!;
-    expect(ws.line[10]!.toString()).toBe("0");
+    expect(ws.line[9]!.toString()).toBe("0");
     expect(ws.line[17]!.toString()).toBe("10000");
     expect(ws.line[18]!.toString()).toBe("1500");
     expect(ws.line[22]!.toString()).toBe("20628");
@@ -158,11 +158,11 @@ describe("Qualified Dividends and Capital Gain Tax Worksheet", () => {
   });
 
   it("example B: 0% band. Taxable income 80,000, qualified dividends 20,000 -> $6,726", () => {
-    // L7 60,000; L8 80,000; L9 60,000; L10 20,000 (taxed at 0%); L11 min(80,000, 20,000) = 20,000; L12 0;
+    // printed: 5 = 60,000; 7 = 80,000; 8 = 60,000; 9 = 20,000 (taxed at 0%); 10 = min(80,000, 20,000) = 20,000; 11 = 20,000; 12 = 0;
     // L15 80,000; L16 0; L17 0; L18 0; L19 20,000; L20 0; L22 Tax Table on 60,000 = 6,726; L23 6,726;
     // L24 Tax Table on 80,000 = 9,126; L25 = 6,726
     const ws = qdcgWorksheet(D(80000), D(20000), D(0))!;
-    expect(ws.line[10]!.toString()).toBe("20000");
+    expect(ws.line[9]!.toString()).toBe("20000");
     expect(ws.line[17]!.toString()).toBe("0");
     expect(ws.line[22]!.toString()).toBe("6726");
     expect(ws.line[24]!.toString()).toBe("9126");
@@ -170,12 +170,12 @@ describe("Qualified Dividends and Capital Gain Tax Worksheet", () => {
   });
 
   it("example C: part 0%, part 15% with capital gain distributions. TI 120,000, QD 10,000, gain 20,000 -> $13,821", () => {
-    // L3 20,000; L4 30,000; L6 30,000; L7 90,000; L8 96,700; L9 90,000; L10 6,700; L11 30,000; L12 23,300;
+    // printed: 3 = 20,000; 4 = 30,000; 5 = 90,000; 7 = 96,700; 8 = 90,000; 9 = 6,700; 10 = 30,000; 11 = 6,700; 12 = 23,300;
     // L14 120,000; L15 96,700; L16 23,300; L17 23,300; L18 3,495; L19 30,000; L20 0; L21 0;
     // L22 Tax Table on 90,000 (midpoint 90,025) = 2,385 + 12% x 66,175 (7,941) = 10,326; L23 = 13,821;
     // L24 tax on 120,000 = 11,157 + 22% x 23,050 (5,071) = 16,228 -> L25 = 13,821
     const ws = qdcgWorksheet(D(120000), D(10000), D(20000))!;
-    expect(ws.line[10]!.toString()).toBe("6700");
+    expect(ws.line[9]!.toString()).toBe("6700");
     expect(ws.line[17]!.toString()).toBe("23300");
     expect(ws.line[18]!.toString()).toBe("3495");
     expect(ws.line[22]!.toString()).toBe("10326");
@@ -185,7 +185,7 @@ describe("Qualified Dividends and Capital Gain Tax Worksheet", () => {
   });
 
   it("example D: reaches the 20% band. TI 700,000, QD 650,000 -> $101,019", () => {
-    // L7 50,000; L8 96,700; L9 50,000; L10 46,700; L11 650,000; L12 603,300; L14 600,050; L15 96,700;
+    // printed: 5 = 50,000; 7 = 96,700; 8 = 50,000; 9 = 46,700; 10 = 650,000; 11 = 46,700; 12 = 603,300; 14 = 600,050; 15 = 96,700;
     // L16 503,350; L17 503,350; L18 75,502.50; L19 550,050; L20 99,950; L21 19,990; L22 Tax Table on 50,000 = 5,526;
     // L23 = 75,502.50 + 19,990 + 5,526 = 101,018.50 -> 101,019 (cents kept until the total is rounded);
     // L24 tax on 700,000 = 184,094.50 -> 184,095; L25 = 101,019
@@ -213,12 +213,25 @@ describe("Qualified Dividends and Capital Gain Tax Worksheet", () => {
   });
 
   it("example E: a small ordinary-income part uses the printed small rows. TI 10,000, QD 9,000 -> $101", () => {
-    // L7 = 1,000 -> row 1,000-1,025 = 101; L10 = 9,000 taxed at 0%; L23 = 101; L24 = tax on 10,000 = 1,003; L25 = 101
+    // printed 5 = 1,000 -> row 1,000-1,025 = 101; 9 = 9,000 taxed at 0%; 23 = 101; L24 = tax on 10,000 = 1,003; L25 = 101
     const ws = qdcgWorksheet(D(10000), D(9000), D(0));
-    expect(ws.line[7]!.toString()).toBe("1000");
-    expect(ws.line[10]!.toString()).toBe("9000");
+    expect(ws.line[5]!.toString()).toBe("1000");
+    expect(ws.line[9]!.toString()).toBe("9000");
     expect(ws.line[22]!.toString()).toBe("101");
     expect(ws.line[24]!.toString()).toBe("1003");
     expect(ws.tax.toString()).toBe("101");
+  });
+});
+
+// Round 2, D4: the worksheet's `line` map uses the PRINTED 2025 line numbers (re-read from the 1040 instructions).
+describe("QDCG worksheet line numbers are the printed 2025 numbers (D4)", () => {
+  it("TI 150,000, QD 10,000: 5 = 140,000; 6 = 96,700; 7 = 96,700; 8 = 96,700; 9 (0% amount) = 0; 10 = 10,000; 11 = 0; 12 = 10,000; 13 = 600,050; 15 = 140,000; 16 = 10,000", () => {
+    const ws = qdcgWorksheet(D(150000), D(10000), D(0));
+    const printed = Object.fromEntries([5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16].map((n) => [n, ws.line[n]!.toString()]));
+    expect(printed).toEqual({ 5: "140000", 6: "96700", 7: "96700", 8: "96700", 9: "0", 10: "10000", 11: "0", 12: "10000", 13: "600050", 15: "140000", 16: "10000" });
+  });
+  it("TI 80,000, QD 20,000 (0% band): 5 = 60,000; 7 = 80,000; 8 = 60,000; 9 = 20,000; 10 = 20,000; 11 = 20,000; 12 = 0", () => {
+    const ws = qdcgWorksheet(D(80000), D(20000), D(0));
+    expect([5, 7, 8, 9, 10, 11, 12].map((n) => ws.line[n]!.toNumber())).toEqual([60000, 80000, 60000, 20000, 20000, 20000, 0]);
   });
 });

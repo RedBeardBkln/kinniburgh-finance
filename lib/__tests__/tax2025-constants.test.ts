@@ -52,6 +52,12 @@ describe("TY2025 constants registry (citations)", () => {
     expect(CONSTANTS.SAVERS_RATE_BANDS_MFJ.value.map((b) => b.upTo)).toEqual([47500, 51000, 79000, null]);
   });
 
+  it("D1: the home office gross income limitation basis is registered with its source", () => {
+    expect(CONSTANTS.HOME_OFFICE_GROSS_INCOME_LIMIT.value).toContain("Schedule C line 29");
+    expect(CONSTANTS.HOME_OFFICE_GROSS_INCOME_LIMIT.url).toBe("https://www.irs.gov/instructions/i1040sc");
+    expect(CONSTANTS.HOME_OFFICE_GROSS_INCOME_LIMIT.verifiedOn).toBe("2026-10-03");
+  });
+
   it("the older (2026-09-17) entries are dated to the earlier pass, the rest to 2026-10-03", () => {
     expect(CONSTANTS.FEDERAL_BRACKETS_MFJ.verifiedOn).toBe("2026-09-17");
     expect(CONSTANTS.SE_WAGE_BASE.verifiedOn).toBe("2026-10-03");

@@ -14,7 +14,8 @@
 //   - line 13: the fixed-asset register is the input to Form 4562 (Phase 2, decision
 //     X2): with assets on the register the line is not_yet_computed, never 0;
 //   - line 30: home office, decision X1: simplified ($5 x up to 300 sq ft, computed)
-//     versus actual (Form 8829, Phase 2: listed as an alternative, not computed). The
+//     versus actual (Form 8829, Phase 2: listed as an alternative, not computed). The simplified
+//     amount is capped at the gross income limitation, Schedule C line 29 (floored at 0). The
 //     conservative simplified method is used, marked "default, undecided", until a
 //     decision is recorded. Under the simplified method the home-office GL accounts
 //     (actual-method inputs) are NOT part of Schedule C profit.
@@ -25,7 +26,7 @@ import type { Decimal } from "@prisma/client/runtime/library";
 import { K } from "@/lib/tax2025/constants";
 import type { FixedAssetFact, GlLineFact } from "@/lib/tax2025/facts";
 import { findGlMapEntry } from "@/lib/tax2025/gl-schedule-c-map";
-import { D, ZERO, amountLine, blockedLine, centsToDollars, dollarsToCents, fmt, minD, roundLine, sumThenRound } from "@/lib/tax2025/money";
+import { D, ZERO, amountLine, blockedLine, centsToDollars, dollarsToCents, fmt, maxD, minD, roundLine, sumThenRound } from "@/lib/tax2025/money";
 import {
   aggregateStatus,
   scheduleCLineKey,
@@ -55,7 +56,7 @@ export interface ScheduleCInput {
   homeOfficeDecision?: Decided<"simplified" | "actual">;
 }
 
-const CITATIONS = ["MEALS_DEDUCTIBLE_FRACTION", "MILEAGE_RATE", "HOME_OFFICE_RATE_PER_SQFT", "HOME_OFFICE_MAX_SQFT"];
+const CITATIONS = ["MEALS_DEDUCTIBLE_FRACTION", "MILEAGE_RATE", "HOME_OFFICE_RATE_PER_SQFT", "HOME_OFFICE_MAX_SQFT", "HOME_OFFICE_GROSS_INCOME_LIMIT"];
 
 const LINE_LABELS: Record<ScheduleCLineId, string> = {
   "1": "Gross receipts or sales",
@@ -431,7 +432,13 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
   } else {
     const sqft = D(input.homeOfficeSqft);
     const capped = minD(sqft, D(K.HOME_OFFICE_MAX_SQFT.value));
-    const simplified = capped.times(K.HOME_OFFICE_RATE_PER_SQFT.value);
+    const simplifiedBeforeLimit = capped.times(K.HOME_OFFICE_RATE_PER_SQFT.value);
+    // Simplified Method Worksheet line 1 (Schedule C instructions / Pub 587): the deduction cannot exceed the gross
+    // income limitation = Schedule C line 29 (no 8949 / 4797 gains or losses are modeled); "if zero or less, enter -0-".
+    const tentativeProfit = amounts.get("29");
+    const grossIncomeLimit = tentativeProfit === undefined ? null : maxD(ZERO, tentativeProfit);
+    const simplified = grossIncomeLimit === null ? simplifiedBeforeLimit : minD(simplifiedBeforeLimit, grossIncomeLimit);
+    const limitedByIncome = grossIncomeLimit !== null && simplifiedBeforeLimit.greaterThan(grossIncomeLimit);
     const chosen = input.homeOfficeDecision?.chosen ?? "simplified";
     decision = {
       id: "X1",
@@ -440,12 +447,15 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
       status: input.homeOfficeDecision ? "decided" : "default_undecided",
       ...(input.homeOfficeDecision ? { decidedBy: input.homeOfficeDecision.by, decidedAt: input.homeOfficeDecision.at } : {}),
     };
-    const simplifiedLine = amountLine(scheduleCLineKey("30"), lbl("30"), formLineOf("30"), simplified);
+    const limitReason = limitedByIncome
+      ? `Limited by the gross income limitation (Schedule C line 29 ${fmt(tentativeProfit ?? ZERO)}): ${fmt(simplifiedBeforeLimit)} before the limit, ${fmt(simplified)} allowed (the deduction cannot create a loss).`
+      : undefined;
+    const simplifiedLine = amountLine(scheduleCLineKey("30"), lbl("30"), formLineOf("30"), simplified, "computed", limitReason);
     alternatives = [
       {
         id: "simplified",
         label: `Simplified method: ${fmt(capped)} of space x ${fmt(D(K.HOME_OFFICE_RATE_PER_SQFT.value))} (max ${K.HOME_OFFICE_MAX_SQFT.value} sq ft; the election is irrevocable for the year)`,
-        status: "computed",
+        status: grossIncomeLimit === null ? "not_yet_computed" : "computed",
         isDefault: true,
         inForce: chosen === "simplified",
         lines: [simplifiedLine],
@@ -454,6 +464,8 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
           sqft.greaterThan(K.HOME_OFFICE_MAX_SQFT.value)
             ? `${input.homeOfficeSqft} sq ft entered; only ${K.HOME_OFFICE_MAX_SQFT.value} sq ft count under this method.`
             : `${input.homeOfficeSqft} sq ft entered.`,
+          ...(limitReason ? [limitReason] : []),
+          ...(grossIncomeLimit === null ? ["The gross income limitation (Schedule C line 29) is not known yet, so the allowed amount cannot be figured."] : []),
         ],
       },
       {
@@ -472,9 +484,16 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
         ],
       },
     ];
-    if (chosen === "simplified") {
+    if (chosen === "simplified" && grossIncomeLimit === null) {
+      block(
+        "30",
+        worstBlocked([statusOfId("29")]) ?? "missing_input",
+        "The simplified home office deduction is limited to Schedule C line 29 (gross income limitation), which is not computed yet."
+      );
+    } else if (chosen === "simplified") {
       line30 = simplifiedLine.amount;
       lines.push(simplifiedLine);
+      if (limitReason) reasons.push(limitReason);
       if (homeCandidatesCents > 0) {
         reasons.push(
           `Simplified home-office method in force: the ${fmt(centsToDollars(homeCandidatesCents))} booked to home-office accounts is left out of Schedule C (those actual expenses are not deductible with this method).`

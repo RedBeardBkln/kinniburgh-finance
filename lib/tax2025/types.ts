@@ -134,6 +134,11 @@ export interface RuleLine {
   status?: RuleStatus;
   /** Why this particular line is not computed / what it means. */
   reason?: string;
+  /**
+   * Informational line: its amount is deliberately NOT estimated (for example CT late-payment penalty and interest, whose
+   * minimum / month-counting rules are unverified). It never blocks completeness; it appears as an advisory item.
+   */
+  informational?: boolean;
 }
 
 /** Tax effect of choosing an alternative (only filled when the alternative is fully computed). */
@@ -203,8 +208,9 @@ export function worstBlocked(
 
 /** The rule-level status implied by its lines: computed/not_applicable only if every line carries an amount. */
 export function aggregateStatus(lines: readonly RuleLine[], fallback: RuleStatus = "computed"): RuleStatus {
-  if (lines.length === 0) return fallback;
-  const statuses = lines.map((l) => l.status ?? fallback);
+  const counted = lines.filter((l) => l.informational !== true);
+  if (counted.length === 0) return fallback;
+  const statuses = counted.map((l) => l.status ?? fallback);
   for (const s of STATUS_PRIORITY) if (statuses.includes(s)) return s;
   return statuses.every((s) => s === "not_applicable") ? "not_applicable" : "computed";
 }
@@ -279,6 +285,8 @@ export interface ReturnLine {
   /** Unrounded decimal string, or null. */
   exact: string | null;
   reason: string | null;
+  /** See RuleLine.informational: an amount that is intentionally not estimated and never blocks the return. */
+  informational?: boolean;
   ruleId: string;
   citations: string[];
   refs: Ref[];

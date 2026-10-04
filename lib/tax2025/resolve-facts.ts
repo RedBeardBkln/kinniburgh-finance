@@ -198,6 +198,36 @@ export function addressesMatch(a: string, b: string): boolean {
 /** W-2 box 12 codes that are employee deferrals or HSA contributions (used only for the conflict check). */
 const BOX12_DEFERRAL_CODES = new Set(["D", "E", "F", "G", "H", "S", "AA", "BB", "W"]);
 
+/** Signature of a document for exact-duplicate detection; null for types this resolver does not de-duplicate. */
+function duplicateKey(doc: RawDocument): string | null {
+  const data = dataOf(doc);
+  const person = doc.subjectUserId ?? "";
+  const str = (k: string) => strOrNull(data[k]) ?? "";
+  const num = (k: string) => String(intOrNull(data[k]) ?? "");
+  switch (doc.docType) {
+    case "w2":
+      return ["w2", person, str("employerEIN") || str("employerName").toLowerCase(), num("wagesCents"), num("federalWithheldCents"), num("socialSecurityWagesCents"), num("medicareWagesCents")].join("|");
+    case "1099": {
+      const amounts = Object.keys(data)
+        .filter((k) => k.endsWith("Cents") && intOrNull(data[k]) !== null)
+        .sort()
+        .map((k) => `${k}=${String(data[k])}`)
+        .join(",");
+      if (amounts === "") return null;
+      return ["1099", person, str("payerEIN") || str("payerName").toLowerCase(), str("formVariant"), amounts].join("|");
+    }
+    case "mortgage_interest":
+    case "form_1098":
+      if (num("interestCents") === "") return null;
+      return ["1098", str("servicerName").toLowerCase(), num("interestCents"), num("principalBalanceCents"), normalizeAddress(str("propertyAddress"))].join("|");
+    case "property_tax":
+      if (num("totalTaxBilledCents") === "" && num("paidInTaxYearCents") === "") return null;
+      return ["property_tax", str("jurisdictionName").toLowerCase(), normalizeAddress(str("propertyAddress")), str("parcelId"), str("taxType"), num("totalTaxBilledCents"), num("paidInTaxYearCents")].join("|");
+    default:
+      return null;
+  }
+}
+
 // ── Resolver ──────────────────────────────────────────────────────────────────
 
 export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
@@ -211,7 +241,40 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
   const answered = <T>(v: T | undefined, label: string, key: string): Sourced<T> =>
     v === undefined ? missingLeaf<T>() : sourced(v, "answer_owner", [{ kind: "questionnaire", id: key, label }]);
 
-  const docsForYear = raw.documents.filter((d) => d.taxYear === year && (d.extractionStatus === "complete" || d.reextractIncomplete === true));
+  const usableDocs = raw.documents.filter((d) => d.taxYear === year && (d.extractionStatus === "complete" || d.reextractIncomplete === true));
+
+  // Exact duplicate documents (same type, year, person, issuer and the same key amounts) are counted ONCE and raise a
+  // BLOCKING open item: silently counting both would double the income / withholding / deduction, and silently dropping one
+  // would hide a possible second real document. The copy counted is the owner-verified one, else the first on file.
+  const docsForYear: RawDocument[] = [];
+  const firstByKey = new Map<string, RawDocument>();
+  for (const d of usableDocs) {
+    const key = duplicateKey(d);
+    if (key === null) {
+      docsForYear.push(d);
+      continue;
+    }
+    const kept = firstByKey.get(key);
+    if (kept === undefined) {
+      firstByKey.set(key, d);
+      docsForYear.push(d);
+      continue;
+    }
+    // prefer the verified copy as the one counted
+    const counted = !kept.verified && d.verified ? d : kept;
+    const ignored = counted === kept ? d : kept;
+    if (counted !== kept) {
+      docsForYear.splice(docsForYear.indexOf(kept), 1, d);
+      firstByKey.set(key, d);
+    }
+    addItem({
+      id: `doc-duplicate:${d.docType}:${counted.id}:${ignored.id}`,
+      severity: "blocking",
+      message: `Two ${d.docType} documents are exact duplicates (same type, year, person, issuer and amounts). The engine counted ${counted.verified ? "the verified copy" : "the first copy"} (${counted.id}) once and ignored the other (${ignored.id}) so nothing is double counted, but it cannot tell whether the second is a genuine second form.`,
+      action: "Archive the duplicate, or tell the CPA if both are real forms.",
+      refs: [docRef(counted, d.docType), docRef(ignored, d.docType)],
+    });
+  }
 
   // ── Household ────────────────────────────────────────────────────────────────
   const p = raw.planning;
@@ -339,20 +402,16 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       });
     }
   }
-  // duplicate W-2s
-  for (let i = 0; i < w2s.length; i++) {
-    for (let j = i + 1; j < w2s.length; j++) {
-      const a = w2s[i]!;
-      const b = w2s[j]!;
-      if (a.employer !== null && a.employer === b.employer && a.wagesCents === b.wagesCents && a.fedWithheldCents === b.fedWithheldCents) {
-        addItem({
-          id: `w2-duplicate:${a.docId}:${b.docId}`,
-          severity: "advisory",
-          message: `Two W-2 documents from ${a.employer} have identical wages and withholding: one may be a duplicate.`,
-          action: "Archive the duplicate if it is one.",
-          refs: [...a.refs, ...b.refs],
-        });
-      }
+  for (const person of raw.people) {
+    const mine = w2s.filter((w) => w.personUserId === person.userId);
+    if (mine.length > 1 && mine.some((w) => w.employerEin === null)) {
+      addItem({
+        id: `w2-no-ein:${person.userId}`,
+        severity: "advisory",
+        message: `${person.name} has ${mine.length} W-2s and at least one has no employer EIN read, so employers are told apart by name (needed for the excess Social Security credit, which requires more than one employer).`,
+        action: "Enter the employer EIN on the W-2 review screen.",
+        refs: mine.flatMap((w) => w.refs),
+      });
     }
   }
 
@@ -431,6 +490,19 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       else {
         for (const k of ["int_box4Cents", "div_box4Cents", "nec_box4Cents", "misc_box4Cents"]) federal1099Withheld += intOrNull(data[k]) ?? 0;
       }
+    } else {
+      // Legacy-format document that is not a 1099-INT: its withholding cannot be attributed reliably and is NOT counted.
+      const legacyWithheld = headlineWithheld ?? 0;
+      addItem({
+        id: `legacy-1099-withholding:${doc.id}`,
+        severity: legacyWithheld > 0 ? "blocking" : "advisory",
+        message:
+          legacyWithheld > 0
+            ? `The legacy-format ${formVariant ?? "1099"} from ${payer ?? "a payer"} shows federal withholding of $${(legacyWithheld / 100).toFixed(2)}, which is NOT counted in 1040 line 25b (older extractions cannot be trusted for non-interest withholding).`
+            : `The legacy-format ${formVariant ?? "1099"} from ${payer ?? "a payer"} was read before per-box withholding existed; any withholding on it is not counted.`,
+        action: "Re-extract the document so the withholding boxes are read.",
+        refs: [ref],
+      });
     }
 
     // income this engine does not compute: captured, never dropped
@@ -490,8 +562,17 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
   const mortgages: MortgageFact[] = [];
   for (const doc of docsForYear.filter((d) => d.docType === "mortgage_interest" || d.docType === "form_1098")) {
     const data = dataOf(doc);
-    if (intOrNull(data.interestCents) === null) continue;
     const lender = strOrNull(data.servicerName);
+    if (intOrNull(data.interestCents) === null) {
+      // Never dropped: the fact is kept with a null interest (Schedule A line 8a then reports missing_input) and a blocking item says why.
+      addItem({
+        id: `form1098-no-interest:${doc.id}`,
+        severity: "blocking",
+        message: `The Form 1098 from ${lender ?? "a lender"} has no mortgage interest (box 1) read, so Schedule A mortgage interest cannot be totaled.`,
+        action: "Open the document, enter box 1 or re-extract it.",
+        refs: [docRef(doc, "1098")],
+      });
+    }
     mortgages.push({
       docId: doc.id,
       lender,
@@ -520,6 +601,20 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       message: `The primary residence is taken to be ${primaryAddress.address} (${primaryAddress.note ?? "derived"}); the property tax credit and Schedule A classification depend on it.`,
       action: "Confirm the primary residence address.",
     });
+  }
+  {
+    const distinct: string[] = [];
+    for (const m of mortgages) if (m.propertyAddress && !distinct.some((d) => addressesMatch(d, m.propertyAddress!))) distinct.push(m.propertyAddress);
+    const other = primaryAddress ? mortgages.filter((m) => m.propertyAddress && !addressesMatch(m.propertyAddress, primaryAddress.address)) : [];
+    if ((!primaryAddress && distinct.length > 1) || other.length > 0) {
+      addItem({
+        id: "form1098-multiple-properties",
+        severity: "blocking",
+        message: `Form 1098 interest is reported for ${distinct.length} different properties (${distinct.join("; ")}) and the primary residence ${primaryAddress ? `is ${primaryAddress.address}` : "cannot be told apart"}: the interest on a property that is not the primary residence is not silently treated as primary-residence Schedule A interest.`,
+        action: "Confirm which property is the primary residence and how each other 1098 property is used (second home, rental).",
+        refs: mortgages.flatMap((m) => m.refs),
+      });
+    }
   }
   const propertyTaxBills: PropertyTaxBill[] = [];
   for (const doc of docsForYear.filter((d) => d.docType === "property_tax")) {
