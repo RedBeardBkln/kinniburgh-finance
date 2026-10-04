@@ -313,6 +313,19 @@ export async function listDispositions(taxYear: number, entityId: string, store:
   }));
 }
 
+/** Oldest first, with the name of the account that recorded each one (the page shows who accepted a finding and why). */
+export async function listDispositionDetails(taxYear: number, entityId: string, store: ReviewStoreDb = defaultDb()): Promise<(DispositionRow & { byName: string })[]> {
+  const rows = await store.taxReviewFindingDisposition.findMany({ where: { taxYear, entityId }, orderBy: { at: "asc" } });
+  return rows.map((r) => ({
+    findingKey: r.findingKey,
+    evidenceHash: r.evidenceHash,
+    action: r.action === "accepted" ? "accepted" : "reopened",
+    reason: r.reason,
+    at: r.at,
+    byName: r.byName,
+  }));
+}
+
 // ── Approvals ─────────────────────────────────────────────────────────────────
 
 export interface InsertApprovalInput {

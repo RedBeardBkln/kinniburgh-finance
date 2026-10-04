@@ -278,15 +278,24 @@ export interface ApprovalRow {
 }
 
 /**
- * The approval that is in force: walk the rows oldest first; an "approved" row sets it, a "withdrawn" row clears it. It counts
- * only if its fingerprint equals the CURRENT return fingerprint (any later change makes it non-current without deleting it).
+ * The approval that is the latest word, whatever return it is bound to: walk the rows oldest first; an "approved" row sets it, a
+ * "withdrawn" row clears it. (Withdrawing must work on a stale approval too, so it looks here and not at currentApproval.)
  */
-export function currentApproval<T extends ApprovalRow>(rows: readonly T[], currentFingerprint: string): T | null {
+export function approvalInForce<T extends ApprovalRow>(rows: readonly T[]): T | null {
   const ordered = rows.map((r, i) => ({ r, i, t: time(r.at) })).sort((a, b) => a.t - b.t || a.i - b.i);
   let state: T | null = null;
   for (const { r } of ordered) {
     if (r.kind === "approved") state = r;
     else state = null;
   }
+  return state;
+}
+
+/**
+ * The approval that is in force AND counts for this return: its fingerprint must equal the CURRENT return fingerprint (any later
+ * change makes it non-current without deleting it).
+ */
+export function currentApproval<T extends ApprovalRow>(rows: readonly T[], currentFingerprint: string): T | null {
+  const state = approvalInForce(rows);
   return state !== null && state.fingerprint === currentFingerprint ? state : null;
 }
