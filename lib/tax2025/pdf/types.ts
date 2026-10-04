@@ -34,6 +34,11 @@ export interface PdfLine {
   override?: PdfLineOverride;
   /** Set when the line comes from a rule whose in-force alternative is an undecided default: the decision label. */
   defaultUndecided?: string;
+  /**
+   * The engine marks the line informational (an amount intentionally not estimated that never blocks the
+   * return, e.g. CT late-payment penalty / interest): a blank for it is an ADVISORY item, not a blocking one.
+   */
+  informational?: boolean;
 }
 
 export type PdfSeverity = "blocking" | "advisory";

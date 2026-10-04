@@ -9,7 +9,10 @@ import { vi } from "vitest";
 vi.setConfig({ testTimeout: 60000 });
 import { describe, expect, it } from "vitest";
 import { toPdfReturnView } from "@/lib/tax2025/pdf/adapter";
-import { buildCoverModel } from "@/lib/tax2025/pdf/cover";
+import { buildCoverModel, type CoverBlock } from "@/lib/tax2025/pdf/cover";
+import { ENGINE_FORM_TITLES, EXPLICIT_NO_PDF, requiredFormsWithoutPdf } from "@/lib/tax2025/pdf/no-pdf-forms";
+import { resolveFieldValue } from "@/lib/tax2025/pdf/policy";
+import { PDFDocument } from "pdf-lib";
 import { ctPropertyTaxRows } from "@/lib/tax2025/pdf/ct-property-tax";
 import { fillForm } from "@/lib/tax2025/pdf/fill";
 import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
@@ -24,7 +27,8 @@ import type { PdfReturnView } from "@/lib/tax2025/pdf/types";
 import { computeTy2025Return } from "@/lib/tax2025/return";
 import type { Ty2025Facts } from "@/lib/tax2025/facts";
 import type { Ty2025Return } from "@/lib/tax2025/types";
-import { fullFacts, gl } from "./tax2025-fixtures";
+import { missingLeaf } from "@/lib/tax2025/types";
+import { emptyFacts, fullFacts, gl } from "./tax2025-fixtures";
 import { DEFAULT_FILL_OPTIONS, readAllFields } from "./tax2025-pdf-harness";
 
 const OPTS = { generatedAt: "2026-10-03T16:00:00.000Z", generatedBy: "Test User" } as const;
@@ -33,6 +37,17 @@ function build(facts: Ty2025Facts = fullFacts(), extra: Partial<Parameters<typeo
   const ret = computeTy2025Return(facts);
   const view = toPdfReturnView(ret, facts, { ...OPTS, ...extra });
   return { facts, ret, view };
+}
+
+/** The fixture with the header attestations and the 12d age / blind answers all UNANSWERED. */
+function unansweredFacts(): Ty2025Facts {
+  const f = fullFacts();
+  f.returnAnswers.attestations = { digitalAssets: missingLeaf<boolean>(), foreignAccounts: missingLeaf<boolean>() };
+  for (const p of f.returnAnswers.people) {
+    p.bornBefore1961 = missingLeaf<boolean>();
+    p.blind = missingLeaf<boolean>();
+  }
+  return f;
 }
 
 function itemizingFacts(): Ty2025Facts {
@@ -145,8 +160,8 @@ describe("table, header and answer wiring", () => {
     expect((await readAllFields(res2.bytes)).get(field ?? "")).toBe("");
   });
 
-  it("Schedule B Part III answers are not supplied yet (undefined): both boxes stay unchecked with 'Answer needed' items", async () => {
-    const { view } = build();
+  it("Schedule B Part III answers unanswered (undefined): both boxes stay unchecked with 'Answer needed' items", async () => {
+    const { view } = build(unansweredFacts());
     for (const k of ["foreignAccounts", "fincenRequired", "foreignTrust"]) expect(view.answers[k], k).toBeUndefined();
     const res = await fillForm("f1040sb", view, schBMap, DEFAULT_FILL_OPTIONS);
     expect(res.openItems.some((i) => i.id === "fill:f1040sb:answer:foreignAccounts")).toBe(true);
@@ -178,8 +193,8 @@ describe("Form 1040 line 12d age / blind boxes (maps tester P1)", () => {
     }
   });
 
-  it("no answers (the adapter supplies none yet): all four stay unchecked and each raises an 'Answer needed' item", async () => {
-    const { view } = build();
+  it("no answers (unanswered questionnaire): all four stay unchecked and each raises an 'Answer needed' item", async () => {
+    const { view } = build(unansweredFacts());
     for (const k of Object.keys(BOXES)) expect(view.answers[k], k).toBeUndefined();
     const res = await fillForm("f1040", view, f1040Map, DEFAULT_FILL_OPTIONS);
     const f = await readAllFields(res.bytes);
@@ -210,7 +225,7 @@ describe("Form 1040 line 12d age / blind boxes (maps tester P1)", () => {
   });
 
   it("12a, 12b, 12c, 7b and the other not-modeled decision boxes are LISTED on the cover, not only counted", async () => {
-    const { view } = build();
+    const { view } = build(unansweredFacts());
     const res = await fillForm("f1040", view, f1040Map, DEFAULT_FILL_OPTIONS);
     const joined = res.blankNotes.join(" | ");
     for (const needle of ["line 12a", "line 12b", "line 12c", "line 7b", "line 3c", "line 4c", "line 5c", "line 6c", "line 6d", "line 16", "line 27b", "line 27c", "line 35a", "Presidential"]) {
@@ -269,5 +284,228 @@ describe("Schedule C Part V with a non-zero line 48 and no rows is never silent 
     expect(toPdfReturnView(ret, facts, OPTS).openItems.some((i) => i.id === "adapter:schc.other-no-items")).toBe(false);
     const plain = build();
     expect(plain.view.openItems.some((i) => i.id === "adapter:schc.other-no-items")).toBe(false);
+  });
+});
+
+// ── Round 2 (review fixes B1, B2, S1, S2, S3, S5) ──────────────────────────────
+
+function bulletsAfter(blocks: readonly CoverBlock[], headingStart: string): string[] {
+  const at = blocks.findIndex((b) => b.kind === "heading" && b.text.startsWith(headingStart));
+  expect(at, `heading "${headingStart}"`).toBeGreaterThanOrEqual(0);
+  const out: string[] = [];
+  for (const b of blocks.slice(at + 1)) {
+    if (b.kind === "heading") break;
+    if (b.kind === "bullet") out.push(b.text);
+  }
+  return out;
+}
+
+function allText(blocks: readonly CoverBlock[]): string {
+  return blocks.map((b) => (b.kind === "kv" ? `${b.label}: ${b.value}` : b.kind === "spacer" ? "" : b.text)).join("\n");
+}
+
+describe("B1: forms the engine requires but the packet cannot generate are listed on the cover", () => {
+  it("every engine form id is either served by a registered map or on the explicit no-PDF list (never both, never neither)", () => {
+    const engineIds = Object.keys(ENGINE_FORM_TITLES).sort();
+    const mapped = new Set<string>(["f1040", ...FORM_MAPS.map((m) => m.engineFormId).filter((x): x is NonNullable<typeof x> => x !== undefined)]);
+    const noPdf = new Set<string>(EXPLICIT_NO_PDF);
+    for (const id of engineIds) {
+      expect(mapped.has(id) !== noPdf.has(id), `${id}: exactly one of "has a map" / "explicit no-PDF list"`).toBe(true);
+    }
+    expect([...mapped, ...noPdf].sort()).toEqual(engineIds);
+    // the engine never reports a form id this module does not know
+    const { ret } = build();
+    for (const id of Object.keys(ret.formsRequired)) expect(ENGINE_FORM_TITLES, id).toHaveProperty(id);
+  });
+
+  it("required (true) and undecided ('blocking') forms without a map are listed with the engine's reason; false verdicts are not", () => {
+    const { view } = build();
+    const v: PdfReturnView = {
+      ...view,
+      formsRequired: {
+        ...view.formsRequired,
+        sch1a: { required: "blocking", reason: "Cannot tell until a blocking item is resolved." },
+        f8889: { required: true, reason: "HSA contributions or distributions exist." },
+        f8283: { required: false, reason: "Noncash gifts are not over $500." },
+      },
+    };
+    const missing = requiredFormsWithoutPdf(v);
+    expect(missing.map((m) => m.formId)).toEqual(["sch1a", "f8889"]); // the explicit-list order
+    const model = buildCoverModel({ view: v, forms: [], fillItems: [], continuations: [], stamp: true, missingForms: missing });
+    const heading = model.blocks.find((b) => b.kind === "heading" && b.text.startsWith("Required forms this packet does NOT contain"));
+    expect(heading && "text" in heading ? heading.text : "").toContain("(2)");
+    const bullets = bulletsAfter(model.blocks, "Required forms this packet does NOT contain");
+    expect(bullets).toHaveLength(2);
+    const s1a = bullets.find((t) => t.includes("Schedule 1-A"));
+    const f8889 = bullets.find((t) => t.includes("Form 8889"));
+    expect(s1a).toContain("cannot rule it out yet");
+    expect(s1a).toContain("Cannot tell until a blocking item is resolved.");
+    expect(f8889).toContain("the engine says it is required");
+    expect(f8889).toContain("HSA contributions or distributions exist.");
+    expect(allText(model.blocks)).not.toContain("Form 8283");
+    // the section comes before "Forms in this packet"
+    const order = model.blocks.map((b) => (b.kind === "heading" ? b.text : ""));
+    expect(order.findIndex((t) => t.startsWith("Required forms this packet does NOT"))).toBeLessThan(order.indexOf("Forms in this packet"));
+  });
+
+  it("a real packet carries the section and the status banner counts the missing forms", async () => {
+    const { view } = build();
+    const v: PdfReturnView = { ...view, formsRequired: { ...view.formsRequired, f4562: { required: true, reason: "The fixed-asset register is not empty." } } };
+    const packet = await buildPacket(v, { maps: FORM_MAPS });
+    const model = buildCoverModel({ view: v, forms: packet.forms, fillItems: packet.openItems, continuations: [], stamp: true, missingForms: requiredFormsWithoutPdf(v) });
+    expect(bulletsAfter(model.blocks, "Required forms this packet does NOT contain").some((t) => t.includes("Form 4562"))).toBe(true);
+    const missingCount = requiredFormsWithoutPdf(v).length;
+    expect(missingCount).toBeGreaterThanOrEqual(1);
+    expect(allText(model.blocks)).toContain(`${missingCount} form(s) the engine requires are not generated by this packet`);
+  });
+
+  it("none missing: the section says so", () => {
+    const { view } = build();
+    const model = buildCoverModel({ view, forms: [], fillItems: [], continuations: [], stamp: true });
+    expect(allText(model.blocks)).toContain("None: every form the engine requires or cannot rule out is in this packet.");
+  });
+});
+
+describe("B2: a blank line is never read as a zero unless it is one", () => {
+  it("every mapped line whose pending key the engine does not emit raises an item, expected or not", async () => {
+    const { view } = build();
+    const res = await fillForm("ct1040", view, ct1040Map, DEFAULT_FILL_OPTIONS);
+    for (const key of ["ct1040.3", "ct1040.7", "ct1040.8", "ct1040.12", "ct1040.13", "ct1040.14", "ct1040.16", "ct1040.17", "ct1040.21"] as const) {
+      expect(view.lines[key], `${key} is not emitted`).toBeUndefined();
+      const item = res.openItems.find((i) => i.id === `noemit:ct1040:${key}`);
+      expect(item, key).toBeDefined();
+      expect(item?.severity).toBe("advisory");
+    }
+  });
+
+  it("on the real engine view, every blank mapped money line (all forms) is explained by an item or is a genuine zero", async () => {
+    for (const facts of [fullFacts(), itemizingFacts()]) {
+      const { view } = build(facts);
+      for (const map of FORM_MAPS) {
+        const res = await fillForm(map.formId, view, map, DEFAULT_FILL_OPTIONS);
+        const values = await readAllFields(res.bytes);
+        for (const entry of map.lines) {
+          if (entry.kind !== "money") continue;
+          if ((values.get(entry.field) ?? "") !== "") continue;
+          const explained = res.openItems.some((i) => i.lineKey === entry.line);
+          const line = view.lines[entry.line];
+          const zeroish =
+            line !== undefined &&
+            (line.status === "computed" || line.status === "not_applicable" || line.status === "overridden") &&
+            line.amount !== null &&
+            (line.amount === 0 || entry.sign !== undefined);
+          expect(explained || zeroish, `${map.formId} ${entry.line} is blank with no item and is not a zero (${line?.status ?? "not emitted"})`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("the cover's blank-line policy never claims a blank is a zero without the listed exceptions", () => {
+    const { view } = build();
+    const text = allText(buildCoverModel({ view, forms: [], fillItems: [], continuations: [], stamp: true }).blocks);
+    expect(text).toContain("A blank MONEY line that is not listed under 'Lines left blank on the forms'");
+    expect(text).toContain("'Boxes and entries the app does not decide'");
+    expect(text).not.toContain("A blank form line with no open item is a computed zero");
+  });
+
+  it("the CT-1040 not-modeled lines (18f, 20a-20d, 23-25, 29, 30, Schedule 1 detail, 63/65/67, 69a-d) are listed on the cover", async () => {
+    const { view } = build();
+    const res = await fillForm("ct1040", view, ct1040Map, DEFAULT_FILL_OPTIONS);
+    const joined = res.blankNotes.join(" | ");
+    for (const needle of ["18f", "20a-20d", "23, 24, 24a, 25", "29, 30", "31-37", "63, 65, 67", "69a-69d"]) expect(joined, needle).toContain(needle);
+  });
+});
+
+describe("S1: answered questions reach the boxes and clear the 'Answer needed' items", () => {
+  it("fully answered fixture: digital assets 'No' and Schedule B Part III 'No' boxes check; 12d boxes stay unchecked with no item", async () => {
+    const { view } = build();
+    const f1040 = await fillForm("f1040", view, f1040Map, DEFAULT_FILL_OPTIONS);
+    const f = await readAllFields(f1040.bytes);
+    expect(f.get("topmostSubform[0].Page1[0].c1_10[1]")).toBe(true); // digital assets: No
+    expect(f.get("topmostSubform[0].Page1[0].c1_10[0]")).toBe(false);
+    expect(f1040.openItems.filter((i) => i.id.includes(":answer:"))).toEqual([]);
+    const b = await fillForm("f1040sb", view, schBMap, DEFAULT_FILL_OPTIONS);
+    expect(b.openItems.filter((i) => i.id.includes(":answer:"))).toEqual([]);
+    const fb = await readAllFields(b.bytes);
+    const checked = schBMap.lines.filter((m) => m.kind === "check" && fb.get(m.field) === true).map((m) => (m.kind === "check" ? `${m.choice}=${String(m.equals)}` : ""));
+    expect(checked.sort()).toEqual(["fincenRequired=no", "foreignAccounts=no", "foreignTrust=no"]);
+  });
+
+  it("a person who is 65 or older checks that 12d box and nothing is reported as missing", async () => {
+    const facts = fullFacts();
+    const eric = facts.returnAnswers.people.find((p) => p.name === "Eric");
+    if (!eric) throw new Error("fixture person missing");
+    eric.bornBefore1961 = { ...eric.bornBefore1961, value: true };
+    const { view } = build(facts);
+    expect(view.answers["age65Taxpayer"]).toBe(true);
+    const res = await fillForm("f1040", view, f1040Map, DEFAULT_FILL_OPTIONS);
+    const f = await readAllFields(res.bytes);
+    expect(f.get("topmostSubform[0].Page2[0].c2_5[0]")).toBe(true);
+    expect(res.openItems.filter((i) => i.id.includes(":answer:"))).toEqual([]);
+  });
+});
+
+describe("S2: informational lines never block", () => {
+  it("a needs-CPA line the engine marks informational is an ADVISORY blank item; others stay blocking", () => {
+    const base = { key: "ct1040.28" as const, status: "needs_cpa_rule_unverified" as const, amount: null, reason: "not estimated", formLabel: "CT-1040", formLine: "28", label: "interest" };
+    const entry = { kind: "money" as const, field: "x", line: "ct1040.28" as const };
+    expect(resolveFieldValue("ct1040", { ...base, informational: true }, entry).items[0]?.severity).toBe("advisory");
+    expect(resolveFieldValue("ct1040", base, entry).items[0]?.severity).toBe("blocking");
+  });
+
+  it("real engine: CT-1040 lines 27 / 28 are informational advisory blanks", async () => {
+    const { view } = build();
+    expect(view.lines["ct1040.27"]?.informational).toBe(true);
+    expect(view.lines["ct1040.28"]?.informational).toBe(true);
+    const packet = await buildPacket(view, { maps: FORM_MAPS });
+    const ct = packet.openItems.filter((i) => i.formId === "ct1040" && (i.lineKey === "ct1040.27" || i.lineKey === "ct1040.28"));
+    expect(ct.length).toBe(2);
+    for (const i of ct) expect(i.severity).toBe("advisory");
+  });
+});
+
+describe("S3 + S5: provisional facts and the status banner", () => {
+  it("the PROVISIONAL block lists the engine's assumedFacts one per bullet", () => {
+    const { ret, view } = build(emptyFacts());
+    expect(ret.headline.complete).toBe(false);
+    const facts = ret.headline.provisional?.assumedFacts ?? [];
+    expect(facts.length).toBeGreaterThan(0);
+    const model = buildCoverModel({ view, forms: [], fillItems: [], continuations: [], stamp: true });
+    const bullets = bulletsAfter(model.blocks, "Headline numbers");
+    for (const a of facts) expect(bullets, a).toContain(a);
+    expect(allText(model.blocks)).toContain("these facts were assumed");
+  });
+
+  it("status banner: blocking items remain -> NOT ready; none -> review still required", () => {
+    const { ret, view } = build(emptyFacts());
+    const blocking = ret.openItems.filter((i) => i.severity === "blocking").length;
+    expect(blocking).toBeGreaterThan(0);
+    const bad = buildCoverModel({ view, forms: [], fillItems: [], continuations: [], stamp: true });
+    const at = bad.blocks.findIndex((b) => b.kind === "heading" && b.text.startsWith("STATUS:"));
+    const status = bad.blocks[at];
+    expect(status && "text" in status ? status.text : "").toBe(`STATUS: ${blocking} blocking item(s) remain - NOT ready to file.`);
+    expect(at).toBeLessThan(4); // right after the title block
+    const clean = buildCoverModel({ view: { ...view, openItems: [] }, forms: [], fillItems: [], continuations: [], stamp: true });
+    expect(allText(clean.blocks)).toContain("STATUS: no blocking items; CPA review is still required.");
+    const withMissing = buildCoverModel({
+      view: { ...view, openItems: [] },
+      forms: [],
+      fillItems: [],
+      continuations: [],
+      stamp: true,
+      missingForms: requiredFormsWithoutPdf({ formsRequired: { f8889: { required: true, reason: "r" } } }),
+    });
+    expect(allText(withMissing.blocks)).toContain(
+      "STATUS: no blocking items, but 1 form(s) the engine requires are not generated by this packet (see below) - NOT ready to file; CPA review required.",
+    );
+  });
+});
+
+describe("nits", () => {
+  it("every filled form keeps a DRAFT note in its document properties (also the clean ?stamp=0 copy)", async () => {
+    const { view } = build();
+    const res = await fillForm("f1040", view, f1040Map, { ...DEFAULT_FILL_OPTIONS, stamp: false });
+    const doc = await PDFDocument.load(res.bytes);
+    expect(doc.getSubject()).toContain("DRAFT");
   });
 });

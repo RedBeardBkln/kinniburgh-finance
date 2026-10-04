@@ -8,6 +8,7 @@ import { buildCoverModel, renderCover, type CoverForm } from "@/lib/tax2025/pdf/
 import { FLAT_FORM_COVER_NOTES } from "@/lib/tax2025/pdf/ct-overlay";
 import { fillForm } from "@/lib/tax2025/pdf/fill";
 import { formatNewYorkDate, shortFingerprint } from "@/lib/tax2025/pdf/format";
+import { requiredFormsWithoutPdf } from "@/lib/tax2025/pdf/no-pdf-forms";
 import { formInclusion } from "@/lib/tax2025/pdf/policy";
 import { getManifestEntry } from "@/lib/tax2025/pdf/registry";
 import type { ContinuationList, FormMap, PacketOpenItem, PdfReturnView } from "@/lib/tax2025/pdf/types";
@@ -109,7 +110,7 @@ export async function buildPacket(view: PdfReturnView, options: PacketOptions): 
   }
 
   const openItems = [...itemById.values()];
-  const model = buildCoverModel({ view, forms, fillItems: openItems, continuations, stamp });
+  const model = buildCoverModel({ view, forms, fillItems: openItems, continuations, stamp, missingForms: requiredFormsWithoutPdf(view) });
   const cover = await renderCover(model);
   if (model.redactedCount > 0) {
     openItems.push({

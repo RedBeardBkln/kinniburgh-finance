@@ -90,21 +90,27 @@ const propertyTax: MapTable = {
   overflow: "summary_row_and_statement",
 };
 
-/** Boxes with no engine line: left blank for the CPA to key (still editable). */
-const NOT_MODELED_LINES = [
-  "18f", // additional CT withholding from Schedule CT-1040WH
-  "20a", "20b", "20c", "20d", // refundable credits (CT-EITC, claim of right, pass-through entity, historic home)
-  "23", "24", "24a", "25", // owner's refund elections and the refund itself
-  "29", "30", // CT-2210 interest and total amount due
-  // Schedule 1 detail lines (only the totals 38 and 50 are engine lines)
-  "31", "32", "33", "34", "35", "36", "36a", "37",
-  "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "48a", "48b", "48c", "48d", "49",
-  // Schedule 3 internals (the engine states them only in its explanation text) and Schedule 4 detail
-  "63", "65", "67",
-  "69a", "69b", "69c", "69d",
-] as const;
+/**
+ * Boxes with no engine line: left blank for the CPA to key (still editable). Each group carries a note, so the
+ * cover LISTS them (a blank here is "not decided by the app", never a computed zero).
+ */
+const NOT_MODELED_GROUPS: ReadonlyArray<{ note: string; lines: readonly string[] }> = [
+  { note: "line 18f: additional CT withholding from Schedule CT-1040WH", lines: ["18f"] },
+  { note: "lines 20a-20d: refundable credits (CT-EITC, claim of right, pass-through entity, historic home)", lines: ["20a", "20b", "20c", "20d"] },
+  { note: "lines 23, 24, 24a, 25: the owner's refund / overpayment elections", lines: ["23", "24", "24a", "25"] },
+  { note: "lines 29, 30: CT-2210 interest and the total amount due", lines: ["29", "30"] },
+  {
+    // only the totals 38 and 50 are engine lines
+    note: "Schedule 1 detail lines 31-37 and 39-49 (the engine states only the totals, lines 38 and 50)",
+    lines: ["31", "32", "33", "34", "35", "36", "36a", "37", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "48a", "48b", "48c", "48d", "49"],
+  },
+  { note: "Schedule 3 lines 63, 65, 67 (property tax credit worksheet; the engine states them only in its explanation text)", lines: ["63", "65", "67"] },
+  { note: "Schedule 4 lines 69a-69d (use tax detail; only the total, line 69, is an engine line)", lines: ["69a", "69b", "69c", "69d"] },
+];
 
-const blank: MapBlank[] = NOT_MODELED_LINES.map((l): MapBlank => ({ field: f(`l${l}`), reason: "not_modeled" }));
+const blank: MapBlank[] = NOT_MODELED_GROUPS.flatMap((g) =>
+  g.lines.map((l): MapBlank => ({ field: f(`l${l}`), reason: "not_modeled", note: `CT-1040 ${g.note}` })),
+);
 
 export const ct1040Map: FormMap = {
   formId: "ct1040",

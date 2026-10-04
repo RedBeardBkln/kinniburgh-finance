@@ -9,9 +9,11 @@
 //   not_applicable          -> blank (or "0" with zero:"print")
 //   missing_input / needs_cpa_* -> blank + BLOCKING item
 //   not_yet_computed        -> blank + advisory item
-//   no ReturnLine at all    -> blank; an item only when the map flags expected:true
+//   no ReturnLine at all    -> blank; an item when the map flags expected:true OR the key is a PENDING key
+//                              (a line the engine does not emit yet: never silently read as a zero)
 
 import { formatDollars } from "@/lib/tax2025/pdf/format";
+import { PENDING_LINE_KEYS } from "@/lib/tax2025/pdf/pending-line-keys";
 import type {
   FormMap,
   MapMoneyLine,
@@ -43,7 +45,7 @@ function blankItem(formId: string, line: PdfLine, severity: "blocking" | "adviso
 export function resolveFieldValue(formId: string, line: PdfLine | undefined, entry: MapMoneyLine): MoneyDecision {
   if (line === undefined) {
     const items: PacketOpenItem[] = [];
-    if (entry.expected) {
+    if (entry.expected || (PENDING_LINE_KEYS as readonly string[]).includes(entry.line)) {
       items.push({
         id: `noemit:${formId}:${entry.line}`,
         severity: "advisory",
@@ -99,7 +101,8 @@ export function resolveFieldValue(formId: string, line: PdfLine | undefined, ent
     case "missing_input":
     case "needs_cpa_rule_unverified":
     case "needs_cpa_judgment":
-      return { write: null, items: [blankItem(formId, line, "blocking", line.reason ?? line.status)] };
+      // The engine's own classification wins: an informational line never blocks the return.
+      return { write: null, items: [blankItem(formId, line, line.informational === true ? "advisory" : "blocking", line.reason ?? line.status)] };
     case "not_yet_computed":
       return {
         write: null,

@@ -62,6 +62,12 @@ pnpm db:migrate   # prisma migrate dev (local dev migration)
 pnpm db:push      # prisma db push (schema push without migration)
 pnpm db:studio    # Prisma Studio GUI
 pnpm db:seed      # seed from data/*.csv
+
+# TY2025 PDF packet (dev tools; none touch the DB)
+pnpm forms:fetch         # download the blank IRS/CT forms listed in data/forms/manifest.json (fails if a sha256 changes)
+pnpm forms:catalog       # regenerate data/forms/2025/catalog/*.fields.json from the blank PDFs
+pnpm forms:calibrate-ct  # regenerate the CT-1040 overlay geometry (data/forms/2025/geometry/ct1040.json)
+pnpm tax2025:pdf-gap     # per form: pending keys still used, printed money lines no map claims (fixture data)
 ```
 
 ## Architecture
@@ -91,6 +97,8 @@ pnpm db:seed      # seed from data/*.csv
 **Document extraction** — `Document.extractionStatus === "complete"` means only that the AI run finished; "verified" is `extractionConfirmedAt` being set, and owner corrections live in an overlay column `extractionCorrections` (the AI's `extractionData` is never edited). `TAX_EXTRACTION_POLICY` (`lib/tax-extraction-policy.ts`) defaults to `verified_else_ai` (unverified AI reads are used but labelled). Compute/Forms code must read tax extraction data only through `resolveTaxDocForCompute` / `resolveEffectiveExtraction`, never raw `extractionData`.
 
 **TY2025 return engine** — `lib/tax2025/**` is pure (no DB, network or clock): `resolveFacts()` turns rows into `Ty2025Facts` + conflicts + open items, `computeTy2025Return(facts, decisions)` assembles every `LineKey` (`line-catalog.ts`) with an explicit status via rule modules in `rules/`. Every tax number lives ONLY in `constants.ts` (each with irs.gov / ct.gov url + verifiedOn; unverified rules return `needs_cpa_rule_unverified`, never an estimate), and a test fails if a rule file repeats one. A rare line is `not_applicable` 0 only when the owner/CPA stated "none" for its group (`facts.statedNone`), otherwise `not_yet_computed`: never a silent 0. `lib/tax2025-build.ts` is the only DB-aware file (read-only; no auth, so callers use `requireAuth()` and pass only `ret` to clients). `lib/tax-compute.ts` keeps the CT tables and v1 helpers.
+
+**TY2025 PDF packet** — `lib/tax2025/pdf/**` turns a computed `Ty2025Return` into a DRAFT zip of filled blank IRS forms (+ the CT-1040 as a flat form with our own overlay fields) and a cover page for the CPA; it only consumes the engine (the engine never imports it; a test pins this) and never recomputes a number. `adapter.ts` is the only file that reads engine shapes; `maps/*.ts` map every AcroForm field to an engine `LineKey`, an answer, a header name or an explicit `blank` reason (a completeness test requires each field to be claimed exactly once). Invariants: the routes `app/api/tax/forms/[year]/pdf/**` start with `auth()` and return 401 before anything else, nothing is persisted (one `AuditLog` row with ids and counts only), every string written to a PDF or the cover goes through `safeText` (SSN-like text is refused), SSN/EIN/bank/PIN/signature/preparer/address/DOB fields are always blank, and the blank-not-zero policy holds (a line that could not be computed is blank and listed on the cover, never "0"; a form the engine requires but has no map is listed under "Required forms this packet does NOT contain"). Which forms are included follows `Ty2025Return.formsRequired`. Blank forms are pinned by sha256 in `data/forms/manifest.json` (a re-issued form is a deliberate, reviewed change; `data/forms` is about 3 MB).
 
 **Testing pattern** — pure function unit tests in `lib/__tests__/`. Use `Decimal` (never floats). Test factory `makeTx(overrides)` for mock Plaid transactions. No integrated DB tests; mock at the function boundary.
 

@@ -17,12 +17,25 @@ import {
 import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 import { resolveFieldValue } from "@/lib/tax2025/pdf/policy";
 import { computeTy2025Return, TY2025_ENGINE_VERSION } from "@/lib/tax2025/return";
-import { LINE_KEYS, hasAmount, type Ty2025Return } from "@/lib/tax2025/types";
+import { LINE_KEYS, hasAmount, missingLeaf, type Ty2025Return } from "@/lib/tax2025/types";
 import type { Ty2025Facts } from "@/lib/tax2025/facts";
 import { ERIC_ID, EVA_ID, dividend, emptyFacts, fullFacts, gl, interest, owner, w2 } from "./tax2025-fixtures";
 import { readAllFields } from "./tax2025-pdf-harness";
 
 const OPTS = { generatedAt: "2026-10-03T16:00:00.000Z", generatedBy: "Test User" } as const;
+
+/** What the adapter derives from the fully answered fixture (attestations "No", nobody 65+ / blind). */
+const ANSWERED_FIXTURE_ANSWERS = {
+  filingStatus: "mfj",
+  digitalAssets: "no",
+  foreignAccounts: "no",
+  foreignTrust: "no",
+  fincenRequired: "no",
+  age65Taxpayer: false,
+  blindTaxpayer: false,
+  age65Spouse: false,
+  blindSpouse: false,
+} as const;
 
 function build(facts: Ty2025Facts, decisions: Parameters<typeof computeTy2025Return>[1] = {}) {
   const ret = computeTy2025Return(facts, decisions);
@@ -114,7 +127,7 @@ describe("toPdfReturnView: plain data and line coverage", () => {
     expect(view.engineVersion).toBe(TY2025_ENGINE_VERSION);
     expect(view.citations).toEqual(ret.citations);
     expect(view.headline).toEqual(ret.headline);
-    expect(view.answers).toEqual({ filingStatus: "mfj" });
+    expect(view.answers).toEqual(ANSWERED_FIXTURE_ANSWERS);
     expect(view.generatedBy).toBe("Test User");
     expect(view.generatedAt).toBe(OPTS.generatedAt);
   });
@@ -277,9 +290,8 @@ describe("header names from facts (taxpayer = owner of EK Consulting)", () => {
 describe("answers the maps read", () => {
   it("sets filingStatus = mfj, derives only what the engine carries, and leaves the rest undefined", () => {
     const { view } = build(fullFacts());
-    expect(view.answers).toEqual({ filingStatus: "mfj" });
+    expect(view.answers).toEqual(ANSWERED_FIXTURE_ANSWERS);
     for (const k of [
-      "digitalAssets",
       "schC.accountingMethod",
       "schC.materialParticipation",
       "schC.principalBusiness",
@@ -311,7 +323,73 @@ describe("answers the maps read", () => {
       ...OPTS,
       answers: { digitalAssets: "no", "schC.accountingMethod": "cash", filingStatus: "single" },
     });
-    expect(view.answers).toEqual({ filingStatus: "mfj", digitalAssets: "no", "schC.accountingMethod": "cash" });
+    expect(view.answers).toEqual({ ...ANSWERED_FIXTURE_ANSWERS, "schC.accountingMethod": "cash" });
+  });
+});
+
+describe("answers wired from the engine (review S1)", () => {
+  it("digital assets: Yes / No become 'yes' / 'no'; unsure or missing stays undefined", () => {
+    const yes = fullFacts();
+    yes.returnAnswers.attestations.digitalAssets = owner(true);
+    expect(build(yes).view.answers["digitalAssets"]).toBe("yes");
+    const unsure = fullFacts();
+    unsure.returnAnswers.attestations.digitalAssets = { ...missingLeaf<boolean>(), basis: "answer_owner" };
+    expect(build(unsure).ret.attestations.digitalAssets.status).toBe("unsure");
+    expect(build(unsure).view.answers["digitalAssets"]).toBeUndefined();
+    const missing = fullFacts();
+    missing.returnAnswers.attestations.digitalAssets = missingLeaf<boolean>();
+    expect(build(missing).view.answers["digitalAssets"]).toBeUndefined();
+  });
+
+  it("the foreign accounts-and-trusts question: an answered No fills Part III (accounts, FinCEN, trust) as 'no'; Yes / unsure / missing set none of them", () => {
+    const no = build(fullFacts()).view.answers;
+    expect([no["foreignAccounts"], no["fincenRequired"], no["foreignTrust"]]).toEqual(["no", "no", "no"]);
+    for (const leaf of [owner(true), { ...missingLeaf<boolean>(), basis: "answer_owner" as const }, missingLeaf<boolean>()]) {
+      const f = fullFacts();
+      f.returnAnswers.attestations.foreignAccounts = leaf;
+      const a = build(f).view.answers;
+      expect([a["foreignAccounts"], a["fincenRequired"], a["foreignTrust"]]).toEqual([undefined, undefined, undefined]);
+    }
+  });
+
+  it("12d: per-person answers go to taxpayer (the Schedule C owner) and spouse, only when answered", () => {
+    const f = fullFacts();
+    const eric = f.returnAnswers.people.find((p) => p.userId === ERIC_ID);
+    const eva = f.returnAnswers.people.find((p) => p.userId === EVA_ID);
+    if (!eric || !eva) throw new Error("fixture people missing");
+    eric.bornBefore1961 = owner(true);
+    eva.blind = owner(true);
+    eva.bornBefore1961 = missingLeaf<boolean>(); // unanswered
+    const a = build(f).view.answers;
+    expect(a["age65Taxpayer"]).toBe(true);
+    expect(a["blindTaxpayer"]).toBe(false);
+    expect(a["age65Spouse"]).toBeUndefined();
+    expect(a["blindSpouse"]).toBe(true);
+    // if the Schedule C owner were the other person, the roles swap
+    f.income.scheduleC.ownerUserId = { ...f.income.scheduleC.ownerUserId, value: EVA_ID };
+    const swapped = build(f).view.answers;
+    expect(swapped["age65Taxpayer"]).toBeUndefined();
+    expect(swapped["blindTaxpayer"]).toBe(true);
+    expect(swapped["age65Spouse"]).toBe(true);
+    expect(swapped["blindSpouse"]).toBe(false);
+  });
+
+  it("unknown taxpayer (owner not matched): no 12d answers are guessed", () => {
+    const f = fullFacts();
+    f.income.scheduleC.ownerUserId = missingLeaf();
+    const a = build(f).view.answers;
+    for (const k of ["age65Taxpayer", "blindTaxpayer", "age65Spouse", "blindSpouse"]) expect(a[k], k).toBeUndefined();
+  });
+
+  it("the fingerprint covers table rows and the forms verdicts", () => {
+    const f = fullFacts();
+    const base = build(f).view.fingerprint;
+    const g = fullFacts();
+    g.income.interest = [interest({ docId: "i9", payer: "Another Bank", box1Cents: 500, box3Cents: 0 })];
+    expect(build(g).view.fingerprint).not.toBe(base);
+    const { ret } = build(f);
+    const changed: Ty2025Return = { ...ret, formsRequired: { ...ret.formsRequired, f8283: { required: true, reason: "x" } } };
+    expect(toPdfReturnView(changed, f, OPTS).fingerprint).not.toBe(base);
   });
 });
 

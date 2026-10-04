@@ -351,11 +351,20 @@ interface HeaderBuild {
  * owner cannot be matched to a household person the taxpayer / spouse names stay blank and an
  * open item says so (nothing is guessed); the schedules that print both names still get them.
  */
-function buildHeader(facts: Ty2025Facts, ekcName: string | null): HeaderBuild {
+function householdOrder(facts: Ty2025Facts): {
+  people: Ty2025Facts["household"]["people"];
+  taxpayer: Ty2025Facts["household"]["people"][number] | undefined;
+  spouse: Ty2025Facts["household"]["people"][number] | undefined;
+} {
   const people = facts.household.people.filter((p) => p.name.trim() !== "");
   const ownerId = facts.income.scheduleC.ownerUserId.value;
   const taxpayer = ownerId === null ? undefined : people.find((p) => p.userId === ownerId);
   const spouse = taxpayer ? people.find((p) => p !== taxpayer) : undefined;
+  return { people, taxpayer, spouse };
+}
+
+function buildHeader(facts: Ty2025Facts, ekcName: string | null): HeaderBuild {
+  const { people, taxpayer, spouse } = householdOrder(facts);
   const ordered = taxpayer ? [taxpayer, ...(spouse ? [spouse] : [])] : people.slice(0, 2);
   const names = ordered.map((p) => p.name.trim());
   const items: PdfOpenItem[] = [];
@@ -388,9 +397,18 @@ function buildHeader(facts: Ty2025Facts, ekcName: string | null): HeaderBuild {
  * is derived; everything else stays undefined (unchecked + an advisory "answer needed" item):
  *   filingStatus          the engine's (MFJ only)
  *   schC.officeSqft       facts home-office square footage, only for an exclusive-use office
- * Not carried by the engine yet (arrive with Phase 1b attestations, or via opts.answers):
- *   digitalAssets, schC.accountingMethod, schC.materialParticipation, schC.principalBusiness,
- *   schC.businessCode, schC.homeSqft.
+ *   digitalAssets         ret.attestations.digitalAssets, "yes" / "no" only when status is "answered"
+ *   foreignAccounts, foreignTrust, fincenRequired
+ *                         ret.attestations.foreignAccounts is ONE questionnaire question covering foreign
+ *                         accounts AND trusts: an answered "No" is "no" for all three Schedule B Part III
+ *                         questions; an answered "Yes" does not say which one applies, so none is set
+ *                         (the CPA completes Part III; the engine already raises a blocking item)
+ *   age65Taxpayer, blindTaxpayer, age65Spouse, blindSpouse
+ *                         facts.returnAnswers.people[] (bornBefore1961 / blind), matched by user id to the
+ *                         same taxpayer (Schedule C owner) / spouse ordering the header uses; a boolean only
+ *                         when the owner answered it (unanswered / "not sure" stays undefined)
+ * Not carried by the engine yet (via opts.answers): schC.accountingMethod, schC.materialParticipation,
+ * schC.principalBusiness, schC.businessCode, schC.homeSqft.
  */
 function buildAnswers(ret: Ty2025Return, facts: Ty2025Facts, extra: Readonly<Record<string, PdfAnswer>> | undefined): Record<string, PdfAnswer> {
   const answers: Record<string, PdfAnswer> = {};
@@ -398,6 +416,29 @@ function buildAnswers(ret: Ty2025Return, facts: Ty2025Facts, extra: Readonly<Rec
   if (sc.homeOfficeEligibility.value === "yes_exclusive" && sc.homeOfficeSqft.value !== null) {
     answers["schC.officeSqft"] = String(sc.homeOfficeSqft.value);
   }
+  // Header yes / no questions the owner answered (Phase 1b attestations).
+  const att = ret.attestations;
+  if (att?.digitalAssets.status === "answered" && att.digitalAssets.value !== null) {
+    answers["digitalAssets"] = att.digitalAssets.value ? "yes" : "no";
+  }
+  if (att?.foreignAccounts.status === "answered" && att.foreignAccounts.value === false) {
+    answers["foreignAccounts"] = "no";
+    answers["foreignTrust"] = "no";
+    answers["fincenRequired"] = "no";
+  }
+  // Line 12d age / blind boxes, per person.
+  const { taxpayer, spouse } = householdOrder(facts);
+  const flags = (userId: string | undefined): { age: boolean | null; blind: boolean | null } | null => {
+    if (userId === undefined) return null;
+    const p = facts.returnAnswers.people.find((x) => x.userId === userId);
+    return p ? { age: p.bornBefore1961.value, blind: p.blind.value } : null;
+  };
+  const t = flags(taxpayer?.userId);
+  const s = flags(spouse?.userId);
+  if (t?.age != null) answers["age65Taxpayer"] = t.age;
+  if (t?.blind != null) answers["blindTaxpayer"] = t.blind;
+  if (s?.age != null) answers["age65Spouse"] = s.age;
+  if (s?.blind != null) answers["blindSpouse"] = s.blind;
   for (const [k, v] of Object.entries(extra ?? {})) answers[k] = v;
   answers["filingStatus"] = ret.filingStatus;
   return answers;
@@ -432,6 +473,7 @@ export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
       formLine: base.formLine,
       label: base.label,
     };
+    if (base.informational === true) line.informational = true;
     const label = undecided.get(key);
     if (label !== undefined) line.defaultUndecided = label;
     if (eff?.override && ov) {
@@ -460,6 +502,7 @@ export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
   const decisions = decisionsSource.map((d) => toPdfDecision(d, ret.results));
   const headline = ov ? ov.effective.headline : ret.headline;
 
+  const formsRequired = formsRequiredOf(ret);
   const built = buildTables(ret, facts);
   openItems.push(...built.items);
 
@@ -468,7 +511,16 @@ export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
   openItems.push(...header.items);
 
   // Fingerprint of the return state (never `results`: it carries Decimals and rule internals).
-  const fingerprint = fingerprintOf({ lines: fingerprintLines, openItems: engineItems, decisions: decisionsSource, headline });
+  // It also covers the table rows (Schedule B payers, CT withholding / property tax, Part V) and the forms verdicts,
+  // so two packets that differ in any of them never share a fingerprint.
+  const fingerprint = fingerprintOf({
+    lines: fingerprintLines,
+    openItems: engineItems,
+    decisions: decisionsSource,
+    headline,
+    tables: built.tables,
+    formsRequired,
+  });
 
   return {
     taxYear: ret.taxYear,
@@ -477,7 +529,7 @@ export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
     generatedBy: opts.generatedBy,
     fingerprint,
     engineVersion: ret.engineVersion,
-    formsRequired: formsRequiredOf(ret),
+    formsRequired,
     lines,
     header: header.header,
     answers,

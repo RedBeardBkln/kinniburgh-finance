@@ -302,6 +302,8 @@ export async function fillForm(
   }
 
   form.updateFieldAppearances(font);
+  // A clean (?stamp=0) single form has no page marking: keep the DRAFT status in the document properties.
+  doc.setSubject("DRAFT computed for CPA review - not a filed return");
 
   if (opts.alternativeLabel) {
     stampPages(doc, font, opts.alternativeLabel);
