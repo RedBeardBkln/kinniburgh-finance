@@ -270,8 +270,8 @@ describe("Return completeness questionnaire: tree integrity", () => {
   it("the all-none path is ~45 questions (the report says 45 of 107 nodes) and terminates", () => {
     const a = walk(noneOrNo);
     expect(Object.keys(a).length).toBeGreaterThanOrEqual(40);
-    expect(Object.keys(a).length).toBeLessThanOrEqual(55); // + cgco, cgall, cgadj and two capital-gain stated-none groups (schedule-d-capture)
-    expect(def.nodes.length).toBe(138); // 129 (round 6: other-income flow) + 9 capital-gain nodes (cgco/cgcos/cgcol/cgall/cgadj + 2 none groups g_ + ga_)
+    expect(Object.keys(a).length).toBeLessThanOrEqual(61); // + cgco, cgall, cgadj and two capital-gain stated-none groups (schedule-d-capture) + six CT Schedule 1 g_ questions (ty2025-mip-ct-schedule1)
+    expect(def.nodes.length).toBe(150); // 129 (round 6: other-income flow) + 9 capital-gain nodes (cgco/cgcos/cgcol/cgall/cgadj + 2 none groups g_ + ga_) + 12 (six CT Schedule 1 groups, g_ + ga_ each)
   });
   it("every showWhen references only EARLIER nodes (no dangling / forward reference) and the unsure option exists on every choice node", () => {
     const idx = new Map(def.nodes.map((n, i) => [n.id, i]));
@@ -304,14 +304,18 @@ describe("Return completeness questionnaire: tree integrity", () => {
       for (const o of n.options) expect(seen.has(`${n.id}:${o.id}`), `${n.id}:${o.id} unreachable`).toBe(true);
     }
   });
-  it("each of the 16 stated-none groups has exactly one g_ question and one ga_ amount node, and every NoneGroupId has line-catalog text", () => {
-    expect(NONE_GROUP_IDS).toHaveLength(16); // + capital_gain_other and capital_special_rates (Schedule D)
+  it("each of the 22 stated-none groups has exactly one g_ question and one ga_ amount node, and every NoneGroupId has line-catalog text", () => {
+    // 16 line-gating groups (+ capital_gain_other and capital_special_rates for Schedule D) + the six CT Schedule 1 groups,
+    // which gate no catalog line: rules/ct-schedule1.ts reads them itself
+    const CT_GROUPS = ["ct_muni_bonds", "ct_us_gov_funds", "ct_chet_able", "ct_prior_addbacks", "ct_other_additions", "ct_other_subtractions"];
+    expect(NONE_GROUP_IDS).toHaveLength(22);
     const ids = new Set(def.nodes.map((n) => n.id));
     for (const g of NONE_GROUP_IDS) {
       expect(ids.has(`g_${g}`), g).toBe(true);
       expect(ids.has(`ga_${g}`), g).toBe(true);
       expect(NONE_GROUP_TEXT[g].length, g).toBeGreaterThan(10);
-      expect(LINE_CATALOG.some((m) => m.group === g), `${g} gates at least one catalog line`).toBe(true);
+      if (CT_GROUPS.includes(g)) expect(LINE_CATALOG.some((m) => m.group === g), `${g} is read by the CT Schedule 1 rule, not a catalog line`).toBe(false);
+      else expect(LINE_CATALOG.some((m) => m.group === g), `${g} gates at least one catalog line`).toBe(true);
     }
     // the questionnaire also asks the two capital-gain groups (capital_gain_other, capital_special_rates), whether or not line-catalog lists them yet
     expect(def.nodes.filter((n) => n.id.startsWith("g_"))).toHaveLength(RC_NONE_GROUP_IDS.length);

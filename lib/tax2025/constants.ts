@@ -52,6 +52,8 @@ export interface TaxConstant<T> {
 export const VERIFIED_ON = "2026-10-03";
 /** Date of the earlier primary-source pass already recorded in specs/09 (brackets, CT tables). */
 export const VERIFIED_ON_SPEC09_FIRST_PASS = "2026-09-17";
+/** Date of the mortgage-insurance (Pub. 936) and CT-1040 Schedule 1 primary-source pass. */
+export const VERIFIED_ON_2026_10_04 = "2026-10-04";
 
 const IRS = "https://www.irs.gov";
 const URL_1040_INSTR = `${IRS}/instructions/i1040gi`;
@@ -77,6 +79,7 @@ const URL_2210_FORM = `${IRS}/pub/irs-pdf/f2210.pdf`;
 const URL_INTEREST_RATES = `${IRS}/payments/quarterly-interest-rates`;
 const URL_CT_INSTR = "https://portal.ct.gov/-/media/drs/forms/2025/income/2025-ct-1040-instructions_1225.pdf";
 const URL_CT_TCS = "https://portal.ct.gov/-/media/drs/forms/2025/income/ct-1040-tcs_1225.pdf";
+const URL_PUB_936 = `${IRS}/publications/p936`;
 
 function def<T>(
   id: string,
@@ -293,6 +296,20 @@ export const CONSTANTS = {
     750000,
     URL_SCH_A_INSTR,
     "Home acquisition debt limit for loans after Dec 15, 2017."
+  ),
+  MORTGAGE_INSURANCE_PREMIUM_DEDUCTION_TY2025: def(
+    "MORTGAGE_INSURANCE_PREMIUM_DEDUCTION_TY2025",
+    "not deductible",
+    URL_PUB_936,
+    "Pub. 936 (2025), Reminders: \"The itemized deduction for mortgage insurance premiums has expired. You can no longer claim the deduction.\" Also the \"Points\" section: mortgage insurance premiums are not points (\"You can't deduct these amounts as points either in the year paid or over the life of the mortgage\").",
+    VERIFIED_ON_2026_10_04
+  ),
+  SCHEDULE_A_LINE_8D: def(
+    "SCHEDULE_A_LINE_8D",
+    "reserved for future use",
+    URL_SCH_A_INSTR,
+    "2025 Schedule A instructions, Line 8d: \"Reserved for future use\" (the 2025 Schedule A has no line for Form 1098 box 5 mortgage insurance premiums).",
+    VERIFIED_ON_2026_10_04
   ),
   FORM_8283_NONCASH_THRESHOLD: def(
     "FORM_8283_NONCASH_THRESHOLD",
@@ -538,6 +555,66 @@ export const CONSTANTS = {
     1550,
     URL_1040_INSTR,
     "State and Local Income Tax Refund Worksheet line 6: 1,550 per box checked (born before January 2, 1960 or blind, you and your spouse), 1,950 if the 2024 status was single or head of household."
+  ),
+  // ── CT-1040 Schedule 1 (verified 2026-10-04 against the 2025 CT-1040 instructions, Rev. 12/25, pp. 6-10) ──
+  CT_SCH1_STATUTORY_MODIFICATIONS_ONLY: def(
+    "CT_SCH1_STATUTORY_MODIFICATIONS_ONLY",
+    "Conn. Gen. Stat. 12-701(a)(20)",
+    URL_CT_INSTR,
+    "CT-1040 instructions p. 6: federal adjusted gross income may not be further modified in determining Connecticut adjusted gross income except as expressly provided by Conn. Gen. Stat. 12-701(a)(20).",
+    VERIFIED_ON_2026_10_04
+  ),
+  CT_SCH1_LINE_RULES: def(
+    "CT_SCH1_LINE_RULES",
+    {
+      "31": "Line 31: interest on state and municipal obligations other than Connecticut that is not taxed for federal income tax purposes (not Puerto Rico, Guam, American Samoa or U.S. Virgin Islands).",
+      "32": "Line 32: exempt-interest dividends from a mutual fund derived from non-Connecticut state and municipal obligations; only the non-Connecticut percentage when the fund holds both (a fund with 20% Connecticut obligations: add back 80%).",
+      "33": "Line 33: the part of a qualified plan lump-sum distribution on which federal Form 4972 was filed that is not reported on federal Form 1040 line 5a or Schedule D.",
+      "34": "Line 34: beneficiary's share of the Connecticut fiduciary adjustment from an estate or trust, when greater than zero (Schedule CT-1041 K-1); when less than zero it goes on line 46.",
+      "35": "Line 35: losses from the sale or exchange of notes, bonds or other obligations of the State of Connecticut or its municipalities used to determine federal gain (loss), whether or not the entire loss is used in federal AGI.",
+      "36": "Line 36: 100% of the Section 168(k) bonus depreciation reported for federal income tax purposes this year, provided it is deducted in federal AGI.",
+      "36a": "Line 36a: 80% of the Section 179 amount deducted in determining federal AGI.",
+      "37": "Line 37: other additions (treaty income, enrolled Mashantucket Pequot / Mohegan Tribe member losses, Connecticut income tax deducted other than on Schedule A, expenses and bond premium related to Connecticut-exempt income, interest on debt carried to hold such obligations, Manufacturing Reinvestment Account distributions, Section 457A compensation, U.S. agency interest exempt federally but not by Connecticut, and any other required addition); each must be described on the form.",
+      "39": "Line 39: interest on U.S. government obligations that federal law prohibits states from taxing (savings bonds, Treasury bills and notes), to the extent included in federal AGI; for Series EE bonds only the interest left after the Form 8815 exclusion; not Fannie Mae, Ginnie Mae or Freddie Mac interest and not interest on a federal tax refund.",
+      "40": "Line 40: exempt dividends from a qualifying mutual fund (at least 50% of its assets in U.S. government obligations at the close of each quarter) derived from U.S. government obligations; the exempt percentage is reported by the fund (a $100 dividend that is 55% T-bills gives $55).",
+      "41": "Line 41: Social Security benefit adjustment from the Social Security Benefit Adjustment Worksheet (instructions p. 24); fully exempt below the CT-1040 line 1 threshold, partly exempt above it.",
+      "42": "Line 42: the taxable refunds of state and local income taxes reported on federal Form 1040 Schedule 1 line 1 (enter 0 if that line is blank).",
+      "43": "Line 43: Tier 1 and Tier 2 railroad retirement benefits and supplemental annuities (federal Form 1040 line 5b) not already subtracted on line 41.",
+      "44": "Line 44: military retirement pay to the extent included in federal AGI.",
+      "45": "Line 45: 50% of Connecticut Teachers' Retirement System pay included in federal AGI (Form 1099-R from the Connecticut Teachers' Retirement Board).",
+      "46": "Line 46: beneficiary's share of the Connecticut fiduciary adjustment from an estate or trust, when less than zero.",
+      "47": "Line 47: gains from the sale or exchange of notes, bonds or other obligations of the State of Connecticut or its municipalities used to determine federal gain (loss).",
+      "48": "Line 48: Connecticut Higher Education Trust (CHET) contributions, limited to the maximum contribution (joint return: $10,000), with the excess carried forward five years.",
+      "48a": "Line 48a: 25% of the Section 168(k) deduction added back on the Connecticut return in the four preceding taxable years.",
+      "48b": "Line 48b: pension and annuity income (Pension and Annuity Worksheet, instructions pp. 24-25) when federal AGI is under the joint threshold, from federal Form 1040 lines 4b and 5b.",
+      "48c": "Line 48c: ordinary and necessary business expenses of a taxpayer licensed under Connecticut General Statutes Chapter 420f or 420h that are not claimed for federal income tax purposes.",
+      "48d": "Line 48d: contributions to an ABLE (Achieving a Better Life Experience) account, limited to the maximum contribution (joint return: $10,000).",
+      "49": "Line 49: other subtractions (enrolled Mashantucket Pequot / Mohegan Tribe member income, Connecticut individual development account interest, interest on debt carried for investments taxable only by Connecticut, related expenses, CHET distributions received as designated beneficiary, bond premium, interest on Connecticut obligations included in federal income, Connecticut Homecare Option earnings, Manufacturing Reinvestment Account contributions, crumbling-foundation assistance, organ and bone marrow donation costs, Bioscience Venture Capital, Fallen Hero Fund, Connecticut Student Loan Reimbursement Program, Connecticut share-plan stock, 25% of prior Section 179 add-backs); each must be described on the form.",
+    } as Record<string, string>,
+    URL_CT_INSTR,
+    "CT-1040 instructions (Rev. 12/25) pp. 6-10, Schedule 1 line by line: one summary sentence per printed line, used in the engine's reasons. The exact thresholds and worksheets (Social Security p. 24, Pension and Annuity pp. 24-25) are in the instructions and are NOT built here.",
+    VERIFIED_ON_2026_10_04
+  ),
+  CT_SCH1_BONUS_168K_ADDBACK_PERCENT: def(
+    "CT_SCH1_BONUS_168K_ADDBACK_PERCENT",
+    100,
+    URL_CT_INSTR,
+    "CT-1040 Schedule 1 line 36: add back 100% of the Section 168(k) bonus depreciation deducted in federal AGI. Only named in reasons; no amount is computed from it yet.",
+    VERIFIED_ON_2026_10_04
+  ),
+  CT_SCH1_SECTION_179_ADDBACK_PERCENT: def(
+    "CT_SCH1_SECTION_179_ADDBACK_PERCENT",
+    80,
+    URL_CT_INSTR,
+    "CT-1040 Schedule 1 line 36a: add back 80% of the Section 179 amount deducted in federal AGI. Only named in reasons; no amount is computed from it yet.",
+    VERIFIED_ON_2026_10_04
+  ),
+  CT_SCH1_PRIOR_ADDBACK_SUBTRACTION_PERCENT: def(
+    "CT_SCH1_PRIOR_ADDBACK_SUBTRACTION_PERCENT",
+    25,
+    URL_CT_INSTR,
+    "CT-1040 Schedule 1 lines 48a and 49 (item 10): subtract 25% of the Section 168(k) / Section 179 amounts added back in the four preceding years. Only named in reasons; no amount is computed from it yet.",
+    VERIFIED_ON_2026_10_04
   ),
   CT_USE_TAX_RATE_GENERAL: def(
     "CT_USE_TAX_RATE_GENERAL",

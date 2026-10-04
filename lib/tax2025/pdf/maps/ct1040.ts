@@ -6,13 +6,16 @@
 //   page 1  lines 1-16 (CT AGI, tax, credits, use tax), names, filing status MFJ
 //   page 2  line 17, withholding schedule 18a-18e (Column A employer ID, B CT wages,
 //           C CT tax withheld), 18 total, 19-20, 21-30 (balance split into 22 / 26)
-//   page 3  Schedule 1 additions (line 38) and subtractions (line 50) totals
+//   page 3  Schedule 1: every additions line 31-37 (incl. 36a), the line 38 total, every
+//           subtractions line 39-49 (incl. 48a-48d) and the line 50 total
 //   page 4  Schedule 3 property tax credit rows 60-62 and line 68, Schedule 4 line 69
 //
 // Rules this map encodes:
 //   - engine keys (rules/ct.ts, payments.ts): ct1040.1 / additions / subtractions / ctAgi /
-//     6 / 9 / 10 / 11 / 15 / 18 / 19 / 20 / 27 / 28 / balance. Lines the engine does not emit
-//     yet use the pending keys (pending-line-keys.ts) and fill automatically once it does.
+//     6 / 9 / 10 / 11 / 15 / 18 / 19 / 20 / 27 / 28 / balance, and the Schedule 1 detail keys
+//     ct1040.s1.* (rules/ct-schedule1.ts). A detail line that is zero stays blank (like the
+//     totals 38 / 50); one that is blocked stays blank and the cover lists it as a blocking item.
+//     Lines the engine does not emit yet use the pending keys (pending-line-keys.ts) and fill automatically once it does.
 //   - Line 15 and Schedule 4 line 69 print "0" when use tax is answered 0 (the printed
 //     instruction: "If no tax is due, enter 0"); an unanswered question stays BLANK with a
 //     blocking item (never invented).
@@ -58,8 +61,31 @@ const lines: MapLine[] = [
   { kind: "money", field: f("l26"), line: "ct1040.balance", sign: "owed" }, // tax due: the positive balance
   { kind: "money", field: f("l27"), line: "ct1040.27" },
   { kind: "money", field: f("l28"), line: "ct1040.28" },
-  // ── Page 3: Schedule 1 totals ──
+  // ── Page 3: Schedule 1 detail lines and totals ──
+  { kind: "money", field: f("l31"), line: "ct1040.s1.31" },
+  { kind: "money", field: f("l32"), line: "ct1040.s1.32" },
+  { kind: "money", field: f("l33"), line: "ct1040.s1.33" },
+  { kind: "money", field: f("l34"), line: "ct1040.s1.34" },
+  { kind: "money", field: f("l35"), line: "ct1040.s1.35" },
+  { kind: "money", field: f("l36"), line: "ct1040.s1.36" },
+  { kind: "money", field: f("l36a"), line: "ct1040.s1.36a" },
+  { kind: "money", field: f("l37"), line: "ct1040.s1.37" },
   { kind: "money", field: f("l38"), line: "ct1040.additions" },
+  { kind: "money", field: f("l39"), line: "ct1040.s1.39" },
+  { kind: "money", field: f("l40"), line: "ct1040.s1.40" },
+  { kind: "money", field: f("l41"), line: "ct1040.s1.41" },
+  { kind: "money", field: f("l42"), line: "ct1040.s1.42" },
+  { kind: "money", field: f("l43"), line: "ct1040.s1.43" },
+  { kind: "money", field: f("l44"), line: "ct1040.s1.44" },
+  { kind: "money", field: f("l45"), line: "ct1040.s1.45" },
+  { kind: "money", field: f("l46"), line: "ct1040.s1.46" },
+  { kind: "money", field: f("l47"), line: "ct1040.s1.47" },
+  { kind: "money", field: f("l48"), line: "ct1040.s1.48" },
+  { kind: "money", field: f("l48a"), line: "ct1040.s1.48a" },
+  { kind: "money", field: f("l48b"), line: "ct1040.s1.48b" },
+  { kind: "money", field: f("l48c"), line: "ct1040.s1.48c" },
+  { kind: "money", field: f("l48d"), line: "ct1040.s1.48d" },
+  { kind: "money", field: f("l49"), line: "ct1040.s1.49" },
   { kind: "money", field: f("l50"), line: "ct1040.subtractions" },
   // ── Page 4: Schedule 3 line 68 and Schedule 4 line 69 ──
   { kind: "money", field: f("l68"), line: "ct1040.11" },
@@ -99,11 +125,6 @@ const NOT_MODELED_GROUPS: ReadonlyArray<{ note: string; lines: readonly string[]
   { note: "lines 20a-20d: refundable credits (CT-EITC, claim of right, pass-through entity, historic home)", lines: ["20a", "20b", "20c", "20d"] },
   { note: "lines 23, 24, 24a, 25: the owner's refund / overpayment elections", lines: ["23", "24", "24a", "25"] },
   { note: "lines 29, 30: CT-2210 interest and the total amount due", lines: ["29", "30"] },
-  {
-    // only the totals 38 and 50 are engine lines
-    note: "Schedule 1 detail lines 31-37 and 39-49 (the engine states only the totals, lines 38 and 50)",
-    lines: ["31", "32", "33", "34", "35", "36", "36a", "37", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "48a", "48b", "48c", "48d", "49"],
-  },
   { note: "Schedule 3 lines 63, 65, 67 (property tax credit worksheet; the engine states them only in its explanation text)", lines: ["63", "65", "67"] },
   { note: "Schedule 4 lines 69a-69d (use tax detail; only the total, line 69, is an engine line)", lines: ["69a", "69b", "69c", "69d"] },
 ];

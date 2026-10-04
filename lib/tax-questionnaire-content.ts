@@ -1367,6 +1367,18 @@ const RC_GROUP_PROMPTS: Readonly<Record<RcNoneGroupId, string>> = {
     "a sale where the buyer pays you over several years (an installment sale), a loss from a casualty or theft, futures or stock-index options that are taxed at year end (Section 1256 contracts), a trade of business or investment property for similar property (a like-kind exchange), capital gains a fund kept for you instead of paying them out (undistributed capital gains), or a capital gain or loss reported to you on a Schedule K-1 from a partnership, S corporation, estate or trust",
   capital_special_rates:
     "a sale of collectibles held more than a year (coins, art, antiques, or shares of a fund that holds physical gold, silver or platinum, such as GLD, SLV or IAU), stock in a qualified small business (QSB) where part of the gain was left out of income, a sale of real estate or a partnership interest on which depreciation was claimed, or an investment in a qualified opportunity fund (QOF)",
+  // Connecticut CT-1040 Schedule 1 (rules/ct-schedule1.ts): plain-language, acronyms spelled out, no hard-coded years inside the phrase.
+  ct_muni_bonds: "a bond issued by the State of Connecticut, or by a Connecticut city, town or agency, that was sold or paid off in {year} at a gain or a loss",
+  ct_us_gov_funds:
+    "shares of a mutual fund or exchange-traded fund (ETF, a fund that trades like a stock) that holds mostly U.S. government bonds or bills, such as a Treasury money market fund or a Treasury bill (T-bill) fund",
+  ct_chet_able:
+    "money put into a Connecticut Higher Education Trust (CHET) college savings account or into an Achieving a Better Life Experience (ABLE) account, a CHET deduction left over from an earlier year, or money received from a CHET account as the person it was set up for",
+  ct_prior_addbacks:
+    "bonus depreciation (a first-year write-off of business equipment) or a Section 179 deduction that was added back on your Connecticut return (Schedule 1, line 36 or 36a) in any of the four years before {year}",
+  ct_other_additions:
+    "an addition the Connecticut return requires that is not covered above: Connecticut income tax you deducted somewhere other than Schedule A, expenses or bond premium you deducted that relate to tax-exempt income, interest on money borrowed to buy tax-exempt bonds, a payout from a Connecticut Manufacturing Reinvestment Account, pay from a foreign nonqualified plan taxed under Section 457A, interest from certain U.S. agency bonds that is exempt from federal tax but not Connecticut tax, or a loss or deduction of an enrolled member of the Mashantucket Pequot or Mohegan Tribe living on tribal land",
+  ct_other_subtractions:
+    "a Connecticut subtraction not covered above: interest on a Connecticut individual development account; interest on a Connecticut bond that is included in your federal income (for example a Build America Bond); earnings on a Connecticut Homecare Option account; contributions to a Manufacturing Reinvestment Account; help with repairing a crumbling (pyrrhotite) foundation that you included in income; costs of donating an organ or bone marrow; Bioscience Venture Capital; payments from the Fallen Hero Fund; payments from the Connecticut Student Loan Reimbursement Program; stock received under a Connecticut share plan; business expenses of a Connecticut cannabis or medical-marijuana licensee (Chapters 420f or 420h); or income earned as an enrolled member of the Mashantucket Pequot or Mohegan Tribe living on tribal land",
 };
 
 /** Group id -> a short plain-language name used in the follow-up amount question. */
@@ -1387,6 +1399,12 @@ const RC_GROUP_LABELS: Readonly<Record<RcNoneGroupId, string>> = {
   qbi_carryforwards: "qualified business income carryforwards",
   capital_gain_other: "other capital gain and loss items",
   capital_special_rates: "collectibles, small business stock, depreciated real estate and opportunity fund items",
+  ct_muni_bonds: "Connecticut bond sales",
+  ct_us_gov_funds: "U.S. government bond funds",
+  ct_chet_able: "CHET and ABLE accounts",
+  ct_prior_addbacks: "earlier Connecticut depreciation add-backs",
+  ct_other_additions: "other Connecticut additions",
+  ct_other_subtractions: "other Connecticut subtractions",
 };
 
 /** Every "stated none" group this flow asks about: NONE_GROUP_IDS plus the capital-gain groups (no duplicates). */

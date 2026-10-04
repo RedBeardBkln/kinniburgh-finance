@@ -121,3 +121,46 @@ describe("rule files do not repeat registry numbers", () => {
     expect(lits).toEqual([176100, 0.9235]);
   });
 });
+
+describe("mortgage insurance and CT-1040 Schedule 1 constants (verified 2026-10-04)", () => {
+  it("the mortgage insurance premium constant cites Pub. 936 (2025) exactly and quotes the expiry", () => {
+    const c = CONSTANTS.MORTGAGE_INSURANCE_PREMIUM_DEDUCTION_TY2025;
+    expect(c.value).toBe("not deductible");
+    expect(c.url).toBe("https://www.irs.gov/publications/p936");
+    expect(c.verifiedOn).toBe("2026-10-04");
+    expect(c.note).toContain("The itemized deduction for mortgage insurance premiums has expired. You can no longer claim the deduction.");
+    // no claim about a later-year restoration is encoded anywhere in the registry
+    expect(JSON.stringify(allConstants()).toLowerCase()).not.toContain("restor");
+  });
+
+  it("Schedule A line 8d is registered as reserved", () => {
+    expect(CONSTANTS.SCHEDULE_A_LINE_8D.value).toBe("reserved for future use");
+    expect(CONSTANTS.SCHEDULE_A_LINE_8D.url).toBe("https://www.irs.gov/instructions/i1040sca");
+  });
+
+  it("every CT Schedule 1 constant has the CT instructions url, the 2026-10-04 date and a note", () => {
+    const ids = [
+      "CT_SCH1_STATUTORY_MODIFICATIONS_ONLY",
+      "CT_SCH1_LINE_RULES",
+      "CT_SCH1_BONUS_168K_ADDBACK_PERCENT",
+      "CT_SCH1_SECTION_179_ADDBACK_PERCENT",
+      "CT_SCH1_PRIOR_ADDBACK_SUBTRACTION_PERCENT",
+    ] as const;
+    for (const id of ids) {
+      expect(CONSTANTS[id].url, id).toBe("https://portal.ct.gov/-/media/drs/forms/2025/income/2025-ct-1040-instructions_1225.pdf");
+      expect(CONSTANTS[id].verifiedOn, id).toBe("2026-10-04");
+      expect(CONSTANTS[id].note.length, id).toBeGreaterThan(20);
+    }
+    expect(CONSTANTS.CT_SCH1_BONUS_168K_ADDBACK_PERCENT.value).toBe(100);
+    expect(CONSTANTS.CT_SCH1_SECTION_179_ADDBACK_PERCENT.value).toBe(80);
+    expect(CONSTANTS.CT_SCH1_PRIOR_ADDBACK_SUBTRACTION_PERCENT.value).toBe(25);
+  });
+
+  it("CT_SCH1_LINE_RULES has a rule sentence for every printed Schedule 1 line the engine emits", () => {
+    const rules = CONSTANTS.CT_SCH1_LINE_RULES.value;
+    for (const id of ["31", "32", "33", "34", "35", "36", "36a", "37", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "48a", "48b", "48c", "48d", "49"]) {
+      expect(rules[id]?.length ?? 0, `line ${id}`).toBeGreaterThan(20);
+      expect(rules[id], `line ${id}`).toContain(`Line ${id}:`);
+    }
+  });
+});

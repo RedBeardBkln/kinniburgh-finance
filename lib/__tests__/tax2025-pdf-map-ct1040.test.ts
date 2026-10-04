@@ -141,6 +141,12 @@ describe("CT-1040 map", () => {
       expect(real.has(k), `${k} is an engine key`).toBe(true);
       expect(used, `${k} is mapped`).toContain(k);
     }
+    // Every Schedule 1 detail line 31-49 is its own engine key (rules/ct-schedule1.ts) and is mapped to the matching printed box.
+    for (const id of ["31", "32", "33", "34", "35", "36", "36a", "37", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "48a", "48b", "48c", "48d", "49"]) {
+      expect(real.has(`ct1040.s1.${id}`), `ct1040.s1.${id} is an engine key`).toBe(true);
+      expect(ct1040Map.lines.some((l) => l.kind === "money" && l.line === `ct1040.s1.${id}` && l.field === `ct1040.l${id}`), `l${id} maps ct1040.s1.${id}`).toBe(true);
+      expect(ct1040Map.blank.some((b) => "field" in b && b.field === `ct1040.l${id}`), `l${id} is not a blank any more`).toBe(false);
+    }
     // Pending keys used are exactly the lines the engine does not emit; none of them is a real key.
     for (const k of used.filter((u) => !real.has(u))) expect(pending.has(k), k).toBe(true);
   });
@@ -149,6 +155,8 @@ describe("CT-1040 map", () => {
     ["ct1040.1", 150000],
     ["ct1040.additions", 1200],
     ["ct1040.subtractions", 200],
+    ["ct1040.s1.42", 1000], // a detail line with an amount prints on its own printed line
+    ["ct1040.s1.39", 0], // a zero detail line stays blank, like the totals 38 / 50 when zero
     ["ct1040.ctAgi", 151000],
     ["ct1040.6", 7000],
     ["ct1040.10", 7000],
@@ -182,6 +190,7 @@ describe("CT-1040 map", () => {
         "ct1040.l18": "5,000",
         "ct1040.l26": "1,700", // tax due: the positive balance
         "ct1040.l38": "1,200",
+        "ct1040.l42": "1,000",
         "ct1040.l50": "200",
         "ct1040.l68": "300",
         "ct1040.l69": "0",
@@ -190,6 +199,20 @@ describe("CT-1040 map", () => {
     );
     expect(result.continuations).toEqual([]);
     expect(result.blankByDesign.not_modeled).toBe(ct1040Map.blank.length);
+  });
+
+  it("a blocked Schedule 1 detail line stays blank and is a blocking item on the cover; line 38 / 50 totals still print", async () => {
+    const lines = linesOf([
+      ["ct1040.additions", 1200],
+      ["ct1040.subtractions", 200],
+      engineLine("ct1040.s1.40", null, "missing_input", "Needs an owner / CPA statement."),
+    ]);
+    const result = await fillForm("ct1040", viewWith({ lines }), ct1040Map, NO_STAMP);
+    const f = await readAllFields(result.bytes);
+    expect(f.get("ct1040.l40")).toBe("");
+    expect(f.get("ct1040.l38")).toBe("1,200");
+    expect(f.get("ct1040.l50")).toBe("200");
+    expect(result.openItems.find((o) => o.id === "blank:ct1040:ct1040.s1.40")?.severity).toBe("blocking");
   });
 
   describe("line 15 / Schedule 4 line 69 (individual use tax): 'If no tax is due, enter 0'", () => {

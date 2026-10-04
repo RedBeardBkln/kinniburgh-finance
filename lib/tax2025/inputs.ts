@@ -85,6 +85,12 @@ export interface InvestmentAggregates {
   /** Interest box 1 + box 3 over every 1099-INT; null if none and not confirmed none, or a legacy doc lacks a box. */
   interest: Decimal | null;
   taxExempt: Decimal | null;
+  /** 1099-INT box 8 (tax-exempt interest) total only; null when the interest documents are not known or a box is unread (CT Schedule 1 line 31). */
+  exemptInterestBox8: Decimal | null;
+  /** 1099-DIV exempt-interest dividends total only (extraction field `div_box11Cents`); null when the dividend documents are not known or unread (CT Schedule 1 line 32). */
+  exemptDividends: Decimal | null;
+  /** 1099-INT box 3 (US savings bond and Treasury obligation interest, already inside `interest`) total only; null when not known (CT Schedule 1 line 39). */
+  usGovInterestBox3: Decimal | null;
   ordinaryDividends: Decimal | null;
   qualifiedDividends: Decimal | null;
   capitalGainDistributions: Decimal | null;
@@ -115,6 +121,9 @@ export function aggregateInvestments(facts: Ty2025Facts): InvestmentAggregates {
   return {
     interest: interestTotal,
     taxExempt,
+    exemptInterestBox8: interestKnown ? sumCentsStrict(interest.map((i) => i.box8Cents)) : null,
+    exemptDividends: dividendsKnown ? sumCentsStrict(dividends.map((d) => d.box11Cents)) : null,
+    usGovInterestBox3: interestKnown ? sumCentsStrict(interest.map((i) => i.box3Cents)) : null,
     ordinaryDividends: dividendsKnown ? sumCentsStrict(dividends.map((d) => d.box1aCents)) : null,
     qualifiedDividends: dividendsKnown ? sumCentsStrict(dividends.map((d) => d.box1bCents)) : null,
     capitalGainDistributions: dividendsKnown ? sumCentsStrict(dividends.map((d) => d.box2aCents)) : null,

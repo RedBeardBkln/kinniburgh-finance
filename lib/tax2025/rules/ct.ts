@@ -9,8 +9,10 @@
 //   - CT-6251 (CT AMT) when there is a federal AMT -> needs_cpa_rule_unverified.
 //   - The CT late-payment minimum and month-counting rules -> informational,
 //     needs_cpa_rule_unverified (the 10% and 1%/month rates are verified).
-//   - CT Schedule 1 modifications are Phase 2: stated additions/subtractions are
-//     used when given; otherwise the line is not_yet_computed.
+//   - The CT Schedule 1 modifications themselves are built by rules/ct-schedule1.ts (line by
+//     line); this file only receives the two totals (line 38 additions, line 50 subtractions).
+//     When either total is not final the rule's blocking status and reason (`modificationsBlock`)
+//     reach CT AGI, tax, AMT and line 10; the default is not_yet_computed (never a silent 0).
 //
 // Pure. Constants from lib/tax2025/constants.ts only.
 
@@ -148,9 +150,14 @@ export function computeCtPropertyTaxCredit(input: CtPropertyTaxCreditInput): Rul
 export interface CtTaxInput {
   /** Federal 1040 line 11a; null = missing. */
   federalAgi: Decimal | null;
-  /** CT Schedule 1 additions / subtractions (stated); null = not yet computed (Phase 2). */
+  /** CT-1040 Schedule 1 line 38 (additions) / line 50 (subtractions) totals; null = at least one line of the total is not final. */
   additions: Decimal | null;
   subtractions: Decimal | null;
+  /** Status and reason when `additions` or `subtractions` is null (from the CT Schedule 1 rule); default not_yet_computed. */
+  modificationsBlock?: {
+    status: "missing_input" | "needs_cpa_judgment" | "needs_cpa_rule_unverified" | "not_yet_computed";
+    reason: string;
+  };
   /** Federal AMT (Schedule 2 AMT line); null = missing / not computed. */
   federalAmt: Decimal | null;
   /** A W-2 shows withholding for a state other than CT (credit for taxes paid to other jurisdictions would be needed). */
@@ -181,20 +188,26 @@ export function computeCtTax(input: CtTaxInput): RuleResult {
   const fedAgi = roundLine(input.federalAgi);
   lines.push(amountLine("ct1040.1", "Federal adjusted gross income (1040 line 11a)", "1", fedAgi));
 
-  // Schedule 1 modifications (Phase 2)
+  // Schedule 1 modifications (totals from rules/ct-schedule1.ts)
   const modsKnown = input.additions !== null && input.subtractions !== null;
   if (!modsKnown) {
+    const status = input.modificationsBlock?.status ?? "not_yet_computed";
     const reason =
-      "CT Schedule 1 additions and subtractions (bonus / Section 179 add-backs, US-obligation interest, state refunds) are computed in a later phase and none are stated.";
+      input.modificationsBlock?.reason ??
+      "CT Schedule 1 additions and subtractions (bonus / Section 179 add-backs, US-obligation interest, state refunds) are not final and none are stated.";
     lines.push(
-      blockedLine("ct1040.additions", "CT Schedule 1 additions", "Sch 1", "not_yet_computed", reason),
-      blockedLine("ct1040.subtractions", "CT Schedule 1 subtractions", "Sch 1", "not_yet_computed", reason),
-      blockedLine("ct1040.ctAgi", "Connecticut adjusted gross income", "CT AGI", "not_yet_computed", reason),
-      blockedLine("ct1040.6", "Connecticut income tax", "6", "not_yet_computed", "CT AGI is not final until the Schedule 1 modifications are computed."),
-      blockedLine("ct1040.9", "Connecticut alternative minimum tax", "9", "not_yet_computed", "CT AGI is not final."),
-      blockedLine("ct1040.10", "Connecticut income tax before credits", "10", "not_yet_computed", "CT AGI is not final.")
+      input.additions === null
+        ? blockedLine("ct1040.additions", "CT Schedule 1 additions", "Sch 1", status, reason)
+        : amountLine("ct1040.additions", "CT Schedule 1 additions", "Sch 1", roundLine(input.additions)),
+      input.subtractions === null
+        ? blockedLine("ct1040.subtractions", "CT Schedule 1 subtractions", "Sch 1", status, reason)
+        : amountLine("ct1040.subtractions", "CT Schedule 1 subtractions", "Sch 1", roundLine(input.subtractions)),
+      blockedLine("ct1040.ctAgi", "Connecticut adjusted gross income", "CT AGI", status, reason),
+      blockedLine("ct1040.6", "Connecticut income tax", "6", status, "CT AGI is not final until the Schedule 1 modifications are computed."),
+      blockedLine("ct1040.9", "Connecticut alternative minimum tax", "9", status, "CT AGI is not final."),
+      blockedLine("ct1040.10", "Connecticut income tax before credits", "10", status, "CT AGI is not final.")
     );
-    return { ...base, status: "not_yet_computed", lines, reasons: [reason], inputsMissing: ["CT Schedule 1 modifications"] };
+    return { ...base, status, lines, reasons: [reason], inputsMissing: ["CT Schedule 1 modifications"] };
   }
   const additions = roundLine(input.additions!);
   const subtractions = roundLine(input.subtractions!);
@@ -337,8 +350,7 @@ export function computeCtBalance(input: CtBalanceInput): RuleResult {
       inputsMissing: missing,
     };
   }
-  lines.push(
-    blockedLine("ct1040.balance", "Connecticut balance due or overpayment", "balance", "missing_input", "A CT tax, credit, use tax or payment line is not computed.")
-  );
-  return { ...base, status: aggregateStatus(lines), lines, reasons: [], inputsMissing: missing };
+  const notFinal = "A CT tax, credit, use tax or payment line is not computed (see the CT AGI / Schedule 1, property tax credit, use tax and payment items).";
+  lines.push(blockedLine("ct1040.balance", "Connecticut balance due or overpayment", "balance", "missing_input", notFinal));
+  return { ...base, status: aggregateStatus(lines), lines, reasons: [notFinal], inputsMissing: missing };
 }

@@ -11,8 +11,12 @@
 //   - charitable gifts above 20% of AGI -> needs_cpa_rule_unverified (only the
 //     30% / 20% limits are mentioned in the verified instructions, so gifts up to
 //     the lowest limit, 20%, need no limit analysis);
-//   - mortgage insurance premiums (1098 box 5) and points (box 6) -> needs_cpa_rule_unverified;
+//   - points (1098 box 6) -> needs_cpa_rule_unverified (the full-deduction tests cannot all be read from a 1098);
 //   - acquisition debt over the $750,000 limit (Pub 936 worksheet) -> needs_cpa_rule_unverified.
+//
+// Mortgage insurance premiums (1098 box 5) are NOT a blocker: the itemized deduction for them has expired for
+// 2025 (Pub. 936 (2025), MORTGAGE_INSURANCE_PREMIUM_DEDUCTION_TY2025) and the 2025 Schedule A has no line for them
+// (SCHEDULE_A_LINE_8D). They are left out of line 8a and named in the reasons so the CPA sees the amount.
 //
 // Pure. Constants from lib/tax2025/constants.ts only.
 
@@ -116,6 +120,8 @@ const CITATIONS = [
   "MORTGAGE_DEBT_LIMIT",
   "FORM_8283_NONCASH_THRESHOLD",
   "CHARITY_LOWEST_AGI_LIMIT",
+  "MORTGAGE_INSURANCE_PREMIUM_DEDUCTION_TY2025",
+  "SCHEDULE_A_LINE_8D",
 ];
 
 type Treatment = "schedule_a" | "capitalize";
@@ -275,19 +281,17 @@ function evaluate(input: ScheduleAInput, treatment: Treatment): Evaluation {
     } else {
       const totalPrincipal = input.mortgages.reduce((a, m) => a.plus(m.principal!), ZERO);
       const limit = D(K.MORTGAGE_DEBT_LIMIT.value);
-      // Points (box 6) are part of line 8a on the 2025 form; mortgage insurance premiums (box 5) have no
-      // 2025 Schedule A line ("8d: Reserved for future use"). Whether either is deductible is not verified.
+      // Points (box 6) are part of line 8a on the 2025 form; whether they are deductible is not verified.
+      // Mortgage insurance premiums (box 5) are not deductible for 2025 (expired) and have no 2025 Schedule A
+      // line ("8d: Reserved for future use"): they never block and are never added to line 8a.
       const points = input.mortgages.reduce((a, m) => a.plus(m.points ?? ZERO), ZERO);
       const mip = input.mortgages.reduce((a, m) => a.plus(m.mortgageInsurance ?? ZERO), ZERO);
       if (totalPrincipal.greaterThan(limit)) {
         const reason = `Outstanding mortgage principal ${fmt(totalPrincipal)} is over the ${fmt(limit)} acquisition debt limit: the Pub 936 limitation worksheet is not verified here, so the deductible interest is not estimated.`;
         lines.push(blockedLine("scha.8a", LINE8_LABEL, "8a", "needs_cpa_rule_unverified", reason));
         block("needs_cpa_rule_unverified");
-      } else if (points.greaterThan(0) || mip.greaterThan(0)) {
-        const parts: string[] = [];
-        if (points.greaterThan(0)) parts.push(`points of ${fmt(points)} (box 6, part of line 8a)`);
-        if (mip.greaterThan(0)) parts.push(`mortgage insurance premiums of ${fmt(mip)} (box 5; the 2025 Schedule A has no line for them)`);
-        const reason = `Form 1098 reports ${parts.join(" and ")}: whether they are deductible for 2025 is not verified here, so line 8a is not computed.`;
+      } else if (points.greaterThan(0)) {
+        const reason = `Form 1098 reports points of ${fmt(points)} (box 6, part of line 8a): whether they are deductible in full for 2025 depends on tests that cannot all be read from the form and is not verified here, so line 8a is not computed.`;
         lines.push(blockedLine("scha.8a", LINE8_LABEL, "8a", "needs_cpa_rule_unverified", reason));
         block("needs_cpa_rule_unverified");
       } else {
@@ -295,6 +299,11 @@ function evaluate(input: ScheduleAInput, treatment: Treatment): Evaluation {
         lines.push(amountLine("scha.8a", LINE8_LABEL, "8a", line8));
         reasons.push(
           `Mortgage interest ${fmt(line8)} from ${input.mortgages.length} Form 1098(s); outstanding principal ${fmt(totalPrincipal)} is within the ${fmt(limit)} limit (assumes all of the debt is home acquisition debt).`
+        );
+      }
+      if (mip.greaterThan(0)) {
+        reasons.push(
+          `Form 1098 box 5 mortgage insurance premiums of ${fmt(mip)} are not deductible for 2025 and are not included in line 8a: the itemized deduction for them has expired (Pub. 936 (2025), ${K.MORTGAGE_INSURANCE_PREMIUM_DEDUCTION_TY2025.url}); the 2025 Schedule A has no line for them (line 8d is "${K.SCHEDULE_A_LINE_8D.value}").`
         );
       }
       if (input.mortgages.some((m) => m.legacyFormat)) {

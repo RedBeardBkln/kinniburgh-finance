@@ -287,6 +287,25 @@ describe("computeCtTax", () => {
     expect(amt(r, "ct1040.6")).toBeNull();
   });
 
+  it("modificationsBlock (from the CT Schedule 1 rule) sets the status and reason of the totals, CT AGI, tax, AMT and line 10", () => {
+    for (const status of ["missing_input", "needs_cpa_judgment", "needs_cpa_rule_unverified"] as const) {
+      const r = computeCtTax(ctInput({ additions: null, subtractions: null, modificationsBlock: { status, reason: "Schedule 1 line 40 waits." } }));
+      expect(r.status).toBe(status);
+      for (const k of ["ct1040.additions", "ct1040.subtractions", "ct1040.ctAgi", "ct1040.6", "ct1040.9", "ct1040.10"] as const) {
+        expect(st(r, k), `${status} ${k}`).toBe(status);
+        expect(amt(r, k), k).toBeNull();
+      }
+      expect(r.reasons[0]).toContain("line 40");
+    }
+  });
+
+  it("only one of the two totals is final: that total keeps its amount, CT AGI and tax stay blocked", () => {
+    const r = computeCtTax(ctInput({ additions: D(300), subtractions: null, modificationsBlock: { status: "missing_input", reason: "Line 40 waits." } }));
+    expect(amt(r, "ct1040.additions")).toBe("300");
+    expect(amt(r, "ct1040.subtractions")).toBeNull();
+    expect(st(r, "ct1040.ctAgi")).toBe("missing_input");
+  });
+
   it("CT AGI at or under $24,000 -> no tax (verified); up to $102,000 -> needs_cpa_rule_unverified with the TCS figure in the reason", () => {
     expect(amt(computeCtTax(ctInput({ federalAgi: D(24000) })), "ct1040.6")).toBe("0");
     const mid = computeCtTax(ctInput({ federalAgi: D(90000) }));

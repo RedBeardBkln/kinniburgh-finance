@@ -217,14 +217,45 @@ describe("computeScheduleA: mortgage rules", () => {
     expect(st(r, "scha.8a")).toBe("needs_cpa_rule_unverified");
   });
 
-  it("points (box 6) or mortgage insurance premiums (box 5) reported -> line 8a needs_cpa_rule_unverified", () => {
+  it("points (box 6) reported -> line 8a and 17 needs_cpa_rule_unverified, with a points-only reason", () => {
     const points = computeScheduleA(base({ mortgages: [mortgage("18000", "400000", { points: D(5000) })] }));
     expect(st(points, "scha.8a")).toBe("needs_cpa_rule_unverified");
     expect(st(points, "scha.17")).toBe("needs_cpa_rule_unverified");
     expect(points.lines.find((l) => l.key === "scha.8a")?.reason).toContain("points");
+    expect(points.lines.find((l) => l.key === "scha.8a")?.reason).not.toContain("mortgage insurance");
+  });
+
+  it("mortgage insurance premiums (box 5) are NOT deductible for 2025 and never block: line 8a is the interest, the amount and Pub. 936 are in the reasons", () => {
     const mip = computeScheduleA(base({ mortgages: [mortgage("18000", "400000", { mortgageInsurance: D(900) })] }));
-    expect(st(mip, "scha.8a")).toBe("needs_cpa_rule_unverified");
-    expect(mip.lines.find((l) => l.key === "scha.8a")?.reason).toContain("no line");
+    expect(st(mip, "scha.8a")).toBe("computed");
+    expect(amt(mip, "scha.8a")).toBe("18000");
+    expect(st(mip, "scha.17")).toBe("computed");
+    expect(st(mip, "f1040.12e")).toBe("computed");
+    const text = mip.reasons.join(" ");
+    expect(text).toContain("$900");
+    expect(text).toContain("expired");
+    expect(text).toContain("Pub. 936 (2025)");
+    expect(text).toContain("https://www.irs.gov/publications/p936");
+    expect(mip.citations).toContain("MORTGAGE_INSURANCE_PREMIUM_DEDUCTION_TY2025");
+    expect(mip.citations).toContain("SCHEDULE_A_LINE_8D");
+  });
+
+  it("mortgage insurance with points -> still needs_cpa_rule_unverified for the points; with an over-limit principal -> the limit status wins", () => {
+    const both = computeScheduleA(base({ mortgages: [mortgage("18000", "400000", { points: D(5000), mortgageInsurance: D(900) })] }));
+    expect(st(both, "scha.8a")).toBe("needs_cpa_rule_unverified");
+    expect(both.lines.find((l) => l.key === "scha.8a")?.reason).toContain("points");
+    expect(both.lines.find((l) => l.key === "scha.8a")?.reason).not.toContain("mortgage insurance");
+    const over = computeScheduleA(base({ mortgages: [mortgage("18000", "750001", { mortgageInsurance: D(900) })] }));
+    expect(st(over, "scha.8a")).toBe("needs_cpa_rule_unverified");
+    expect(over.lines.find((l) => l.key === "scha.8a")?.reason).toContain("acquisition debt limit");
+  });
+
+  it("no mortgage insurance reported (null or 0): no mortgage insurance reason", () => {
+    for (const mortgageInsurance of [null, D(0)]) {
+      const r = computeScheduleA(base({ mortgages: [mortgage("18000", "400000", { mortgageInsurance })] }));
+      expect(st(r, "scha.8a")).toBe("computed");
+      expect(r.reasons.join(" ")).not.toContain("mortgage insurance");
+    }
   });
 
   it("missing box 2 principal -> the limit cannot be checked: missing_input", () => {

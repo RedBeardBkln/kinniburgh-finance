@@ -537,7 +537,7 @@ export const ty2025FactsSchema = z.object({
   ct: z.object({
     /** CT-1040 line 15: out-of-state purchases subject to use tax. Must be answered (0 or an amount). */
     useTax: sourcedSchema(cents),
-    /** CT Schedule 1 additions / subtractions (Phase 2). `subtractions` = the OTHER subtractions; the engine adds Schedule 1 line 42 (taxable state refund) itself. */
+    /** CT-1040 Schedule 1 "Other" amounts: `additions` = line 37, `subtractions` = line 49 (a stated total overrides the owner's none statements for that line). Every other Schedule 1 line (31-36a, 39-48d) is computed by rules/ct-schedule1.ts; line 42 repeats federal Schedule 1 line 1. */
     additions: sourcedSchema(cents),
     subtractions: sourcedSchema(cents),
   }),

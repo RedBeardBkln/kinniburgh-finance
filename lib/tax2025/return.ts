@@ -43,6 +43,14 @@ import { LINE_CATALOG, NONE_GROUP_TEXT, lineMeta, type NoneGroupId } from "@/lib
 import { D, ZERO, centsToDollars, fmt, maxD, roundLine, sumThenRound } from "@/lib/tax2025/money";
 import { computeCtPayments, computeExcessSocialSecurity, computeFederalPayments } from "@/lib/tax2025/rules/payments";
 import { computeCtBalance, computeCtPropertyTaxCredit, computeCtTax } from "@/lib/tax2025/rules/ct";
+import {
+  CT_SCH1_ADDITION_KEYS,
+  CT_SCH1_GROUPS,
+  CT_SCH1_SUBTRACTION_KEYS,
+  computeCtSchedule1,
+  type CtFederalLead,
+  type CtSchedule1Input,
+} from "@/lib/tax2025/rules/ct-schedule1";
 import { computeCtUseTax } from "@/lib/tax2025/rules/ct-use-tax";
 import { computeForeignTaxCredit } from "@/lib/tax2025/rules/foreign-tax";
 import { computeHsa8889, type HsaPersonInput } from "@/lib/tax2025/rules/hsa-8889";
@@ -87,7 +95,7 @@ import {
 } from "@/lib/tax2025/types";
 
 /** Bumped whenever a rule, the constants or the line catalog changes (stale-output detection for stored overrides / PDFs). */
-export const TY2025_ENGINE_VERSION = "ty2025-1b.2";
+export const TY2025_ENGINE_VERSION = "ty2025-1b.3";
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
 
@@ -906,20 +914,63 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   }
 
   // 11. Connecticut
+  // 11a. CT-1040 Schedule 1 detail lines (rules/ct-schedule1.ts), then the line 38 / line 50 totals
+  const fedLead = (key: LineKey): CtFederalLead => {
+    const l = A.lines.get(key);
+    return { amount: A.peek(key), status: l?.status, ...(l !== undefined && l.refs.length > 0 ? { refs: l.refs } : {}) };
+  };
+  const ctStated: CtSchedule1Input["stated"] = {};
+  const ctStatedAmounts: NonNullable<CtSchedule1Input["statedSomeAmounts"]> = {};
+  const ctGroupRefs: NonNullable<NonNullable<CtSchedule1Input["refs"]>["groups"]> = {};
+  for (const g of [...CT_SCH1_GROUPS, "savings_bond_exclusion"] as const) {
+    const leaf = facts.statedNone[g];
+    if (leaf !== undefined && leaf.value !== null) {
+      ctStated[g] = leaf.value;
+      ctGroupRefs[g] = leaf.refs;
+    }
+    const some = ra.statedSomeAmounts[g]?.value;
+    if (g !== "savings_bond_exclusion" && some !== null && some !== undefined) ctStatedAmounts[g] = centsToDollars(some);
+  }
+  const ctSch1 = computeCtSchedule1({
+    exemptInterestBox8: inv.exemptInterestBox8,
+    exemptDividends: inv.exemptDividends,
+    usGovInterestBox3: inv.usGovInterestBox3,
+    fed: {
+      refund: fedLead("sch1.1"),
+      trustsPartnerships: fedLead("sch1.5"),
+      depreciation: fedLead("schc.13"),
+      ira: fedLead("f1040.4b"),
+      pension: fedLead("f1040.5b"),
+      ss: fedLead("f1040.6b"),
+    },
+    stated: ctStated,
+    statedSomeAmounts: ctStatedAmounts,
+    otherAdditions: dollarsOrNull(facts.ct.additions),
+    otherSubtractions: dollarsOrNull(facts.ct.subtractions),
+    refs: { interest: interestRefs, dividends: dividendRefs, groups: ctGroupRefs, otherAdditions: facts.ct.additions.refs, otherSubtractions: facts.ct.subtractions.refs },
+  });
+  A.register(ctSch1, { refs: [...interestRefs, ...dividendRefs], owns: [...CT_SCH1_ADDITION_KEYS, ...CT_SCH1_SUBTRACTION_KEYS] });
+  /** Sum of whole-dollar detail lines (a filer adds the printed lines); null when any is not final (provisional pass: a blocked line reads as $0 and is listed). */
+  const sumCtLines = (keys: readonly LineKey[]): { total: Decimal | null; open: LineKey[] } => {
+    const parts = keys.map((k) => A.num(k));
+    const open = keys.filter((_, i) => parts[i] === null);
+    return { total: open.length > 0 ? null : parts.reduce<Decimal>((acc, v) => acc.plus(v ?? ZERO), ZERO), open };
+  };
+  const ctAdd = sumCtLines(CT_SCH1_ADDITION_KEYS);
+  const ctSub = sumCtLines(CT_SCH1_SUBTRACTION_KEYS);
+  const ctOpen = [...ctAdd.open, ...ctSub.open];
   const ctTax = computeCtTax({
     federalAgi: A.num("f1040.11a"),
-    additions: A.assume(dollarsOrNull(facts.ct.additions), ZERO, "CT Schedule 1 additions, assumed $0"),
-    // CT-1040 Schedule 1 line 42 (verified, CT-1040 instructions): the taxable state / local income tax refund reported on federal Schedule 1 line 1
-    // is subtracted; `facts.ct.subtractions` holds the OTHER subtractions.
-    subtractions: A.assume(
-      (() => {
-        const other = dollarsOrNull(facts.ct.subtractions);
-        const line42 = A.peek("sch1.1");
-        return other !== null && line42 !== null ? other.plus(line42) : null;
-      })(),
-      ZERO,
-      "CT Schedule 1 subtractions, assumed $0"
-    ),
+    additions: ctAdd.total,
+    subtractions: ctSub.total,
+    ...(ctOpen.length > 0
+      ? {
+          modificationsBlock: {
+            status: worstBlocked(ctOpen.map((k) => A.statusOf(k))) ?? ("missing_input" as const),
+            reason: `CT AGI is not final: CT-1040 Schedule 1 line${ctOpen.length === 1 ? "" : "s"} ${ctOpen.map((k) => k.slice("ct1040.s1.".length)).join(", ")} ${ctOpen.length === 1 ? "is" : "are"} not computed (see the Schedule 1 item).`,
+          },
+        }
+      : {}),
     federalAmt: A.num("sch2.2"),
     otherStateWithholdingPresent: w2.nonCtStateWithholdingPresent,
   });
@@ -1459,6 +1510,31 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
         reason: "Both the books interest and the 1099-INT interest are included in line 2b; if they are the same interest (the business bank issued the 1099-INT) it is counted twice. Nothing is subtracted automatically.",
       });
     }
+  }
+  // Form 1098 box 5 mortgage insurance premiums: not deductible for 2025 (Pub. 936 (2025)); shown so the CPA sees the amount
+  const mipDocs = facts.deductions.mortgages.filter((m) => (m.mortgageInsuranceCents ?? 0) > 0);
+  if (mipDocs.length > 0) {
+    const mipCents = mipDocs.reduce((n, m) => n + (m.mortgageInsuranceCents ?? 0), 0);
+    openItems.push({
+      id: "scha-mortgage-insurance-not-deductible",
+      severity: "advisory",
+      message: `Form 1098 box 5 mortgage insurance premiums of ${fmt(centsToDollars(mipCents))} are not deducted: the itemized deduction for them has expired for 2025 ("You can no longer claim the deduction", Pub. 936 (2025), ${K.MORTGAGE_INSURANCE_PREMIUM_DEDUCTION_TY2025.url}) and the 2025 Schedule A has no line for them.`,
+      action: "CPA to confirm; nothing is deducted for it.",
+      lineKeys: ["scha.8a"],
+      refs: mipDocs.flatMap((m) => m.refs),
+    });
+  }
+  // CT Schedule 1 lines 37 / 49 "Other - specify": the printed form wants a description and the overlay has no text field for it
+  const ctOther: LineKey[] = (["ct1040.s1.37", "ct1040.s1.49"] as const).filter((k) => (A.peek(k) ?? ZERO).greaterThan(0));
+  if (ctOther.length > 0) {
+    openItems.push({
+      id: "ct-schedule1-other-specify",
+      severity: "advisory",
+      message: `CT-1040 Schedule 1 ${ctOther.map((k) => `line ${k.slice("ct1040.s1.".length)}`).join(" and ")} (Other) has a stated amount: the printed form requires a description ("Other - specify"), which this packet does not print.`,
+      action: "The CPA adds the description on the form.",
+      lineKeys: ctOther,
+      refs: [],
+    });
   }
   const blockingItemCount = openItems.filter((o) => o.severity === "blocking").length;
   const strictHeadline = buildHeadline(A, blockingItemCount, null, openItems);

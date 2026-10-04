@@ -17,6 +17,8 @@
 // a line, the assembler marks it `not_yet_computed` (never 0) unless the owner or
 // CPA has stated "none" for the whole group (facts.statedNone), which makes the
 // lines `not_applicable` zeros carrying that statement as provenance.
+// The six `ct_*` groups are different: they gate CT-1040 Schedule 1 detail lines (`ct1040.s1.*`) that the
+// CT Schedule 1 rule (rules/ct-schedule1.ts) emits itself, so no catalog line names them as its `group`.
 
 export const NONE_GROUP_TEXT = {
   other_earned_income:
@@ -44,6 +46,18 @@ export const NONE_GROUP_TEXT = {
     "No installment sale (Form 6252), casualty or theft loss (Form 4684), Section 1256 contract (Form 6781), like-kind exchange (Form 8824), Form 2439 undistributed capital gain, or capital gain or loss on a Schedule K-1 (partnership, S corporation, estate or trust): Schedule D lines 4, 5, 11 and 12.",
   capital_special_rates:
     "No sale of collectibles (including gold or silver trust shares), qualified small business (QSB) stock, depreciated real estate or a partnership interest, and no qualified opportunity fund (QOF) investment: Schedule D lines 18 and 19 and the page 1 QOF box.",
+  // Connecticut CT-1040 Schedule 1 groups. No catalog line carries these as a `group`: the CT Schedule 1 rule
+  // (rules/ct-schedule1.ts) owns its lines and reads these statements itself.
+  ct_muni_bonds:
+    "No gain or loss in 2025 on selling or paying off a bond issued by the State of Connecticut or a Connecticut city, town or agency (CT-1040 Schedule 1 lines 35 and 47).",
+  ct_us_gov_funds:
+    "No shares of a mutual fund or ETF that holds mostly U.S. government (Treasury) obligations, so no exempt U.S.-government fund dividends (CT-1040 Schedule 1 line 40).",
+  ct_chet_able:
+    "No Connecticut Higher Education Trust (CHET) or ABLE account contributions or carried-over CHET deduction, and no CHET money received as the account's beneficiary (CT-1040 Schedule 1 lines 48, 48d and 49).",
+  ct_prior_addbacks:
+    "No bonus depreciation or Section 179 amount was added back on a Connecticut return in the four years before 2025 (CT-1040 Schedule 1 lines 48a and 49).",
+  ct_other_additions: "No other Connecticut additions to federal income (CT-1040 Schedule 1 line 37).",
+  ct_other_subtractions: "No other Connecticut subtractions from federal income (CT-1040 Schedule 1 lines 48c and 49).",
 } as const;
 
 export type NoneGroupId = keyof typeof NONE_GROUP_TEXT;
@@ -548,7 +562,31 @@ const EXTRA = [
   ["f8960.nii", "Form 8960", "12", "Net investment income"],
   ["f8960.niit", "Form 8960", "17", "Net investment income tax"],
   ["ct1040.1", "CT-1040", "1", "Federal adjusted gross income (1040 line 11a)"],
+  // CT-1040 Schedule 1 detail lines (rules/ct-schedule1.ts owns them; none carries a `group`). The totals below are line 38 / line 50.
+  ["ct1040.s1.31", "CT-1040", "Sch 1 line 31", "Interest on state and local government obligations other than Connecticut"],
+  ["ct1040.s1.32", "CT-1040", "Sch 1 line 32", "Mutual fund exempt-interest dividends from non-Connecticut state or municipal obligations"],
+  ["ct1040.s1.33", "CT-1040", "Sch 1 line 33", "Taxable amount of lump-sum distributions from qualified plans not included in federal AGI"],
+  ["ct1040.s1.34", "CT-1040", "Sch 1 line 34", "Beneficiary's share of Connecticut fiduciary adjustment (greater than zero)"],
+  ["ct1040.s1.35", "CT-1040", "Sch 1 line 35", "Loss on sale of Connecticut state and local government bonds"],
+  ["ct1040.s1.36", "CT-1040", "Sch 1 line 36", "Section 168(k) federal bonus depreciation deduction"],
+  ["ct1040.s1.36a", "CT-1040", "Sch 1 line 36a", "80% of Section 179 federal deduction"],
+  ["ct1040.s1.37", "CT-1040", "Sch 1 line 37", "Other additions"],
   ["ct1040.additions", "CT-1040", "Sch 1", "CT Schedule 1 additions"],
+  ["ct1040.s1.39", "CT-1040", "Sch 1 line 39", "Interest on U.S. government obligations"],
+  ["ct1040.s1.40", "CT-1040", "Sch 1 line 40", "Exempt dividends from qualifying mutual funds derived from U.S. government obligations"],
+  ["ct1040.s1.41", "CT-1040", "Sch 1 line 41", "Social Security benefit adjustment"],
+  ["ct1040.s1.42", "CT-1040", "Sch 1 line 42", "Refunds of state and local income taxes"],
+  ["ct1040.s1.43", "CT-1040", "Sch 1 line 43", "Tier 1 and Tier 2 railroad retirement benefits and supplemental annuities"],
+  ["ct1040.s1.44", "CT-1040", "Sch 1 line 44", "Military retirement pay"],
+  ["ct1040.s1.45", "CT-1040", "Sch 1 line 45", "50% of income received from the Connecticut Teachers' Retirement System"],
+  ["ct1040.s1.46", "CT-1040", "Sch 1 line 46", "Beneficiary's share of Connecticut fiduciary adjustment (less than zero)"],
+  ["ct1040.s1.47", "CT-1040", "Sch 1 line 47", "Gain on sale of Connecticut state and local government bonds"],
+  ["ct1040.s1.48", "CT-1040", "Sch 1 line 48", "Connecticut Higher Education Trust (CHET) contributions"],
+  ["ct1040.s1.48a", "CT-1040", "Sch 1 line 48a", "25% of Section 168(k) bonus depreciation added back in preceding four years"],
+  ["ct1040.s1.48b", "CT-1040", "Sch 1 line 48b", "Pension or annuity income"],
+  ["ct1040.s1.48c", "CT-1040", "Sch 1 line 48c", "Business expenses of a Chapter 420f or 420h licensee"],
+  ["ct1040.s1.48d", "CT-1040", "Sch 1 line 48d", "Achieving a Better Life Experience (ABLE) contributions"],
+  ["ct1040.s1.49", "CT-1040", "Sch 1 line 49", "Other subtractions"],
   ["ct1040.subtractions", "CT-1040", "Sch 1", "CT Schedule 1 subtractions"],
   ["ct1040.ctAgi", "CT-1040", "CT AGI", "Connecticut adjusted gross income"],
   ["ct1040.6", "CT-1040", "6", "Connecticut income tax"],

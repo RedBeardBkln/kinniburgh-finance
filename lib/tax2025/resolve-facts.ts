@@ -614,7 +614,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
     addItem({
       id: "interest-box3",
       severity: "advisory",
-      message: `1099-INT box 3 (US savings bond / Treasury interest) of $${(box3Total / 100).toFixed(2)} is included in federal taxable interest (1040 line 2b); Connecticut exempts it (CT Schedule 1 subtraction, a later phase).`,
+      message: `1099-INT box 3 (US savings bond / Treasury interest) of $${(box3Total / 100).toFixed(2)} is included in federal taxable interest (1040 line 2b); Connecticut exempts it, and CT-1040 Schedule 1 line 39 subtracts it (see that line for the amount or the CPA decision).`,
       action: "Tell the CPA so the CT subtraction is taken.",
     });
   }
