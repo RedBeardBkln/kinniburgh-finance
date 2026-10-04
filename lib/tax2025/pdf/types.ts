@@ -69,7 +69,13 @@ export interface PdfOverrideEntry {
   stale: boolean;
 }
 
-export type TableKey = "schb.interest" | "schb.dividends" | "ct.withholding" | "schc.otherExpenses" | "f8283.sectionA";
+export type TableKey =
+  | "schb.interest"
+  | "schb.dividends"
+  | "ct.withholding"
+  | "ct.propertyTax"
+  | "schc.otherExpenses"
+  | "f8283.sectionA";
 
 export interface PdfTableRow {
   /** Column id -> value. Numbers are whole dollars (money columns); strings are text columns. */
@@ -86,6 +92,13 @@ export interface PdfHeader {
   spouseName: string | null;
   /** Schedule C proprietor business name (EKC). */
   ekcName: string | null;
+}
+
+/** The engine's verdict on whether a form belongs in the filing (Ty2025Return.formsRequired entry). */
+export interface PdfFormRequirement {
+  /** true = include; false = not needed; "blocking" = cannot tell until a blocking item is resolved. */
+  required: boolean | "blocking";
+  reason: string;
 }
 
 export interface PdfReturnView {
@@ -110,6 +123,12 @@ export interface PdfReturnView {
   headline: Headline;
   /** Constant ids used anywhere in the return, for the citation legend. */
   citations: string[];
+  /**
+   * Ty2025Return.formsRequired keyed by the engine's FormId ("schb", "f8959", "f8995", ...).
+   * When present, a map with an `engineFormId` is included/omitted by the engine's verdict
+   * instead of the line-based inclusion rule (policy.ts formInclusion).
+   */
+  formsRequired?: Partial<Record<string, PdfFormRequirement>>;
 }
 
 // ── Maps ──────────────────────────────────────────────────────────────────────
@@ -154,6 +173,12 @@ export interface MapMoneyLine {
   zero?: "print";
   /** The form is not valid without this line: list under "lines the engine does not emit" when absent. */
   expected?: boolean;
+  /**
+   * One signed engine amount feeds two printed lines (e.g. CT balance: positive = tax due,
+   * negative = overpayment). "owed" prints the amount only when it is positive; "refund"
+   * prints the magnitude only when it is negative. Anything else leaves the field blank.
+   */
+  sign?: "owed" | "refund";
 }
 
 export interface MapCheckLine {
@@ -193,6 +218,11 @@ export interface MapTable {
   /** Column id holding the row label, set to "Other (see statement)" in the overflow row. */
   labelColumn: string;
   overflow: "summary_row_and_statement";
+  /**
+   * List every row on the cover even when they all fit (for tables where the printed form has
+   * no column that identifies a row, e.g. the CT-1040 withholding schedule has no employer name).
+   */
+  coverList?: boolean;
 }
 
 export type MapBlank =
@@ -201,6 +231,8 @@ export type MapBlank =
 
 export interface FormMap {
   formId: string;
+  /** The engine's FormId for this form (Ty2025Return.formsRequired key), when the engine decides inclusion. */
+  engineFormId?: string;
   lines: MapLine[];
   tables: MapTable[];
   header: MapHeaderEntry[];

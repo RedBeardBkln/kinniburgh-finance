@@ -80,7 +80,11 @@ export function resolveFieldValue(formId: string, line: PdfLine | undefined, ent
             ? `default, undecided: ${line.defaultUndecided}`
             : undefined;
       let write: string | null;
-      if (line.status === "not_applicable") {
+      if (entry.sign !== undefined) {
+        // One signed amount feeds two lines: this one prints only its own direction.
+        const magnitude = entry.sign === "owed" ? amount : -amount;
+        write = magnitude > 0 ? formatDollars(magnitude) : null;
+      } else if (line.status === "not_applicable") {
         write = entry.zero === "print" ? "0" : null;
       } else if (amount === 0) {
         // An explicit CPA pin of $0 is an instruction and prints; a computed zero prints only where the form wants it.
@@ -117,6 +121,15 @@ export interface Inclusion {
  */
 export function formInclusion(map: FormMap, view: PdfReturnView): Inclusion {
   if (map.formId === "f1040") return { include: true, reason: "Form 1040 is always included" };
+  // The engine's own verdict (Ty2025Return.formsRequired) wins over the line-based rule:
+  // false = omit (with the engine's reason), true or "blocking" = include (the CPA needs
+  // the form to see the blanks while an item is unresolved).
+  const verdict = map.engineFormId === undefined ? undefined : view.formsRequired?.[map.engineFormId];
+  if (verdict !== undefined) {
+    if (verdict.required === false) return { include: false, reason: `the engine reports it is not required: ${verdict.reason}` };
+    if (verdict.required === true) return { include: true, reason: `the engine reports it is required: ${verdict.reason}` };
+    return { include: true, reason: `the engine cannot tell yet (blocking item): ${verdict.reason}` };
+  }
   let allAbsent = true;
   for (const entry of map.lines) {
     if (entry.kind !== "money") continue;

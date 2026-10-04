@@ -24,6 +24,8 @@ export interface CoverForm {
   /** Why it is included / omitted. */
   reason: string;
   blankByDesign: Partial<Record<BlankReason, number>>;
+  /** Extra note printed with the form (e.g. the CT-1040 flat-form note). */
+  note?: string;
 }
 
 export interface CoverInput {
@@ -156,7 +158,10 @@ export function buildCoverModel(input: CoverInput): CoverModel {
   b.push({ kind: "heading", text: "Forms in this packet" });
   const included = input.forms.filter((f) => f.included);
   const omitted = input.forms.filter((f) => !f.included);
-  for (const f of included) b.push({ kind: "bullet", text: `${f.title} (${f.formId}) - included: ${f.reason}` });
+  for (const f of included) {
+    b.push({ kind: "bullet", text: `${f.title} (${f.formId}) - included: ${f.reason}` });
+    if (f.note) b.push({ kind: "bullet", text: `NOTE for ${f.formId}: ${f.note}` });
+  }
   if (included.length === 0) b.push({ kind: "para", text: "(no forms included)" });
   if (omitted.length > 0) {
     b.push({ kind: "heading", text: "Forms omitted" });

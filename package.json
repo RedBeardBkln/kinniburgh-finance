@@ -23,6 +23,7 @@
     "forms:fetch": "tsx scripts/forms/fetch-blank-forms.ts",
     "forms:catalog": "tsx scripts/forms/build-catalog.ts",
     "tax2025:pdf-gap": "tsx scripts/tax2025-pdf-gap.ts",
+    "forms:calibrate-ct": "tsx scripts/forms/calibrate-ct1040.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -62,6 +63,7 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.6",
     "lucide-react": "^0.471.2",
+    "pdfjs-dist": "^6.3.289",
     "postcss": "^8.5.28",
     "prisma": "^6.19.3",
     "sharp": "^0.35.5",

@@ -23,6 +23,7 @@ import {
   type PDFField,
 } from "pdf-lib";
 import { collectClaims } from "@/lib/tax2025/pdf/completeness";
+import { applyFlatFormOverlay } from "@/lib/tax2025/pdf/ct-overlay";
 import { formatDollars, splitName } from "@/lib/tax2025/pdf/format";
 import { resolveFieldValue } from "@/lib/tax2025/pdf/policy";
 import { getBlankBytes } from "@/lib/tax2025/pdf/registry";
@@ -103,6 +104,8 @@ export async function fillForm(
   if (map.formId !== formId) throw new Error(`fillForm: map is for ${map.formId}, not ${formId}`);
 
   const doc = await PDFDocument.load(getBlankBytes(formId), { updateMetadata: false });
+  // A flat form (CT-1040) has no fields: add our own over the calibrated boxes before the map is checked.
+  applyFlatFormOverlay(formId, doc);
 
   // Strip the signed usage-rights and XFA packet deliberately, then assert they are gone.
   doc.catalog.delete(PDFName.of("Perms"));
@@ -349,6 +352,11 @@ function fillTable(
     }
   };
 
+  if (table.coverList && data.length > 0) {
+    // The printed form has no column that identifies a row: list every row on the cover, in form order.
+    continuations.push({ formId, table: table.table, rows: data.map((r) => ({ ...r.cells })) });
+  }
+
   if (data.length <= capacity) {
     data.forEach((row, i) => writeRow(i, row.cells));
     return;
@@ -362,7 +370,7 @@ function fillTable(
   const rest = data.slice(capacity - 1);
   const { total, bad } = sumDollars(rest.map((r) => r.cells[table.amountColumn]));
   writeRow(capacity - 1, { [table.labelColumn]: OVERFLOW_LABEL, [table.amountColumn]: total });
-  continuations.push({ formId, table: table.table, rows: data.map((r) => ({ ...r.cells })) });
+  if (!table.coverList) continuations.push({ formId, table: table.table, rows: data.map((r) => ({ ...r.cells })) });
   addItem({
     id: `fill:${formId}:${table.table}:overflow`,
     severity: "advisory",

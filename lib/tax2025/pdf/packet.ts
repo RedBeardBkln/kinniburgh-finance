@@ -5,6 +5,7 @@
 
 import { zipSync, type Zippable } from "fflate";
 import { buildCoverModel, renderCover, type CoverForm } from "@/lib/tax2025/pdf/cover";
+import { FLAT_FORM_COVER_NOTES } from "@/lib/tax2025/pdf/ct-overlay";
 import { fillForm } from "@/lib/tax2025/pdf/fill";
 import { formatNewYorkDate, shortFingerprint } from "@/lib/tax2025/pdf/format";
 import { formInclusion } from "@/lib/tax2025/pdf/policy";
@@ -93,12 +94,14 @@ export async function buildPacket(view: PdfReturnView, options: PacketOptions): 
     const prefix = String(n).padStart(2, "0");
     const name = isCt(map.formId) ? `ct/${map.formId}.pdf` : `${prefix}-${map.formId}.pdf`;
     files.push({ name, formId: map.formId, bytes: result.bytes });
+    const note = FLAT_FORM_COVER_NOTES[map.formId];
     forms.push({
       formId: map.formId,
       title: entry.title,
       included: true,
       reason: inclusion.reason,
       blankByDesign: result.blankByDesign,
+      ...(note === undefined ? {} : { note }),
     });
     for (const item of result.openItems) if (!itemById.has(item.id)) itemById.set(item.id, item);
     continuations.push(...result.continuations);
