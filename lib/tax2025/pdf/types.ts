@@ -184,6 +184,11 @@ export interface MapMoneyLine {
   line: LineRef;
   /** Print "0" for a computed/not-applicable zero (subtotals and lines the form says to enter 0 on). */
   zero?: "print";
+  /**
+   * Print "0" for a computed / not-applicable zero only while an answer holds (answers[choice] === equals):
+   * Form 1040 line 7a is blank unless Schedule D is filed with line 16 exactly 0 ("enter -0- on line 7a").
+   */
+  zeroWhen?: { choice: string; equals: string | boolean };
   /** The form is not valid without this line: list under "lines the engine does not emit" when absent. */
   expected?: boolean;
   /**

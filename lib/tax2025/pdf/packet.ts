@@ -93,7 +93,23 @@ export async function buildPacket(view: PdfReturnView, options: PacketOptions): 
       continue;
     }
     // A form filed in several copies (Form 8949) yields one file per copy; every other form exactly one.
-    const filled = await fillFormCopies(map.formId, view, map, { stamp, fingerprint: fp12, stampDate });
+    let filled: Awaited<ReturnType<typeof fillFormCopies>>;
+    try {
+      filled = await fillFormCopies(map.formId, view, map, { stamp, fingerprint: fp12, stampDate });
+    } catch (err) {
+      // A defect in a copy builder (e.g. a row whose box is not a box of its Part) must not take the whole packet down
+      // or hide: the form is left out and a BLOCKING item says so. Only the error class is shown (messages can quote values).
+      const id = `fill:${map.formId}:build-failed`;
+      itemById.set(id, {
+        id,
+        severity: "blocking",
+        source: "fill",
+        formId: map.formId,
+        message: `${entry.title} could not be built (${err instanceof Error ? err.name : "unknown error"}) and is NOT in this packet; the CPA prepares it.`,
+      });
+      forms.push({ formId: map.formId, title: entry.title, included: false, reason: "it could not be built (see the blocking item)", blankByDesign: {} });
+      continue;
+    }
     const first = filled[0];
     if (!first) throw new Error(`fillFormCopies returned no sheet for ${map.formId}`);
     const copyLines: string[] = [];

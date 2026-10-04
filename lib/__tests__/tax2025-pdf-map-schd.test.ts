@@ -1,7 +1,9 @@
 import { vi } from "vitest";
 vi.setConfig({ testTimeout: 60000 }); // each case fills real IRS forms
 import { describe, expect, it } from "vitest";
+import { toPdfReturnView } from "@/lib/tax2025/pdf/adapter";
 import { fillForm } from "@/lib/tax2025/pdf/fill";
+import { resolveFieldValue } from "@/lib/tax2025/pdf/policy";
 import { f1040Map } from "@/lib/tax2025/pdf/maps/f1040";
 import { schDMap } from "@/lib/tax2025/pdf/maps/schD";
 import { buildPacket } from "@/lib/tax2025/pdf/packet";
@@ -10,7 +12,7 @@ import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 import { missingLeaf } from "@/lib/tax2025/types";
 import { DEFAULT_FILL_OPTIONS, assertMapGolden, loadCatalog, readAllFields, type FieldValue } from "./tax2025-pdf-harness";
 import { registerCommonMapTests } from "./tax2025-pdf-map-test-kit";
-import { build, realFacts, salesFacts } from "./fixtures/tax2025-pdf-schd.fixture";
+import { VIEW_OPTS, build, realFacts, salesFacts } from "./fixtures/tax2025-pdf-schd.fixture";
 
 // Golden tests of the filled Schedule D (and the Form 1040 lines 7a / 7b it feeds). Every number below is the engine's own cell for
 // the REAL Robinhood figures (short A 5,872.31 / 5,285.50 / wash 5.99 -> 592.80; long D 17,001.68 / 12,037.28 -> 4,964.40) as printed
@@ -181,9 +183,12 @@ describe("Schedule D golden: the real Robinhood household", () => {
 
 describe("Form 1040 line 7b box follows the engine's Exception 1", () => {
   it("no sales and no carryover: the box is checked, Schedule D and Form 8949 are omitted and say why on the cover list", async () => {
-    const golden = build(salesFacts([]));
-    // salesFacts([]) has no sales summary at all: Exception 1 (only capital gain distributions, here none)
+    const facts = salesFacts([]);
+    facts.income.dividendBoxes2b2dConfirmedZero = true; // the owner confirmed 1099-DIV boxes 2b, 2c and 2d are zero
+    const golden = build(facts);
+    // no sales summary at all and boxes 2b-2d confirmed: Exception 1 (only capital gain distributions, here none)
     expect(golden.ret.scheduleD?.exception1).toBe(true);
+    expect(golden.view.answers["schdNotRequired"]).toBe(true);
     const result = await fillForm("f1040", golden.view, f1040Map, DEFAULT_FILL_OPTIONS);
     const fields = await readAllFields(result.bytes);
     expect(fields.get(`${P1}c1_43[0]`)).toBe(true);
@@ -204,6 +209,59 @@ describe("Form 1040 line 7b box follows the engine's Exception 1", () => {
     expect((await readAllFields(result.bytes)).get(`${P1}c1_43[0]`)).toBe(false);
     const packet = await buildPacket(real.view, { maps: FORM_MAPS });
     expect(packet.forms.find((f) => f.formId === "f1040sd")?.included).toBe(true);
+  });
+});
+
+describe("Form 1040 line 7b box is NEVER ticked while 1099-DIV boxes 2b-2d are unconfirmed", () => {
+  it("no sales, boxes unconfirmed: Schedule D / 8949 are still omitted, but the box stays unchecked", async () => {
+    const { ret, view } = build(salesFacts([])); // fullFacts has 1099-DIVs and no 2b-2d confirmation
+    expect(ret.scheduleD).toMatchObject({ required: false, exception1: false, boxes2b2dUnconfirmed: true });
+    expect(view.answers["schdNotRequired"]).toBe(false);
+    const result = await fillForm("f1040", view, f1040Map, DEFAULT_FILL_OPTIONS);
+    expect((await readAllFields(result.bytes)).get(`${P1}c1_43[0]`)).toBe(false);
+  });
+
+  it("the adapter never lets exception1 and boxes2b2dUnconfirmed both pass (a hypothetical engine result with both true stays unchecked)", () => {
+    const { ret, facts } = build(salesFacts([]));
+    const forged = { ...ret, scheduleD: ret.scheduleD ? { ...ret.scheduleD, exception1: true, boxes2b2dUnconfirmed: true } : null };
+    expect(toPdfReturnView(forged, facts, VIEW_OPTS).answers["schdNotRequired"]).toBe(false);
+  });
+});
+
+describe("Form 1040 line 7a: a zero prints only when Schedule D is filed and line 16 is exactly 0", () => {
+  const f1040Fields = async (view: ReturnType<typeof build>["view"]): Promise<Map<string, FieldValue>> =>
+    readAllFields((await fillForm("f1040", view, f1040Map, DEFAULT_FILL_OPTIONS)).bytes);
+
+  it("line 16 = 0 with Schedule D filed: 7a prints 0", async () => {
+    const { view } = build(salesFacts([{ box: "A", proceedsCents: 100_000, costCents: 100_100, washSaleCents: 100 }]));
+    expect(view.lines["schd.16"]?.amount).toBe(0);
+    expect(view.answers["schdLine16Zero"]).toBe(true);
+    expect((await f1040Fields(view)).get(`${P1}f1_70[0]`)).toBe("0");
+  });
+
+  it("Schedule D not required (zero 7a): 7a stays blank, no schdLine16Zero answer", async () => {
+    const { view } = build(salesFacts([]));
+    expect(view.answers["schdLine16Zero"]).toBeUndefined();
+    expect((await f1040Fields(view)).get(`${P1}f1_70[0]`)).toBe("");
+  });
+
+  it("a gain or a loss on line 16 prints its own amount and sets no zero answer", async () => {
+    const gain = build(salesFacts([{ box: "D", proceedsCents: 100_000, costCents: 60_000 }]));
+    expect(gain.view.answers["schdLine16Zero"]).toBeUndefined();
+    expect((await f1040Fields(gain.view)).get(`${P1}f1_70[0]`)).toBe("400");
+    const loss = build(salesFacts([{ box: "D", proceedsCents: 100_000, costCents: 600_000 }]));
+    expect((await f1040Fields(loss.view)).get(`${P1}f1_70[0]`)).toBe("-3,000");
+  });
+
+  it("the policy: zeroWhen prints 0 only for a matching answer; a missing / blocked line is never 0", () => {
+    const entry = { kind: "money" as const, field: "x", line: "f1040.7a" as const, zeroWhen: { choice: "z", equals: true } };
+    const zero = { key: "f1040.7a" as const, status: "computed" as const, amount: 0, reason: null, formLabel: "Form 1040", formLine: "7a", label: "x" };
+    expect(resolveFieldValue("f1040", zero, entry, { z: true }).write).toBe("0");
+    expect(resolveFieldValue("f1040", zero, entry, { z: false }).write).toBeNull();
+    expect(resolveFieldValue("f1040", zero, entry, {}).write).toBeNull();
+    expect(resolveFieldValue("f1040", zero, entry).write).toBeNull();
+    const blocked = { ...zero, status: "missing_input" as const, amount: null };
+    expect(resolveFieldValue("f1040", blocked, entry, { z: true }).write).toBeNull();
   });
 });
 

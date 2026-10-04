@@ -42,7 +42,13 @@ function blankItem(formId: string, line: PdfLine, severity: "blocking" | "adviso
 }
 
 /** Decide what goes in the field of one money map entry. */
-export function resolveFieldValue(formId: string, line: PdfLine | undefined, entry: MapMoneyLine): MoneyDecision {
+export function resolveFieldValue(
+  formId: string,
+  line: PdfLine | undefined,
+  entry: MapMoneyLine,
+  answers?: PdfReturnView["answers"],
+): MoneyDecision {
+  const printZero = entry.zero === "print" || (entry.zeroWhen !== undefined && answers?.[entry.zeroWhen.choice] === entry.zeroWhen.equals);
   if (line === undefined) {
     const items: PacketOpenItem[] = [];
     if (entry.expected || (PENDING_LINE_KEYS as readonly string[]).includes(entry.line)) {
@@ -87,10 +93,10 @@ export function resolveFieldValue(formId: string, line: PdfLine | undefined, ent
         const magnitude = entry.sign === "owed" ? amount : -amount;
         write = magnitude > 0 ? formatDollars(magnitude) : null;
       } else if (line.status === "not_applicable") {
-        write = entry.zero === "print" ? "0" : null;
+        write = printZero ? "0" : null;
       } else if (amount === 0) {
         // An explicit CPA pin of $0 is an instruction and prints; a computed zero prints only where the form wants it.
-        write = line.status === "overridden" || entry.zero === "print" ? "0" : null;
+        write = line.status === "overridden" || printZero ? "0" : null;
       } else {
         write = formatDollars(amount);
       }

@@ -216,7 +216,7 @@ export async function fillForm(
 
   for (const entry of map.lines) {
     if (entry.kind === "money") {
-      const decision = resolveFieldValue(formId, view.lines[entry.line], entry);
+      const decision = resolveFieldValue(formId, view.lines[entry.line], entry, view.answers);
       for (const item of decision.items) addItem(item);
       if (decision.write !== null) writeText(entry.field, decision.write, decision.tooltip);
       else textField(entry.field); // type-check the target even when blank

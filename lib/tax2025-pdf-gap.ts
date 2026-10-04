@@ -60,7 +60,7 @@ export function printedLineText(speak: string | null): string | null {
 
 function blankReason(view: PdfReturnView, entry: MapMoneyLine, pending: ReadonlySet<string>): string | null {
   const line = view.lines[entry.line];
-  const decision = resolveFieldValue("gap", line, entry);
+  const decision = resolveFieldValue("gap", line, entry, view.answers);
   if (decision.write !== null) return null;
   if (line === undefined) {
     return pending.has(entry.line)

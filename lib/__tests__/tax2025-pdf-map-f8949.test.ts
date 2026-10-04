@@ -499,3 +499,63 @@ describe("single-form route: a form filed in several copies comes back as a zip,
     expect(blank.headers.get("Content-Type")).toBe("application/pdf");
   });
 });
+
+describe("two categories on one Schedule D line (1099-B box A + 1099-DA box G, B + H): each sheet's Totals are its own", () => {
+  const pair = (a: "A" | "B", g: "G" | "H") =>
+    build(
+      salesFacts([
+        { box: a, proceedsCents: 100_000, costCents: 90_000, washSaleCents: 500 },
+        { box: g, form: "1099-DA", payer: "Coinbase", proceedsCents: 200_000, costCents: 150_000, washSaleCents: 700 },
+      ]),
+    );
+
+  it("A + G: sheet a-1 totals 1,000 / 900 / 5 / 105, sheet g-2 totals 2,000 / 1,500 / 7 / 507; Schedule D line 1b stays the combined 3,000 / 2,400 / 12 / 612", async () => {
+    const { view } = pair("A", "G");
+    const l = (k: string): number | null => view.lines[k as keyof typeof view.lines]?.amount ?? null;
+    expect([l("schd.1b.d"), l("schd.1b.e"), l("schd.1b.g"), l("schd.1b.h")]).toEqual([3000, 2400, 12, 612]);
+    const copies = copiesOf(f8949Map, view);
+    expect(copies.map((c) => c.suffix)).toEqual(["a-1", "g-2"]);
+    const first = await readCopy(view, 0);
+    const second = await readCopy(view, 1);
+    expect(first.fields.get(f8949RowField("I", 1, "d"))).toBe("1,000");
+    for (const [col, want] of [["d", "1,000"], ["e", "900"], ["g", "5"], ["h", "105"]] as const) expect(first.fields.get(f8949TotalField("I", col)), `A (${col})`).toBe(want);
+    for (const [col, want] of [["d", "2,000"], ["e", "1,500"], ["g", "7"], ["h", "507"]] as const) expect(second.fields.get(f8949TotalField("I", col)), `G (${col})`).toBe(want);
+    expect(first.fields.get(`${P1}c1_1[0]`)).toBe(true); // box A
+    expect(second.fields.get(`${P1}c1_1[3]`)).toBe(true); // box G
+    expect(view.openItems.some((i) => i.id === "adapter:f8949.shared-line:1b" && /boxes A and G/.test(i.message))).toBe(true);
+  });
+
+  it("B + H: line 2 combines 3,000-sheet figures; each sheet shows its own (gap (g) blank-zero rules unchanged)", async () => {
+    const { view } = pair("B", "H");
+    const copies = copiesOf(f8949Map, view);
+    expect(copies.map((c) => c.suffix)).toEqual(["b-1", "h-2"]);
+    const second = await readCopy(view, 1);
+    expect(second.fields.get(f8949TotalField("I", "d"))).toBe("2,000");
+    expect(second.fields.get(f8949TotalField("I", "h"))).toBe("507");
+    expect(view.lines["schd.2.d"]?.amount).toBe(3000);
+  });
+
+  it("a line with ONE Form 8949 category keeps using the engine's (effective) line cells, and no shared-line item appears", () => {
+    expect(real.view.openItems.some((i) => i.id.startsWith("adapter:f8949.shared-line"))).toBe(false);
+    expect(real.view.tables["f8949.totalsI"]?.[0]?.cells).toMatchObject({ d: 5872, h: 593 });
+  });
+});
+
+describe("column (h) rounding advisory: printed (h) is the engine's figure, rounded once from the cents", () => {
+  it("the real household (5,872 - 5,286 + 6 = 592, printed 593) raises one advisory naming the 8949 row, its Totals and Schedule D line 1b; (h) is NOT changed", () => {
+    const item = real.view.openItems.find((i) => i.id === "adapter:schd.h-rounding");
+    expect(item?.severity).toBe("advisory");
+    expect(item?.message).toContain("Schedule D line 1b: 5872 - 5286 + 6 = 592, printed (h) 593");
+    expect(item?.message).toContain("Form 8949 row, box A");
+    expect(item?.message).toContain("Form 8949 Totals, box A");
+    expect(item?.message).toMatch(/round off only the total/);
+    expect(real.view.lines["schd.1b.h"]?.amount).toBe(593);
+    // line 8a (17,002 - 12,037 = 4,965 but 4,964 printed) is the same effect on a direct line
+    expect(item?.message).toContain("Schedule D line 8a: 17002 - 12037 = 4965, printed (h) 4964");
+  });
+
+  it("no item when every printed (h) equals (d) - (e) + (g)", () => {
+    const { view } = build(salesFacts([{ box: "D", proceedsCents: 100_000, costCents: 60_000 }]));
+    expect(view.openItems.some((i) => i.id === "adapter:schd.h-rounding")).toBe(false);
+  });
+});

@@ -57,7 +57,8 @@ export const f1040Map: FormMap = {
     money(`${P1}f1_66[0]`, "f1040.5b"),
     money(`${P1}f1_68[0]`, "f1040.6a"),
     money(`${P1}f1_69[0]`, "f1040.6b"),
-    money(`${P1}f1_70[0]`, "f1040.7a"),
+    // Blank when zero, EXCEPT with Schedule D filed and line 16 exactly 0 (the form says "enter -0-"): answers.schdLine16Zero
+    { ...money(`${P1}f1_70[0]`, "f1040.7a"), zeroWhen: { choice: "schdLine16Zero", equals: true } },
     money(`${P1}f1_71[0]`, "f1040.7b"), // 7b "Amount" (see the 2025 instructions)
     money(`${P1}f1_72[0]`, "f1040.8"),
     money(`${P1}f1_73[0]`, "f1040.9", { zero: "print" }),

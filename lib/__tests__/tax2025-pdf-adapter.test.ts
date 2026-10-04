@@ -35,8 +35,9 @@ const ANSWERED_FIXTURE_ANSWERS = {
   blindTaxpayer: false,
   age65Spouse: false,
   blindSpouse: false,
-  // Schedule D: the golden household has no sales (Exception 1: 1040 line 7b box) and stated "none" for the special-rate sales (QOF "no").
-  schdNotRequired: true,
+  // Schedule D: the golden household has no sales but its 1099-DIV boxes 2b-2d are not confirmed zero, so the 1040 line 7b box
+  // is NOT ticked (schdNotRequired false); it stated "none" for the special-rate sales (QOF "no").
+  schdNotRequired: false,
   "schd.qof": "no",
 } as const;
 
