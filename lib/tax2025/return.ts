@@ -38,7 +38,7 @@ import {
   sumCentsStrict,
 } from "@/lib/tax2025/inputs";
 import { LINE_CATALOG, NONE_GROUP_TEXT, lineMeta, type NoneGroupId } from "@/lib/tax2025/line-catalog";
-import { D, ZERO, centsToDollars, maxD, roundLine, sumThenRound } from "@/lib/tax2025/money";
+import { D, ZERO, centsToDollars, fmt, maxD, roundLine, sumThenRound } from "@/lib/tax2025/money";
 import { computeCtPayments, computeExcessSocialSecurity, computeFederalPayments } from "@/lib/tax2025/rules/payments";
 import { computeCtBalance, computeCtPropertyTaxCredit, computeCtTax } from "@/lib/tax2025/rules/ct";
 import { computeCtUseTax } from "@/lib/tax2025/rules/ct-use-tax";
@@ -537,8 +537,17 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     A.register(hsa, { refs: [...ra.people.flatMap(personRefs), ...facts.income.w2s.flatMap((w) => w.refs)] });
   }
   const unverifiedAdj = "Eligibility and plan-establishment rules for this self-employed deduction are not verified (specs/09); state the amount (0 if none) or the CPA decides.";
-  A.stated("sch1.16", facts.adjustments.seRetirement, { status: "needs_cpa_rule_unverified", reason: unverifiedAdj });
-  A.stated("sch1.17", facts.adjustments.seHealthInsurance, { status: "needs_cpa_rule_unverified", reason: unverifiedAdj });
+  // 0 (the owner states none) unblocks the line; a POSITIVE owner-stated amount is not deducted because the eligibility rules are not verified
+  // (a CPA-stated amount is used as given).
+  const seStated = (key: "sch1.16" | "sch1.17", leaf: Sourced<number>): void => {
+    if (leaf.value !== null && leaf.value > 0 && leaf.basis !== "answer_cpa" && !fill) {
+      A.blocked(key, "needs_cpa_rule_unverified", `The owner states ${fmt(centsToDollars(leaf.value))}; ${unverifiedAdj}`, "stated");
+      return;
+    }
+    A.stated(key, leaf, { status: "needs_cpa_rule_unverified", reason: unverifiedAdj });
+  };
+  seStated("sch1.16", facts.adjustments.seRetirement);
+  seStated("sch1.17", facts.adjustments.seHealthInsurance);
   A.sum("sch1.25", ["sch1.24a", "sch1.24b", "sch1.24c", "sch1.24d", "sch1.24e", "sch1.24f", "sch1.24g", "sch1.24h", "sch1.24i", "sch1.24j", "sch1.24k", "sch1.24z"]);
   A.sum("f1040.9", ["f1040.1z", "f1040.2b", "f1040.3b", "f1040.4b", "f1040.5b", "f1040.6b", "f1040.7a", "f1040.8"]);
   if (facts.adjustments.ira.value !== null) {
@@ -666,8 +675,8 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   const agi2 = A.num("f1040.11b");
   const tiBeforeQbi =
     agi2 !== null && ded12 !== null && sch1a !== null ? maxD(ZERO, agi2.minus(ded12).minus(sch1a)) : null;
-  const seHealth = A.assume(dollarsOrNull(facts.adjustments.seHealthInsurance), ZERO, "Self-employed health insurance, assumed $0");
-  const seRetire = A.assume(dollarsOrNull(facts.adjustments.seRetirement), ZERO, "Self-employed retirement contributions, assumed $0");
+  const seHealth = A.assume(A.peek("sch1.17"), ZERO, "Self-employed health insurance, assumed $0");
+  const seRetire = A.assume(A.peek("sch1.16"), ZERO, "Self-employed retirement contributions, assumed $0");
   const qbi = computeQbi8995({
     scheduleCNetProfit: netProfit,
     deductibleHalfSeTax: A.num("sch1.15"),

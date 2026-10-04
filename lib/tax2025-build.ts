@@ -96,6 +96,8 @@ export async function loadTy2025RawInputs(taxYear: 2025): Promise<RawTy2025Input
     answers = {
       statedNone: parsed.statedNone,
       returnAnswers: parsed.returnAnswers,
+      ...(parsed.seHealthInsuranceCents !== undefined ? { seHealthInsuranceCents: parsed.seHealthInsuranceCents } : {}),
+      ...(parsed.seRetirementCents !== undefined ? { seRetirementCents: parsed.seRetirementCents } : {}),
       ...(parsed.federalEstimates ? { federalEstimates: parsed.federalEstimates } : {}),
       ...(parsed.ctEstimates ? { ctEstimates: parsed.ctEstimates } : {}),
       ...(parsed.federalExtensionPaymentCents !== undefined ? { federalExtensionPaymentCents: parsed.federalExtensionPaymentCents } : {}),

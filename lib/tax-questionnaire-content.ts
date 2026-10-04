@@ -1557,6 +1557,23 @@ function rcPersonNodes(): QNode[] {
       showWhen: SCH1A_CANDIDATE,
     })
   );
+  // D2. EK Consulting owner: self-employed health insurance and retirement contributions (Schedule 1 lines 17 and 16)
+  out.push(
+    single("sehi", "Did you pay for health insurance for yourself or your family for {year} on your own, outside an employer's plan or pre-tax payroll (for example premiums you paid personally or through EK Consulting)?", YES_NO, {
+      context: "ekcActive",
+    }),
+    dollars("sehiamt", "How much did you pay in total for that health insurance for {year}, in dollars?", {
+      context: "ekcActive",
+      showWhen: inn("sehi", "yes"),
+    }),
+    single("serp", "Did EK Consulting make, or did you make, contributions for yourself to a SEP IRA, SIMPLE IRA or solo 401(k) for {year}?", YES_NO, {
+      context: "ekcActive",
+    }),
+    dollars("serpamt", "How much was contributed for you in total to those plans for {year}, in dollars?", {
+      context: "ekcActive",
+      showWhen: inn("serp", "yes"),
+    })
+  );
   // E. Payments
   for (const J of [
     { id: "fe", who: "federal", name: "Federal" },

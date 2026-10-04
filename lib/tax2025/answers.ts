@@ -43,6 +43,10 @@ export interface CompletenessParse {
   federalOverpaymentAppliedCents?: number;
   ctOverpaymentAppliedCents?: number;
   ctPriorYearBalancePaidIn2025Cents?: number;
+  /** Schedule 1 line 17 input: No -> 0, Yes -> the amount, Not sure / unanswered -> absent (the line stays blocked). */
+  seHealthInsuranceCents?: number;
+  /** Schedule 1 line 16 input (SEP / SIMPLE / solo 401(k) for the owner), same mapping. */
+  seRetirementCents?: number;
   statedNone: Partial<Record<NoneGroupId, boolean>>;
   returnAnswers: ReturnAnswers;
 }
@@ -270,6 +274,14 @@ export function parseCompletenessAnswers(
     const a = cents(amountId);
     return typeof a === "number" ? a : undefined;
   };
+  /** yes / no gate + amount: no -> 0, yes -> the amount, not sure / unanswered -> undefined. */
+  const yesNoAmount = (gate: string, amountId: string): number | undefined => {
+    const c = choice(gate);
+    if (c === "no") return 0;
+    if (c !== "yes") return undefined;
+    const a = cents(amountId);
+    return typeof a === "number" ? a : undefined;
+  };
   const fext = stated("fext", "fextamt");
   if (fext !== undefined) out.federalExtensionPaymentCents = fext;
   const cext = stated("cext", "cextamt");
@@ -278,6 +290,10 @@ export function parseCompletenessAnswers(
   if (fov !== undefined) out.federalOverpaymentAppliedCents = fov;
   const cov = stated("cov", "covamt");
   if (cov !== undefined) out.ctOverpaymentAppliedCents = cov;
+  const sehi = yesNoAmount("sehi", "sehiamt");
+  if (sehi !== undefined) out.seHealthInsuranceCents = sehi;
+  const serp = yesNoAmount("serp", "serpamt");
+  if (serp !== undefined) out.seRetirementCents = serp;
   const cpy = stated("cpy", "cpyamt");
   if (cpy !== undefined) out.ctPriorYearBalancePaidIn2025Cents = cpy;
   return out;
