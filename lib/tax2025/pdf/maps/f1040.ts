@@ -29,7 +29,7 @@ export const f1040Map: FormMap = {
     { kind: "money", field: `${P1}f1_74[0]`, line: "f1040.10" },
     { kind: "money", field: `${P1}f1_75[0]`, line: "f1040.11a", zero: "print", expected: true },
     // ── Page 2 tax and credits ──
-    { kind: "money", field: `${P2}f2_02[0]`, line: "f1040.12" }, // printed line 12e
+    { kind: "money", field: `${P2}f2_02[0]`, line: "f1040.12e" }, // printed line 12e
     { kind: "money", field: `${P2}f2_03[0]`, line: "f1040.13a" },
     { kind: "money", field: `${P2}f2_05[0]`, line: "f1040.14" },
     { kind: "money", field: `${P2}f2_06[0]`, line: "f1040.15", zero: "print", expected: true },

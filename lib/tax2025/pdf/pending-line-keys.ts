@@ -13,28 +13,10 @@
 
 export const PENDING_LINE_KEYS = [
   // Form 1040
-  "f1040.1z",
-  "f1040.4b",
-  "f1040.5b",
-  "f1040.6b",
-  "f1040.11b",
-  "f1040.27a",
-  "f1040.32",
-  "f1040.38",
   // Schedule 2
   "sch2.1",
-  "sch2.2",
   // Schedule A
-  "scha.4",
-  "scha.7",
-  "scha.9",
-  "scha.10",
-  "scha.15",
-  "scha.16",
   // Schedule SE
-  "se.1a",
-  "se.2",
-  "se.5a",
   // CT-1040
   "ct1040.2",
   "ct1040.3",
