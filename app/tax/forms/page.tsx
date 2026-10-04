@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { defaultFilingTaxYear } from "@/lib/tax-default-year";
 import { redirect } from "next/navigation";
 import type { Route } from "next";
 
@@ -7,5 +8,5 @@ import type { Route } from "next";
 export default async function TaxFormsIndexPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  redirect(`/tax/forms/${new Date().getUTCFullYear()}` as Route);
+  redirect(`/tax/forms/${defaultFilingTaxYear()}` as Route);
 }
