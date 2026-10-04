@@ -290,7 +290,7 @@ describe("S2: GL map owner-only LLC corrections", () => {
     }
     expect(target("Employee benefits:Worker's compensation insurance")).toEqual({ kind: "line", line: "15" });
     expect(target("Interest paid:Business loan interest")).toEqual({ kind: "line", line: "16b" });
-    expect(GL_SCHEDULE_C_MAP.filter((e) => e.target.kind === "needs_cpa")).toHaveLength(14);
+    expect(GL_SCHEDULE_C_MAP.filter((e) => e.target.kind === "needs_cpa")).toHaveLength(13);
     const t = target("Employee benefits:Health & accident plans");
     expect(t.kind === "needs_cpa" ? t.reason : "").toContain("Schedule 1 line 17");
   });

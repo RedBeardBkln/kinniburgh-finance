@@ -60,6 +60,7 @@ const URL_SCH_1A = `${IRS}/pub/irs-pdf/f1040s1a.pdf`;
 const URL_SCH_SE_FORM = `${IRS}/pub/irs-pdf/f1040sse.pdf`;
 const URL_8959_INSTR = `${IRS}/instructions/i8959`;
 const URL_8960_INSTR = `${IRS}/instructions/i8960`;
+const URL_SCH_B_INSTR = `${IRS}/instructions/i1040sb`;
 const URL_8995_INSTR = `${IRS}/instructions/i8995`;
 const URL_8889_INSTR = `${IRS}/instructions/i8889`;
 const URL_PUB_590A = `${IRS}/publications/p590a`;
@@ -399,6 +400,13 @@ export const CONSTANTS = {
     "Schedule C line 29 (floored at 0)",
     URL_SCH_C_INSTR,
     "Simplified Method Worksheet line 1 (Schedule C instructions; Pub 587 for 2025 returns, https://www.irs.gov/pub/irs-pdf/p587.pdf, worksheet line 5 'smaller of line 1 or line 4, if zero or less enter -0-'): the simplified deduction cannot exceed the gross income limitation, which is Schedule C line 29 (plus Form 8949 / 4797 gains and minus losses not allocable to the home, not modeled). Wording re-read 2026-10-03."
+  ),
+  BUSINESS_BANK_INTEREST_ROUTING: def(
+    "BUSINESS_BANK_INTEREST_ROUTING",
+    "Taxable interest on a business bank account is reported on Schedule B / Form 1040 line 2b, not on Schedule C",
+    URL_SCH_B_INSTR,
+    "Schedule B instructions (2025), Part I line 1: 'Report on line 1 all of your taxable interest ... List each payer's name and the amount'; Form 1040 instructions (2025), line 2b: 'Enter your total taxable interest income on line 2b' (https://www.irs.gov/instructions/i1040gi); Schedule C instructions (2025), line 6 lists only 'Interest (such as on notes and accounts receivable)' as business income not reported elsewhere (https://www.irs.gov/instructions/i1040sc). Wording re-read 2026-10-04.",
+    "2026-10-04"
   ),
   SECTION_179_MAX: def("SECTION_179_MAX", 2500000, URL_4562_INSTR, "Section 179 maximum deduction."),
   SECTION_179_PHASEOUT_START: def("SECTION_179_PHASEOUT_START", 4000000, URL_4562_INSTR, "Section 179 reduced dollar-for-dollar above this amount of 179 property."),

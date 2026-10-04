@@ -388,6 +388,11 @@ export interface ScheduleCDetail {
   vehicleActual: { code: string; name: string; totalCents: number }[];
   mileage: { entries: number; miles: number; deductionCents: number };
   cogsTotalCents: number;
+  /**
+   * Interest earned on the business bank account per the books (GL map target `interest_to_1040_2b`): EXCLUDED from Schedule C and
+   * added to 1040 line 2b / Schedule B (print as one payer row "Interest from business bank account (per EK Consulting books)").
+   */
+  booksInterest: { code: string; name: string; amountCents: number }[];
 }
 
 export type FormId =

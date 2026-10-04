@@ -133,6 +133,7 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
     unmapped: [],
     needsCpa: [],
     homeOfficeActualCandidates: [],
+    booksInterest: [],
     vehicleActual: [],
     mileage: { entries: 0, miles: 0, deductionCents: 0 },
     cogsTotalCents: 0,
@@ -215,6 +216,10 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
         break;
       case "home_office_actual":
         detail.homeOfficeActualCandidates.push({ code: g.code, name: g.name, totalCents: g.totalCents });
+        break;
+      case "interest_to_1040_2b":
+        // Not Schedule C income: reported as taxable interest (1040 line 2b / Schedule B) by the assembler.
+        detail.booksInterest.push({ code: g.code, name: g.name, amountCents: g.totalCents });
         break;
       case "needs_cpa":
         detail.needsCpa.push({ code: g.code, name: g.name, totalCents: g.totalCents, reason: t.reason });

@@ -20,6 +20,8 @@
 //   depreciation       - line 13 book depreciation (Form 4562 is Phase 2; blocked if the fixed-asset register has assets)
 //   vehicle_actual     - line 9 actual vehicle expenses (cannot be combined with the standard mileage rate)
 //   home_office_actual - Form 8829 actual-method inputs (decision X1; excluded from net profit under the simplified method)
+//   interest_to_1040_2b - interest earned on a business bank account: excluded from Schedule C and added to taxable interest
+//                        (1040 line 2b / Schedule B) with provenance "books"; an advisory explains the routing
 //   needs_cpa          - clearing / personal / other-form items: the CPA decides; blocks the profit while non-zero
 //   balance_sheet      - assets, liabilities, equity: never part of Schedule C
 
@@ -31,6 +33,7 @@ export type GlMapTarget =
   | { kind: "depreciation" }
   | { kind: "vehicle_actual" }
   | { kind: "home_office_actual" }
+  | { kind: "interest_to_1040_2b" }
   | { kind: "needs_cpa"; reason: string }
   | { kind: "balance_sheet" };
 
@@ -170,7 +173,7 @@ export const GL_SCHEDULE_C_MAP: readonly GlMapEntry[] = [
   { account: "Other income", qboType: "Other Income", target: { kind: "line", line: "6" } },
   { account: "Other income:Credit card rewards", qboType: "Other Income", target: { kind: "line", line: "6" } },
   { account: "Other income:Insurance claims", qboType: "Other Income", target: { kind: "line", line: "6" } },
-  { account: "Other income:Interest earned", qboType: "Other Income", target: { kind: "needs_cpa", reason: "Interest earned belongs on Form 1040 line 2b / Schedule B, not on Schedule C line 6." } },
+  { account: "Other income:Interest earned", qboType: "Other Income", target: { kind: "interest_to_1040_2b" }, note: "Interest earned on the business bank account is taxable interest (Form 1040 line 2b / Schedule B), not Schedule C income: Schedule C line 6 covers interest on notes and accounts receivable only." },
   { account: "Other income:Sale of an asset", qboType: "Other Income", target: { kind: "needs_cpa", reason: "Sale of a business asset goes to Form 4797 / Schedule D, not Schedule C line 6." } },
   { account: "Depreciation", qboType: "Other Expense", target: { kind: "depreciation" } },
   { account: "Home office", qboType: "Other Expense", target: { kind: "home_office_actual" } },

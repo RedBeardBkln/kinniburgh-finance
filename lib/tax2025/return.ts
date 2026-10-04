@@ -470,7 +470,11 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     A.blocked("f1040.1a", "missing_input", facts.income.w2s.length === 0 ? "No W-2 documents are on file for 2025." : "A W-2 has no wages (box 1) read.", "income");
   A.sum("f1040.1z", ["f1040.1a", "f1040.1b", "f1040.1c", "f1040.1d", "f1040.1e", "f1040.1f", "f1040.1g", "f1040.1h"], w2Refs);
 
-  const interest = A.assume(inv.interest, ZERO, "Taxable interest, assumed $0");
+  // Interest earned on the business bank account (books) is taxable interest, not Schedule C income: added here, cents first.
+  const booksInterestCents = (A.scheduleC?.booksInterest ?? []).reduce((n, b) => n + b.amountCents, 0);
+  const booksInterestRefs: Ref[] = (A.scheduleC?.booksInterest ?? []).map((b) => ({ kind: "gl", id: b.code, label: `${b.name} (books)` }));
+  const docInterest = A.assume(inv.interest, ZERO, "Taxable interest, assumed $0");
+  const interest = docInterest === null ? null : docInterest.plus(centsToDollars(booksInterestCents));
   const dividends = A.assume(inv.ordinaryDividends, ZERO, "Ordinary dividends, assumed $0");
   const qualified = A.assume(inv.qualifiedDividends, ZERO, "Qualified dividends, assumed $0");
   const gainDist = A.assume(inv.capitalGainDistributions, ZERO, "Capital gain distributions, assumed $0");
@@ -479,7 +483,11 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     `No 1099 ${what} income is on file and the owner has not confirmed there is none.`;
   if (taxExempt !== null) A.fixed("f1040.2a", taxExempt, "computed", null, "income", [...interestRefs, ...dividendRefs]);
   else A.blocked("f1040.2a", "missing_input", noInvestmentDocsReason("interest or dividend"), "income");
-  if (interest !== null) A.fixed("f1040.2b", interest, "computed", "Interest box 1 plus box 3 (US savings bond / Treasury interest, taxable federally).", "income", interestRefs);
+  const interestNote =
+    booksInterestCents > 0
+      ? "Interest box 1 plus box 3 (US savings bond / Treasury interest, taxable federally) plus interest earned on the business bank account per the books (provenance: books)."
+      : "Interest box 1 plus box 3 (US savings bond / Treasury interest, taxable federally).";
+  if (interest !== null) A.fixed("f1040.2b", interest, "computed", interestNote, "income", [...interestRefs, ...booksInterestRefs]);
   else A.blocked("f1040.2b", "missing_input", noInvestmentDocsReason("interest"), "income");
   if (qualified !== null) A.fixed("f1040.3a", qualified, "computed", null, "income", dividendRefs);
   else A.blocked("f1040.3a", "missing_input", noInvestmentDocsReason("dividend"), "income");
@@ -496,7 +504,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   A.blocked("f1040.7b", "not_yet_computed", "Not collected: see the 2025 Form 1040 instructions for line 7b.", "income", true);
 
   // Schedule B (payer rows are a table; the totals are lines)
-  if (interest !== null) A.fixed("schb.2", interest, "computed", null, "income", interestRefs);
+  if (interest !== null) A.fixed("schb.2", interest, "computed", booksInterestCents > 0 ? "Includes one payer row 'Interest from business bank account (per EK Consulting books)'." : null, "income", [...interestRefs, ...booksInterestRefs]);
   else A.blocked("schb.2", "missing_input", noInvestmentDocsReason("interest"), "income");
   A.derive("schb.4", ["schb.2", "schb.3"], (v) => v[0]!.minus(v[1]!), interestRefs);
   if (dividends !== null) A.fixed("schb.6", dividends, "computed", null, "income", dividendRefs);
@@ -1304,6 +1312,30 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
     ...decisionOpenItems(A.decisions),
     ...STANDING_ADVISORIES,
   ];
+  const conflicts: FactConflict[] = [...(extras.conflicts ?? [])];
+  const booksInterest = A.scheduleC?.booksInterest ?? [];
+  if (booksInterest.length > 0) {
+    const cents = booksInterest.reduce((n, b) => n + b.amountCents, 0);
+    openItems.push({
+      id: "books-interest-routed",
+      severity: "advisory",
+      message: `Interest earned on the business bank account per the books ($${(cents / 100).toFixed(2)}, ${booksInterest.map((b) => b.name).join(", ")}) is reported as taxable interest on Form 1040 line 2b / Schedule B, NOT as Schedule C income (Schedule B instructions: report all taxable interest; Schedule C line 6 covers interest on notes and accounts receivable only).`,
+      action: "CPA to confirm. If the same bank also issued a 1099-INT, the books interest may duplicate it: nothing is subtracted automatically.",
+      lineKeys: ["f1040.2b", "schb.2"],
+      refs: booksInterest.map((b) => ({ kind: "gl" as const, id: b.code, label: b.name })),
+    });
+    if (facts.income.interest.length > 0) {
+      conflicts.push({
+        factKey: "income.interest.books",
+        candidates: [
+          { basis: "books", label: "Interest earned per the EK Consulting books", value: cents, refs: booksInterest.map((b) => ({ kind: "gl" as const, id: b.code, label: b.name })) },
+          ...facts.income.interest.map((i) => ({ basis: i.basis, label: `1099-INT${i.payer ? ` from ${i.payer}` : ""}`, value: i.box1Cents, refs: i.refs })),
+        ],
+        chosen: "both counted",
+        reason: "Both the books interest and the 1099-INT interest are included in line 2b; if they are the same interest (the business bank issued the 1099-INT) it is counted twice. Nothing is subtracted automatically.",
+      });
+    }
+  }
   const blockingItemCount = openItems.filter((o) => o.severity === "blocking").length;
   const strictHeadline = buildHeadline(A, blockingItemCount, null, openItems);
   const provisional = strictHeadline.complete ? null : provisionalFrom(assemble(facts, decisions, true));
@@ -1314,7 +1346,7 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
     filingStatus: "mfj",
     lines,
     results: A.results,
-    conflicts: extras.conflicts ?? [],
+    conflicts,
     openItems,
     decisions: A.decisions,
     headline,
