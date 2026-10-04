@@ -116,7 +116,7 @@ describe("sheet model: lines", () => {
     it(`${name}: a line without an amount is never rendered as a number (and never 0 in the CSV)`, () => {
       const m = model(ret);
       const csv = parseCsv(sheetToCsv(m));
-      const byKey = new Map(csv.slice(1).map((r) => [r[2], r]));
+      const byKey = new Map(csv.slice(2).map((r) => [r[2], r]));
       for (const l of allLines(m)) {
         const hasAmt = l.status === "computed" || l.status === "not_applicable";
         if (hasAmt) {
@@ -356,7 +356,7 @@ describe("sheet model: provenance, documents and overrides", () => {
     const row = rows.find((r) => r[2] === "f1040.1a");
     expect(row?.[8]).toBe("150");
     expect(row?.[9]).toBe("the CPA");
-    expect(rows.slice(1).filter((r) => r[2] !== "f1040.1a" && r[8] !== "").length).toBe(0);
+    expect(rows.slice(2).filter((r) => r[2] !== "f1040.1a" && r[8] !== "").length).toBe(0);
   });
 
   it("carries the static sign-off checklist", () => {
@@ -385,7 +385,9 @@ describe("CSV export", () => {
   it("has the reserved columns, one row per line and a closing DRAFT notice", () => {
     const m = model(golden1b);
     const rows = parseCsv(sheetToCsv(m));
-    expect(rows[0]).toEqual([...SHEET_CSV_COLUMNS]);
+    expect(rows[0]![0]).toBe(SHEET_DRAFT_LABEL);
+    expect(rows[0]!.slice(1).every((c) => c === "")).toBe(true);
+    expect(rows[1]).toEqual([...SHEET_CSV_COLUMNS]);
     expect(SHEET_CSV_COLUMNS).toEqual([
       "form",
       "line_id",
@@ -400,13 +402,13 @@ describe("CSV export", () => {
       "override_at",
       "override_reason",
     ]);
-    expect(rows.length).toBe(allLines(m).length + 2);
+    expect(rows.length).toBe(allLines(m).length + 3);
     for (const r of rows) expect(r.length).toBe(SHEET_CSV_COLUMNS.length);
     const last = rows[rows.length - 1]!;
     expect(last[0]).toBe("DRAFT NOTICE");
     expect(last[7]).toContain("the CPA is the preparer of record");
     // override columns are empty when no override exists
-    for (const r of rows.slice(1)) expect(r.slice(8)).toEqual(["", "", "", ""]);
+    for (const r of rows.slice(2)) expect(r.slice(8)).toEqual(["", "", "", ""]);
   });
 
   it("uses CRLF line endings and ends with a newline", () => {

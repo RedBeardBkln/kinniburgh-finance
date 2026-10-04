@@ -122,6 +122,8 @@
     top: 0;
     width: 100%;
     font-size: 10px;
+    /* room for the fixed DRAFT header that repeats on every printed page */
+    padding-top: 16px;
   }
   body:has(#return-sheet) .h-screen {
     height: auto !important;

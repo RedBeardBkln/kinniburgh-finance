@@ -276,6 +276,7 @@ function FormGroup({ group }: { group: SheetFormGroup }) {
 function PartLines({ id, title, intro, groups, model, withAttestations }: { id: string; title: string; intro: string; groups: SheetFormGroup[]; model: SheetModel; withAttestations?: boolean }) {
   return (
     <section id={id} className="sheet-part space-y-4" aria-labelledby={`${id}-title`}>
+      <Draft label={model.draftLabel} />
       <div>
         <h2 id={`${id}-title`} className="text-xl font-semibold">
           {title}
@@ -355,6 +356,7 @@ function Decision({ d }: { d: SheetDecision }) {
 function PartDecisions({ model }: { model: SheetModel }) {
   return (
     <section id="part-4" className="sheet-part space-y-4" aria-labelledby="part-4-title">
+      <Draft label={model.draftLabel} />
       <div>
         <h2 id="part-4-title" className="text-xl font-semibold">
           4. CPA decisions
@@ -399,40 +401,59 @@ function ItemRow({ item }: { item: SheetOpenItem }) {
       </td>
       <td className="py-1 pr-2 text-sm">{item.message}</td>
       <td className="py-1 pr-2 text-xs">{item.action}</td>
-      <td className="py-1 pr-2 text-xs">{item.who === "owner" ? "owner" : "CPA"}</td>
+      <td className="py-1 pr-2 text-xs">{item.who === "owner" ? "owner" : item.who === "derived" ? "computed from other lines" : "CPA"}</td>
       <td className="py-1 text-xs">{item.lines.length > 0 ? item.lines.map((l) => l.text).join(", ") : "-"}</td>
     </tr>
   );
 }
 
+function ItemTable({ items }: { items: SheetOpenItem[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[44rem] text-sm">
+        <thead>
+          <tr className="border-b text-left text-xs text-muted-foreground">
+            <th className="py-1 pr-2 font-medium">Severity</th>
+            <th className="py-1 pr-2 font-medium">Item</th>
+            <th className="py-1 pr-2 font-medium">Action</th>
+            <th className="py-1 pr-2 font-medium">Who</th>
+            <th className="py-1 font-medium">Lines</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((i) => (
+            <ItemRow key={i.id} item={i} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function PartOpenItems({ model }: { model: SheetModel }) {
+  const direct = model.openItems.filter((i) => i.who !== "derived");
+  const derived = model.openItems.filter((i) => i.who === "derived");
   return (
     <section id="part-5" className="sheet-part space-y-4" aria-labelledby="part-5-title">
+      <Draft label={model.draftLabel} />
       <div>
         <h2 id="part-5-title" className="text-xl font-semibold">
           5. Open items, conflicts and owner homework
         </h2>
         <p className="text-xs text-muted-foreground">Blocking items first. Each item lists the return lines it affects.</p>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[44rem] text-sm">
-          <thead>
-            <tr className="border-b text-left text-xs text-muted-foreground">
-              <th className="py-1 pr-2 font-medium">Severity</th>
-              <th className="py-1 pr-2 font-medium">Item</th>
-              <th className="py-1 pr-2 font-medium">Action</th>
-              <th className="py-1 pr-2 font-medium">Who</th>
-              <th className="py-1 font-medium">Lines</th>
-            </tr>
-          </thead>
-          <tbody>
-            {model.openItems.map((i) => (
-              <ItemRow key={i.id} item={i} />
-            ))}
-          </tbody>
-        </table>
-        {model.openItems.length === 0 ? <p className="py-2 text-sm">No open items.</p> : null}
-      </div>
+      <ItemTable items={direct} />
+      {direct.length === 0 ? <p className="py-2 text-sm">No open items.</p> : null}
+      {derived.length > 0 ? (
+        <div className="space-y-1" data-testid="derived-items">
+          <h3 className="text-base font-semibold">Computed from other lines ({derived.length})</h3>
+          <p className="text-xs text-muted-foreground">
+            These items only wait for figures the engine computes from other lines (taxable income, AGI, Schedule C profit ...). Nobody has to
+            provide them: they resolve when the owner answers the homework items below and the CPA settles the items above.
+          </p>
+          <ItemTable items={derived} />
+        </div>
+      ) : null}
 
       <div className="break-inside-avoid space-y-1">
         <h3 className="text-base font-semibold">Conflicts between sources</h3>
@@ -482,6 +503,7 @@ function PartOpenItems({ model }: { model: SheetModel }) {
 function PartDocuments({ model }: { model: SheetModel }) {
   return (
     <section id="part-6" className="sheet-part space-y-4" aria-labelledby="part-6-title">
+      <Draft label={model.draftLabel} />
       <div>
         <h2 id="part-6-title" className="text-xl font-semibold">
           6. Document index and CPA sign-off checklist
@@ -558,6 +580,13 @@ function PartDocuments({ model }: { model: SheetModel }) {
 export function ReturnSheet({ model }: { model: SheetModel }) {
   return (
     <div className="space-y-8">
+      {/* Repeats on every printed page (fixed to the page box in print only; hidden on screen). */}
+      <div
+        className="sheet-print-header hidden border-b border-amber-600 bg-white px-2 py-0.5 text-center text-[9px] font-semibold text-amber-950 print:fixed print:left-0 print:right-0 print:top-0 print:block"
+        data-testid="print-header"
+      >
+        {model.draftLabel}
+      </div>
       <PartSummary model={model} />
       <PartLines
         id="part-2"

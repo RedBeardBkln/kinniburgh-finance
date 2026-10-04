@@ -15,7 +15,7 @@ import {
   type RuleStatus,
   type Ty2025Return,
 } from "@/lib/tax2025/types";
-import { formatSheetMoney } from "@/lib/tax2025-sheet";
+import { formatSheetMoney, scheduleCUnanswered } from "@/lib/tax2025-sheet";
 
 export type ConclusionTone = "computed" | "not_required" | "blocked";
 
@@ -82,15 +82,20 @@ export function buildCardConclusions(ret: Ty2025Return): Record<string, CardConc
   out["form-8889"] = formVerdict(ret, "f8889", "Form 8889", () => `HSA deduction ${money(amountOf(ret, "sch1.13"))} (Schedule 1 line 13).`);
   out["form-8880"] = formVerdict(ret, "f8880", "Form 8880", () => `Saver's credit ${money(amountOf(ret, "sch3.4"))} (Schedule 3 line 4).`);
 
+  // Form 2210: "Computed" only when the regular-method estimate itself is computed; the verdict "not required" is an
+  // engine constant (the IRS figures the penalty), so with no estimate the card says "Not computed".
   const pen = amountOf(ret, "f2210.19");
   const req2210 = ret.formsRequired.f2210;
-  out["form-2210"] = {
-    tone: "not_required",
-    text:
-      req2210 === undefined
-        ? "Not computed: the engine has no Form 2210 verdict yet."
-        : `Computed: Form 2210 not required - ${req2210.reason}${pen === null ? " The regular-method estimate is not available yet." : ""}`,
-  };
+  if (req2210 === undefined) {
+    out["form-2210"] = { tone: "blocked", text: "Not computed: the engine has no Form 2210 verdict yet." };
+  } else if (pen !== null) {
+    out["form-2210"] = { tone: "not_required", text: `Computed: Form 2210 not required - ${req2210.reason}` };
+  } else {
+    out["form-2210"] = {
+      tone: "blocked",
+      text: `Not computed: the regular-method estimate is not available (${reasonOf(ret, "f2210.19")}). ${req2210.reason}`,
+    };
+  }
 
   out["schedule-3-federal"] = formVerdict(
     ret,
@@ -104,7 +109,10 @@ export function buildCardConclusions(ret: Ty2025Return): Record<string, CardConc
   const f8829 = ret.formsRequired.f8829;
   const c30 = ret.lines["schc.30"];
   const x1 = ret.decisions.find((d) => d.id === "X1");
-  if (c30 !== undefined && c30.status === "not_applicable") {
+  const open = scheduleCUnanswered(ret);
+  if (open.homeOffice !== null) {
+    out["form-8829"] = { tone: "blocked", text: `Not decided: the ${open.homeOffice} has not been answered, so it is not known whether a home office deduction (or Form 8829) applies.` };
+  } else if (c30 !== undefined && c30.status === "not_applicable") {
     out["form-8829"] = { tone: "not_required", text: `Computed: Form 8829 not required - no home office deduction (Schedule C line 30 is ${money(c30.amount)}). ${f8829?.reason ?? ""}`.trim() };
   } else if (c30 !== undefined && c30.status === "computed") {
     const method = x1 === undefined ? "" : x1.status === "default_undecided" ? " (simplified method in force by default; decision X1 is undecided)" : ` (decision X1: ${x1.chosen})`;
@@ -113,10 +121,14 @@ export function buildCardConclusions(ret: Ty2025Return): Record<string, CardConc
     out["form-8829"] = { tone: "blocked", text: `Not computed: Schedule C line 30 (home office) - ${c30 === undefined ? "the line is not on the return" : reasonOf(ret, "schc.30")}` };
   }
 
-  out["form-4562"] = {
-    tone: ret.formsRequired.f4562?.required === false ? "not_required" : "blocked",
-    text: `${ret.formsRequired.f4562?.required === false ? "Computed: Form 4562 not required - " : "Not computed (CPA decision X2): "}${ret.formsRequired.f4562?.reason ?? "the engine has no verdict."}`,
-  };
+  const f4562 = ret.formsRequired.f4562;
+  if (open.fixedAssets !== null) {
+    out["form-4562"] = { tone: "blocked", text: `Not decided: the ${open.fixedAssets} has not been answered, so Form 4562 cannot be ruled out.` };
+  } else if (f4562?.required === false) {
+    out["form-4562"] = { tone: "not_required", text: `Computed: Form 4562 not required - ${f4562.reason}` };
+  } else {
+    out["form-4562"] = { tone: "blocked", text: `Not computed (CPA decision X2): ${f4562?.reason ?? "the engine has no verdict."}` };
+  }
 
   out["child-dependent-credits"] = lineVerdict(ret, "f1040.19", "the child tax credit and credit for other dependents", () => `${ret.lines["f1040.19"]?.reason ?? "no child or other-dependent credit."}`);
 

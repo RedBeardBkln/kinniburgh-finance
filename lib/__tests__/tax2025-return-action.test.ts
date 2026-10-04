@@ -37,7 +37,7 @@ describe("exportTaxReturnCsv", () => {
     if (!res.ok) return;
     expect(buildMock).toHaveBeenCalledWith(2025);
     expect(res.filename).toBe("ty2025-cpa-review-sheet-DRAFT.csv");
-    expect(res.csv.startsWith("form,line_id,line_key,label,amount,status,provenance,citation_reason,override_amount,override_by,override_at,override_reason\r\n")).toBe(true);
+    expect(res.csv.startsWith("DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record,,,,,,,,,,,\r\nform,line_id,line_key,label,amount,status,provenance,citation_reason,override_amount,override_by,override_at,override_reason\r\n")).toBe(true);
     expect(res.csv).toContain("DRAFT NOTICE");
   });
 

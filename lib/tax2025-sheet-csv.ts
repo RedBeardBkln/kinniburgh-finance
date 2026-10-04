@@ -10,6 +10,7 @@
 //   - the amount column is written from the whole-dollar number ONLY when the line
 //     carries an amount (digits and an optional leading minus, exempt from the guard);
 //     a line without an amount has an EMPTY amount cell, never 0;
+//   - the DRAFT label is the FIRST row (then the header row) and the closing notice row repeats it;
 //   - the override columns are reserved: empty unless an override note was supplied.
 
 import {
@@ -85,7 +86,9 @@ function rowsOf(groups: readonly SheetFormGroup[]): string[] {
 
 /** The whole CSV text (CRLF line endings, trailing newline). */
 export function sheetToCsv(model: SheetModel): string {
-  const rows: string[] = [SHEET_CSV_COLUMNS.join(","), ...rowsOf(model.federal), ...rowsOf(model.connecticut)];
+  // FIRST row: the DRAFT label (padded to the column count so every row still parses to 12 cells), then the header.
+  const draftRow = [csvText(model.draftLabel), ...Array.from({ length: SHEET_CSV_COLUMNS.length - 1 }, () => "")].join(",");
+  const rows: string[] = [draftRow, SHEET_CSV_COLUMNS.join(","), ...rowsOf(model.federal), ...rowsOf(model.connecticut)];
   // A closing row so the framing travels with the file (amount column stays empty).
   rows.push(
     [csvText("DRAFT NOTICE"), "", "", "", "", "", "", csvText(`${model.draftLabel}. Engine ${model.engineVersion}, generated ${model.generatedAtDisplay}. Lines with an empty amount are NOT zero: they are not computed.`), "", "", "", ""].join(",")

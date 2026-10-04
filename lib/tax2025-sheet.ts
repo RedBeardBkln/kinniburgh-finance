@@ -168,7 +168,12 @@ export interface SheetOpenItem {
   message: string;
   action: string;
   /** Who has to act: the owner (Eric/Eva) or the CPA. */
-  who: "owner" | "cpa";
+  who: "owner" | "cpa" | "derived";
+  /**
+   * What the OWNER has to do (the real root inputs only; derived figures such as taxable income are never asked of the
+   * owner). Null unless who === "owner".
+   */
+  ownerAction: string | null;
   lines: { key: string; text: string }[];
 }
 
@@ -372,8 +377,6 @@ function citationOf(id: string): SheetCitation {
 
 // ── Provenance chips ──────────────────────────────────────────────────────────
 
-const MAX_CHIPS = 8;
-
 function chipsFor(line: ReturnLine, docs: ReadonlyMap<string, SheetRawDocument>, defaultUndecided: string | null): SheetChip[] {
   const out: SheetChip[] = [];
   const seen = new Set<string>();
@@ -428,10 +431,7 @@ function chipsFor(line: ReturnLine, docs: ReadonlyMap<string, SheetRawDocument>,
     push({ kind: "derived", label: `computed by rule ${line.ruleId}`, href: null }, "derived");
   }
   if (defaultUndecided !== null) push({ kind: "decision", label: `default, undecided: ${defaultUndecided}`, href: null }, "default-undecided");
-  if (out.length > MAX_CHIPS) {
-    const extra = out.length - (MAX_CHIPS - 1);
-    return [...out.slice(0, MAX_CHIPS - 1), { kind: "derived", label: `+${extra} more source(s)`, href: null }];
-  }
+  // Every source the engine cites is kept: an UNVERIFIED document, an owner answer or a book account is never folded away.
   return out;
 }
 
@@ -549,28 +549,61 @@ function toSheetDecision(r: RuleResult): SheetDecision | null {
   };
 }
 
+/**
+ * Which Schedule C answers are still open, read from the engine's own result (schedule-c `inputsMissing`), not guessed.
+ * The engine's packet verdicts for Form 8829 / 4562 say "not needed" when the answer is simply missing; the sheet must not
+ * print that as an all-clear.
+ */
+export function scheduleCUnanswered(ret: Pick<Ty2025Return, "results">): { homeOffice: string | null; fixedAssets: string | null } {
+  const missing = ret.results.find((r) => r.ruleId === "schedule-c")?.inputsMissing ?? [];
+  const find = (needle: string): string | null => missing.find((m) => m.includes(needle)) ?? null;
+  return { homeOffice: find("home office eligibility") ?? find("home office square footage"), fixedAssets: find("fixed-asset register") };
+}
+
+function qbiUnresolved(ret: Ty2025Return): boolean {
+  return ret.formsRequired.f8995?.required === "blocking";
+}
+
+function propertyTaxUnresolved(ret: Ty2025Return): boolean {
+  return ret.openItems.some((o) => o.id.startsWith("bill-unclassified:") || o.id === "no-second-property-bill" || o.id === "rule:schedule-a");
+}
+
 const KNOWN_DECISIONS: readonly { id: string; label: string; notRaised: (ret: Ty2025Return) => string }[] = [
   {
     id: "X1",
     label: "Home office: simplified method or actual expenses (Form 8829)",
-    notRaised: (ret) => `Not raised for this return: ${ret.formsRequired.f8829?.reason ?? "no home office deduction is claimed"}`,
+    notRaised: (ret) => {
+      const open = scheduleCUnanswered(ret).homeOffice;
+      return open !== null
+        ? `Not decided: the ${open} has not been answered, so it is not known whether a home office decision arises.`
+        : `Not raised for this return: ${ret.formsRequired.f8829?.reason ?? "no home office deduction is claimed"}`;
+    },
   },
   {
     id: "X2",
     label: "Depreciation elections (Form 4562): regular MACRS, bonus, section 179, de minimis safe harbor",
-    notRaised: (ret) =>
-      `The engine does not compute these alternatives yet; the CPA decides. ${ret.formsRequired.f4562?.reason ?? ""}`.trim(),
+    notRaised: (ret) => {
+      const open = scheduleCUnanswered(ret).fixedAssets;
+      return open !== null
+        ? `Not decided: the ${open} has not been answered, so it is not known whether depreciation elections arise. The engine does not compute these alternatives yet; the CPA decides.`
+        : `The engine does not compute these alternatives yet; the CPA decides. ${ret.formsRequired.f4562?.reason ?? ""}`.trim();
+    },
   },
   {
     id: "X3",
     label: "QBI deduction form: Form 8995 or Form 8995-A",
     notRaised: (ret) =>
-      `Not raised for this return: Form 8995 is used unless taxable income before the QBI deduction is over the Form 8995 limit. ${ret.formsRequired.f8995?.reason ?? ""}`.trim(),
+      qbiUnresolved(ret)
+        ? `Not decided: the QBI deduction is not computed yet (inputs are missing), so it is not known whether Form 8995-A is needed. ${ret.formsRequired.f8995?.reason ?? ""}`.trim()
+        : `Not raised for this return: Form 8995 is used unless taxable income before the QBI deduction is over the Form 8995 limit. ${ret.formsRequired.f8995?.reason ?? ""}`.trim(),
   },
   {
     id: "X5",
     label: "Arbor Rd 2025 property tax: Schedule A or capitalize",
-    notRaised: () => "Not raised for this return: the engine raises it only when a property tax bill is classified as non-primary real estate (Arbor Rd).",
+    notRaised: (ret) =>
+      propertyTaxUnresolved(ret)
+        ? "Not decided: the property tax bills are not all classified or answered yet, so it is not known whether a non-primary property (Arbor Rd) decision arises."
+        : "Not raised for this return: the engine raises it only when a property tax bill is classified as non-primary real estate (Arbor Rd).",
   },
 ];
 
@@ -578,13 +611,50 @@ const KNOWN_DECISIONS: readonly { id: string; label: string; notRaised: (ret: Ty
 
 const OWNER_ACTION = /^(Archive|Record|Set |Enter|Upload|Open|Re-extract|Re-open|Answer|Confirm|Check|Provide|Read|GL-code|Reconcile|Give the details|Review the transactions)/i;
 
-/** Who has to act on an open item: the owner (an answer, a verification, an upload) or the CPA. */
-export function openItemOwner(item: Pick<OpenItem, "id" | "action">): "owner" | "cpa" {
-  if (item.id.startsWith("decision:") || item.id.startsWith("info:")) return "cpa";
-  if (item.id === "assumptions-no-ct-sales-tax-or-other") return "cpa";
-  if (item.id.startsWith("doc-unverified:") || item.id.startsWith("doc-legacy:") || item.id.startsWith("none:")) return "owner";
-  if (/^The CPA/i.test(item.action) || /^CPA to/i.test(item.action) || /^Tell the CPA/i.test(item.action)) return "cpa";
-  return OWNER_ACTION.test(item.action.trim()) ? "owner" : "cpa";
+/**
+ * Parts of a "Provide: a; b; c." action that name a figure the ENGINE derives from other lines (taxable income, AGI, Schedule C
+ * profit, Schedule SE earnings ...). The owner cannot provide those: they resolve when the root inputs are answered.
+ */
+const DERIVED_PART =
+  /^(taxable income|(federal |CT )?AGI\b|Form 1040 line (11a|22)\b|Form 8959 line 24|Schedule C net profit|Schedule SE net earnings|Schedule 3 line amounts|deductible half of SE tax|standard-versus-itemized|regular tax|interest \/ dividend)/i;
+
+function provideParts(action: string): string[] | null {
+  const m = /^Provide:\s*([\s\S]*?)\.?\s*$/.exec(action.trim());
+  if (m === null || m[1] === undefined) return null;
+  return m[1].split(/;\s*/).map((x) => x.trim()).filter((x) => x !== "");
+}
+
+export interface OpenItemRouting {
+  who: "owner" | "cpa" | "derived";
+  /** For the owner: what they must do (root inputs only). */
+  ownerAction: string | null;
+}
+
+/**
+ * Who has to act on an open item: the owner (a real fact: an answer, a verification, an upload), the CPA, or nobody
+ * ("derived": the item only waits for figures computed from other lines, which resolve when the owner answers the root items).
+ */
+export function routeOpenItem(item: Pick<OpenItem, "id" | "action">): OpenItemRouting {
+  const cpa: OpenItemRouting = { who: "cpa", ownerAction: null };
+  const owner = (action: string): OpenItemRouting => ({ who: "owner", ownerAction: action });
+  if (item.id.startsWith("decision:") || item.id.startsWith("info:")) return cpa;
+  if (item.id === "assumptions-no-ct-sales-tax-or-other" || item.id === "filing-status-not-mfj") return cpa;
+  if (item.id.startsWith("doc-unverified:") || item.id.startsWith("doc-legacy:") || item.id.startsWith("none:")) return owner(item.action);
+  if (/^The CPA/i.test(item.action) || /^CPA to/i.test(item.action) || /^Tell the CPA/i.test(item.action)) return cpa;
+  if (item.id.startsWith("rule:")) {
+    const parts = provideParts(item.action);
+    if (parts !== null) {
+      const real = parts.filter((p) => !DERIVED_PART.test(p));
+      if (real.length === 0) return { who: "derived", ownerAction: null };
+      return owner(real.length === parts.length ? item.action : `Provide: ${real.join("; ")}.`);
+    }
+  }
+  return OWNER_ACTION.test(item.action.trim()) ? owner(item.action) : cpa;
+}
+
+/** Who acts on an item (see routeOpenItem). */
+export function openItemOwner(item: Pick<OpenItem, "id" | "action">): "owner" | "cpa" | "derived" {
+  return routeOpenItem(item).who;
 }
 
 function toSheetOpenItems(items: readonly OpenItem[]): SheetOpenItem[] {
@@ -604,7 +674,8 @@ function toSheetOpenItems(items: readonly OpenItem[]): SheetOpenItem[] {
       severity: i.severity,
       message: i.message,
       action: i.action,
-      who: openItemOwner(i),
+      who: routeOpenItem(i).who,
+      ownerAction: routeOpenItem(i).ownerAction,
       lines: i.lineKeys.map((k) => ({ key: k, text: lineText(k) })),
     }));
 }
@@ -626,7 +697,7 @@ function toSheetConflicts(ret: Ty2025Return): SheetConflict[] {
 function toHomework(items: readonly SheetOpenItem[]): SheetHomework[] {
   return items
     .filter((i) => i.who === "owner")
-    .map((i) => ({ id: i.id, severity: i.severity, what: i.action, why: i.message, lines: i.lines.map((l) => l.text) }));
+    .map((i) => ({ id: i.id, severity: i.severity, what: i.ownerAction ?? i.action, why: i.message, lines: i.lines.map((l) => l.text) }));
 }
 
 // ── Documents ─────────────────────────────────────────────────────────────────
