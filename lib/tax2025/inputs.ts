@@ -86,6 +86,8 @@ export interface InvestmentAggregates {
   capitalGainDistributions: Decimal | null;
   section199aDividends: Decimal | null;
   privateActivityBondInterest: Decimal | null;
+  /** 1099-INT box 6 + 1099-DIV box 7 (foreign tax paid); null when interest or dividends are not fully known. */
+  foreignTaxPaid: Decimal | null;
   /** 1099-B / other boxes this engine does not compute are present. */
   hasCapitalTransactionBoxes: boolean;
   hasRetirementOrSsBoxes: boolean;
@@ -114,6 +116,7 @@ export function aggregateInvestments(facts: Ty2025Facts): InvestmentAggregates {
     capitalGainDistributions: dividendsKnown ? sumCentsStrict(dividends.map((d) => d.box2aCents)) : null,
     section199aDividends: dividendsKnown ? sumCentsStrict(dividends.map((d) => d.box5Cents)) : null,
     privateActivityBondInterest: interestKnown ? sumCentsStrict(interest.map((i) => i.box9Cents)) : null,
+    foreignTaxPaid: interestKnown && dividendsKnown ? sumCentsStrict([...interest.map((i) => i.box6Cents), ...dividends.map((d) => d.box7Cents)]) : null,
     hasCapitalTransactionBoxes: otherIncomeBoxes.some((b) => b.variant === "1099-B"),
     hasRetirementOrSsBoxes: otherIncomeBoxes.some((b) => b.variant === "1099-R" || b.variant === "1099-SSA"),
     hasOtherIncomeBoxes: otherIncomeBoxes.some((b) => b.variant !== "1099-B" && b.variant !== "1099-R" && b.variant !== "1099-SSA"),

@@ -5,10 +5,13 @@ import { computePL } from "@/lib/reports";
 import { parseDollarAnswerToCents, parseSqftAnswer, sumPaystubWithholding } from "@/lib/tax-compute-build";
 import { resolveTaxDocForCompute } from "@/lib/tax-extraction-policy";
 import { taxYearBoundsUtc, toIsoDateInput } from "@/lib/tax-log-dates";
+import { effectiveAnswers, parseStoredAnswers } from "@/lib/tax-questionnaire";
+import { RETURN_COMPLETENESS_ID, questionnaireById } from "@/lib/tax-questionnaire-content";
+import { RC_CONTEXT, parseCompletenessAnswers } from "@/lib/tax2025/answers";
 import { inferPrimaryResidence, inferScheduleCOwner, planningFromRows } from "@/lib/tax2025/derive";
 import type { DonationFact, FixedAssetFact, GlLineFact, Ty2025Facts } from "@/lib/tax2025/facts";
 import { dollarsToCents } from "@/lib/tax2025/money";
-import { resolveFacts, type RawDocument, type RawTy2025Inputs, type ResolvedFacts } from "@/lib/tax2025/resolve-facts";
+import { resolveFacts, type RawAnswers, type RawDocument, type RawTy2025Inputs, type ResolvedFacts } from "@/lib/tax2025/resolve-facts";
 import { computeTy2025Return } from "@/lib/tax2025/return";
 import type { Ty2025Decisions, Ty2025Return } from "@/lib/tax2025/types";
 
@@ -25,8 +28,10 @@ import type { Ty2025Decisions, Ty2025Return } from "@/lib/tax2025/types";
 // resolveTaxDocForCompute so only EFFECTIVE, verified-labelled extraction data
 // reaches the engine, including the 2024 return as a document), paystubs, the
 // Personal workspace's Planning answers, the EK Consulting P&L (computePL), mileage,
-// fixed assets and the donation log. Questionnaire rows are not read in 1a: no
-// questionnaire node feeds a 1a fact yet (Phase 1b adds them through RawAnswers).
+// fixed assets and the donation log. Phase 1b also reads the Personal entity's
+// "Return completeness" TaxQuestionnaire row (its EFFECTIVE answers, through
+// lib/tax2025/answers.ts) for estimated / extension payments, the "stated none"
+// statements and the per-person retirement / HSA / tips / overtime answers.
 
 export interface Ty2025Build {
   raw: RawTy2025Inputs;
@@ -60,6 +65,34 @@ export async function loadTy2025RawInputs(taxYear: 2025): Promise<RawTy2025Input
     questions.map((q) => ({ key: q.key, answer: q.answer, skippedReason: q.skippedReason })),
     { parseDollarAnswerToCents, parseSqftAnswer }
   );
+
+  // The "Return completeness" questionnaire row (read-only; wrapped so a missing table never breaks the loader).
+  const completenessDef = questionnaireById(RETURN_COMPLETENESS_ID);
+  const completenessRow = completenessDef
+    ? await db.taxQuestionnaire
+        .findUnique({
+          where: { taxYear_entityId_questionnaireId: { taxYear, entityId: personal.id, questionnaireId: RETURN_COMPLETENESS_ID } },
+          select: { answers: true, definitionVersion: true },
+        })
+        .catch(() => null)
+    : null;
+  let answers: RawAnswers | undefined;
+  if (completenessDef && completenessRow) {
+    const effective = effectiveAnswers(completenessDef, parseStoredAnswers(completenessRow.answers), [], RC_CONTEXT);
+    const parsed = parseCompletenessAnswers(effective, users.map((u) => ({ userId: u.id, name: u.name })));
+    answers = {
+      statedNone: parsed.statedNone,
+      returnAnswers: parsed.returnAnswers,
+      ...(parsed.federalEstimates ? { federalEstimates: parsed.federalEstimates } : {}),
+      ...(parsed.ctEstimates ? { ctEstimates: parsed.ctEstimates } : {}),
+      ...(parsed.federalExtensionPaymentCents !== undefined ? { federalExtensionPaymentCents: parsed.federalExtensionPaymentCents } : {}),
+      ...(parsed.ctExtensionPaymentCents !== undefined ? { ctExtensionPaymentCents: parsed.ctExtensionPaymentCents } : {}),
+      ...(parsed.federalOverpaymentAppliedCents !== undefined ? { federalOverpaymentAppliedCents: parsed.federalOverpaymentAppliedCents } : {}),
+      ...(parsed.ctOverpaymentAppliedCents !== undefined ? { ctOverpaymentAppliedCents: parsed.ctOverpaymentAppliedCents } : {}),
+      ...(parsed.ctPriorYearBalancePaidIn2025Cents !== undefined ? { ctPriorYearBalancePaidIn2025Cents: parsed.ctPriorYearBalancePaidIn2025Cents } : {}),
+    };
+  }
+  const returnCompletenessStale = completenessDef !== null && completenessRow !== null && completenessRow.definitionVersion !== completenessDef.version;
 
   const rawDocs: RawDocument[] = documents.map((d) => {
     const resolved = resolveTaxDocForCompute(d);
@@ -139,6 +172,8 @@ export async function loadTy2025RawInputs(taxYear: 2025): Promise<RawTy2025Input
     scheduleCOwner: ekc ? inferScheduleCOwner(ekc.name, users) : null,
     documents: rawDocs,
     planning,
+    ...(answers ? { answers } : {}),
+    returnCompletenessStale,
     primaryResidence: inferPrimaryResidence(rawDocs, taxYear),
     paystubs: { federalWithheldCents: stubWithholding.federalWithholdingCents, ctWithheldCents: stubWithholding.ctWithholdingCents },
     ekc: { glLines, booksEmpty, glExcludedTransactionCount, mileage, fixedAssets },

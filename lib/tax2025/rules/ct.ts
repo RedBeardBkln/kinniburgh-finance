@@ -282,6 +282,10 @@ export interface CtBalanceInput {
   propertyTaxCredit: Decimal | null;
   /** CT-1040 line 15 use tax; null = not answered. */
   useTax: Decimal | null;
+  /** Plain-language "why" printed on line 15 when it has an amount (the rule or statement it came from). */
+  useTaxReason?: string;
+  /** When useTax is null: why (a "not sure" or an uncomputed rate is needs_cpa_judgment, not missing_input). */
+  useTaxBlock?: { status: "missing_input" | "needs_cpa_judgment"; reason: string };
   /** Lines 18 + 19 + 20; null = not computed. */
   totalPayments: Decimal | null;
 }
@@ -297,13 +301,13 @@ export function computeCtBalance(input: CtBalanceInput): RuleResult {
         "ct1040.15",
         "Use tax (out-of-state purchases)",
         "15",
-        "missing_input",
-        "Line 15 must be answered with 0 or an amount: say whether any 2025 out-of-state purchases were made without Connecticut sales tax."
+        input.useTaxBlock?.status ?? "missing_input",
+        input.useTaxBlock?.reason ?? "Line 15 must be answered with 0 or an amount: say whether any 2025 out-of-state purchases were made without Connecticut sales tax."
       )
     );
     missing.push("CT use tax answer");
   } else {
-    lines.push(amountLine("ct1040.15", "Use tax (out-of-state purchases)", "15", roundLine(input.useTax)));
+    lines.push(amountLine("ct1040.15", "Use tax (out-of-state purchases)", "15", roundLine(input.useTax), "computed", input.useTaxReason ?? "Stated by the owner / CPA."));
   }
   const informational =
     "Informational: the late-payment penalty rate (10%) and interest (1% per month) are verified, but the minimum penalty, the months to count and how the extension payment is treated are not, so no amount is estimated.";

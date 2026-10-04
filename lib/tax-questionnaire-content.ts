@@ -4,9 +4,12 @@
 // hard-coded in a component.
 //
 // Ground rules for this copy (CLAUDE.md #1 and #8):
-//   * Questions gather facts for the CPA. They never advise, never compute a tax
-//     amount / eligibility / limit, and the derived outcome is always phrased
-//     "Owner reports ...".
+//   * Questions gather facts for the CPA. They never advise, and the derived outcome
+//     shown on a card is always phrased "Owner reports ..." (it never states a tax
+//     amount or an eligibility conclusion). Since Phase 1b the owner's answers ALSO
+//     feed the computed draft return (lib/tax2025, through lib/tax2025/answers.ts),
+//     which computes amounts, credits and eligibility from them with cited rules;
+//     the questionnaire itself still computes nothing.
 //   * Every factual sentence in a `help` field is a paraphrase of a passage read
 //     on the primary source named in `sources` (registry below, fetched
 //     2026-10-03). A claim with no traceable source is NOT in this file.
@@ -27,10 +30,12 @@ import {
   type NumberBinding,
   type NumberNode,
   type Outcome,
+  type QNode,
   type QOption,
   type QuestionnaireDef,
   type SourceId,
 } from "@/lib/tax-questionnaire";
+import { NONE_GROUP_IDS, type NoneGroupId } from "@/lib/tax2025/line-catalog";
 
 // ── Source registry ───────────────────────────────────────────────────────────
 
@@ -97,6 +102,16 @@ export const SOURCES: Readonly<Record<SourceId, QuestionnaireSource>> = {
     url: "https://portal.ct.gov/drs/taxes/pass-through-entity/tax-information",
     verifiedOn: VERIFIED,
     basisTaxYear: null,
+  },
+  SCH1A: { title: "Schedule 1-A (Form 1040) 2025", url: "https://www.irs.gov/pub/irs-pdf/f1040s1a.pdf", verifiedOn: VERIFIED, basisTaxYear: 2025 },
+  "8880F": { title: "Form 8880 (2025)", url: "https://www.irs.gov/pub/irs-pdf/f8880.pdf", verifiedOn: VERIFIED, basisTaxYear: 2025 },
+  "590A": { title: "Publication 590-A (2025), Contributions to Individual Retirement Arrangements", url: "https://www.irs.gov/publications/p590a", verifiedOn: VERIFIED, basisTaxYear: 2025 },
+  "2210F": { title: "Form 2210 (2025)", url: "https://www.irs.gov/pub/irs-pdf/f2210.pdf", verifiedOn: VERIFIED, basisTaxYear: 2025 },
+  CT1040I: {
+    title: "Form CT-1040 instructions (Rev. 12/25)",
+    url: "https://portal.ct.gov/-/media/drs/forms/2025/income/2025-ct-1040-instructions_1225.pdf",
+    verifiedOn: VERIFIED,
+    basisTaxYear: 2025,
   },
 };
 
@@ -520,7 +535,7 @@ const FORM_8880: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports retirement contributions and no student/dependent status - the CPA checks eligibility and income.",
+    "Owner reports retirement contributions and no student/dependent status - the answers feed the computed saver's credit (none above the Form 8880 income limit); the CPA confirms the result.",
     "Owner reports no retirement-account contributions.",
     "Owner is unsure or reports a possible eligibility issue - the CPA decides."
   ),
@@ -598,7 +613,7 @@ const FORM_8889: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports HSA contributions or withdrawals, so Form 8889 likely applies - the CPA decides whether and how to prepare it.",
+    "Owner reports HSA contributions or withdrawals, so Form 8889 likely applies - the Return completeness answers feed the computed HSA deduction; the CPA decides whether and how to prepare it.",
     "Owner reports no HSA-eligible plan, or no contributions or withdrawals."
   ),
 };
@@ -659,7 +674,7 @@ const FORM_2210: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports facts that may mean an underpayment - the CPA decides whether the form is needed.",
+    "Owner reports facts that may mean an underpayment - the draft return shows a regular-method penalty estimate; the CPA decides whether the form is needed.",
     "Owner reports regular on-time payments and no IRS notice, or no tax last year."
   ),
 };
@@ -791,7 +806,7 @@ const FORM_SCHEDULE_3: QuestionnaireDef = {
   ],
   outcomeDefault: "unsure",
   outcomeText: outcomes(
-    "Owner reports possible additional credits or payments - the CPA decides which apply.",
+    "Owner reports possible additional credits or payments - the draft return computes the foreign tax credit, the saver's credit and the extension payment; the CPA decides which other credits apply.",
     "Owner reports no extension payment, single employer and no listed credits."
   ),
 };
@@ -1281,6 +1296,355 @@ const FORM_ENTITY_CT: QuestionnaireDef = {
   ),
 };
 
+// ── 17. Return completeness (Phase 1b of the answers-driven TY2025 engine) ───
+//
+// ONE guided flow. The answers feed lib/tax2025/answers.ts, which turns them into
+// facts for the computed return (Schedule 1-A, HSA, IRA, saver's credit, Form 2210
+// estimate, payments, CT use tax) and into the "stated none" statements the engine
+// needs before it will finish the rare lines of the return. Every question that
+// can be answered "none" is answered in one click; follow-up amounts only appear
+// after "some". Positive options come first so every follow-up is reachable.
+//
+// Node ids are PUBLIC to lib/tax2025/answers.ts (it reads them by id); change one
+// only together with that file, and bump `version` when a tree changes.
+
+export const RETURN_COMPLETENESS_ID = "return-completeness";
+
+/** The two people the person-by-person questions ask about, in Form 8889 / Form 8880 order (A then B). */
+export const RC_PERSONS = [
+  { slot: "a", key: "eric", name: "Eric" },
+  { slot: "b", key: "eva", name: "Eva" },
+] as const;
+
+/** Payment windows (the Form 2210 payment due dates) and the representative payment date each window is recorded with. */
+export const RC_PAYMENT_WINDOWS = [
+  { n: "1", label: "paid on or before April 15, 2025", date: "2025-04-15" },
+  { n: "2", label: "paid after April 15 through June 15, 2025", date: "2025-06-15" },
+  { n: "3", label: "paid after June 15 through September 15, 2025", date: "2025-09-15" },
+  { n: "4", label: "paid after September 15 through December 31, 2025", date: "2025-12-31" },
+  { n: "5", label: "paid January 1 through January 15, 2026", date: "2026-01-15" },
+] as const;
+
+/** Group id -> the question text for the "stated none" statements (every NoneGroupId has one; a test pins that). */
+const RC_GROUP_PROMPTS: Readonly<Record<NoneGroupId, string>> = {
+  other_earned_income:
+    "household employee wages not reported on a W-2, tips you did not report to your employer, Medicaid waiver payments, taxable dependent care or adoption benefits, Form 8919 wages, or other earned income",
+  retirement_ss_income: "IRA distributions, pensions or annuities, or Social Security benefits",
+  other_income:
+    "income other than W-2 wages, interest, dividends and EK Consulting business income - for example state tax refunds, alimony, rental or partnership income, farm income, unemployment compensation, gambling winnings, canceled debt, jury duty pay, prizes or digital-asset income",
+  other_adjustments:
+    "adjustments to income other than the HSA, half of self-employment tax, self-employed retirement, self-employed health insurance and IRA deductions - for example educator expenses, a penalty on early withdrawal of savings, alimony paid, student loan interest or an Archer MSA deduction",
+  other_taxes:
+    "additional taxes beyond self-employment tax, Additional Medicare Tax and net investment income tax - for example household employment taxes, additional tax on early retirement distributions, or repaying a premium tax credit",
+  other_nonrefundable_credits:
+    "credits such as child and dependent care, education credits, the energy efficient home improvement credit, general business, adoption, or the credit for the elderly or disabled (not the solar credit, asked next)",
+  solar_credit: "a residential clean energy (solar, wind, geothermal or battery) credit claimed for 2025 (Form 5695 line 15)",
+  other_refundable_credits:
+    "a premium tax credit, credit for federal tax on fuels, earned income credit, additional child tax credit, American opportunity credit, refundable adoption credit or other refundable credit",
+  medical_expenses: "medical or dental expenses you paid in 2025 and were not reimbursed for (Schedule A lines 1-4)",
+  sch_a_other:
+    "other itemized-deduction items: other taxes, mortgage interest or points not shown on Form 1098, investment interest, a charitable carryover, casualty or theft losses, or other itemized deductions",
+  savings_bond_exclusion: "interest on series EE or I savings bonds that you want to exclude (Form 8815)",
+  sch_c_other_lines: "depletion or an energy efficient commercial buildings deduction on EK Consulting's Schedule C",
+  se_other:
+    "farm income, church employee income, unreported tips (Form 4137), Form 8919 wages, railroad retirement compensation, or optional self-employment tax methods",
+  qbi_carryforwards: "a qualified business loss or a REIT / publicly traded partnership loss carried forward from a prior year (Form 8995)",
+};
+
+const SOME_NONE: readonly QOption[] = [o("some", "Yes"), o("none", "No"), UNSURE];
+
+function rcPersonNodes(): QNode[] {
+  const out: QNode[] = [];
+  const BY_AGE = (k: string) => inn(`age_${k}`, "yes");
+  // A. born before January 2, 1961
+  for (const P of RC_PERSONS) {
+    out.push(
+      single(`age_${P.key}`, `Was ${P.name} born before January 2, 1961?`, YES_NO, {
+        help: "The IRS enhanced deduction for seniors on Schedule 1-A is for a person born before January 2, 1961 who has a Social Security number valid for employment. The same date decides the additional standard deduction (Form 1040 line 12d).",
+        sources: ["SCH1A", "1040GI"],
+      })
+    );
+  }
+  for (const P of RC_PERSONS) {
+    out.push(
+      single(`blind_${P.key}`, `Was ${P.name} blind at the end of 2025?`, YES_NO, {
+        help: "The IRS adds to the standard deduction for each spouse who was blind at the end of the year. A person who is not totally blind needs a statement from an eye doctor that they cannot see better than 20/200 in the better eye with glasses or contact lenses, or that their field of vision is 20 degrees or less.",
+        sources: ["1040GI"],
+      })
+    );
+  }
+  // B. retirement plans and IRAs
+  for (const P of RC_PERSONS) {
+    const k = P.key;
+    out.push(
+      single(`plan_${k}`, `Was ${P.name} covered by a retirement plan at work for 2025?`, YES_NO, {
+        help: "The IRS says the 'Retirement plan' box in box 13 of Form W-2 should be checked if you were covered by a plan at work, even if you were not vested, and that a self-employed person with a SEP, SIMPLE or qualified retirement plan is also covered.",
+        sources: ["1040GI"],
+      }),
+      single(`def_${k}`, `Did ${P.name} make elective deferrals to a 401(k), 403(b), governmental 457(b), SIMPLE, SEP or the federal Thrift Savings Plan in 2025?`, SOME_NONE, {
+        help: "The IRS counts designated Roth contributions as elective deferrals; these amounts may be shown in box 12 of the Form W-2.",
+        sources: ["8880F"],
+      }),
+      dollars(`defamt_${k}`, `Total elective deferrals for ${P.name} in 2025 (whole dollars)`, { showWhen: inn(`def_${k}`, "some"), sources: ["8880F"] }),
+      single(`ira_${k}`, `Did ${P.name} contribute to a traditional or Roth IRA for 2025, including contributions made by April 15, 2026 that are for 2025?`, SOME_NONE, {
+        help: "The IRS 1040 instructions count traditional IRA contributions made, or to be made, by the due date of the 2025 return not counting extensions (April 15, 2026 for most people).",
+        sources: ["1040GI"],
+      }),
+      dollars(`tira_${k}`, `Traditional IRA contributions for ${P.name} for 2025 (whole dollars; 0 if only Roth)`, { showWhen: inn(`ira_${k}`, "some") }),
+      dollars(`roth_${k}`, `Roth IRA contributions for ${P.name} for 2025 (whole dollars; 0 if none)`, { showWhen: inn(`ira_${k}`, "some") }),
+      single(`ira50_${k}`, `Was ${P.name} age 50 or older at the end of 2025?`, YES_NO, {
+        help: "The IRS says the IRA contribution limit and the percentage used to reduce the IRA deduction are higher for a person age 50 or older at the end of 2025.",
+        sources: ["590A"],
+        showWhen: inn(`ira_${k}`, "some"),
+      })
+    );
+  }
+  const CONTRIBUTES = anyOf(...RC_PERSONS.flatMap((P) => [inn(`def_${P.key}`, "some"), inn(`ira_${P.key}`, "some")]));
+  out.push(
+    single("rdist", "Since January 1, 2023, did either of you receive a distribution from a retirement plan, IRA or ABLE account (other than a rollover)?", YES_NO, {
+      help: "The IRS saver's credit form says certain distributions received after 2022 and before the return due date reduce the contributions that count.",
+      sources: ["8880F"],
+      showWhen: CONTRIBUTES,
+    }),
+    single("student", "For 2025, was either of you a full-time student for part of 5 calendar months, or claimed as someone else's dependent?", YES_NO, {
+      help: "The IRS saver's credit is not available to a person who was a full-time student for part of 5 calendar months of the year or who is claimed as a dependent on someone else's return.",
+      sources: ["8880F"],
+      showWhen: CONTRIBUTES,
+    })
+  );
+  // C. HSA
+  for (const P of RC_PERSONS) {
+    const k = P.key;
+    const COVERED = inn(`hsa_${k}`, "self_only", "family");
+    out.push(
+      single(
+        `hsa_${k}`,
+        `Was ${P.name} covered by an HSA-eligible high-deductible health plan (HDHP) for any part of 2025?`,
+        [o("self_only", "Yes - self-only coverage all the months covered"), o("family", "Yes - family coverage all the months covered"), o("changed", "Yes - it changed between self-only and family"), o("none", "No"), UNSURE],
+        {
+          help: "The IRS says to have contributions made to an HSA you must be covered by an HDHP and have no other health coverage except certain disregarded coverage; the contribution limit depends on self-only versus family coverage.",
+          sources: ["8889"],
+        }
+      ),
+      whole(`hsam_${k}`, `In how many months of 2025 was ${P.name} covered by the HDHP on the first day of the month? (0 to 12)`, 0, 12, {
+        help: "The IRS contribution limit is figured month by month: a month counts if you were an eligible individual with that coverage on the first day of the month.",
+        sources: ["8889"],
+        showWhen: COVERED,
+      }),
+      single(`hsad1_${k}`, `Was ${P.name} still covered by the HDHP on December 1, 2025?`, YES_NO, {
+        help: "The IRS last-month rule counts the whole year for the HSA limit if you were an eligible individual on the first day of the last month of the year (December 1), but you must remain an eligible individual through December 31, 2026 or part of the contributions becomes income plus a 10% additional tax.",
+        sources: ["8889"],
+        showWhen: COVERED,
+      }),
+      single(`hsamed_${k}`, `For any month of 2025, was ${P.name} enrolled in Medicare or claimed as someone else's dependent?`, YES_NO, {
+        help: "The IRS says you cannot deduct HSA contributions for any month you were enrolled in Medicare, or if you are someone else's dependent.",
+        sources: ["8889"],
+        showWhen: COVERED,
+      }),
+      single(`hsa55_${k}`, `Was ${P.name} age 55 or older at the end of 2025?`, YES_NO, {
+        help: "The IRS allows an additional contribution amount for a person age 55 or older at the end of the tax year.",
+        sources: ["8889"],
+        showWhen: COVERED,
+      }),
+      dollars(`hsadir_${k}`, `HSA contributions ${P.name} made directly for 2025, not through payroll (whole dollars; 0 if none)`, {
+        help: "The IRS counts contributions made for 2025 up to April 15, 2026; payroll contributions through a cafeteria plan are treated as employer contributions (W-2 box 12 code W) and are read from the W-2.",
+        sources: ["8889"],
+        showWhen: COVERED,
+      }),
+      single(`hsaemp_${k}`, `Do ${P.name}'s employer HSA contributions include money for a different year (2024 contributions made in 2025, or 2025 contributions made in 2026)?`, YES_NO, {
+        help: "The IRS Employer Contribution Worksheet adjusts the W-2 box 12 code W amount for contributions that belong to another year.",
+        sources: ["8889"],
+        showWhen: COVERED,
+      })
+    );
+  }
+  for (const P of RC_PERSONS) {
+    out.push(
+      single(`hsadist_${P.key}`, `Did ${P.name} take money out of an HSA in 2025?`, SOME_NONE, {
+        help: "The IRS says HSA distributions are shown on Form 1099-SA, box 1, and are reported on Form 8889 Part II even when nothing is taxable.",
+        sources: ["8889"],
+      })
+    );
+  }
+  // D. Schedule 1-A
+  for (const P of RC_PERSONS) {
+    const k = P.key;
+    out.push(
+      single(
+        `tips_${k}`,
+        `Did ${P.name} receive tips as an employee in 2025 in an occupation that customarily received tips?`,
+        [o("some", "Yes - I know the amount"), o("ask_employer", "Yes - I do not know the amount yet, I will ask the employer"), o("none", "No tips"), UNSURE],
+        {
+          help: "The IRS says qualified tips are cash tips paid voluntarily, not negotiated, determined by the customer, in an occupation that customarily received tips on or before December 31, 2024 (the list is at IRS.gov/TippedOccupations); automatic gratuities and mandatory service charges are not qualified tips. The 2025 Form W-2 does not separately show them: the amount in box 7 or the tips reported to the employer can be used. Tips from your own business need the CPA - answer 'Not sure'.",
+          sources: ["SCH1A", "1040GI"],
+        }
+      ),
+      dollars(`tipsamt_${k}`, `${P.name}'s qualified tips in 2025, all employers together (whole dollars)`, {
+        help: "The IRS worksheet for more than one employer uses, for each employer, the larger of the tips on the W-2 or reported to the employer; enter the total of those.",
+        sources: ["1040GI"],
+        showWhen: inn(`tips_${k}`, "some"),
+      }),
+      single(
+        `ot_${k}`,
+        `Did ${P.name} receive overtime pay in 2025 that the federal overtime law (FLSA) required?`,
+        [
+          o("premium", "Yes - I know the overtime premium (the 'half' of time-and-a-half)"),
+          o("total", "Yes - I know the total pay for the overtime hours (premium plus regular wages)"),
+          o("ask_employer", "Yes - I do not know the amount yet, I will ask the employer"),
+          o("none", "No overtime"),
+          UNSURE,
+        ],
+        {
+          help: "The IRS says qualified overtime is the amount above the regular rate that the FLSA requires (generally the 'half' in time-and-a-half); employers may show it in W-2 box 14; if a statement shows the total pay for the overtime hours (premium plus regular wages), the instructions let you divide that total by three; you can rely on an amount your employer provides.",
+          sources: ["1040GI"],
+        }
+      ),
+      dollars(`otamt_${k}`, `${P.name}'s overtime amount in 2025, all employers together (whole dollars; the total pay if you chose that answer)`, { showWhen: inn(`ot_${k}`, "premium", "total") }),
+      single(`ssn_${k}`, `Does ${P.name} have a Social Security number that is valid for employment, issued before the due date of the 2025 return?`, YES_NO, {
+        help: "The IRS requires a valid Social Security number for the person who received the qualified tips or overtime, or who claims the enhanced deduction for seniors; this app never stores a Social Security number.",
+        sources: ["1040GI"],
+        showWhen: anyOf(BY_AGE(k), inn(`tips_${k}`, "some"), inn(`ot_${k}`, "premium", "total")),
+      })
+    );
+  }
+  out.push(
+    single("car", "Did either of you buy a new vehicle in 2025 with a loan that started after December 31, 2024?", SOME_NONE, {
+      help: "The IRS car-loan interest deduction (Schedule 1-A Part IV) is for interest on a loan originated after December 31, 2024 to buy an applicable passenger vehicle.",
+      sources: ["1040GI"],
+    }),
+    single("carq", "Does the vehicle and loan meet every one of these: the vehicle's original use starts with you (not a used vehicle), final assembly in the United States, personal use (more than 50%), the loan is secured by a first lien on the vehicle, and you are the borrower?", YES_NO, {
+      help: "The IRS lists these conditions (and that the vehicle is a car, minivan, van, SUV, pickup truck or motorcycle under 14,000 pounds gross weight rating). Lease payments do not qualify. The vehicle identification number is required on the return; the app does not store it.",
+      sources: ["1040GI"],
+      showWhen: inn("car", "some"),
+    }),
+    dollars("carint", "Interest paid or accrued on the car loan(s) in 2025 (whole dollars)", { showWhen: inn("car", "some") }),
+    dollars("carelse", "Of that interest, how much was deducted somewhere else on the return, such as Schedule C for business use? (whole dollars; 0 if none)", {
+      help: "The IRS says the same interest cannot be deducted twice: interest deducted on Schedule C, E or F is not also deducted on Schedule 1-A.",
+      sources: ["1040GI"],
+      showWhen: inn("car", "some"),
+    })
+  );
+  const SCH1A_CANDIDATE = anyOf(
+    ...RC_PERSONS.flatMap((P) => [inn(`age_${P.key}`, "yes"), inn(`tips_${P.key}`, "some"), inn(`ot_${P.key}`, "premium", "total")]),
+    inn("car", "some")
+  );
+  out.push(
+    single("pr", "Did either of you exclude income earned in Puerto Rico, or file Form 2555 or Form 4563, for 2025?", YES_NO, {
+      help: "The IRS adds excluded Puerto Rico income and the Form 2555 / Form 4563 amounts to the income figure used for the Schedule 1-A phase-outs.",
+      sources: ["1040GI"],
+      showWhen: SCH1A_CANDIDATE,
+    })
+  );
+  // E. Payments
+  for (const J of [
+    { id: "fe", who: "federal", name: "Federal" },
+    { id: "ce", who: "Connecticut", name: "Connecticut" },
+  ] as const) {
+    out.push(
+      single(`${J.id}`, `Did you make ${J.who} estimated income tax payments for 2025? (Not withholding from pay, a payment sent with an extension request, or a 2024 overpayment applied to 2025: those are asked separately.)`, SOME_NONE)
+    );
+    for (const W of RC_PAYMENT_WINDOWS) {
+      out.push(dollars(`${J.id}${W.n}`, `${J.name} estimated tax ${W.label} (whole dollars; 0 if none)`, { showWhen: inn(J.id, "some") }));
+    }
+  }
+  for (const E of [
+    { id: "fext", prompt: "Did you send a payment with a federal extension request (Form 4868) for 2025?", amt: "Amount paid with the federal extension request (whole dollars)", sources: ["1040GI"] },
+    { id: "cext", prompt: "Did you send a payment with a Connecticut extension request (Form CT-1040 EXT) for 2025?", amt: "Amount paid with the Connecticut extension request (whole dollars)", sources: [] },
+    { id: "fov", prompt: "Did you apply an overpayment from your 2024 federal return to your 2025 estimated tax?", amt: "Overpayment from 2024 applied to 2025 federal estimated tax (whole dollars)", sources: ["2210F"] },
+    { id: "cov", prompt: "Did you apply an overpayment from your 2024 Connecticut return to your 2025 estimated tax?", amt: "Overpayment from 2024 applied to 2025 Connecticut estimated tax (whole dollars)", sources: [] },
+    {
+      id: "cpy",
+      prompt: "During 2025, did you pay Connecticut income tax for tax year 2024 - a balance due on the 2024 return, or the January 2025 estimated installment for 2024?",
+      amt: "Connecticut income tax paid in 2025 for tax year 2024 (whole dollars)",
+      sources: [],
+    },
+  ] as const) {
+    out.push(single(E.id, E.prompt, SOME_NONE, E.sources.length > 0 ? { sources: [...E.sources] } : {}));
+    out.push(dollars(`${E.id}amt`, E.amt, { showWhen: inn(E.id, "some") }));
+  }
+  // F. Use tax
+  out.push(
+    single("ut", "In 2025, did you buy anything from an out-of-state seller (online, catalog or out-of-state store) without paying Connecticut sales tax, for use in Connecticut?", SOME_NONE, {
+      help: "Connecticut says use tax is due on goods or taxable services bought out of state for use in Connecticut when no Connecticut sales tax was paid, and that CT-1040 line 15 must show 0 if none is due.",
+      sources: ["CT1040I"],
+    }),
+    dollars("utbuy", "Total purchase price of those items at the general rate (whole dollars)", {
+      help: "Connecticut says the CT-1040 use tax worksheet applies the general rate of 6.35% to these purchases.",
+      sources: ["CT1040I"],
+      showWhen: inn("ut", "some"),
+    }),
+    single("utother", "Were any of them luxury items (most expensive vehicles, jewelry, clothing, footwear, handbags, luggage, umbrellas, wallets or watches above the prices in the CT-1040 instructions), computer or data processing services, or a vessel?", YES_NO, {
+      help: "Connecticut says these have a different use tax rate (7.75%, 1% and 2.99%); the app does not compute them.",
+      sources: ["CT1040I"],
+      showWhen: inn("ut", "some"),
+    }),
+    dollars("uttax", "Sales or use tax already paid to another state on those purchases (whole dollars; 0 if none)", {
+      help: "Connecticut says the CT-1040 use tax worksheet subtracts tax already paid on the purchase (column 6).",
+      sources: ["CT1040I"],
+      showWhen: inn("ut", "some"),
+    })
+  );
+  // G. The 2024 return
+  out.push(
+    single("pyjoint", "Was your 2024 federal return a joint return?", YES_NO, {
+      help: "The IRS says the prior-year tax used for the estimated tax penalty safe harbor is the sum of both spouses' 2024 tax if you file jointly for 2025 but did not file jointly for 2024.",
+      sources: ["2210"],
+    }),
+    single("pyextra", "Did your 2024 federal return show Additional Medicare Tax (Form 8959), net investment income tax (Form 8960) or any refundable credit (earned income, additional child tax, American opportunity, premium tax credit)?", YES_NO, {
+      help: "The IRS says the 2024 tax used for the estimated tax penalty safe harbor does not include Additional Medicare Tax or net investment income tax, and is reduced by refundable credits.",
+      sources: ["2210"],
+    })
+  );
+  // H. Header attestations
+  out.push(
+    single("digital", "At any time in 2025, did you receive digital assets (as a reward, award or payment for property or services) or sell, exchange or otherwise dispose of a digital asset or any financial interest in one?", YES_NO, {
+      help: "The IRS says to check Yes on the Form 1040 digital assets question for these, but holding a digital asset, moving it between your own wallets, or buying it with regular currency alone does not require Yes.",
+      sources: ["1040GI"],
+    }),
+    single("foreign", "In 2025, did either of you have a foreign financial account, or receive a distribution from or create (or transfer to) a foreign trust?", YES_NO, {
+      help: "The IRS says Schedule B Part III must be completed if you had a foreign account or received a distribution from, or were a grantor of or transferor to, a foreign trust.",
+      sources: ["1040GI"],
+    })
+  );
+  // I. "none" statements for the rare lines
+  for (const id of NONE_GROUP_IDS) {
+    out.push(
+      single(`g_${id}`, `Did either of you have any of these in 2025: ${RC_GROUP_PROMPTS[id]}? (Answer No only if none of it applies; the app does not compute these items, so a Yes hands the line to the CPA.)`, [o("some", "Yes - at least one"), o("none", "No - none of these"), UNSURE]),
+      dollars(`ga_${id}`, `About how much in total for the item above (${id.replace(/_/g, " ")})? Whole dollars; an estimate is fine and only the CPA sees it.`, {
+        showWhen: inn(`g_${id}`, "some"),
+      })
+    );
+  }
+  return out;
+}
+
+const RC_NODES: readonly QNode[] = rcPersonNodes();
+
+const FORM_RETURN_COMPLETENESS: QuestionnaireDef = {
+  id: RETURN_COMPLETENESS_ID,
+  version: 1,
+  title: "Return completeness",
+  formLabel: "Form 1040 and Connecticut CT-1040",
+  scope: "household",
+  intro:
+    "One short flow for {year}: say 'none' or 'some' for each item the return still needs, and give amounts only after 'some'. The app computes the Schedule 1-A deductions, HSA and IRA deductions, saver's credit, payments and a Form 2210 estimate from these answers, and marks anything it cannot compute for the CPA.",
+  sourcesTaxYear: SOURCES_TAX_YEAR,
+  planningLinks: [
+    { key: "retirement_contributions", label: "Retirement contributions (Planning answer)" },
+    { key: "estimated_taxes_2025", label: "Estimated taxes paid (Planning answer)" },
+  ],
+  nodes: RC_NODES,
+  outcomeRules: [
+    { when: anyOf(...NONE_GROUP_IDS.map((id) => inn(`g_${id}`, "some"))), outcome: "applies" },
+    { when: allOf(...NONE_GROUP_IDS.map((id) => inn(`g_${id}`, "none"))), outcome: "not_applies" },
+  ],
+  outcomeDefault: "unsure",
+  outcomeText: outcomes(
+    "Owner reports at least one rare item the app cannot compute - the CPA decides how it is reported; everything else answered here feeds the computed return.",
+    "Owner reports none of the rare items apply; the answers feed the computed return."
+  ),
+};
+
 // ── Registry ─────────────────────────────────────────────────────────────────
 
 export const QUESTIONNAIRES: readonly QuestionnaireDef[] = [
@@ -1300,6 +1664,7 @@ export const QUESTIONNAIRES: readonly QuestionnaireDef[] = [
   FORM_SCHEDULE_SE,
   FORM_ENTITY_FEDERAL,
   FORM_ENTITY_CT,
+  FORM_RETURN_COMPLETENESS,
 ];
 
 export function questionnaireById(id: string): QuestionnaireDef | null {

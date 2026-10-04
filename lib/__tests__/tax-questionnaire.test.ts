@@ -425,7 +425,7 @@ describe("summary generation", () => {
     const s = buildSummary(d, CTX, e, "bring the W-2");
     expect(s.status).toEqual({ kind: "answered", shown: 7, unsureCount: 0, outcome: "applies" });
     expect(s.outcomeText).toBe(
-      "Owner reports HSA contributions or withdrawals, so Form 8889 likely applies - the CPA decides whether and how to prepare it."
+      "Owner reports HSA contributions or withdrawals, so Form 8889 likely applies - the Return completeness answers feed the computed HSA deduction; the CPA decides whether and how to prepare it."
     );
     expect(s.facts.map((f) => [f.nodeId, f.answerLabel])).toEqual([
       ["hs1", "Eric"],

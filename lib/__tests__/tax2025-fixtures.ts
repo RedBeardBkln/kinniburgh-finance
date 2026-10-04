@@ -1,13 +1,14 @@
 // Plain fixtures for the TY2025 engine tests. No DB, no network. NOT a test file
 // (vitest only collects *.test.ts); imported by the tax2025-*.test.ts files.
 
-import type {
-  DividendFact,
-  GlLineFact,
-  InterestFact,
-  PropertyTaxBill,
-  Ty2025Facts,
-  W2Fact,
+import {
+  emptyReturnAnswers,
+  type DividendFact,
+  type GlLineFact,
+  type InterestFact,
+  type PropertyTaxBill,
+  type Ty2025Facts,
+  type W2Fact,
 } from "@/lib/tax2025/facts";
 import { NONE_GROUP_IDS } from "@/lib/tax2025/line-catalog";
 import { missingLeaf, sourced, type Sourced } from "@/lib/tax2025/types";
@@ -84,7 +85,11 @@ export function emptyFacts(): Ty2025Facts {
       combinedEstimatesAnswer: missingLeaf(),
     },
     ct: { useTax: missingLeaf(), additions: missingLeaf(), subtractions: missingLeaf() },
-    priorYear: { totalTaxCents: missingLeaf(), agiCents: missingLeaf() },
+    priorYear: { totalTaxCents: missingLeaf(), agiCents: missingLeaf(), filingStatus: missingLeaf() },
+    returnAnswers: emptyReturnAnswers([
+      { slot: "a", userId: ERIC_ID, name: "Eric" },
+      { slot: "b", userId: EVA_ID, name: "Eva" },
+    ]),
   };
 }
 
@@ -180,6 +185,11 @@ export function fullFacts(): Ty2025Facts {
   f.household.filingStatus = owner("mfj");
   f.household.noDependents = owner(true);
   f.household.noEvPurchase = owner(true);
+  // Form 1040 line 12d: neither spouse is born before January 2, 1961 or blind (so the standard deduction is the base amount).
+  for (const p of f.returnAnswers.people) {
+    p.bornBefore1961 = owner(false);
+    p.blind = owner(false);
+  }
 
   f.income.w2s = [
     w2({
@@ -261,5 +271,39 @@ export function fullFacts(): Ty2025Facts {
   f.payments.ctPriorYearOverpaymentApplied = owner(0);
   f.payments.ctPriorYearBalancePaidIn2025 = owner(0);
   f.ct = { useTax: owner(0), additions: owner(0), subtractions: owner(0) };
+  return f;
+}
+
+/**
+ * fullFacts() with the Phase 1b lines driven by the Return completeness ANSWERS instead of stated amounts:
+ * every question answered "none" / "no", the stated adjustment / credit / use-tax leaves removed, and a
+ * 2024 return (tax 20,000, AGI 120,000, joint) for the Form 2210 estimate.
+ */
+export function fullFacts1b(): Ty2025Facts {
+  const f = fullFacts();
+  f.adjustments.sch1a = missingLeaf();
+  f.adjustments.hsa = missingLeaf();
+  f.adjustments.ira = missingLeaf();
+  f.credits.foreignTax = missingLeaf();
+  f.credits.savers = missingLeaf();
+  f.ct.useTax = missingLeaf();
+  for (const p of f.returnAnswers.people) {
+    p.coveredByWorkplacePlan = owner(false);
+    p.deferralsCents = owner(0);
+    p.traditionalIraCents = owner(0);
+    p.rothIraCents = owner(0);
+    p.hsaCoverage = owner("none");
+    p.hsaDistributions = owner("none");
+    p.tipsChoice = owner("none");
+    p.overtimeChoice = owner("none");
+  }
+  const ra = f.returnAnswers;
+  ra.retirementDistributionSince2022 = owner(false);
+  ra.studentOrDependent = owner(false);
+  ra.carLoan.choice = owner("none");
+  ra.attestations = { digitalAssets: owner(false), foreignAccounts: owner(false) };
+  ra.priorYear = { filedJoint: owner(true), hadExcludedTaxOrRefundable: owner(false) };
+  ra.useTax.choice = owner("none");
+  f.priorYear = { totalTaxCents: owner(2_000_000), agiCents: owner(12_000_000), filingStatus: owner("mfj") };
   return f;
 }

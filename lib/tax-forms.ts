@@ -50,6 +50,7 @@ import {
 import {
   ENTITY_CT_QUESTIONNAIRE_ID,
   ENTITY_FEDERAL_QUESTIONNAIRE_ID,
+  RETURN_COMPLETENESS_ID,
   questionnaireById,
 } from "@/lib/tax-questionnaire-content";
 
@@ -528,21 +529,21 @@ export const CPA_INPUT_FORMS: readonly {
     formName: "Form 8880 (Credit for Qualified Retirement Savings Contributions)",
     opportunityKey: "retirement_savings_credit",
     formMarker: "Form 8880",
-    reason: "Eligibility depends on income and contribution details the system does not determine.",
+    reason: "The draft return computes the saver's credit from your retirement-contribution answers and the return's adjusted gross income (no credit above the Form 8880 limit); the CPA reviews it.",
   },
   {
     id: "form-8889",
     formName: "Form 8889 (Health Savings Accounts)",
     opportunityKey: "hsa",
     formMarker: "Form 8889",
-    reason: "Only relevant if either spouse has an HSA-eligible plan and contributed — not recorded in the system.",
+    reason: "Only relevant if either spouse has an HSA-eligible plan. The draft return computes the HSA deduction from your Return completeness answers and the W-2 box 12 code W amounts (one Form 8889 per spouse).",
   },
   {
     id: "form-2210",
     formName: "Form 2210 (Underpayment of Estimated Tax)",
     opportunityKey: "safe_harbor",
     formMarker: "Form 2210",
-    reason: "Depends on whether a safe harbor was met; the system does not decide this.",
+    reason: "The IRS figures any underpayment penalty itself. The draft return shows a regular-method estimate from your payment answers and the 2024 return; the CPA decides whether to attach the form.",
   },
   {
     id: "form-1040-es",
@@ -638,6 +639,9 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     ],
     cpaNote:
       "W-2s feed wages and withholding; 1099 interest box 1 (or a 1099-INT headline amount on older extractions) feeds line 2b. An extension document is informational.",
+    // The guided "Return completeness" flow: none / some for the rare lines, per-person retirement, HSA, tips and overtime,
+    // estimated and extension payments, use tax and the header questions. Its answers feed the computed draft return.
+    questionnaire: householdQuestionnaire(RETURN_COMPLETENESS_ID),
   });
 
   const schedule1Required = ekcActive || svActive;
@@ -872,7 +876,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       filer: householdFiler,
       applicability: "needs_cpa_input",
       reason:
-        "Credits such as the residential clean energy credit are reported through it, but the system does not determine which credits apply.",
+        "The draft return computes the foreign tax credit, the saver's credit, the extension payment and excess Social Security; the residential clean energy credit is not a 2025 item here (installed 2022). Other credits are for the CPA.",
       source: "lib/tax-guidance.ts TAX_QUESTION_BANK solar_credit (note references prior-year Schedule 3 / Form 5695)",
       questionnaire: householdQuestionnaire("schedule-3-federal"),
     }),
