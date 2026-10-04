@@ -1,4 +1,4 @@
-// The judgments register (ai-return-reviewer, B3 / B5; plan 5.6): every decision that used to go to "the CPA" is now listed as a
+// The judgments register (ai-return-reviewer, B3 / B5; plan 5.6): every decision that used to be left to a third party is now listed as a
 // decision for Eric, with a recommended position, the alternative, the source, the dollar impact the engine can actually compute,
 // and who decides (Eric).
 //
