@@ -170,7 +170,7 @@ const SCH2: FootingRule[] = [
     "tax"
   ),
   link("sch2.4", "f1040s2", "sch2", "sch2.4", "se.12", "12. Self-employment tax. Add lines 10 and 11. Enter here and on Schedule 2 (Form 1040), line 4", "tax", { quoteForm: "f1040sse" }),
-  link("sch2.11", "f1040s2", "sch2", "sch2.11", "f8959.18", "18. Total Additional Medicare Tax. Add lines 7, 13, and 17. Also include this amount on Schedule 2 (Form 1040), line 11", "tax", { quoteForm: "f8959" }),
+  link("sch2.11", "f1040s2", "sch2", "sch2.11", "f8959.18", "18. Add lines 7, 13, and 17. Also include this amount on Schedule 2 (Form 1040), line 11", "tax", { quoteForm: "f8959" }),
   link("sch2.12", "f1040s2", "sch2", "sch2.12", "f8960.niit", "17. Net investment income tax for individuals. Multiply line 16 by 3.8% (0.038). Enter here and include on your tax return", "tax", { quoteForm: "f8960" }),
   link("sch2.2", "f1040s2", "sch2", "sch2.2", "f6251.amt", "11. A M T. Subtract line 10 from line 9. If zero or less, enter 0. Enter here and on Schedule 2 (Form 1040), line 2.", "tax", { quoteForm: "f6251" }),
 ];
