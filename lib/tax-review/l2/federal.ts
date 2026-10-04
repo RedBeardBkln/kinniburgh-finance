@@ -273,7 +273,7 @@ export function computeFederal(inp: OracleInputs): Ledger {
       seTax = L.put("se.12", 0, ["se.4c"]);
       seHalf = L.put("se.13", 0, ["se.4c"]);
       seLine6 = 0;
-      for (const id of ["4a", "4c", "6", "7", "8a", "8d", "9", "10", "11"]) L.lines.delete(`se.${id}`);
+      for (const id of ["6", "7", "8a", "8d", "9", "10", "11"]) L.lines.delete(`se.${id}`);
     } else if (l4c !== null) {
       seLine6 = L.put("se.6", l4c + nz(v("se.5b")), ["se.4c"]);
       L.put("se.7", K.SE_WAGE_BASE.value);
@@ -522,6 +522,10 @@ export function computeFederal(inp: OracleInputs): Ledger {
         l13 = max0(l7 - l12);
       }
     }
+    if (tips6 > 0) {
+      L.put("sch1a.8", magi, ["sch1a.3"]);
+      L.put("sch1a.9", K.SCH1A_TIPS_MAGI_START_MFJ.value);
+    }
     L.put("sch1a.13", l13, tips6 > 0 ? ["sch1a.7"] : []);
     // Part III overtime
     let l21 = 0;
@@ -539,11 +543,18 @@ export function computeFederal(inp: OracleInputs): Ledger {
         l21 = max0(l15 - l20);
       }
     }
+    if (ot14 > 0) {
+      L.put("sch1a.14a", ot14, ["sch1a.14c"]);
+      L.put("sch1a.16", magi, ["sch1a.3"]);
+      L.put("sch1a.17", K.SCH1A_OVERTIME_MAGI_START_MFJ.value);
+    }
     L.put("sch1a.21", l21, ot14 > 0 ? ["sch1a.15"] : []);
     // Part IV car loan interest
     let l30 = 0;
     if (car23 > 0) {
       L.put("sch1a.23", car23);
+      L.put("sch1a.25", magi, ["sch1a.3"]);
+      L.put("sch1a.26", K.SCH1A_CAR_LOAN_MAGI_START_MFJ.value);
       const l24 = L.put("sch1a.24", Math.min(car23, K.SCH1A_CAR_LOAN_MAX.value), ["sch1a.23"]) as number;
       const over = magi - K.SCH1A_CAR_LOAN_MAGI_START_MFJ.value;
       if (over <= 0) l30 = l24;
@@ -561,8 +572,20 @@ export function computeFederal(inp: OracleInputs): Ledger {
     let l37 = 0;
     if (seniors > 0) {
       const over = magi - K.SCH1A_SENIOR_MAGI_START_MFJ.value;
-      const l35 = over <= 0 ? K.SCH1A_SENIOR_AMOUNT.value : max0(K.SCH1A_SENIOR_AMOUNT.value - roundMulDollars(over, bpOf(K.SCH1A_SENIOR_REDUCTION_RATE.value)));
+      L.put("sch1a.31", magi, ["sch1a.3"]);
+      L.put("sch1a.32", K.SCH1A_SENIOR_MAGI_START_MFJ.value);
+      let l35 = K.SCH1A_SENIOR_AMOUNT.value; // line 33 zero or less: enter $6,000 on line 35
+      if (over > 0) {
+        const l34 = roundMulDollars(over, bpOf(K.SCH1A_SENIOR_REDUCTION_RATE.value));
+        L.put("sch1a.33", over, ["sch1a.31"]);
+        L.put("sch1a.34", l34, ["sch1a.33"]);
+        l35 = max0(K.SCH1A_SENIOR_AMOUNT.value - l34);
+      }
       L.put("sch1a.35", l35, ["sch1a.3"]);
+      // 36a / 36b: the first / second person of the questionnaire, each with a valid Social Security number and born before January 2, 1961
+      const qualifies = ra.people.map((p) => p.validSsn.value === true && p.bornBefore1961.value === true);
+      L.put("sch1a.36a", qualifies[0] ? l35 : 0, ["sch1a.35"]);
+      L.put("sch1a.36b", qualifies[1] ? l35 : 0, ["sch1a.35"]);
       l37 = l35 * seniors;
     }
     L.put("sch1a.37", l37, seniors > 0 ? ["sch1a.35"] : []);
@@ -624,6 +647,8 @@ export function computeFederal(inp: OracleInputs): Ledger {
     L.put("f8995.17", Math.min(0, reit + nz(v("f8995.7"))), ["f8995.6", "f8995.7"]);
     L.put("f1040.13a", l15, ["f8995.15"]);
   }
+
+  L.put("f8880.8", agi, ["f1040.11a"]);
 
   // ── Taxable income and tax ──────────────────────────────────────────────────
   const l14sum = L.put("f1040.14", addAll(v("f1040.12e"), v("f1040.13a"), v("f1040.13b")), ["f1040.12e", "f1040.13a", "f1040.13b"]);
@@ -859,6 +884,37 @@ export function computeFederal(inp: OracleInputs): Ledger {
   L.put("f1040.33", addAll(v("f1040.25d"), v("f1040.26"), v("f1040.32")), ["f1040.25d", "f1040.26", "f1040.32"]);
   const t24 = v("f1040.24");
   const p33 = v("f1040.33");
+  form2210PartOne();
+  /** Form 2210 Part I, lines 4-9 (the required annual payment). The penalty itself (Part III, Form 1040 line 38) is not recomputed. */
+  function form2210PartOne(): void {
+    const l1 = v("f1040.22");
+    const other = K.FORM_2210_LINE2_SCH2_LINES.value.map((id) => v(`sch2.${id}`));
+    const refundable = K.FORM_2210_LINE3_LINES.value.map((k) => v(k));
+    const wh = v("f1040.25d");
+    const ex = v("sch3.11");
+    if (l1 === null || wh === null || ex === null || other.some((x) => x === undefined || x === null) === true || refundable.some((x) => x === null)) {
+      L.abstain("Form 2210 Part I", "an input line is not available");
+      return;
+    }
+    const l2 = other.reduce((a: number, x) => a + (x ?? 0), 0);
+    const l3 = refundable.reduce((a: number, x) => a + (x ?? 0), 0);
+    const l4 = L.put("f2210.4", l1 + l2 - l3, ["f1040.22", "sch2.21"]) as number;
+    if (l4 < K.UNDERPAYMENT_NO_PENALTY_BELOW.value) return; // line 4 under $1,000: "stop; you don't owe a penalty" (lines 5-9 are not completed)
+    const l5 = L.put("f2210.5", roundMulDollars(l4, bpOf(K.SAFE_HARBOR_CURRENT_YEAR_FRACTION.value)), ["f2210.4"]) as number;
+    const l6 = L.put("f2210.6", wh + ex, ["f1040.25d", "sch3.11"]) as number;
+    const l7 = L.put("f2210.7", l4 - l6, ["f2210.4", "f2210.6"]) as number;
+    if (l7 < K.UNDERPAYMENT_NO_PENALTY_BELOW.value) return; // line 7 under $1,000: "stop; you don't owe a penalty"
+    const prior = facts.priorYear.totalTaxCents.value;
+    const priorAgi = facts.priorYear.agiCents.value;
+    const ra = facts.returnAnswers.priorYear;
+    if (prior === null || priorAgi === null || ra.filedJoint.value !== true || ra.hadExcludedTaxOrRefundable.value !== false) {
+      L.abstain("Form 2210 Part I", "the 2024 tax for line 8 needs a joint 2024 return with no refundable credits or excluded taxes");
+      return;
+    }
+    const fraction = priorAgi > K.SAFE_HARBOR_HIGH_AGI_THRESHOLD.value * 100 ? K.SAFE_HARBOR_PRIOR_YEAR_HIGH_AGI_FRACTION.value : K.SAFE_HARBOR_PRIOR_YEAR_FRACTION.value;
+    const l8 = L.put("f2210.8", roundMulCents(prior, bpOf(fraction)));
+    L.put("f2210.9", l8 === null ? null : Math.min(l5, l8), ["f2210.5", "f2210.8"]);
+  }
   L.put("f1040.34", t24 === null || p33 === null ? null : max0(p33 - t24), ["f1040.24", "f1040.33"]);
   L.put("f1040.37", t24 === null || p33 === null ? null : max0(t24 - p33), ["f1040.24", "f1040.33"]);
   return L;

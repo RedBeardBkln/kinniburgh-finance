@@ -13,6 +13,7 @@ import type { Ty2025Return } from "@/lib/tax2025/types";
 import { buildCoverage, NOT_COVERED, type L2Coverage } from "@/lib/tax-review/l2/coverage";
 import { computeCt } from "@/lib/tax-review/l2/ct";
 import { diffLedger, findingsOfDiff, type DiffResult } from "@/lib/tax-review/l2/diff";
+import { diffForms, type FormsDiff } from "@/lib/tax-review/l2/forms-required";
 import { decisionsOf, engineLineOf } from "@/lib/tax-review/l2/engine-view";
 import { computeFederal } from "@/lib/tax-review/l2/federal";
 import { Ledger, type OracleInputs } from "@/lib/tax-review/l2/ledger";
@@ -33,14 +34,17 @@ export interface L2Input {
 export interface L2Summary {
   linesCompared: number;
   linesMatched: number;
-  /** Differences of exactly $1 (low). */
+  /** Findings for a difference of exactly $1 (low); the one-dollar lines that follow from an upstream one-dollar line are not counted again. */
   roundingDifferences: number;
-  /** Lines (and headline rows) that differ by more than $1: blockers. */
+  /** Findings for a line (or headline row) that differs by more than $1: blockers. */
   mismatchCount: number;
-  /** Lines the return leaves blank where the recalculation gets a non-zero amount. */
+  /** Medium differences: a line the return leaves blank where the recalculation gets money, the Form 8995 carryforward lines, a headline row without an amount. */
   engineBlankCount: number;
   engineInputLines: number;
   notRecomputedLines: number;
+  /** Forms whose "required" status was recomputed and compared with the return's packet plan, and how many differ. */
+  formsChecked: number;
+  formsDiffering: number;
 }
 
 export interface L2Result {
@@ -52,7 +56,7 @@ export interface L2Result {
   summary: L2Summary;
 }
 
-const EMPTY_SUMMARY: L2Summary = { linesCompared: 0, linesMatched: 0, roundingDifferences: 0, mismatchCount: 0, engineBlankCount: 0, engineInputLines: 0, notRecomputedLines: 0 };
+const EMPTY_SUMMARY: L2Summary = { linesCompared: 0, linesMatched: 0, roundingDifferences: 0, mismatchCount: 0, engineBlankCount: 0, engineInputLines: 0, notRecomputedLines: 0, formsChecked: 0, formsDiffering: 0 };
 
 function notRun(reason: string): L2Result {
   return { status: "not_run", reason, findings: [], coverage: [], summary: { ...EMPTY_SUMMARY } };
@@ -87,26 +91,31 @@ export function runL2(input?: L2Input): L2Result {
     }
     const ledger = oracleLedger(input);
     const diff = diffLedger(ledger, ret, effective);
-    const coverage = buildCoverage(ledger, diff, ret, effective);
-    const findings = [...findingsOfDiff(diff), coverageFinding(diff, coverage)];
-    return { status: "ran", reason: null, findings, coverage, summary: summaryOf(diff) };
+    const forms = diffForms(ledger, ret);
+    const coverage = buildCoverage(ledger, diff, ret, effective, forms);
+    const diffFindings = findingsOfDiff(diff);
+    const findings = [...diffFindings, ...forms.findings, coverageFinding(diff, coverage)];
+    return { status: "ran", reason: null, findings, coverage, summary: summaryOf(diff, forms, diffFindings) };
   } catch (err) {
     // fail closed; only the error class is kept (nothing from the facts)
     return notRun(`the recalculation could not run (${err instanceof Error ? err.name : "unknown error"})`);
   }
 }
 
-function summaryOf(diff: DiffResult): L2Summary {
-  const lineMismatch = diff.comparisons.filter((c) => c.kind === "mismatch").length;
-  const headMismatch = diff.headline.filter((h) => h.kind === "mismatch").length;
+function summaryOf(diff: DiffResult, forms: FormsDiff, diffFindings: readonly Finding[]): L2Summary {
+  const rounding = diffFindings.filter((f) => f.severity === "low").length;
   return {
     linesCompared: diff.compared,
     linesMatched: diff.matched,
-    roundingDifferences: diff.comparisons.filter((c) => c.kind === "rounding").length + diff.headline.filter((h) => h.kind === "rounding").length,
-    mismatchCount: lineMismatch + headMismatch,
-    engineBlankCount: diff.comparisons.filter((c) => c.kind === "engine_blank").length + diff.headline.filter((h) => h.kind === "engine_blank").length,
+    roundingDifferences: rounding,
+    // blockers: a printed line (or a headline row) that differs by more than the $1 rounding tolerance
+    mismatchCount: diffFindings.filter((f) => f.severity === "blocker").length,
+    // medium: a line the return leaves blank where the recalculation gets money, or the Form 8995 carryforward lines
+    engineBlankCount: diffFindings.filter((f) => f.severity === "medium").length,
     engineInputLines: diff.engineInputs.length,
     notRecomputedLines: diff.notRecomputed.length,
+    formsChecked: forms.checked,
+    formsDiffering: forms.differing,
   };
 }
 

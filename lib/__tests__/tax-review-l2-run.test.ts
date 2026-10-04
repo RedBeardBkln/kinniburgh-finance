@@ -183,6 +183,34 @@ describe("the $1 rounding tolerance", () => {
   });
 });
 
+describe("which forms the packet needs (recomputed from the recalculated lines)", () => {
+  const input = inputOf(richScenario().facts);
+
+  it("agrees with the return's packet plan on the rich return: eight or more forms compared, none differing", () => {
+    const r = runL2(input);
+    expect(r.summary.formsChecked).toBeGreaterThanOrEqual(8);
+    expect(r.summary.formsDiffering).toBe(0);
+    expect(r.coverage.some((c) => c.compared && /Which forms the packet needs/.test(c.area))).toBe(true);
+  });
+
+  it("a form the return says is not needed but the recalculation says is needed is a medium finding (acceptable), and 'blocking' is not compared", () => {
+    const ret = input.ret;
+    expect(ret.formsRequired.schb?.required).toBe(true);
+    const flip = (required: boolean | "blocking"): L2Input => {
+      const copy: Ty2025Return = { ...ret, formsRequired: { ...ret.formsRequired, schb: { required, reason: "test" } } };
+      return { ...input, ret: copy, effective: applyOverrides(copy, []) };
+    };
+    const off = runL2(flip(false));
+    const hit = off.findings.find((f) => f.check === "L2.forms.schb");
+    expect(hit?.severity).toBe("medium");
+    expect(hit?.acceptable).toBe(true);
+    expect(hit?.area).toBe("forms");
+    expect(hit?.message).toMatch(/Schedule B is not required, but recomputing .* it is required/);
+    expect(off.summary.formsDiffering).toBe(1);
+    expect(runL2(flip("blocking")).findings.some((f) => f.check === "L2.forms.schb")).toBe(false);
+  });
+});
+
 describe("every line the oracle compares is live: moving it by $5 in the return raises a finding on exactly that line", () => {
   for (const [name, facts] of [
     ["rich Eric-shaped return", richScenario().facts],

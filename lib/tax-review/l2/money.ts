@@ -37,11 +37,6 @@ export function roundMulDollars(dollars: Dollars, bp: number): Dollars {
   return Number(divRoundHalfAway(BigInt(dollars) * BigInt(bp), BigInt(10_000)));
 }
 
-/** Exact cents of (whole dollars x basisPoints / 10,000), rounded to the nearest cent (every federal rate is a whole percent, so exact). */
-export function mulDollarsToCents(dollars: Dollars, bp: number): Cents {
-  return Number(divRoundHalfAway(BigInt(dollars) * BigInt(bp), BigInt(100)));
-}
-
 /** round(n / d) to a whole number, half away from zero (integer inputs). */
 export function roundDivInt(n: number, d: number): number {
   return Number(divRoundHalfAway(BigInt(n), BigInt(d)));
@@ -50,11 +45,6 @@ export function roundDivInt(n: number, d: number): number {
 /** Basis points of a decimal rate constant (0.9235 -> 9235). The constants registry holds rates as decimals. */
 export function bpOf(rate: number): number {
   return Math.round(rate * 10_000);
-}
-
-/** Whole dollars of an amount held in exact cents that is already a multiple of a cent: ceil / floor helpers on integers. */
-export function floorDiv(a: number, b: number): number {
-  return Math.floor(a / b);
 }
 
 export function ceilDiv(a: number, b: number): number {
@@ -73,26 +63,6 @@ export function addAll(...xs: readonly Maybe<number>[]): Maybe<number> {
     s += x;
   }
   return s;
-}
-
-/** Sum of a list where a null element makes the whole sum null. */
-export function sumOrNull(xs: readonly Maybe<number>[]): Maybe<number> {
-  return addAll(...xs);
-}
-
-/** a - b, null when either is null. */
-export function sub(a: Maybe<number>, b: Maybe<number>): Maybe<number> {
-  return a === null || b === null ? null : a - b;
-}
-
-/** Apply a function only when every input is present. */
-export function lift<T>(inputs: readonly Maybe<number>[], f: (xs: number[]) => T): Maybe<T> {
-  const xs: number[] = [];
-  for (const x of inputs) {
-    if (x === null) return null;
-    xs.push(x);
-  }
-  return f(xs);
 }
 
 /** Decimal string ("0.700", "0.67", "1") to thousandths, null when it is not a plain non-negative decimal with at most 3 places. */
