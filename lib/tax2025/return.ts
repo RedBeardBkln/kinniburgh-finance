@@ -53,6 +53,7 @@ import { computeStandardDeduction } from "@/lib/tax2025/rules/standard-deduction
 import { computeSchedule1a } from "@/lib/tax2025/rules/schedule-1a";
 import { computeSchedule3Summary } from "@/lib/tax2025/rules/schedule-3";
 import { computeScheduleC } from "@/lib/tax2025/rules/schedule-c";
+import { computeStateRefund } from "@/lib/tax2025/rules/state-refund";
 import { computeForm8959, computeScheduleSe } from "@/lib/tax2025/rules/se-medicare";
 import { computeAmtScreen, computeNiitScreen } from "@/lib/tax2025/rules/screens";
 import { computeIncomeTax } from "@/lib/tax2025/rules/tax-calc";
@@ -396,9 +397,33 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     return mine.reduce((acc, w) => acc.plus(centsToDollars(w.box12.filter((e) => e.code === "W").reduce((a, e) => a + e.amountCents, 0))), ZERO);
   };
 
+  // 0a. The owner's "other income" was (partly) a state income tax refund: Schedule 1 line 1 is computed by the refund worksheet rule
+  const oi = ra.otherIncome;
+  const oiKinds = oi?.kinds.value ?? null;
+  const refundRuleOn = oi !== undefined && oiKinds !== null && oiKinds.includes("refund") && facts.statedNone.other_income?.value === false;
+  const refundOnly = refundRuleOn && oiKinds !== null && oiKinds.every((k) => k === "refund");
+  if (refundRuleOn && oi !== undefined) {
+    const refundResult = computeStateRefund({
+      refund: dollarsAns(oi.refundCents),
+      deduction2024: ans(oi.deduction2024),
+      filedJoint2024: ans(ra.priorYear.filedJoint),
+      sch5d: dollarsAns(oi.sch5dCents),
+      sch5e: dollarsAns(oi.sch5eCents),
+      sch17: dollarsAns(oi.sch17Cents),
+      boxes2024: ans(oi.boxes2024),
+      exceptionApplies: ans(oi.exceptionApplies),
+    });
+    A.register(refundResult, { refs: refsFrom(oi.kinds, oi.refundCents, oi.deduction2024, oi.sch5dCents, oi.sch5eCents, oi.sch17Cents, oi.boxes2024, oi.exceptionApplies, ra.priorYear.filedJoint) });
+  }
+  const carriedAmount = (group: NoneGroupId): string => {
+    const a = ra.statedSomeAmounts[group]?.value;
+    return a === null || a === undefined ? "" : ` (about ${fmt(centsToDollars(a))})`;
+  };
+
   // 0. "none" group lines (statement-driven; overridden when an uncomputed document box says otherwise)
   for (const meta of LINE_CATALOG) {
     if (!meta.group) continue;
+    if (meta.key === "sch1.1" && refundRuleOn) continue;
     const stmt = facts.statedNone[meta.group];
     const forcedCpa =
       (meta.group === "retirement_ss_income" && inv.hasRetirementOrSsBoxes) || (meta.group === "other_income" && inv.hasOtherIncomeBoxes);
@@ -409,8 +434,10 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
       A.blocked(meta.key, "needs_cpa_judgment", "A 1099 document reports income of this kind that the engine does not compute (see the open items).", "none-group");
     } else if (stmt?.value === true) {
       A.fixed(meta.key, ZERO, "not_applicable", `Stated: ${NONE_GROUP_TEXT[meta.group]}`, "none-group", stmt.refs);
+    } else if (stmt?.value === false && meta.group === "other_income" && refundOnly) {
+      A.fixed(meta.key, ZERO, "not_applicable", "The owner's other income was only a state income tax refund, reported on Schedule 1 line 1 (see that line).", "none-group", stmt.refs);
     } else if (stmt?.value === false) {
-      A.blocked(meta.key, "needs_cpa_judgment", `The owner/CPA says this does not hold, but the amounts are not collected yet. ${NONE_GROUP_TEXT[meta.group]}`, "none-group");
+      A.blocked(meta.key, "needs_cpa_judgment", `The owner answered Yes for this group${carriedAmount(meta.group)}: the CPA must classify and report it (the amounts are not computed here). The statement that does not hold: ${NONE_GROUP_TEXT[meta.group]}`, "none-group");
     } else {
       A.blocked(meta.key, "not_yet_computed", `Needs an owner/CPA statement: ${NONE_GROUP_TEXT[meta.group]}`, "none-group");
     }
@@ -858,7 +885,17 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   const ctTax = computeCtTax({
     federalAgi: A.num("f1040.11a"),
     additions: A.assume(dollarsOrNull(facts.ct.additions), ZERO, "CT Schedule 1 additions, assumed $0"),
-    subtractions: A.assume(dollarsOrNull(facts.ct.subtractions), ZERO, "CT Schedule 1 subtractions, assumed $0"),
+    // CT-1040 Schedule 1 line 42 (verified, CT-1040 instructions): the taxable state / local income tax refund reported on federal Schedule 1 line 1
+    // is subtracted; `facts.ct.subtractions` holds the OTHER subtractions.
+    subtractions: A.assume(
+      (() => {
+        const other = dollarsOrNull(facts.ct.subtractions);
+        const line42 = A.peek("sch1.1");
+        return other !== null && line42 !== null ? other.plus(line42) : null;
+      })(),
+      ZERO,
+      "CT Schedule 1 subtractions, assumed $0"
+    ),
     federalAmt: A.num("sch2.2"),
     otherStateWithholdingPresent: w2.nonCtStateWithholdingPresent,
   });
@@ -1053,16 +1090,38 @@ function noneGroupOpenItems(A: Assembly): OpenItem[] {
     if (l !== undefined && !hasAmount(l.status)) byGroup.set(meta.group, [...(byGroup.get(meta.group) ?? []), meta.key]);
   }
   for (const [group, keys] of byGroup) {
+    const answeredYes = A.facts.statedNone[group]?.value === false;
+    const carried = A.facts.returnAnswers.statedSomeAmounts[group]?.value;
     out.push({
       id: `none:${group}`,
       severity: "blocking",
-      message: `Needs an owner/CPA statement: ${NONE_GROUP_TEXT[group]}`,
-      action: "Confirm 'none' (or enter the amounts) so these lines can be completed.",
+      message: answeredYes
+        ? `The owner answered Yes${carried === null || carried === undefined ? "" : ` (about ${fmt(centsToDollars(carried))})`}: the CPA must classify and report this income. The statement that does not hold: ${NONE_GROUP_TEXT[group]}`
+        : `Needs an owner/CPA statement: ${NONE_GROUP_TEXT[group]}`,
+      action: answeredYes ? "Give the CPA the documents for this income (Form 1099-G, 1099-MISC, W-2G ...); this engine does not compute it." : "Confirm 'none' (or enter the amounts) so these lines can be completed.",
       lineKeys: keys.slice(0, 40),
       refs: [],
     });
   }
   return out;
+}
+
+/** The state tax refund worksheet inputs and result, plus the Connecticut consequence (CT-1040 Schedule 1 line 42). */
+function stateRefundOpenItems(A: Assembly): OpenItem[] {
+  const r = A.results.find((x) => x.ruleId === "state-refund");
+  if (r === undefined) return [];
+  const l = A.lines.get("sch1.1");
+  const amount = l !== undefined && hasAmount(l.status) && l.amount !== null ? l.amount : null;
+  return [
+    {
+      id: "state-refund-worksheet",
+      severity: "advisory",
+      message: `${r.reasons[0] ?? "State income tax refund."}${amount !== null ? ` Connecticut: the taxable refund of ${fmt(new Decimal(amount))} is subtracted on CT-1040 Schedule 1 line 42 (part of line 50, CT-1040 line 4).` : ""}`,
+      action: "Check the worksheet inputs against the 2024 return and Form 1099-G.",
+      lineKeys: ["sch1.1"],
+      refs: l?.refs ?? [],
+    },
+  ];
 }
 
 function decisionOpenItems(decisions: readonly RuleDecision[]): OpenItem[] {
@@ -1317,6 +1376,7 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
     ...ruleOpenItems(A),
     ...attestationOpenItems(attestations),
     ...informationalOpenItems(A),
+    ...stateRefundOpenItems(A),
     ...noneGroupOpenItems(A),
     ...decisionOpenItems(A.decisions),
     ...STANDING_ADVISORIES,

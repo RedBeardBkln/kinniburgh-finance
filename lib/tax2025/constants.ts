@@ -510,6 +510,18 @@ export const CONSTANTS = {
     URL_CT_INSTR,
     "Phase-out decimal by CT AGI (MFJ); credit = tentative credit x (1 - decimal). 1.00 above $130,500 = $0."
   ),
+  STATE_REFUND_2024_STANDARD_DEDUCTION_MFJ: def(
+    "STATE_REFUND_2024_STANDARD_DEDUCTION_MFJ",
+    29200,
+    URL_1040_INSTR,
+    "State and Local Income Tax Refund Worksheet (Schedule 1 line 1, 2025 instructions) line 5: the 2024 standard deduction for married filing jointly or qualifying surviving spouse. (Single / MFS 14,600 and head of household 21,900 are printed there too but only the joint return is computed.)"
+  ),
+  STATE_REFUND_2024_BOX_AMOUNT: def(
+    "STATE_REFUND_2024_BOX_AMOUNT",
+    1550,
+    URL_1040_INSTR,
+    "State and Local Income Tax Refund Worksheet line 6: 1,550 per box checked (born before January 2, 1960 or blind, you and your spouse), 1,950 if the 2024 status was single or head of household."
+  ),
   CT_USE_TAX_RATE_GENERAL: def(
     "CT_USE_TAX_RATE_GENERAL",
     0.0635,

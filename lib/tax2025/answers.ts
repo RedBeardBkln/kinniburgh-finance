@@ -292,6 +292,35 @@ export function parseCompletenessAnswers(
   if (fov !== undefined) out.federalOverpaymentAppliedCents = fov;
   const cov = stated("cov", "covamt");
   if (cov !== undefined) out.ctOverpaymentAppliedCents = cov;
+  {
+    const oi = ra.otherIncome;
+    const kindsRaw = read("oik");
+    if (oi !== undefined && kindsRaw.kind === "value" && Array.isArray(kindsRaw.value)) {
+      oi.kinds = leaf(kindsRaw.value, "oik", "Kinds of other income");
+    } else if (oi !== undefined && kindsRaw.kind === "unsure") {
+      oi.kinds = unsure("oik", "Kinds of other income");
+    }
+    if (oi !== undefined) {
+      const amt = (id: string, label: string): Sourced<number> => {
+        const v = cents(id);
+        return v === null ? missing() : v === "unsure" ? unsure(id, label) : leaf(v, id, label);
+      };
+      const ded = choice("rfitem");
+      const refund = amt("rfamt", "State income tax refund");
+      // when the state refund is the ONLY kind of other income, the amount already given for the group is the refund
+      const onlyRefund = oi.kinds.value !== null && oi.kinds.value.length === 1 && oi.kinds.value[0] === "refund";
+      const groupAmount = ra.statedSomeAmounts.other_income;
+      oi.refundCents = refund.value === null && refund.basis === null && onlyRefund && groupAmount !== undefined ? groupAmount : refund;
+      oi.deduction2024 =
+        ded === null ? missing() : ded === "unsure" ? unsure("rfitem", "How the 2024 return deducted state taxes") : leaf(ded === "itemized_income" ? "itemized_income" : ded === "itemized_sales" ? "itemized_sales" : "standard", "rfitem", "How the 2024 return deducted state taxes");
+      oi.sch5dCents = amt("rfdd", "2024 Schedule A line 5d");
+      oi.sch5eCents = amt("rfee", "2024 Schedule A line 5e");
+      oi.sch17Cents = amt("rfa17", "2024 Schedule A line 17");
+      const bx = cents("rfboxes");
+      oi.boxes2024 = bx === null ? missing() : bx === "unsure" ? unsure("rfboxes", "2024 Form 1040 line 12d boxes") : leaf(bx, "rfboxes", "2024 Form 1040 line 12d boxes");
+      oi.exceptionApplies = yn("rfexc", "A Pub. 525 exception applies to the state refund");
+    }
+  }
   const div2b = choice("div2b");
   if (div2b === "yes") out.dividendBoxes2b2dConfirmedZero = true;
   else if (div2b === "no") out.dividendBoxes2b2dConfirmedZero = false;

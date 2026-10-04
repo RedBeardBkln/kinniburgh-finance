@@ -930,6 +930,10 @@ export function coveringAnswerPaths(def: QuestionnaireDef, ctx: QuestionnaireCon
   };
   const counts = new Map<string, number>();
   const paths: EffectiveAnswers[] = [];
+  // A walk that realises nothing new does not end the search at once: a follow-up block that hangs off a gating question
+  // is only visited in the walks where that gate rotates back to its opening option.
+  const PATIENCE = 60;
+  let idle = 0;
   for (let walk = 0; walk < maxWalks; walk++) {
     const answers: EffectiveAnswers = {};
     const visibleIds = new Set<string>();
@@ -952,7 +956,11 @@ export function coveringAnswerPaths(def: QuestionnaireDef, ctx: QuestionnaireCon
       visibleIds.add(node.id);
       answers[node.id] = { value: best, source: "questionnaire", at: null, by: null };
     }
-    if (!realisedNew) break;
+    if (!realisedNew) {
+      if (++idle >= PATIENCE) break;
+      continue;
+    }
+    idle = 0;
     paths.push(answers);
   }
   return paths;

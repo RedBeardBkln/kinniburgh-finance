@@ -334,6 +334,21 @@ export const returnAnswersSchema = z.object({
     /** Second purchase row: purchases on which NO tax was paid anywhere (each worksheet row is floored at 0 on its own). Optional for older callers. */
     untaxedPurchasesCents: sourcedSchema(cents).optional(),
   }),
+  /** The "other income" follow-up (Return completeness): which kinds, and the state tax refund worksheet inputs. Optional for older callers. */
+  otherIncome: z
+    .object({
+      /** Kind ids chosen: refund, unemployment, gambling, canceled_debt, crypto, alimony, other. */
+      kinds: sourcedSchema(z.array(z.string())),
+      refundCents: sourcedSchema(cents),
+      /** 2024 return: standard deduction, itemized (income taxes deducted) or itemized with general sales taxes. */
+      deduction2024: sourcedSchema(z.enum(["standard", "itemized_income", "itemized_sales"])),
+      sch5dCents: sourcedSchema(cents),
+      sch5eCents: sourcedSchema(cents),
+      sch17Cents: sourcedSchema(cents),
+      boxes2024: sourcedSchema(z.number().int()),
+      exceptionApplies: sourcedSchema(z.boolean()),
+    })
+    .optional(),
   /** Optional "about how much" amounts the owner gave for a "none" group answered "some" (shown to the CPA; never computed). */
   statedSomeAmounts: z.record(z.enum(NONE_GROUP_IDS as [NoneGroupId, ...NoneGroupId[]]), sourcedSchema(cents)),
 });
@@ -376,6 +391,16 @@ export function emptyReturnAnswers(people: readonly { slot: PersonSlot; userId: 
     priorYear: { filedJoint: m(), hadExcludedTaxOrRefundable: m() },
     useTax: { choice: m(), generalRatePurchasesCents: m(), otherRateItems: m(), taxPaidToOtherStateCents: m(), untaxedPurchasesCents: m() },
     statedSomeAmounts: {},
+    otherIncome: {
+      kinds: m(),
+      refundCents: m(),
+      deduction2024: m(),
+      sch5dCents: m(),
+      sch5eCents: m(),
+      sch17Cents: m(),
+      boxes2024: m(),
+      exceptionApplies: m(),
+    },
   };
 }
 
@@ -456,7 +481,7 @@ export const ty2025FactsSchema = z.object({
   ct: z.object({
     /** CT-1040 line 15: out-of-state purchases subject to use tax. Must be answered (0 or an amount). */
     useTax: sourcedSchema(cents),
-    /** CT Schedule 1 additions / subtractions (Phase 2). */
+    /** CT Schedule 1 additions / subtractions (Phase 2). `subtractions` = the OTHER subtractions; the engine adds Schedule 1 line 42 (taxable state refund) itself. */
     additions: sourcedSchema(cents),
     subtractions: sourcedSchema(cents),
   }),

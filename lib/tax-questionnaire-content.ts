@@ -1665,6 +1665,59 @@ function rcPersonNodes(): QNode[] {
       })
     );
   }
+  // J. What the "other income" was (shown only after Yes on the other-income group)
+  const OTHER = inn("g_other_income", "some");
+  const REFUND = inn("oik", "refund");
+  const ITEMIZED = inn("rfitem", "itemized_income");
+  out.push(
+    multi(
+      "oik",
+      "Which kinds of income was it (pick every kind that applies)?",
+      [
+        o("refund", "A state or local income tax refund (or a credit or offset of it)"),
+        o("unemployment", "Unemployment compensation"),
+        o("gambling", "Gambling winnings"),
+        o("canceled_debt", "Canceled debt"),
+        o("crypto", "Digital assets or cryptocurrency income"),
+        o("alimony", "Alimony received"),
+        o("other", "Something else"),
+        UNSURE,
+      ],
+      { showWhen: OTHER }
+    ),
+    dollars("rfamt", "If the refund is the only kind of income you picked, it is the amount you gave above. How much was the state or local income tax refund in total (Form 1099-G, box 2; include any part you applied to your {year} estimated tax)?", {
+      showWhen: REFUND,
+    }),
+    single(
+      "rfitem",
+      "On your {prevYear} federal return (Form 1040), did you take the standard deduction, or itemize deductions on Schedule A?",
+      [
+        o("standard", "Standard deduction (no Schedule A)"),
+        o("itemized_income", "Itemized, and I deducted state and local INCOME taxes"),
+        o("itemized_sales", "Itemized, but I deducted general SALES taxes instead of income taxes"),
+        UNSURE,
+      ],
+      {
+        help: "The IRS says none of a state or local income tax refund is taxable if, in the year you paid the tax, you did not itemize deductions or you deducted general sales taxes instead of state and local income taxes.",
+        sources: ["1040GI"],
+        showWhen: REFUND,
+      }
+    ),
+    dollars("rfdd", "From your {prevYear} Schedule A: the amount on line 5d (total state and local taxes, before the limit), in dollars?", { showWhen: ITEMIZED }),
+    dollars("rfee", "From your {prevYear} Schedule A: the amount on line 5e (the amount you could deduct after the limit), in dollars?", { showWhen: ITEMIZED }),
+    dollars("rfa17", "From your {prevYear} Schedule A: the amount on line 17 (total itemized deductions), in dollars?", { showWhen: ITEMIZED }),
+    whole("rfboxes", "On your {prevYear} Form 1040, how many boxes were checked on line 12d (you or your spouse born before January 2, 1960, or blind; enter 0 if none)?", 0, 4, { showWhen: ITEMIZED }),
+    single(
+      "rfexc",
+      "Did any of these apply: the refund was for a tax year other than {prevYear}; it was not an income tax refund; you owed alternative minimum tax in {prevYear}; you could not use all your {prevYear} credits; someone else could claim you as a dependent in {prevYear}; you paid your last {prevYear} state estimate in {year}; or your {prevYear} tax on Form 1040 line 16 was zero although line 15 was more than zero?",
+      YES_NO,
+      {
+        help: "The IRS says to use Pub. 525 (itemized deduction recoveries) instead of the refund worksheet in these cases, so the CPA would figure the taxable part.",
+        sources: ["1040GI"],
+        showWhen: ITEMIZED,
+      }
+    )
+  );
   return out;
 }
 

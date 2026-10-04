@@ -271,7 +271,7 @@ describe("Return completeness questionnaire: tree integrity", () => {
     const a = walk(noneOrNo);
     expect(Object.keys(a).length).toBeGreaterThanOrEqual(40);
     expect(Object.keys(a).length).toBeLessThanOrEqual(50);
-    expect(def.nodes.length).toBe(115); // 109 + utbuy2 (round 2) + the four SE health / retirement nodes (round 3) + div2b (round 4)
+    expect(def.nodes.length).toBe(123); // round 5 adds the 8 other-income follow-up nodes; 109 + utbuy2 (round 2) + the four SE health / retirement nodes (round 3) + div2b (round 4)
   });
   it("every showWhen references only EARLIER nodes (no dangling / forward reference) and the unsure option exists on every choice node", () => {
     const idx = new Map(def.nodes.map((n, i) => [n.id, i]));
