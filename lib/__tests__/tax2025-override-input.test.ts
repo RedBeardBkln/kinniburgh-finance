@@ -119,7 +119,7 @@ describe("formatOverrideHistoryRow", () => {
     expect(formatOverrideHistoryRow(base)).toEqual({
       title: "Version 2 (current)",
       valueText: "$13,000",
-      authorityLabel: "CPA",
+      authorityLabel: "Advisor (recorded earlier)",
       setText: "Set by Eric Kinniburgh on 2026-10-11",
       reasonText: "CPA said so",
       clearReasonText: null,

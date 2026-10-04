@@ -278,10 +278,10 @@ describe("tester: DRAFT label and no 'final / ready to file / complete' wording 
           expect(ctx.toLowerCase(), ctx).toMatch(/return completeness|so these lines can be completed|completed in a later|cannot be completed|can be completed|to complete|incomplete/);
         }
       }
-      expect(h).toContain("DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record");
+      expect(h).toContain("DRAFT - not a filed return - computed from the inputs shown; the owner is the preparer of record");
       expect(h).toContain("INCOMPLETE:");
       expect(m.summary.completenessText).toMatch(/^INCOMPLETE: \d+ blocking item\(s\)/);
-      expect(csv).toContain("DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record");
+      expect(csv).toContain("DRAFT - not a filed return - computed from the inputs shown; the owner is the preparer of record");
     });
 
     it(`${name}: the provisional column is labelled an estimate and its assumptions are listed; strict headline never shows a provisional number as computed`, () => {
@@ -443,7 +443,7 @@ describe("tester: CSV columns, escaping, formula guard, numeric amounts, PII", (
   it("header columns exactly as specified (the first 12 in place, 6 override columns appended) and every row has 18 cells (RFC 4180 parse) for all fixtures", () => {
     for (const { ret } of FIXTURES) {
       const rows = parseCsv(sheetToCsv(sheet(ret)));
-      expect(rows[0]![0]).toBe("DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record");
+      expect(rows[0]![0]).toBe("DRAFT - not a filed return - computed from the inputs shown; the owner is the preparer of record");
       expect(rows[1]).toEqual([
         "form", "line_id", "line_key", "label", "amount", "status", "provenance", "citation_reason", "override_amount", "override_by", "override_at", "override_reason",
         "computed_amount", "override_authority", "override_version", "override_stale", "override_note", "depends_on_override",
@@ -498,7 +498,7 @@ describe("tester: CSV columns, escaping, formula guard, numeric amounts, PII", (
     const last = rows[rows.length - 1]!;
     expect(last[0]).toBe("DRAFT NOTICE");
     expect(last[4]).toBe("");
-    expect(last[7]).toContain("the CPA is the preparer of record");
+    expect(last[7]).toContain("the owner is the preparer of record");
   });
 
   it("PII canary: no EIN, SSN-shaped string, street address or non-first-name identifier reaches the model, HTML or CSV unless it is a document label", () => {
@@ -550,7 +550,7 @@ describe("tester: card conclusions say 'Computed' only when the engine verdict i
           expect(v.tone).not.toBe("blocked");
         } else {
           expect(v.tone, id).toBe("blocked");
-          expect(v.text, id).toMatch(/^(Not final|Not computed|Not decided|Needs CPA)/);
+          expect(v.text, id).toMatch(/^(Not final|Not computed|Not decided|Needs your decision)/);
         }
       }
     }

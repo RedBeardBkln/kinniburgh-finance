@@ -181,7 +181,7 @@ export function TaxWorkspaceClient({
             <div className="space-y-1">
               <label className="text-sm font-medium">
                 Filing deadline
-                <span className="ml-1 text-xs text-muted-foreground font-normal">(confirm with CPA)</span>
+                <span className="ml-1 text-xs text-muted-foreground font-normal">(confirm yourself)</span>
               </label>
               <input
                 type="date"
@@ -208,7 +208,7 @@ export function TaxWorkspaceClient({
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
               className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
-              placeholder="CPA contact, notes on deductions, etc."
+              placeholder="Tax professional contact, notes on deductions, etc."
             />
           </div>
 

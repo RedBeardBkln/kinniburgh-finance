@@ -12,7 +12,7 @@
 //     asserted as required.
 //   * Sudden Valley's tax classification is not recorded anywhere, so anything
 //     derived from it carries `confirmWithCpa`.
-//   * Drafts for a CPA — not tax advice. Per-person document attribution does NOT
+//   * Drafts for the owner to review — not tax advice. Per-person document attribution does NOT
 //     change any readiness or figure here (household files jointly; engine
 //     unchanged).
 
@@ -117,7 +117,7 @@ export interface FormsCatalogInput {
   formPlanInput: PersonalFormPlanInput;
   taxDraft: TaxDraftSummary;
   /**
-   * Saved CPA-input questionnaire rows for this tax year (read-only). Optional so
+   * Saved owner-input questionnaire rows for this tax year (read-only). Optional so
    * existing callers/tests compile unchanged; absent = nothing answered yet.
    * A questionnaire NEVER changes applicability, readiness, field counts or the
    * summary counters - it only adds a status block to the card.
@@ -196,11 +196,11 @@ export interface FormEntry {
   fieldsOtherSource: number;
   fields: FormFieldStatus[];
   missing: { line: string; source: string }[];
-  /** True when the claim hinges on something only the CPA can confirm. */
+  /** True when the claim hinges on something only you can confirm. */
   confirmWithCpa: boolean;
   cpaNote: string | null;
   opportunity: FormOpportunityRef | null;
-  /** Guided CPA-input questionnaire status for this card; null when the card has none. */
+  /** Guided owner-input questionnaire status for this card; null when the card has none. */
   questionnaire: QuestionnaireCardState | null;
 }
 
@@ -235,7 +235,7 @@ export interface FormsPageData {
   questionnaireSummary: QuestionnaireCounts;
 }
 
-/** Every card on the page that has a questionnaire, in page order (federal, CT, needs-CPA, entities). */
+/** Every card on the page that has a questionnaire, in page order (federal, CT, needs-your-input, entities). */
 export function listQuestionnaireEntries(
   data: Pick<FormsPageData, "federal" | "connecticut" | "needsCpaInput" | "entities">
 ): { entry: FormEntry; questionnaire: QuestionnaireCardState }[] {
@@ -320,13 +320,13 @@ const SV_ONLY_CPA_OPPORTUNITIES: ReadonlySet<string> = new Set(SUDDEN_VALLEY_ONL
  * year before the rental began; the app does not decide how it is treated.
  */
 const SV_FIRST_YEAR_RENOVATION_NOTE =
-  "First year of the rental. Money spent renovating the property before it was first rented (2025) is generally not a deduction on the earlier year's return; whether and how it is added to the property's basis for depreciation is a CPA question — bring the 2025 renovation invoices and proof of payment.";
+  "First year of the rental. Money spent renovating the property before it was first rented (2025) is generally not a deduction on the earlier year's return; whether and how it is added to the property's basis for depreciation is a question for you or a tax professional — bring the 2025 renovation invoices and proof of payment.";
 
 const SLUG_EKC = "ek-consulting";
 const SLUG_SV = "sudden-valley";
 
 export const CPA_FOOTER =
-  "Drafts for your CPA to review — not tax advice. This page does not file or fill any form.";
+  "Drafts for you to review — not tax advice. This page does not file or fill any form.";
 
 // ── Document matching ─────────────────────────────────────────────────────────
 
@@ -509,7 +509,7 @@ export const CPA_INPUT_FORMS: readonly {
     opportunityKey: "home_office",
     formMarker: "Form 8829",
     reason:
-      "Only needed if the actual-expense home-office method is used; the draft uses the simplified method. Whether and how to claim it is a CPA decision.",
+      "Only needed if the actual-expense home-office method is used; the draft uses the simplified method. Whether and how to claim it is your decision.",
   },
   {
     id: "form-4562",
@@ -517,7 +517,7 @@ export const CPA_INPUT_FORMS: readonly {
     opportunityKey: "rental_depreciation",
     formMarker: "Form 4562",
     reason:
-      "Depreciation would be reported here. The fixed-asset register records cost, placed-in-service date, land value and business-use percent as inputs only; the app does not compute depreciation, choose a class, or decide Section 179 / bonus depreciation - that is a CPA decision.",
+      "Depreciation would be reported here. The fixed-asset register records cost, placed-in-service date, land value and business-use percent as inputs only; the app does not compute depreciation, choose a class, or decide Section 179 / bonus depreciation - that is your decision.",
   },
   {
     id: "form-8582",
@@ -525,14 +525,14 @@ export const CPA_INPUT_FORMS: readonly {
     opportunityKey: "short_term_rental_loophole",
     formMarker: "Form 8582",
     reason:
-      "Depends on rental-loss treatment and material-participation facts the system does not hold. Needs a CPA decision.",
+      "Depends on rental-loss treatment and material-participation facts the system does not hold. Needs your decision.",
   },
   {
     id: "form-8880",
     formName: "Form 8880 (Credit for Qualified Retirement Savings Contributions)",
     opportunityKey: "retirement_savings_credit",
     formMarker: "Form 8880",
-    reason: "The draft return computes the saver's credit from your retirement-contribution answers and the return's adjusted gross income (no credit above the Form 8880 limit); the CPA reviews it.",
+    reason: "The draft return computes the saver's credit from your retirement-contribution answers and the return's adjusted gross income (no credit above the Form 8880 limit); you review it.",
     // Listed so the owner can see the statements on file; they do not change the computed credit.
     inputDocTypes: ["retirement_contribution"],
   },
@@ -548,14 +548,14 @@ export const CPA_INPUT_FORMS: readonly {
     formName: "Form 2210 (Underpayment of Estimated Tax)",
     opportunityKey: "safe_harbor",
     formMarker: "Form 2210",
-    reason: "The IRS figures any underpayment penalty itself. The draft return shows a regular-method estimate from your payment answers and the 2024 return; the CPA decides whether to attach the form.",
+    reason: "The IRS figures any underpayment penalty itself. The draft return shows a regular-method estimate from your payment answers and the 2024 return; you decide whether to attach the form.",
   },
   {
     id: "form-1040-es",
     formName: "Form 1040-ES (Estimated Tax for Individuals)",
     opportunityKey: "safe_harbor",
     formMarker: "Form 1040-ES",
-    reason: "Relevant to future estimated payments; whether to make them is a CPA / owner decision.",
+    reason: "Relevant to future estimated payments; whether to make them is an owner decision.",
   },
 ];
 
@@ -669,7 +669,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
 
   // Schedule A
   const propertyTaxNote =
-    "A property-tax line only has data once you enter (or verify) the amount actually paid in the tax year on the bill's review screen — the AI never fills it, because a bill shows what is billed and due, not what was paid. Until then the itemized total can be understated. Charitable gifts logged on the donation log are NOT included in the 2025 draft's itemized total; AGI limits and Form 8283 are your CPA's decisions.";
+    "A property-tax line only has data once you enter (or verify) the amount actually paid in the tax year on the bill's review screen — the AI never fills it, because a bill shows what is billed and due, not what was paid. Until then the itemized total can be understated. Charitable gifts logged on the donation log are NOT included in the 2025 draft's itemized total; AGI limits and Form 8283 are your decisions.";
   let scheduleAApplicability: FormApplicability = "conditional";
   let scheduleAReason =
     "Depends on whether itemized deductions exceed the standard deduction; the draft engine only exists for tax year 2025.";
@@ -737,11 +737,11 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
   } else if (taxDraft.status === "available") {
     seApplicability = "needs_cpa_input";
     seReason =
-      "The 2025 draft computes $0 self-employment tax; the system holds no filing-threshold rule, so the CPA confirms whether Schedule SE is needed.";
+      "The 2025 draft computes $0 self-employment tax; the system holds no filing-threshold rule, so you confirm whether Schedule SE is needed.";
   } else {
     seApplicability = "needs_cpa_input";
     seReason =
-      "Self-employment tax is only drafted for tax year 2025 and the filing threshold is not encoded here — the CPA determines whether Schedule SE applies.";
+      "Self-employment tax is only drafted for tax year 2025 and the filing threshold is not encoded here — you determine whether Schedule SE applies.";
   }
   const scheduleSE = makeEntry({
     id: "schedule-se",
@@ -766,7 +766,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     reason: svActive
       ? classificationConfirmed
         ? "Sudden Valley's Airbnb rental is reported on Schedule E of the household return (entity record: disregarded)."
-        : "Per system configuration, Sudden Valley's Airbnb rental is reported on Schedule E of the household return. Sudden Valley's tax classification is not recorded — confirm with CPA."
+        : "Per system configuration, Sudden Valley's Airbnb rental is reported on Schedule E of the household return. Sudden Valley's tax classification is not recorded — confirm with a tax professional if unsure."
       : "Sudden Valley was formed in 2026; there is no rental activity for this tax year.",
     source: "specs/09 + specs/03 (Sudden Valley formed Feb 2026); prisma/seed.ts + lib/tax-checklist.ts RENTAL_CHECKLIST (Schedule E); lib/tax-guidance.ts PERSONAL_FORM_PLAN",
     planFormName: PLAN_FORM.scheduleE,
@@ -849,7 +849,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
     inputs: [...refs(personalDocs(["property_tax"])), ...priorReturnRefs],
   });
 
-  // ── Needs CPA input ─────────────────────────────────────────────────────────
+  // ── Needs your input ─────────────────────────────────────────────────────────
   const needsCpa: FormEntry[] = [];
   for (const f of CPA_INPUT_FORMS) {
     // Forms that exist in this list only because of Sudden Valley's rental are
@@ -882,7 +882,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       filer: householdFiler,
       applicability: "needs_cpa_input",
       reason:
-        "The draft return computes the foreign tax credit, the saver's credit, the extension payment and excess Social Security; the residential clean energy credit is not a 2025 item here (installed 2022). Other credits are for the CPA.",
+        "The draft return computes the foreign tax credit, the saver's credit, the extension payment and excess Social Security; the residential clean energy credit is not a 2025 item here (installed 2022). Other credits are for you to work out.",
       source: "lib/tax-guidance.ts TAX_QUESTION_BANK solar_credit (note references prior-year Schedule 3 / Form 5695)",
       questionnaire: householdQuestionnaire("schedule-3-federal"),
     }),
@@ -893,7 +893,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       filer: householdFiler,
       applicability: "needs_cpa_input",
       reason:
-        "The 2025 draft engine computes a QBI deduction amount, but no form is modelled here. The CPA identifies and prepares the form.",
+        "The 2025 draft engine computes a QBI deduction amount, but no form is modelled here. You identify and prepare the form yourself.",
       source: "lib/tax-compute.ts (qbi in the TY2025 draft); no form is named in any repo source",
       questionnaire: householdQuestionnaire("qbi-deduction"),
     }),
@@ -904,7 +904,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       filer: householdFiler,
       applicability: "needs_cpa_input",
       reason:
-        "The 2025 draft engine computes an additional Medicare tax amount, but no form is modelled here. The CPA identifies and prepares the form.",
+        "The 2025 draft engine computes an additional Medicare tax amount, but no form is modelled here. You identify and prepare the form yourself.",
       source: "lib/tax-compute.ts (additionalMedicareTax in the TY2025 draft); no form is named in any repo source",
       questionnaire: householdQuestionnaire("additional-medicare-tax"),
     }),
@@ -916,7 +916,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       applicability: excluded.includes("child_credits") ? "not_applicable" : "needs_cpa_input",
       reason: excluded.includes("child_credits")
         ? "Ruled out by your planning-question answers (no dependents)."
-        : "Dependent answers are captured, but no form logic consumes them. The CPA determines the credits and forms.",
+        : "Dependent answers are captured, but no form logic consumes them. You determine the credits and forms.",
       source: "lib/tax-guidance.ts TAX_QUESTION_BANK household_members + evaluateAnswers (child_credits)",
       questionnaire: householdQuestionnaire("child-dependent-credits"),
     }),
@@ -928,7 +928,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
       applicability: excluded.includes("ev_credit") ? "not_applicable" : "needs_cpa_input",
       reason: excluded.includes("ev_credit")
         ? "Ruled out by your planning-question answers (no EV purchase)."
-        : "The EV answer is captured, but no form logic consumes it. The CPA determines eligibility and forms.",
+        : "The EV answer is captured, but no form logic consumes it. You determine eligibility and forms.",
       source: "lib/tax-guidance.ts TAX_QUESTION_BANK ev_vehicle + evaluateAnswers (ev_credit)",
       questionnaire: householdQuestionnaire("clean-vehicle-credit"),
     })
@@ -942,7 +942,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
         jurisdiction: "federal",
         filer: householdFiler,
         applicability: "needs_cpa_input",
-        reason: "K-1 documents are on file for this year, but no form logic consumes K-1s — the CPA handles them.",
+        reason: "K-1 documents are on file for this year, but no form logic consumes K-1s — you handle them.",
         source: "lib/document-attribution.ts TAX_DOC_TYPES (k1); no K-1 handling exists in lib/tax-form-plan.ts / lib/tax-compute.ts",
         inputs: refs(k1Docs),
         questionnaire: householdQuestionnaire("k1-handling"),
@@ -997,11 +997,11 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
           applicability: disregarded ? "not_applicable" : "needs_cpa_input",
           reason: disregarded
             ? "Disregarded single-member LLC per the entity record — no separate return; activity is reported on the household return."
-            : "The entity's tax classification is not recorded in the system. If it is not a disregarded entity it files its own return — confirm with CPA.",
+            : "The entity's tax classification is not recorded in the system. If it is not a disregarded entity it files its own return — confirm with a tax professional if unsure.",
           source: "Entity.taxStatusNotes",
           confirmWithCpa: !disregarded,
-          cpaNote: isSv && !disregarded ? "Sudden Valley's classification is unconfirmed — confirm with CPA." : null,
-          // Only the needs-CPA-input state gets a questionnaire; a recorded disregarded entity has nothing to ask.
+          cpaNote: isSv && !disregarded ? "Sudden Valley's classification is unconfirmed — confirm with a tax professional if unsure." : null,
+          // Only the needs-owner-input state gets a questionnaire; a recorded disregarded entity has nothing to ask.
           questionnaire: disregarded ? undefined : { id: ENTITY_FEDERAL_QUESTIONNAIRE_ID, entityId: e.id },
         }),
         makeEntry({

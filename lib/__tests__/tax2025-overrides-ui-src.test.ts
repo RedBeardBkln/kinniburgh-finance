@@ -66,10 +66,11 @@ describe("override UI source checks", () => {
     expect(src).toMatch(/disabled=\{!form\.canSave\}/); // Save stays disabled until amount and reason are valid
   });
 
-  it("authority uses the plain labels CPA and Owner (Eric/Eva); the reason says not to type SSNs or account numbers", () => {
+  it("every override is recorded as the owner's (no CPA choice); the reason says not to type SSNs or account numbers", () => {
     const parts = read("components/tax/forms/override-parts.tsx");
     expect(parts).toContain("Owner (Eric/Eva)");
-    expect(parts).toMatch(/\bCPA\n/);
+    expect(parts).toContain("Recorded as the owner");
+    expect(parts).not.toMatch(/\bCPA\b/);
     expect(parts).toContain("Do not type Social Security or account numbers");
   });
 

@@ -13,7 +13,7 @@ import type { TaxComputeResult } from "@/lib/tax-compute";
 // Decimal DOLLAR amounts, never cents).
 //
 // Ground rule 8 (CLAUDE.md): every figure surfaced through this module is a
-// draft estimate for CPA review, never a filed number nor financial/tax
+// draft estimate for your review, never a filed number nor financial/tax
 // advice — see DRAFT_LABEL below, rendered persistently by the UI layer.
 
 export const DRAFT_LABEL = "DRAFT — before credits, not a filed number";

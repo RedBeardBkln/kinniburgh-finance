@@ -1280,7 +1280,7 @@ export function salesSummaryWarnings(data: Record<string, unknown>): string[] {
     const gain = int(row.gainLossCents);
     const discount = int(row.accruedMarketDiscountCents);
     if (discount !== null && discount !== 0) {
-      out.push(`${name}: accrued market discount of ${fmtCents(discount)} is shown; the app does not compute it, so the CPA decides.`);
+      out.push(`${name}: accrued market discount of ${fmtCents(discount)} is shown; the app does not compute it, so you decide.`);
     }
     if (proceeds !== null && cost !== null && gain !== null) {
       const plain = proceeds - cost;
@@ -1298,11 +1298,11 @@ export function salesSummaryWarnings(data: Record<string, unknown>): string[] {
     else sumGain += gain;
   });
   if (rows.some((r) => r.form === "1099-DA")) {
-    out.push("Digital asset (1099-DA) rows are shown: the app does not compute these; the CPA decides how they are reported.");
+    out.push("Digital asset (1099-DA) rows are shown: the app does not compute these; you decide how they are reported.");
   }
   const sec1256 = int(data.sec1256AggregateCents);
   if (sec1256 !== null && sec1256 !== 0) {
-    out.push(`Section 1256 contracts show ${fmtCents(sec1256)}; the app does not compute them (Form 6781), so the CPA decides.`);
+    out.push(`Section 1256 contracts show ${fmtCents(sec1256)}; the app does not compute them (Form 6781), so you decide.`);
   }
   const totalProceeds = int(data.bSummaryTotalProceedsCents);
   if (totalProceeds !== null && allProceeds && Math.abs(sumProceeds - totalProceeds) > 1) {

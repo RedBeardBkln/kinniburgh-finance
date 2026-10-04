@@ -119,7 +119,7 @@ describe("QuestionnaireRunner with prefill", () => {
     expect(html).toContain('data-prefill="differs"');
     expect(html).toContain("You answered differently from your documents");
     expect(html).toContain("Use the document value");
-    expect(html).toContain("The CPA summary shows both");
+    expect(html).toContain("The questions and answers summary shows both");
   });
 
   it("a changed source shows the amber notice with Update and Keep my answer", () => {

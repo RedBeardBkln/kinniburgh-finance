@@ -193,8 +193,8 @@ const STATUS_LABEL: Record<RuleStatus, string> = {
   computed: "computed",
   not_applicable: "not applicable",
   missing_input: "missing input",
-  needs_cpa_rule_unverified: "needs CPA review (rule not verified)",
-  needs_cpa_judgment: "needs CPA judgment",
+  needs_cpa_rule_unverified: "rule not verified (needs a professional's input or your own research)",
+  needs_cpa_judgment: "needs your decision",
   not_yet_computed: "not yet computed",
 };
 
@@ -585,13 +585,16 @@ export interface ApplyOptions {
   engineVersion?: string;
 }
 
-/** "CPA" or "Owner (Eric/Eva)": the plain labels the UI uses for the two authorities. */
+/**
+ * "Advisor (recorded earlier)" or "Owner (Eric/Eva)": the plain labels the UI uses for the two authorities. New overrides
+ * are always recorded as the owner's (no CPA reviews the return); "cpa" is only a legacy stored value that still displays.
+ */
 export function authorityLabel(authority: OverrideAuthority): string {
-  return authority === "cpa" ? "CPA" : "Owner (Eric/Eva)";
+  return authority === "cpa" ? "Advisor (recorded earlier)" : "Owner (Eric/Eva)";
 }
 
 function who(o: { authority: OverrideAuthority }): { tag: string; by: string } {
-  return o.authority === "cpa" ? { tag: "CPA", by: "per CPA" } : { tag: "Owner", by: "owner" };
+  return o.authority === "cpa" ? { tag: "Advisor", by: "per advisor, recorded earlier" } : { tag: "Owner", by: "owner" };
 }
 
 /**

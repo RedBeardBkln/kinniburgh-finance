@@ -13,6 +13,7 @@ import {
   type AdapterOverrides,
 } from "@/lib/tax2025/pdf/adapter";
 import { applyOverrides, formatOverrideNote, lineSnapshot, type OverrideRow } from "@/lib/tax2025/overrides";
+import { ownerWording, ownerWordingDeep } from "@/lib/tax-wording";
 import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 import { resolveFieldValue } from "@/lib/tax2025/pdf/policy";
 import { computeTy2025Return, TY2025_ENGINE_VERSION } from "@/lib/tax2025/return";
@@ -62,9 +63,9 @@ function assertPlainData(value: unknown, path = "view"): void {
   for (const [k, v] of Object.entries(value)) assertPlainData(v, `${path}.${k}`);
 }
 
-/** The blocks between the "Open items for CPA" heading and the next heading. */
+/** The blocks between the "Open items" heading and the next heading. */
 function openItemBullets(blocks: readonly CoverBlock[]): { heading: string; bullets: string[] } {
-  const at = blocks.findIndex((b) => b.kind === "heading" && b.text.startsWith("Open items for CPA"));
+  const at = blocks.findIndex((b) => b.kind === "heading" && b.text.startsWith("Open items ("));
   expect(at).toBeGreaterThanOrEqual(0);
   const heading = (blocks[at] as { text: string }).text;
   const bullets: string[] = [];
@@ -99,7 +100,8 @@ describe("toPdfReturnView: plain data and line coverage", () => {
       expect(line.key).toBe(key);
       expect(line.status).toBe(base.status);
       expect(line.amount).toBe(base.amount);
-      expect(line.reason).toBe(base.reason);
+      // Engine prose is reworded once, at the adapter boundary (lib/tax-wording.ts); the text is otherwise the engine's.
+      expect(line.reason).toBe(base.reason === null ? null : ownerWording(base.reason));
       expect(line.formLabel).toBe(base.form);
       expect(line.formLine).toBe(base.formLine);
       expect(line.label).toBe(base.label);
@@ -129,7 +131,7 @@ describe("toPdfReturnView: plain data and line coverage", () => {
     expect(view.filingStatus).toBe("mfj");
     expect(view.engineVersion).toBe(TY2025_ENGINE_VERSION);
     expect(view.citations).toEqual(ret.citations);
-    expect(view.headline).toEqual(ret.headline);
+    expect(view.headline).toEqual(ownerWordingDeep(ret.headline));
     expect(view.answers).toEqual(ANSWERED_FIXTURE_ANSWERS);
     expect(view.generatedBy).toBe("Test User");
     expect(view.generatedAt).toBe(OPTS.generatedAt);
@@ -151,12 +153,12 @@ describe("open-item consistency with the cover", () => {
       expect(bullets).toHaveLength(ret.openItems.length + adapterItems.length);
       const blocking = ret.openItems.filter((i) => i.severity === "blocking").length + adapterItems.filter((i) => i.severity === "blocking").length;
       expect(heading).toBe(
-        `Open items for CPA (${blocking} blocking, ${ret.openItems.length + adapterItems.length - blocking} advisory)`,
+        `Open items (${blocking} blocking, ${ret.openItems.length + adapterItems.length - blocking} advisory)`,
       );
       expect(ret.openItems.filter((i) => i.severity === "blocking")).toHaveLength(ret.headline.blockingItemCount);
       // Every engine item message appears on the cover once.
       for (const item of ret.openItems) {
-        expect(bullets.filter((b) => b.includes(item.message.slice(0, 40)))).not.toHaveLength(0);
+        expect(bullets.filter((b) => b.includes(ownerWording(item.message).slice(0, 40)))).not.toHaveLength(0);
       }
     });
   }
@@ -556,7 +558,7 @@ describe("overrides (the real applyOverrides output)", () => {
   function withRows(ret: Ty2025Return, rows: OverrideRow[]): AdapterOverrides {
     return { effective: applyOverrides(ret, rows), formatNote: formatOverrideNote };
   }
-  const NOTE = "CPA override: was $50,000 computed, now $130,000, by Eric Kinniburgh (per CPA) on 2026-10-11, reason: CPA said so";
+  const NOTE = "Advisor override: was $50,000 computed, now $130,000, by Eric Kinniburgh (per advisor, recorded earlier) on 2026-10-11, reason: CPA said so";
 
   it("pins the override amount, status 'overridden', the note, the dependents and the cover entry", () => {
     const f = fullFacts();
@@ -631,7 +633,7 @@ describe("overrides (the real applyOverrides output)", () => {
     expect(view.openItems.some((i) => i.id === "rule:foreign-tax-credit")).toBe(false);
     const model = buildCoverModel({ view, forms: [], fillItems: [], continuations: [], stamp: true });
     const text = model.blocks.map((b) => (b.kind === "kv" ? `${b.label}: ${b.value}` : b.kind === "spacer" ? "" : b.text)).join("\n");
-    expect(text).toContain("Resolved by CPA override (no longer blocking) (1)");
+    expect(text).toContain("Resolved by owner override (no longer blocking) (1)");
     expect(text).toContain("[supplied: the engine had no value for this line]");
     expect(text).toContain("Totals NOT recomputed for these overrides");
   });
@@ -651,7 +653,7 @@ describe("overrides (the real applyOverrides output)", () => {
     const view = toPdfReturnView(ret, f, { ...OPTS, overrides: withRows(ret, [ack]) });
     expect(view.acknowledged).toHaveLength(1);
     expect(view.acknowledged[0]?.ruleId).toBe("foreign-tax-credit");
-    expect(view.acknowledged[0]?.note).toContain("CPA acknowledged rule foreign-tax-credit");
+    expect(view.acknowledged[0]?.note).toContain("Advisor acknowledged rule foreign-tax-credit");
     expect(view.acknowledged[0]?.note).toContain("reason: CPA said so");
     expect(view.overrideNotice.count).toBe(1);
     expect(view.overrideNotice.totalsNotRecomputed).toBe(false); // an acknowledgement changes no number

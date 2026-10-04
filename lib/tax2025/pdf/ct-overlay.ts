@@ -27,7 +27,7 @@ export const CT1040_FLAT_NOTE = "CT-1040 is a flat form: fields were added by th
 /** Extra context printed on the cover after the note. */
 export const CT1040_COVER_NOTE =
   `${CT1040_FLAT_NOTE}. The text boxes are aligned to the printed boxes by measurement; check the alignment on screen or on paper before relying on a printout. ` +
-  "Treat this PDF as a review aid: the CPA files Connecticut electronically (whether a preparer must e-file CT is not verified here).";
+  "Connecticut is filed by you: whether a self-filer may e-file the CT-1040 is not verified here, so treat this PDF as a printed form to complete and sign.";
 
 const rectSchema = z.object({ x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive() });
 

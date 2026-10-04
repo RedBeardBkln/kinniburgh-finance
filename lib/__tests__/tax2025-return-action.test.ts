@@ -37,10 +37,10 @@ describe("exportTaxReturnCsv", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(buildMock).toHaveBeenCalledWith(2025);
-    expect(res.filename).toBe("ty2025-cpa-review-sheet-DRAFT.csv");
+    expect(res.filename).toBe("ty2025-return-review-sheet-DRAFT.csv");
     expect(
       res.csv.startsWith(
-        "DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record,,,,,,,,,,,,,,,,,\r\nform,line_id,line_key,label,amount,status,provenance,citation_reason,override_amount,override_by,override_at,override_reason,computed_amount,override_authority,override_version,override_stale,override_note,depends_on_override\r\n"
+        "DRAFT - not a filed return - computed from the inputs shown; the owner is the preparer of record,,,,,,,,,,,,,,,,,\r\nform,line_id,line_key,label,amount,status,provenance,citation_reason,override_amount,override_by,override_at,override_reason,computed_amount,override_authority,override_version,override_stale,override_note,depends_on_override\r\n"
       )
     ).toBe(true);
     expect(res.csv).toContain("DRAFT NOTICE");

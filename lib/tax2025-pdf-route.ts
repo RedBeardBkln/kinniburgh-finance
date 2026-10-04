@@ -8,16 +8,24 @@
 // back. One AuditLog row (changeType "tax_packet_export") records WHICH forms and which
 // return state (fingerprint) were exported; ids and counts only, never a value.
 // Responses are never cacheable (private, no-store) because they carry tax data.
+//
+// Clean copies are gated (ai-return-reviewer A5): `?stamp=0` and `?final=1` return 403 unless the owner's approval for the
+// CURRENT return fingerprint exists (deps.approval; the default is "no approval"). `?final=1` returns the final package
+// (final-package.ts), or one clean form with neutral properties on the single-form route. The stamped draft is always served.
 
 import { zipSync, type Zippable } from "fflate";
 import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 import { fillFormCopies } from "@/lib/tax2025/pdf/copies";
 import { formatNewYorkDate, shortFingerprint } from "@/lib/tax2025/pdf/format";
+import { buildFinalPackage } from "@/lib/tax2025/pdf/final-package";
 import { buildPacket } from "@/lib/tax2025/pdf/packet";
-import { SUPPORTED_YEAR, isKnownFormId } from "@/lib/tax2025/pdf/registry";
+import { SUPPORTED_YEAR, isKnownFormId, sha256Hex } from "@/lib/tax2025/pdf/registry";
 import type { FormMap, PdfReturnView } from "@/lib/tax2025/pdf/types";
+import { CLEAN_COPY_REFUSED, noApprovalLookup, type ApprovalLookup } from "@/lib/tax2025-pdf-approval";
 
 export const PACKET_EXPORT_CHANGE_TYPE = "tax_packet_export";
+/** The AuditLog changeType of a final-package download (fingerprint, file count and the sha256 of each file; never a value). */
+export const FINAL_PACKAGE_CHANGE_TYPE = "tax_final_package_download";
 
 export interface PdfRouteUser {
   id: string;
@@ -29,7 +37,7 @@ export interface PdfRouteUser {
 export interface PacketExportAudit {
   userId: string;
   taxYear: 2025;
-  kind: "packet" | "form";
+  kind: "packet" | "form" | "final";
   /** Form ids included. */
   forms: string[];
   stamp: boolean;
@@ -40,6 +48,8 @@ export interface PacketExportAudit {
   /** How many overrides (line figures, decisions, acknowledgements) were in force: a count, never a value or a reason. */
   overrideCount: number;
   fileCount: number;
+  /** Final package / final form only: hex SHA-256 of each file by name (hashes identify the bytes; they carry no value). */
+  fileSha256?: Record<string, string>;
 }
 
 export type BuiltView = { view: PdfReturnView } | { error: string };
@@ -51,6 +61,8 @@ export interface PdfRouteDeps {
   recordExport: (entry: PacketExportAudit) => Promise<void>;
   /** Maps considered for the packet and servable as single forms. Default: every registered map. */
   maps?: readonly FormMap[];
+  /** Owner-approval lookup for clean copies / the final package. Default: nothing is approved (every clean copy is refused). */
+  approval?: ApprovalLookup;
 }
 
 type YearParse = { ok: true; year: 2025 } | { ok: false; status: 400 | 404; error: string };
@@ -65,6 +77,24 @@ export function parseYear(raw: string): YearParse {
 /** `?stamp=0` asks for clean copies (no per-page DRAFT footer); anything else keeps the stamp (decision E1). */
 export function parseStamp(raw: string | null): boolean {
   return raw !== "0";
+}
+
+/** `?final=1` asks for the final package (or one final form). Anything else is not a final request. */
+export function parseFinal(raw: string | null): boolean {
+  return raw === "1";
+}
+
+/**
+ * Whether the owner's approval exists for `fingerprint`. A lookup that fails counts as "not approved" (fail closed): the
+ * caller answers 403, never a clean copy.
+ */
+async function isApproved(deps: PdfRouteDeps, fingerprint: string): Promise<boolean> {
+  try {
+    return await (deps.approval ?? noApprovalLookup).currentApproval(fingerprint);
+  } catch (err) {
+    logFailure("approval lookup", err);
+    return false;
+  }
 }
 
 /** Form ids that may be requested individually: registered maps whose blank form is in the manifest. */
@@ -104,17 +134,29 @@ export interface PacketRequest {
   year: string;
   /** Raw `stamp` query parameter. */
   stamp: string | null;
+  /** Raw `final` query parameter ("1" = the final package / a final form). */
+  final?: string | null;
   user: PdfRouteUser;
+}
+
+function hashFiles(files: ReadonlyArray<{ name: string; bytes: Uint8Array }>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const f of files) out[f.name] = sha256Hex(f.bytes);
+  return out;
 }
 
 export async function handlePacketRequest(req: PacketRequest, deps: PdfRouteDeps): Promise<Response> {
   const year = parseYear(req.year);
   if (!year.ok) return jsonError(year.status, year.error);
-  const stamp = parseStamp(req.stamp);
+  const final = parseFinal(req.final ?? null);
+  const stamp = final ? false : parseStamp(req.stamp);
   try {
     const built = await deps.buildView(year.year, req.user.name);
     if ("error" in built) return jsonError(500, built.error);
     const { view } = built;
+    // Clean copies (no per-page DRAFT footer) and the final package exist only for an approved return.
+    if ((!stamp || final) && !(await isApproved(deps, view.fingerprint))) return jsonError(403, CLEAN_COPY_REFUSED);
+    if (final) return await handleFinalPackage(view, req, deps);
     const packet = await buildPacket(view, { stamp, maps: deps.maps ?? FORM_MAPS });
     // A form filed in several copies (Form 8949) appears once in the audit row.
     const forms = [...new Set(packet.files.flatMap((f) => (f.formId === null ? [] : [f.formId])))];
@@ -138,6 +180,30 @@ export async function handlePacketRequest(req: PacketRequest, deps: PdfRouteDeps
   }
 }
 
+/** The final package for an approved return (the caller has already checked the approval for this fingerprint). */
+async function handleFinalPackage(view: PdfReturnView, req: PacketRequest, deps: PdfRouteDeps): Promise<Response> {
+  // Defence in depth: an approval is bound to a return with no blocking item, so a blocking item here means the approval is not for this state.
+  if (view.openItems.some((i) => i.severity === "blocking")) {
+    return jsonError(409, "The final package is not built while blocking items remain.");
+  }
+  const result = await buildFinalPackage(view, { maps: deps.maps ?? FORM_MAPS });
+  if (!result.ok) return jsonError(409, `The final package could not be built: ${result.reason}`);
+  await deps.recordExport({
+    userId: req.user.id,
+    taxYear: 2025,
+    kind: "final",
+    forms: result.forms,
+    stamp: false,
+    fingerprint: view.fingerprint,
+    engineVersion: view.engineVersion ?? null,
+    openItemCount: view.openItems.length,
+    overrideCount: view.overrideNotice.count,
+    fileCount: result.files.length,
+    fileSha256: hashFiles(result.files),
+  });
+  return fileResponse(result.zip, "application/zip", `ty${view.taxYear}-final-${shortFingerprint(view.fingerprint)}.zip`);
+}
+
 export interface FormRequest extends PacketRequest {
   form: string;
 }
@@ -149,11 +215,13 @@ export async function handleFormRequest(req: FormRequest, deps: PdfRouteDeps): P
   // Whitelist: lowercase alphanumerics only, a registered map, and a manifest entry.
   const map = /^[a-z0-9]+$/.test(req.form) ? maps.find((m) => m.formId === req.form) : undefined;
   if (!map || !isKnownFormId(map.formId)) return jsonError(404, "Unknown form.");
-  const stamp = parseStamp(req.stamp);
+  const final = parseFinal(req.final ?? null);
+  const stamp = final ? false : parseStamp(req.stamp);
   try {
     const built = await deps.buildView(year.year, req.user.name);
     if ("error" in built) return jsonError(500, built.error);
     const { view } = built;
+    if ((!stamp || final) && !(await isApproved(deps, view.fingerprint))) return jsonError(403, CLEAN_COPY_REFUSED);
     const fp12 = shortFingerprint(view.fingerprint);
     // An explicitly requested form is filled even when the packet's inclusion rule would omit it.
     // A form filed in several copies (Form 8949) comes back as a zip with one PDF per copy.
@@ -161,11 +229,12 @@ export async function handleFormRequest(req: FormRequest, deps: PdfRouteDeps): P
       stamp,
       fingerprint: fp12,
       stampDate: formatNewYorkDate(view.generatedAt),
+      ...(final ? { final: true } : {}),
     });
     await deps.recordExport({
       userId: req.user.id,
       taxYear: year.year,
-      kind: "form",
+      kind: final ? "final" : "form",
       forms: [map.formId],
       stamp,
       fingerprint: view.fingerprint,
@@ -173,10 +242,12 @@ export async function handleFormRequest(req: FormRequest, deps: PdfRouteDeps): P
       openItemCount: view.openItems.length,
       overrideCount: view.overrideNotice.count,
       fileCount: sheets.length,
+      ...(final ? { fileSha256: hashFiles(sheets.map((s, i) => ({ name: `${map.formId}-${s.copy?.suffix ?? String(i + 1)}.pdf`, bytes: s.result.bytes }))) } : {}),
     });
+    const tag = final ? "-final" : stamp ? "" : "-clean";
     const only = sheets[0];
     if (sheets.length === 1 && only) {
-      const name = `ty${year.year}-${map.formId}-${fp12}${stamp ? "" : "-clean"}.pdf`;
+      const name = `ty${year.year}-${map.formId}-${fp12}${tag}.pdf`;
       return fileResponse(only.result.bytes, "application/pdf", name);
     }
     const mtime = new Date(view.generatedAt);
@@ -184,7 +255,7 @@ export async function handleFormRequest(req: FormRequest, deps: PdfRouteDeps): P
     sheets.forEach(({ copy, result }, i) => {
       zippable[`${map.formId}-${copy?.suffix ?? String(i + 1)}.pdf`] = [result.bytes, { mtime, level: 0 }];
     });
-    return fileResponse(zipSync(zippable), "application/zip", `ty${year.year}-${map.formId}-${fp12}${stamp ? "" : "-clean"}.zip`);
+    return fileResponse(zipSync(zippable), "application/zip", `ty${year.year}-${map.formId}-${fp12}${tag}.zip`);
   } catch (err) {
     logFailure(`form ${map.formId}`, err);
     return jsonError(500, "The form could not be built.");

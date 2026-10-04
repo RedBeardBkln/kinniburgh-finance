@@ -398,7 +398,7 @@ describe("applyOverrides: rule_ack", () => {
     expect(eff.headline.blockingItemCount).toBe(3);
     expect(eff.lines["scha.17"]?.effective).toEqual({ amount: null, status: "needs_cpa_judgment" });
     expect(eff.totalsNotRecomputed).toBe(false);
-    expect(formatOverrideNote(eff.applied.acks[0]!)).toContain("CPA acknowledged rule schedule-a");
+    expect(formatOverrideNote(eff.applied.acks[0]!)).toContain("Advisor acknowledged rule schedule-a");
   });
 
   it("is stale (and un-blocks nothing) when the rule's status changed after it was recorded", () => {
@@ -521,7 +521,7 @@ describe("formatOverrideNote", () => {
     ]);
     // 02:30Z on Oct 12 is 22:30 on Oct 11 in New York (EDT, UTC-4)
     expect(formatOverrideNote(eff.applied.lines[0]!)).toBe(
-      "CPA override: was $12,345 computed, now $13,000, by Eric Kinniburgh (per CPA) on 2026-10-11, reason: Per CPA call"
+      "Advisor override: was $12,345 computed, now $13,000, by Eric Kinniburgh (per advisor, recorded earlier) on 2026-10-11, reason: Per CPA call"
     );
   });
 

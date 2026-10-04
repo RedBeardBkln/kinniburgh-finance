@@ -160,7 +160,7 @@ export function formInclusion(map: FormMap, view: PdfReturnView): Inclusion {
       line.status === "needs_cpa_rule_unverified" ||
       line.status === "needs_cpa_judgment"
     ) {
-      return { include: true, reason: `line ${line.formLine} needs input or a CPA decision` };
+      return { include: true, reason: `line ${line.formLine} needs input or your decision` };
     }
   }
   return {

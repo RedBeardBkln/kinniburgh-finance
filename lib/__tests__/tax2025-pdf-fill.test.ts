@@ -169,7 +169,7 @@ describe("fillForm on the real Form 1040", () => {
 
   it("sets the /TU tooltip for overridden and default-undecided lines", async () => {
     const lines = f1040Lines();
-    lines["f1040.10"] = pdfLine({ key: "f1040.10", formLabel: "Form 1040", formLine: "10", label: "Adjustments", status: "overridden", amount: 3000, override: { note: "CPA override: was $2,500 computed, now $3,000, by Test", computedAmount: 2500, stale: false } });
+    lines["f1040.10"] = pdfLine({ key: "f1040.10", formLabel: "Form 1040", formLine: "10", label: "Adjustments", status: "overridden", amount: 3000, override: { note: "Owner override: was $2,500 computed, now $3,000, by Test", computedAmount: 2500, stale: false } });
     lines["f1040.13a"] = pdfLine({ key: "f1040.13a", formLabel: "Form 1040", formLine: "13a", label: "QBI", amount: 5000, defaultUndecided: "QBI form: Form 8995" });
     const result = await fillForm("f1040", makeView({ lines }), f1040Map, DEFAULT_FILL_OPTIONS);
     const form = (await PDFDocument.load(result.bytes)).getForm();
@@ -177,7 +177,7 @@ describe("fillForm on the real Form 1040", () => {
       const v = form.getTextField(name).acroField.dict.lookup(PDFName.of("TU"));
       return v instanceof PDFHexString ? v.decodeText() : String(v);
     };
-    expect(tu(`${P1}f1_74[0]`)).toContain("CPA override: was $2,500");
+    expect(tu(`${P1}f1_74[0]`)).toContain("Owner override: was $2,500");
     expect(tu(`${P2}f2_03[0]`)).toContain("default, undecided: QBI form: Form 8995");
   });
 });
@@ -293,10 +293,10 @@ describe("stamp", () => {
   it("stamp ON draws the DRAFT footer on every page; OFF omits it; fields are identical either way", async () => {
     const on = await fillForm("f1040", makeView(), f1040Map, { ...DEFAULT_FILL_OPTIONS, stamp: true });
     const off = await fillForm("f1040", makeView(), f1040Map, { ...DEFAULT_FILL_OPTIONS, stamp: false });
-    const needle = hex("DRAFT computed by Banana Stand for CPA review - not filed - 2026-10-03 - fp abcdef012345");
+    const needle = hex("DRAFT - not approved for filing - 2026-10-03 - fp abcdef012345");
     const onText = await contentText(on.bytes);
     expect(onText.split(needle).length - 1).toBe(2); // one per page (1040 has 2 pages)
-    expect(await contentText(off.bytes)).not.toContain(hex("DRAFT computed"));
+    expect(await contentText(off.bytes)).not.toContain(hex("DRAFT - not approved"));
     const a = await readAllFields(on.bytes);
     const b = await readAllFields(off.bytes);
     expect([...a.entries()]).toEqual([...b.entries()]);

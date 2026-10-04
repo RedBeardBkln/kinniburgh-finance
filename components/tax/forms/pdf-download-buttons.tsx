@@ -28,7 +28,7 @@ export const PDF_SUPPORTED_YEAR = 2025;
 const linkClass =
   "inline-flex min-h-11 items-center rounded-md border border-primary/40 px-4 text-sm font-medium text-primary hover:bg-primary/10";
 
-// The line-by-line review sheet the CPA keys the return from (every line with status, provenance and citation).
+// The line-by-line review sheet you key the return from (every line with status, provenance and citation).
 const reviewSheetClass =
   "inline-flex min-h-11 items-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90";
 
@@ -39,27 +39,24 @@ export function PdfDownloadButtons({ year, overrideCount = 0 }: { year: number; 
     <section aria-labelledby="pdf-download-heading" className="space-y-2 rounded-lg border p-4">
       <div>
         <h2 id="pdf-download-heading" className="text-base font-semibold">
-          Filled PDF forms - DRAFT for CPA review
+          Filled PDF forms - DRAFT, not yet approved
         </h2>
         <p className="text-sm text-muted-foreground">
           Computed from your answers, documents and books. Lines the system could not compute are left blank and listed
           on the cover page, and social security numbers, EINs, bank numbers, signatures and PINs are always left blank.
-          The CPA is the preparer of record; this is not tax advice and nothing here has been filed.
+          You are the preparer of record; this is not tax advice and nothing here has been filed or approved.
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Link href={`/tax/forms/${year}/return` as Route} className={reviewSheetClass}>
-          CPA review sheet (printable, with CSV)
+          Return review sheet (printable, with CSV)
         </Link>
         <a href={base} download className={linkClass}>
           Download filing packet (zip)
         </a>
-        <a href={`${base}?stamp=0`} download className={linkClass}>
-          Download clean copy (no DRAFT footer)
-        </a>
       </div>
       <p className="text-xs text-muted-foreground">
-        The clean copy removes the per-page DRAFT footer from the forms; the cover page is always marked DRAFT.
+        Every page carries a DRAFT footer. A clean copy without it is available only after you approve the return.
       </p>
       {overrideCount > 0 ? (
         <p className="text-xs font-medium text-violet-900" data-testid="pdf-overrides-note">

@@ -9,7 +9,7 @@ import type {
 const APPLICABILITY: Record<FormApplicability, { label: string; className: string }> = {
   required: { label: "Required", className: "border-blue-300 bg-blue-50 text-blue-800" },
   conditional: { label: "Conditional", className: "border-amber-300 bg-amber-50 text-amber-800" },
-  needs_cpa_input: { label: "Needs CPA input", className: "border-violet-300 bg-violet-50 text-violet-800" },
+  needs_cpa_input: { label: "Needs your input", className: "border-violet-300 bg-violet-50 text-violet-800" },
   not_applicable: { label: "Not applicable", className: "border-transparent bg-muted text-muted-foreground" },
 };
 
@@ -41,5 +41,5 @@ export function JurisdictionBadge({ jurisdiction }: { jurisdiction: FormJurisdic
 }
 
 export function ConfirmWithCpaBadge() {
-  return <span className={`${PILL} border-amber-400 bg-amber-100 text-amber-900`}>Confirm with CPA</span>;
+  return <span className={`${PILL} border-amber-400 bg-amber-100 text-amber-900`}>Confirm yourself</span>;
 }

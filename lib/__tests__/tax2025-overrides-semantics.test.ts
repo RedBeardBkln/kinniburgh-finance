@@ -295,7 +295,7 @@ describe("affectedLines and labels", () => {
     expect(affectedLines("sch1.3", smallReturn().lines)).toEqual(["f1040.11a", "f1040.37", "sch1.10"]);
   });
   it("authority labels are the plain words used in the UI", () => {
-    expect(authorityLabel("cpa")).toBe("CPA");
+    expect(authorityLabel("cpa")).toBe("Advisor (recorded earlier)");
     expect(authorityLabel("owner")).toBe("Owner (Eric/Eva)");
   });
 });

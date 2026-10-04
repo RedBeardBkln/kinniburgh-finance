@@ -1,6 +1,6 @@
 "use client";
 
-// Tiny client leaf: the CPA summary is a server component, so only the print
+// Tiny client leaf: the questions and answers summary is a server component, so only the print
 // trigger needs the browser.
 export function PrintButton() {
   return (

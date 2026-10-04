@@ -353,7 +353,7 @@ export function PersonalTaxClient(props: Props) {
                           ? "Well-established"
                           : op.risk === "moderate"
                           ? "Verify requirements"
-                          : "CPA review required"}
+                          : "A professional's review is advised"}
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{op.explanation}</p>
@@ -435,8 +435,8 @@ export function PersonalTaxClient(props: Props) {
           <CardTitle className="text-base">5 · Forms</CardTitle>
           <p className="text-xs text-muted-foreground">
             The forms your {props.taxYear} situation requires, why each is needed, which documents feed
-            it, and how ready it is now live on the Forms page. Nothing is filed automatically — your
-            CPA reviews and signs.
+            it, and how ready it is now live on the Forms page. Nothing is filed automatically — you
+            review, sign and file.
           </p>
         </CardHeader>
         <CardContent>
@@ -451,8 +451,8 @@ export function PersonalTaxClient(props: Props) {
 
       <p className="text-xs text-muted-foreground">
         This workspace prepares and organizes — it does not give binding tax advice and does not
-        e-file. All positions, especially those marked &quot;CPA review required&quot;, need your
-        CPA&apos;s sign-off before filing. Your documents and answers are confidential and stay
+        e-file. All positions, especially those marked &quot;A professional&apos;s review is advised&quot;, need your
+        own careful review before filing. Your documents and answers are confidential and stay
         inside this platform.
       </p>
 

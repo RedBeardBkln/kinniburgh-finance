@@ -5,7 +5,7 @@ import type { CpaSummaryBlock, CpaSummaryData } from "@/lib/tax-questionnaire-bu
 
 // Read-only, printable summary of every questionnaire for a tax year. Free text
 // (the note) is rendered as escaped text with whitespace preserved - never as HTML.
-// Facts reported by the owner for the CPA - not tax advice, no form is decided here.
+// Facts reported by the owner - not tax advice, no form is decided here.
 
 const DATE_ET = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "medium" });
 const DATE_TIME_ET = new Intl.DateTimeFormat("en-US", {
@@ -67,7 +67,7 @@ function Block({ block, names }: { block: CpaSummaryBlock; names: Record<string,
       {s.openQuestions.length > 0 && (
         <div>
           <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
-            Open questions for the CPA
+            Open questions
           </h4>
           <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm">
             {s.openQuestions.map((q) => (
@@ -97,7 +97,7 @@ function Block({ block, names }: { block: CpaSummaryBlock; names: Record<string,
 
       {s.note && (
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Note for the CPA</h4>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Note</h4>
           <p className="mt-1 whitespace-pre-wrap text-sm">{s.note}</p>
           {block.noteMeta && (
             <p className="text-xs text-muted-foreground">
@@ -121,7 +121,7 @@ export function CpaSummaryView({ data }: { data: CpaSummaryData }) {
   return (
     <div className="space-y-5">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">CPA summary - {data.year}</h1>
+        <h1 className="text-2xl font-semibold">Questions and answers summary - {data.year}</h1>
         <p className="text-sm text-muted-foreground">
           {data.householdLabel} household - as of {DATE_ET.format(new Date())}
         </p>
@@ -129,7 +129,7 @@ export function CpaSummaryView({ data }: { data: CpaSummaryData }) {
           Questionnaires: {counts.answered} answered, {counts.inProgress} in progress, {counts.notStarted} not started.
         </p>
         <p className="text-xs text-muted-foreground">
-          Facts reported by the owner for the CPA to review - not tax advice. The CPA decides whether a form is
+          Facts reported by the owner - not tax advice. You decide whether a form is
           required.
         </p>
       </header>

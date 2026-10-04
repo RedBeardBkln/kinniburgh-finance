@@ -88,7 +88,7 @@ describe("flagsForYear", () => {
     expect(flags).toHaveLength(1);
     expect(flags[0]!.code).toBe("noncash_over_500_form_8283");
     expect(flags[0]!.level).toBe("cpa");
-    expect(flags[0]!.message).toMatch(/CPA/);
+    expect(flags[0]!.message).toMatch(/You decide/);
     expect(flags[0]!.message).toMatch(/8283/);
   });
 

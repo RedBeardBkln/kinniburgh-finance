@@ -11,9 +11,10 @@ import { PDFDocument, PDFTextField } from "pdf-lib";
 const authMock = vi.hoisted(() => vi.fn());
 const buildViewMock = vi.hoisted(() => vi.fn());
 const recordExportMock = vi.hoisted(() => vi.fn());
+const approvalMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth", () => ({ auth: authMock }));
 vi.mock("@/lib/tax2025-pdf-build", () => ({
-  defaultPdfRouteDeps: { buildView: buildViewMock, recordExport: recordExportMock },
+  defaultPdfRouteDeps: { buildView: buildViewMock, recordExport: recordExportMock, approval: { currentApproval: approvalMock } },
 }));
 
 import { GET as getPacket } from "@/app/api/tax/forms/[year]/pdf/route";
@@ -56,8 +57,10 @@ beforeEach(() => {
   authMock.mockReset();
   buildViewMock.mockReset();
   recordExportMock.mockReset();
+  approvalMock.mockReset();
   buildViewMock.mockImplementation(async () => ({ view: makeView() }));
   recordExportMock.mockResolvedValue(undefined);
+  approvalMock.mockResolvedValue(false); // clean copies are refused until a test grants the owner's approval
 });
 
 afterEach(() => {
@@ -154,7 +157,8 @@ describe("packet route (authenticated, injected builder)", () => {
     expect(buildViewMock).toHaveBeenCalledWith(2025, "Test User");
   });
 
-  it("?stamp=0 gives a clean copy: different form bytes, '-clean' file name, audit says stamp false", async () => {
+  it("?stamp=0 gives a clean copy (after owner approval): different form bytes, '-clean' file name, audit says stamp false", async () => {
+    approvalMock.mockResolvedValue(true);
     const stamped = unzipSync(new Uint8Array(await (await getPacket(req("/p"), packetCtx("2025"))).arrayBuffer()));
     const res = await getPacket(req("/api/tax/forms/2025/pdf?stamp=0"), packetCtx("2025"));
     expect(res.headers.get("content-disposition")).toMatch(/-clean\.zip"$/);
@@ -190,7 +194,7 @@ describe("packet route (authenticated, injected builder)", () => {
 
   it("the change type constant is tax_packet_export", () => {
     expect(PACKET_EXPORT_CHANGE_TYPE).toBe("tax_packet_export");
-    expect(read("lib/tax2025-pdf-build.ts")).toContain("changeType: PACKET_EXPORT_CHANGE_TYPE");
+    expect(read("lib/tax2025-pdf-build.ts")).toContain("PACKET_EXPORT_CHANGE_TYPE");
   });
 
   it("year validation: only 2025 is served (404 for other valid years, 400 for malformed), nothing is built", async () => {
@@ -258,7 +262,8 @@ describe("single-form route (authenticated, injected builder)", () => {
     expect(entry.fileCount).toBe(1);
   });
 
-  it("?stamp=0 changes the bytes and the file name", async () => {
+  it("?stamp=0 changes the bytes and the file name (after owner approval)", async () => {
+    approvalMock.mockResolvedValue(true);
     const a = new Uint8Array(await (await getForm(req("/x"), formCtx("2025", "f1040"))).arrayBuffer());
     const res = await getForm(req("/x?stamp=0"), formCtx("2025", "f1040"));
     expect(res.headers.get("content-disposition")).toMatch(/-clean\.pdf"$/);
@@ -295,6 +300,7 @@ describe("handlers with a fully injected dependency set (no auth, no DB)", () =>
         audits.push(e);
       },
       maps: FORM_MAPS,
+      approval: { currentApproval: async () => true },
     };
     const res = await handlePacketRequest({ year: "2025", stamp: null, user: { id: "u", name: "U" } }, deps);
     expect(res.status).toBe(200);
@@ -339,13 +345,13 @@ describe("download buttons component and its mount", () => {
   const src = read("components/tax/forms/pdf-download-buttons.tsx");
   const page = read("app/tax/forms/[year]/page.tsx");
 
-  it("has the three kinds of plain links with the DRAFT / CPA-review wording and no confirm dialog", () => {
+  it("has the plain links (the clean copy is not offered here: it unlocks after owner approval) with the DRAFT wording and no confirm dialog", () => {
     expect(src).toContain("Download filing packet (zip)");
-    expect(src).toContain("Download clean copy (no DRAFT footer)");
-    expect(src).toContain("`${base}?stamp=0`");
+    expect(src).not.toContain("?stamp=0");
+    expect(src).not.toContain("Download clean copy");
     expect(src).toContain("`${base}/${m.formId}`");
-    expect(src).toContain("DRAFT for CPA review");
-    expect(src).toMatch(/CPA is the preparer of record/);
+    expect(src).toContain("DRAFT, not yet approved");
+    expect(src).toMatch(/You are the preparer of record/);
     expect(src).toMatch(/not tax advice/);
     expect(src).toMatch(/social security numbers, EINs, bank numbers, signatures and PINs are always left blank/);
     expect(src).not.toMatch(/window\.confirm|confirm\(|"use client"|onClick/);
@@ -362,6 +368,6 @@ describe("download buttons component and its mount", () => {
     expect(page).toContain("{year === PDF_SUPPORTED_YEAR ? <PdfDownloadButtons year={year} overrideCount={overrideCount} /> : null}");
     // Between the header block and the summary, i.e. in the header area, above the form cards.
     expect(page.indexOf("<PdfDownloadButtons")).toBeLessThan(page.indexOf("<FormsSummary"));
-    expect(page.indexOf("<PdfDownloadButtons")).toBeGreaterThan(page.indexOf("CPA summary"));
+    expect(page.indexOf("<PdfDownloadButtons")).toBeGreaterThan(page.indexOf("Questions and answers summary"));
   });
 });

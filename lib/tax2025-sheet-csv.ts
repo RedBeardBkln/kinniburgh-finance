@@ -1,4 +1,4 @@
-// CSV export of the CPA review sheet (Phase 1c). Pure; built from the SheetModel so the
+// CSV export of the return review sheet (Phase 1c). Pure; built from the SheetModel so the
 // file and the page can never disagree. One row per emitted line (federal, then
 // Connecticut), in catalog order.
 //
@@ -12,7 +12,7 @@
 //     a line without an amount has an EMPTY amount cell, never 0;
 //   - the DRAFT label is the FIRST row (then the header row) and the closing notice row repeats it;
 //   - overrides (T9b): `amount` is the EFFECTIVE amount (the override value for an overridden
-//     line) and the status cell says "CPA override" / "Owner override". The first 12 columns keep
+//     line) and the status cell says "Owner override" ("Advisor override" for a row recorded earlier). The first 12 columns keep
 //     their meaning (override_amount = the pinned whole dollars, override_by, override_at as
 //     YYYY-MM-DD in America/New_York, override_reason = the reason text); the columns after them
 //     are appended: computed_amount (what the engine computed), override_authority,
@@ -119,5 +119,5 @@ export function sheetToCsv(model: SheetModel): string {
 }
 
 export function sheetCsvFilename(model: SheetModel): string {
-  return `ty${model.taxYear}-cpa-review-sheet-DRAFT.csv`;
+  return `ty${model.taxYear}-return-review-sheet-DRAFT.csv`;
 }

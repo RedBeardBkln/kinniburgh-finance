@@ -168,13 +168,13 @@ describe("a computed line and a blocked line are overridden: sheet, CSV and PDF 
     expect(sheetLine(s.sheet, BLOCKED).amount).toBe(400);
     expect(csvRow(s, COMPUTED)[COL("amount")]).toBe("60000");
     expect(csvRow(s, BLOCKED)[COL("amount")]).toBe("400");
-    expect(csvRow(s, COMPUTED)[COL("status")]).toBe("CPA override");
+    expect(csvRow(s, COMPUTED)[COL("status")]).toBe("Advisor override");
     expect(s.view.lines[COMPUTED]).toMatchObject({ status: "overridden", amount: 60_000 });
     expect(s.view.lines[BLOCKED]).toMatchObject({ status: "overridden", amount: 400 });
   });
 
   it("the same note string (who, when in ET, why, the computed value it replaced) on all three surfaces and the cover", () => {
-    expect(note(COMPUTED)).toBe("CPA override: was $50,000 computed, now $60,000, by Eric Kinniburgh (per CPA) on 2026-10-12, reason: Per the CPA call on the 12th");
+    expect(note(COMPUTED)).toBe("Advisor override: was $50,000 computed, now $60,000, by Eric Kinniburgh (per advisor, recorded earlier) on 2026-10-12, reason: Per the CPA call on the 12th");
     expect(sheetLine(s.sheet, COMPUTED).override?.note).toBe(note(COMPUTED));
     expect(csvRow(s, COMPUTED)[COL("override_note")]).toBe(note(COMPUTED));
     expect(s.view.lines[COMPUTED]?.override?.note).toBe(note(COMPUTED));
@@ -206,14 +206,14 @@ describe("a computed line and a blocked line are overridden: sheet, CSV and PDF 
   it("the blocked line's engine item moves to the resolved list on the sheet and the cover; the blocking counts agree everywhere", () => {
     expect(s.sheet.summary.overrides.resolvedByOverride.map((r) => r.id)).toEqual(["none:solar_credit"]);
     expect(s.view.resolvedByOverride.map((r) => r.id)).toEqual(["none:solar_credit"]);
-    expect(s.coverText).toContain("Resolved by CPA override (no longer blocking) (1)");
+    expect(s.coverText).toContain("Resolved by owner override (no longer blocking) (1)");
     expect(s.sheet.openItems.some((i) => i.id === "none:solar_credit")).toBe(false);
     expect(s.view.openItems.some((i) => i.id === "none:solar_credit")).toBe(false);
     const viewBlocking = s.view.openItems.filter((i) => i.severity === "blocking").length;
     expect(s.sheet.summary.blockingItemCount).toBe(s.eff.headline.blockingItemCount);
     expect(viewBlocking).toBe(s.eff.headline.blockingItemCount);
     expect(s.eff.headline.blockingItemCount).toBe(ret.headline.blockingItemCount - 1);
-    expect(s.coverText).toContain(`Open items for CPA (${viewBlocking} blocking,`);
+    expect(s.coverText).toContain(`Open items (${viewBlocking} blocking,`);
   });
 
   it("dependents are flagged (not recomputed) on all three surfaces", () => {
@@ -238,7 +238,7 @@ describe("a computed line and a blocked line are overridden: sheet, CSV and PDF 
     expect(notice[7]).toContain("totals are NOT recomputed");
     expect(s.view.overrideNotice.totalsNotRecomputed).toBe(true);
     expect(s.coverText).toContain("Totals are NOT recomputed for the overrides listed");
-    expect(s.coverText).toContain("OVERRIDES: 2 CPA / owner override(s) are in force");
+    expect(s.coverText).toContain("OVERRIDES: 2 owner override(s) are in force");
     // the headline rows that depend on an override say so
     expect(s.sheet.summary.federal[0]?.dependsOnOverride).toBe(true);
     expect(s.view.overrideNotice.headlineMarks.some((m) => m.label === "Federal AGI" && m.dependsOnOverride)).toBe(true);
@@ -305,7 +305,7 @@ describe("CT-1040 (a flat form with our own overlay fields): a CT pin prints", (
     const entry = moneyEntry(mapOf("ct1040"), "ct1040.6");
     const filled = await fieldOf("ct1040", view, entry.field);
     expect(filled.text).toBe(formatDollars(7000));
-    expect(filled.tooltip).toContain("CPA override: was");
+    expect(filled.tooltip).toContain("Advisor override: was");
     expect(view.lines["ct1040.s1.31"]?.status).toBe("overridden");
     // the CT Schedule 1 line feeds the additions total, which feeds CT AGI and the CT tax: all flagged, none recomputed
     expect(view.lines["ct1040.additions"]?.dependsOnOverridden).toContain("CT-1040 line Sch 1 line 31");
@@ -329,7 +329,7 @@ describe("blocked return: the whole thing still builds", () => {
     const blocked = computeTy2025Return(emptyFacts());
     const eff = applyOverrides(blocked, [pin(blocked, "sch3.1", 250_000)]);
     const sheet = buildSheetModel({ ret: blocked, documents: [], now: NOW, effective: eff });
-    expect(sheetToCsv(sheet)).toContain("CPA override");
+    expect(sheetToCsv(sheet)).toContain("Advisor override");
     const view = toPdfReturnView(blocked, emptyFacts(), { ...OPTS, overrides: { effective: eff, formatNote: formatOverrideNote } });
     expect(buildCoverModel({ view, forms: [], fillItems: [], continuations: [], stamp: true }).blocks.length).toBeGreaterThan(10);
   });

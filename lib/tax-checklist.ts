@@ -38,9 +38,9 @@ export const EKC_CHECKLIST: ChecklistTemplateItem[] = [
   { label: "Gather retirement plan contribution records (SEP-IRA / Solo 401(k))" },
   { label: "Confirm estimated tax payments made this year (federal + CT, all quarters)" },
   { label: "Attach prior-year Schedule C for reference", linkedDocTypes: ["tax_return"] },
-  { label: "Prepare Schedule C draft for CPA" },
-  { label: "Submit to CPA for review" },
-  { label: "File with IRS/CT by the applicable deadline (confirm with CPA)" },
+  { label: "Prepare Schedule C draft for your review" },
+  { label: "Review the draft and approve the return" },
+  { label: "File with IRS/CT by the applicable deadline" },
 ];
 
 export const RENTAL_CHECKLIST: ChecklistTemplateItem[] = [
@@ -51,9 +51,9 @@ export const RENTAL_CHECKLIST: ChecklistTemplateItem[] = [
   { label: "Collect receipts for repairs, maintenance, and property management expenses" },
   { label: "Document property depreciation basis (purchase price, improvements, placed-in-service date)" },
   { label: "Confirm estimated tax payments made this year (federal + CT, all quarters)" },
-  { label: "Prepare Schedule E draft for CPA" },
-  { label: "Submit to CPA for review" },
-  { label: "File with IRS/CT by the applicable deadline (confirm with CPA)" },
+  { label: "Prepare Schedule E draft for your review" },
+  { label: "Review the draft and approve the return" },
+  { label: "File with IRS/CT by the applicable deadline" },
 ];
 
 // Fallback for any business entity that isn't EK Consulting or Sudden
@@ -65,9 +65,9 @@ export const GENERIC_BUSINESS_CHECKLIST: ChecklistTemplateItem[] = [
   { label: "GL-code all imported business transactions" },
   { label: "Collect receipts for expenses > $75 (IRS Pub. 463 receipt threshold — see specs/10)" },
   { label: "Confirm estimated tax payments made this year (federal + CT, all quarters)" },
-  { label: "Prepare draft for CPA" },
-  { label: "Submit to CPA for review" },
-  { label: "File with IRS/CT by the applicable deadline (confirm with CPA)" },
+  { label: "Prepare draft for your review" },
+  { label: "Review the draft and approve the return" },
+  { label: "File with IRS/CT by the applicable deadline" },
 ];
 
 /**

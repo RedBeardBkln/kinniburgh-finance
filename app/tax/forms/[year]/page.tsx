@@ -66,7 +66,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
           <p className="text-sm text-muted-foreground">
             The federal and Connecticut forms the system can determine for the household and each business entity, why
             each is needed, which uploaded documents feed it, and how ready it is. Anything the system cannot determine
-            is marked &quot;Needs CPA input&quot; — it is never asserted as required. Drafts for your CPA — not tax
+            is marked &quot;Needs your input&quot; — it is never asserted as required. Drafts for you to review — not tax
             advice.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -85,14 +85,14 @@ export default async function TaxFormsPage({ params }: PageProps) {
               href={`/tax/forms/${year}/cpa-summary` as Route}
               className="ml-2 rounded-full border border-primary/40 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10"
             >
-              CPA summary
+              Questions and answers summary
             </Link>
           </div>
         </div>
 
         {overrideCount > 0 ? (
           <div className="rounded-md border-2 border-violet-400 bg-violet-50 px-4 py-3 text-sm text-violet-950" role="status" data-testid="forms-overrides-banner">
-            {overrideCount} CPA override(s) are in force. The card figures below are the engine&apos;s computed values; the review sheet and the PDF packet
+            {overrideCount} owner override(s) are in force. The card figures below are the engine&apos;s computed values; the review sheet and the PDF packet
             show the overrides.{" "}
             <Link href={`/tax/forms/${year}/return` as Route} className="font-medium underline">
               Open the review sheet
@@ -124,7 +124,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
 
         <section className="space-y-3">
           <div>
-            <h2 className="text-lg font-semibold">Needs CPA input</h2>
+            <h2 className="text-lg font-semibold">Needs your input</h2>
             <p className="text-sm text-muted-foreground">
               Forms and credits the guidance mentions but the system cannot determine from the data it holds. Listed so
               nothing is forgotten — not asserted as required.
@@ -142,8 +142,8 @@ export default async function TaxFormsPage({ params }: PageProps) {
             <h2 className="text-lg font-semibold">Business entities</h2>
             <p className="text-sm text-muted-foreground">
               {data.entities.some((section) => section.slug === "sudden-valley")
-                ? "Grouped under the household return. EK Consulting and Sudden Valley activity is reported on the household forms above unless the CPA says otherwise."
-                : "Grouped under the household return. EK Consulting activity is reported on the household forms above unless the CPA says otherwise."}
+                ? "Grouped under the household return. EK Consulting and Sudden Valley activity is reported on the household forms above unless your records show otherwise."
+                : "Grouped under the household return. EK Consulting activity is reported on the household forms above unless your records show otherwise."}
             </p>
           </div>
           {data.entities.map((section) => (
@@ -153,7 +153,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
 
         <p className="text-xs text-muted-foreground">
           {`This page only reads existing data. Applicability shown here comes from the system's configuration, your
-          documents and planning answers — your CPA makes the final determination.`}
+          documents and planning answers — you make the final determination.`}
         </p>
       </div>
     </AppShell>

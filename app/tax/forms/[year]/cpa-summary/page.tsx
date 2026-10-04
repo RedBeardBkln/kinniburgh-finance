@@ -37,7 +37,7 @@ export default async function CpaSummaryPage({ params }: PageProps) {
               Forms {year}
             </Link>
             <span>/</span>
-            <span>CPA summary</span>
+            <span>Questions and answers summary</span>
           </div>
           <PrintButton />
         </div>

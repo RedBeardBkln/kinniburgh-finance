@@ -47,7 +47,7 @@ export default async function TaxDonationsPage({ params }: PageProps) {
           <h1 className="text-2xl font-semibold">Donation log — {year}</h1>
           <p className="text-sm text-muted-foreground">
             Charitable gifts for the household return (Schedule A line 11). This log records what you enter and flags
-            missing records; it does not calculate a deduction. Drafts for your CPA — not tax advice.
+            missing records; it does not calculate a deduction. Drafts for you to review — not tax advice.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {view.years.map((y) => (
@@ -97,7 +97,7 @@ export default async function TaxDonationsPage({ params }: PageProps) {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   These are the amounts you logged — not deduction amounts. AGI limits and whether to itemize are your
-                  CPA&apos;s call.
+                  decisions.
                 </p>
                 {view.yearFlags.map((f) => (
                   <p key={f.code} className="rounded bg-purple-100 px-2 py-1 text-xs text-purple-900">
@@ -162,7 +162,7 @@ export default async function TaxDonationsPage({ params }: PageProps) {
           Record-keeping notes (IRS Pub. 526): any cash gift needs a bank record or a written communication from the
           charity; a single gift of $250 or more needs a written acknowledgment from the charity stating the amount and
           any benefits received; non-cash gifts totalling more than $500 for the year involve Form 8283 (items over $5,000
-          can need an appraisal). Whether the organization qualifies, and what is deductible, are your CPA&apos;s
+          can need an appraisal). Whether the organization qualifies, and what is deductible, are your
           decisions. Log one entry per gift.
         </p>
       </div>

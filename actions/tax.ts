@@ -50,8 +50,8 @@ export async function ensureTaxWorkspace(formData: FormData): Promise<void> {
         deadline: new Date(`${parsed.taxYear + 1}-04-15T04:00:00Z`),
         notes:
           entity.type === "business"
-            ? `${entity.name} — tax year ${parsed.taxYear}. Draft is prepared by the platform and reviewed by your CPA.`
-            : `Personal federal + CT state return. Draft is prepared by the platform and reviewed by your CPA.`,
+            ? `${entity.name} — tax year ${parsed.taxYear}. Draft is prepared by the platform for your review.`
+            : `Personal federal + CT state return. Draft is prepared by the platform for your review.`,
         // Personal workspaces get [] here (they have their own computed
         // readiness system, see lib/tax-checklist.ts's doc comment) — every
         // other entity gets a real, entity-aware starting checklist instead

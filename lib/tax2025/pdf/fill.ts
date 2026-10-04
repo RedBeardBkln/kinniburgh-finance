@@ -27,8 +27,9 @@ import { applyFlatFormOverlay } from "@/lib/tax2025/pdf/ct-overlay";
 import { fitCell, type FitKind } from "@/lib/tax2025/pdf/fit-text";
 import { formatDollars, splitName } from "@/lib/tax2025/pdf/format";
 import { resolveFieldValue } from "@/lib/tax2025/pdf/policy";
-import { getBlankBytes } from "@/lib/tax2025/pdf/registry";
-import { draftStampText, stampPages } from "@/lib/tax2025/pdf/stamp";
+import { getBlankBytes, getManifestEntry } from "@/lib/tax2025/pdf/registry";
+import { DRAFT_SUBJECT, draftStampText, stampPages } from "@/lib/tax2025/pdf/stamp";
+import { ownerWording } from "@/lib/tax-wording";
 import type {
   BlankReason,
   ContinuationList,
@@ -56,9 +57,17 @@ function setTooltip(field: PDFField, note: string): boolean {
   const existing = dict.lookup(PDFName.of("TU"));
   const original =
     existing instanceof PDFString || existing instanceof PDFHexString ? safeText(existing.decodeText()).text : null;
-  const safe = safeText(note);
+  // The note can quote engine prose: reword it like every other owner-visible string.
+  const safe = safeText(ownerWording(note));
   dict.set(PDFName.of("TU"), PDFHexString.fromText(tooltipText(safe.text, original)));
   return safe.refused;
+}
+
+/** Final form: Title = the form title; Subject, Keywords and Author (IRS-internal codes) are removed. */
+function setFinalDocumentProperties(doc: PDFDocument, title: string): void {
+  const info = doc.context.lookupMaybe(doc.context.trailerInfo.Info, PDFDict);
+  if (info !== undefined) for (const key of ["Subject", "Keywords", "Author"]) info.delete(PDFName.of(key));
+  doc.setTitle(title);
 }
 
 function headerValue(source: HeaderSource, view: PdfReturnView): { text: string | null; split: boolean } {
@@ -239,7 +248,8 @@ export async function fillForm(
     if (entry.kind === "money") {
       const decision = resolveFieldValue(formId, view.lines[entry.line], entry, view.answers);
       for (const item of decision.items) addItem(item);
-      if (decision.write !== null) writeText(entry.field, decision.write, decision.tooltip);
+      // A FINAL form carries no override / draft note in its tooltips: the IRS's own tooltip text stays as it is.
+      if (decision.write !== null) writeText(entry.field, decision.write, opts.final === true ? undefined : decision.tooltip);
       else textField(entry.field); // type-check the target even when blank
     } else if (entry.kind === "check") {
       const box = form.getFieldMaybe(entry.field);
@@ -323,12 +333,16 @@ export async function fillForm(
   }
 
   form.updateFieldAppearances(font);
-  // A clean (?stamp=0) single form has no page marking: keep the DRAFT status in the document properties.
-  doc.setSubject("DRAFT computed for CPA review - not a filed return");
+  if (opts.final === true) {
+    setFinalDocumentProperties(doc, getManifestEntry(formId).title);
+  } else {
+    // A clean (?stamp=0) single form has no page marking: keep the DRAFT status in the document properties.
+    doc.setSubject(DRAFT_SUBJECT);
+  }
 
   if (opts.alternativeLabel) {
     stampPages(doc, font, opts.alternativeLabel);
-  } else if (opts.stamp) {
+  } else if (opts.stamp && opts.final !== true) {
     stampPages(doc, font, draftStampText(opts.stampDate, opts.fingerprint));
   }
 

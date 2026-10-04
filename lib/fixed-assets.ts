@@ -58,7 +58,7 @@ export function normalizeFixedAssetInput(raw: unknown): NormalizeFixedAssetResul
   let landValueCents: number | null = null;
   if (v.isRealProperty) {
     if (v.landValue == null || v.landValue.trim() === "") {
-      return { ok: false, error: "Land value is required for real property (enter 0 only if your CPA says none of the cost is land)" };
+      return { ok: false, error: "Land value is required for real property (enter 0 only if none of the cost is land)" };
     }
     const land = parseDollarsToCents(v.landValue, { allowZero: true });
     if (!land.ok) return { ok: false, error: `Land value: ${land.error}` };

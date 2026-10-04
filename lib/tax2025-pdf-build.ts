@@ -4,7 +4,9 @@ import { getEntityBySlug } from "@/lib/entity";
 import { buildTy2025ReturnWithOverrides } from "@/lib/tax2025-overrides-build";
 import { formatOverrideNote } from "@/lib/tax2025/overrides";
 import { toPdfReturnView } from "@/lib/tax2025/pdf/adapter";
+import { noApprovalLookup } from "@/lib/tax2025-pdf-approval";
 import {
+  FINAL_PACKAGE_CHANGE_TYPE,
   PACKET_EXPORT_CHANGE_TYPE,
   type BuiltView,
   type PacketExportAudit,
@@ -17,7 +19,7 @@ import {
 // unit-tested adapter and PDF engine; this module itself is not unit-tested (repo
 // convention: a DB-touching wrapper around tested pure functions).
 //
-// CPA overrides: the view is built from buildTy2025ReturnWithOverrides, the SAME loader
+// Owner overrides: the view is built from buildTy2025ReturnWithOverrides, the SAME loader
 // the review sheet and the CSV use, so the filled forms, the cover and the sheet show
 // the same values and the same note (formatOverrideNote). The loader is fail-closed: if the
 // recorded overrides cannot be read the export is refused with an error, never produced
@@ -42,7 +44,7 @@ export async function recordPacketExport(entry: PacketExportAudit): Promise<void
   await db.auditLog.create({
     data: {
       changedBy: entry.userId,
-      changeType: PACKET_EXPORT_CHANGE_TYPE,
+      changeType: entry.kind === "final" ? FINAL_PACKAGE_CHANGE_TYPE : PACKET_EXPORT_CHANGE_TYPE,
       before: Prisma.JsonNull,
       after: {
         taxYear: entry.taxYear,
@@ -54,12 +56,16 @@ export async function recordPacketExport(entry: PacketExportAudit): Promise<void
         openItemCount: entry.openItemCount,
         overrideCount: entry.overrideCount,
         fileCount: entry.fileCount,
+        ...(entry.fileSha256 === undefined ? {} : { fileSha256: entry.fileSha256 }),
       },
     },
   });
 }
 
+// `approval` stays "nothing is approved" until the review store (TaxReturnApproval, unit X) is wired in at merge time:
+// replace noApprovalLookup with a lookup of the current approval for the fingerprint. Until then every clean copy is refused.
 export const defaultPdfRouteDeps: PdfRouteDeps = {
   buildView: buildPdfViewForYear,
   recordExport: recordPacketExport,
+  approval: noApprovalLookup,
 };

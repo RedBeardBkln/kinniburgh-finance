@@ -40,12 +40,12 @@ export default async function TaxFixedAssetsPage({ params }: PageProps) {
           </div>
           <h1 className="text-2xl font-semibold">Fixed-asset register — {year}</h1>
           <p className="text-sm text-muted-foreground">
-            Equipment and property your CPA needs for Form 4562, Schedule C line 13 and Schedule E line 18. An asset
+            Equipment and property you need for Form 4562, Schedule C line 13 and Schedule E line 18. An asset
             counts for {year} if it was placed in service in {year} or earlier.
           </p>
           <p className="mt-2 rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
             Recorded inputs only. This app does not calculate depreciation, choose a MACRS class, or decide Section 179 /
-            bonus depreciation — your CPA reviews each entry for Form 4562 and Schedule E line 18.
+            bonus depreciation — you review each entry for Form 4562 and Schedule E line 18.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {view.years.map((y) => (

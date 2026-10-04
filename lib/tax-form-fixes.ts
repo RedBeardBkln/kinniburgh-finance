@@ -267,7 +267,7 @@ export function resolveFieldFixes(line: string, ctx: FixContext): FieldFix[] {
         entityId: ctx.ekcEntityId,
         entityName: "EK Consulting",
         realProperty: false,
-        hint: "Record each depreciable EK Consulting asset: cost, date placed in service and business-use percent. Your CPA decides depreciation.",
+        hint: "Record each depreciable EK Consulting asset: cost, date placed in service and business-use percent. You decide depreciation.",
         questionKey: NONE_CONFIRMATION_KEYS.fixedAssetsEkc,
         noneLabel: "No depreciable EK Consulting assets — confirm none",
       });
