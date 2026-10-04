@@ -15,7 +15,7 @@ import { SHEET_DRAFT_LABEL, buildSheetModel, openItemOwner, routeOpenItem, sched
 import { sheetToCsv } from "@/lib/tax2025-sheet-csv";
 import { buildCardConclusions } from "@/lib/tax2025-sheet-conclusions";
 import { ReturnSheet } from "@/components/tax/forms/return-sheet";
-import { ERIC_ID, EVA_ID, fullFacts, fullFacts1b, owner } from "@/lib/__tests__/tax2025-fixtures";
+import { ERIC_ID, EVA_ID, emptyFacts, fullFacts, fullFacts1b, owner } from "@/lib/__tests__/tax2025-fixtures";
 
 // Round 2 (tester D1-D5) regression tests.
 (globalThis as { React?: typeof React }).React = React;
@@ -140,7 +140,7 @@ describe("D3: owner homework holds only real owner inputs", () => {
     ["rule:ct-property-tax-credit", "Provide: CT AGI."],
     ["rule:saver-8880", "Provide: Form 1040 line 11a."],
     ["rule:amt-screen-6251", "Provide: taxable income (1040 line 15); standard-versus-itemized result; regular tax (1040 line 16)."],
-    ["rule:niit-screen-8960", "Provide: AGI; interest / dividend / capital gain income."],
+    ["rule:niit-8960", "Provide: Form 1040 line 2b (taxable interest); Form 1040 line 3b (ordinary dividends); Form 1040 line 5b (pensions and annuities); Form 1040 line 7a (capital gain or loss); Schedule 1 line 3 (business income or loss); Schedule 1 line 4 (other gains or losses); Schedule 1 line 5 (rental, partnership, S corporation, trust income); Schedule A line 5a (state and local income tax); Schedule A line 9 (investment interest); standard versus itemized deduction; Form 1040 line 11a (adjusted gross income)."],
     ["rule:schedule-se", "Provide: Schedule C net profit (line 31)."],
     ["rule:addl-medicare-8959", "Provide: Schedule SE net earnings."],
     ["rule:penalty-2210-estimate", "Provide: Form 1040 line 22 / Schedule 2 / refundable credits."],
@@ -166,6 +166,21 @@ describe("D3: owner homework holds only real owner inputs", () => {
       expect(routeOpenItem({ id, action }), id).toEqual({ who: "derived", ownerAction: null });
       expect(openItemOwner({ id, action }), id).toBe("derived");
     }
+  });
+
+  it("Form 8960 cascade: an empty return's rule:niit-8960 asks the owner for nothing (every part is a derived figure)", () => {
+    const ret = computeTy2025Return(emptyFacts());
+    const item = ret.openItems.find((o) => o.id === "rule:niit-8960");
+    expect(item, "the empty return blocks Form 8960").toBeDefined();
+    expect(item?.action).toMatch(/^Provide:/);
+    expect(routeOpenItem(item!)).toEqual({ who: "derived", ownerAction: null });
+  });
+
+  it("Form 8960 genuine owner inputs stay homework: the lines 6, 7 and 10 statement and the exclusions answer are kept, derived parts dropped", () => {
+    const r = routeOpenItem({ id: "rule:niit-8960", action: "Provide: Form 1040 line 11a (adjusted gross income); the Form 8960 lines 6, 7 and 10 statement (Return completeness)." });
+    expect(r.who).toBe("owner");
+    expect(r.ownerAction).toBe("Provide: the Form 8960 lines 6, 7 and 10 statement (Return completeness).");
+    expect(routeOpenItem({ id: "rule:niit-8960", action: "Provide: Puerto Rico / Form 2555 / Form 4563 exclusions." }).who).toBe("owner");
   });
 
   it("root owner inputs stay owner items with their action", () => {

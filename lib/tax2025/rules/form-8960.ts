@@ -202,6 +202,8 @@ export function computeForm8960(input: Form8960Input): RuleResult {
   /** Lines 6, 7 and 10: foreign corporations, trust distributions, net operating loss, recoveries, trading expenses. */
   const otherNone = (key: LineKey): Val => {
     if (!needed) return h.na(key, `Form 8960 is not required: MAGI is not over ${fmt(threshold)}.`);
+    // MAGI itself is not final: whether Form 8960 applies is unknown, so the statement is not asked yet (a cascade, not owner homework)
+    if (!magi.ok) return h.blk(key, magi);
     if (input.niitOther === true) return h.na(key, `Stated: ${NONE_GROUP_TEXT.niit_other}`);
     if (input.niitOther === false) {
       return h.blk(key, block("needs_cpa_judgment", `The owner answered Yes: the CPA must work Form 8960 lines 6, 7 and 10 (the amounts are not computed here). The statement that does not hold: ${NONE_GROUP_TEXT.niit_other}`, "Form 8960 lines 6, 7 and 10"));
