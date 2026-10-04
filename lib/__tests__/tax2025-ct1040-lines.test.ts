@@ -76,7 +76,7 @@ describe("computeCtOtherCredits (lines 7, 13, 20a-20d)", () => {
   });
 
   it("refs are attached to the lines of their own question", () => {
-    const refs = { otherStateTax: [{ kind: "answer" as const, id: "q7", label: "answer" }], otherCredits: [{ kind: "answer" as const, id: "q13", label: "answer" }] };
+    const refs = { otherStateTax: [{ kind: "questionnaire" as const, id: "q7", label: "answer" }], otherCredits: [{ kind: "questionnaire" as const, id: "q13", label: "answer" }] };
     const r = computeCtOtherCredits({ ...base, refs });
     expect(line(r, "ct1040.7").refs?.[0]?.id).toBe("q7");
     expect(line(r, "ct1040.20d").refs?.[0]?.id).toBe("q13");

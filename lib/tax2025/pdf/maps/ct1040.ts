@@ -126,6 +126,8 @@ const propertyTax: MapTable = {
   amountColumn: "amount",
   labelColumn: "description",
   overflow: "summary_row_and_statement",
+  // The description cell is one 148 pt line: "27 OLD BARRY ROAD, WATERFORD, CT 06385" needs a smaller font.
+  fit: { description: "address" },
 };
 
 /**

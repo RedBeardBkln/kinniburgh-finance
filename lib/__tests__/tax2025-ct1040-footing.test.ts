@@ -381,7 +381,7 @@ describe("CT-1040 footing (plan 8.1)", () => {
     assertCt1040Foots(b);
     const { ret, fields } = b;
     for (const k of ["ct1040.13", "ct1040.20a", "ct1040.20b", "ct1040.20c", "ct1040.20d"] as const) expect(ret.lines[k]?.status, k).toBe("needs_cpa_judgment");
-    for (const k of ["ct1040.14", "ct1040.16", "ct1040.17", "ct1040.21", "ct1040.22", "ct1040.26", "ct1040.balance" as LineKey]) {
+    for (const k of ["ct1040.14", "ct1040.16", "ct1040.17", "ct1040.21", "ct1040.22", "ct1040.26", "ct1040.balance"] as const) {
       expect(hasAmount(ret.lines[k]?.status ?? "missing_input"), `${k} is blocked`).toBe(false);
     }
     for (const f of ["l13", "l14", "l16", "l17", "l20a", "l21", "l22", "l26"]) expect(printedNumber(fields, f), f).toBeNull();

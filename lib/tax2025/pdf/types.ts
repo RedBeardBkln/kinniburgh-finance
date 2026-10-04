@@ -5,6 +5,7 @@
 
 import type { FormId, Headline, LineKey, RuleStatus } from "@/lib/tax2025/types";
 import type { PendingLineKey } from "@/lib/tax2025/pdf/pending-line-keys";
+import type { FitKind } from "@/lib/tax2025/pdf/fit-text";
 
 /** A line a map may reference: an engine key or a not-yet-emitted (pending) key. */
 export type LineRef = LineKey | PendingLineKey;
@@ -248,6 +249,11 @@ export interface MapTable {
    * no column that identifies a row, e.g. the CT-1040 withholding schedule has no employer name).
    */
   coverList?: boolean;
+  /**
+   * Columns whose text must be fitted into the cell (fit-text.ts): column id -> kind of cell. A shortened or truncated
+   * value raises an advisory item carrying the full text; a value that only needs a smaller font does not.
+   */
+  fit?: Readonly<Record<string, FitKind>>;
 }
 
 export type MapBlank =

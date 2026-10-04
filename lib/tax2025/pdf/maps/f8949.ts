@@ -54,7 +54,8 @@ function rowTable(part: F8949Part, table: TableKey): MapTable {
     for (const c of F8949_ROW_COLUMNS) row[c] = f8949RowField(part, r, c);
     rows.push(row);
   }
-  return { table, rows, amountColumn: "d", labelColumn: "a", overflow: "none" };
+  // Column (a) holds two visible lines: a long broker name is fitted (smaller font, then the " as agent for ..." clause dropped).
+  return { table, rows, amountColumn: "d", labelColumn: "a", overflow: "none", fit: { a: "broker_name" } };
 }
 
 function totalsTable(part: F8949Part, table: TableKey): MapTable {

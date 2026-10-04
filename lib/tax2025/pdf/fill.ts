@@ -24,6 +24,7 @@ import {
 } from "pdf-lib";
 import { collectClaims } from "@/lib/tax2025/pdf/completeness";
 import { applyFlatFormOverlay } from "@/lib/tax2025/pdf/ct-overlay";
+import { fitCell, type FitKind } from "@/lib/tax2025/pdf/fit-text";
 import { formatDollars, splitName } from "@/lib/tax2025/pdf/format";
 import { resolveFieldValue } from "@/lib/tax2025/pdf/policy";
 import { getBlankBytes } from "@/lib/tax2025/pdf/registry";
@@ -171,9 +172,9 @@ export async function fillForm(
   };
 
   /** Write sanitized text into a text field, guarding SSN-like text and over-wide values. Returns true if written. */
-  const writeText = (name: string, raw: string, note?: string): boolean => {
+  const writeText = (name: string, raw: string, note?: string, fit?: FitKind): boolean => {
     const safe = safeText(raw);
-    const text = safe.text.trim();
+    let text = safe.text.trim();
     if (text === "") return false;
     if (safe.refused) {
       addItem({
@@ -187,6 +188,26 @@ export async function fillForm(
       return false;
     }
     const f = textField(name);
+    if (fit !== undefined) {
+      // Fit the text into the cell (fit-text.ts): a smaller font first, then a recognisable shortening. Anything the cell
+      // cannot show goes to the cover as an advisory item with the FULL text.
+      const widget = f.acroField.getWidgets()[0];
+      if (widget !== undefined) {
+        const result = fitCell(font, fit, text, widget.getRectangle().width);
+        f.setFontSize(result.fontSize);
+        if (result.changed) {
+          addItem({
+            id: `fill:${formId}:fit:${name}`,
+            severity: "advisory",
+            source: "fill",
+            formId,
+            field: name,
+            message: `The text for field ${name} did not fit its cell and was ${result.truncated ? "cut" : "shortened"} to "${result.text}"; the full text is: "${text}".`,
+          });
+          text = result.text;
+        }
+      }
+    }
     const max = f.getMaxLength();
     if (max !== undefined && text.length > max) {
       addItem({
@@ -327,7 +348,7 @@ function fillTable(
   formId: string,
   table: MapTable,
   view: PdfReturnView,
-  writeText: (name: string, raw: string, note?: string) => boolean,
+  writeText: (name: string, raw: string, note?: string, fit?: FitKind) => boolean,
   addItem: (item: PacketOpenItem) => void,
   continuations: ContinuationList[],
   textField: (name: string) => PDFTextField,
@@ -357,7 +378,7 @@ function fillTable(
         }
         writeText(field, formatDollars(v));
       } else {
-        writeText(field, v);
+        writeText(field, v, undefined, table.fit?.[col]);
       }
     }
   };
