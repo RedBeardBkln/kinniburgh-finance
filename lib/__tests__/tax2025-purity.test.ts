@@ -98,3 +98,28 @@ describe("lib/tax2025-build.ts is read-only", () => {
     expect(src).not.toMatch(/["']use server["']/);
   });
 });
+
+describe("lib/tax2025-overrides-build.ts (the overrides loader) is read-only and lives outside the pure tree", () => {
+  const file = path.join(ROOT, "tax2025-overrides-build.ts");
+  const src = stripComments(fs.readFileSync(file, "utf8"));
+  it("exists outside lib/tax2025/ (that tree may not import the DB)", () => {
+    expect(fs.existsSync(file)).toBe(true);
+    expect(fs.existsSync(path.join(ROOT, "tax2025", "overrides-build.ts"))).toBe(false);
+  });
+  it("never writes: only findMany / findUnique reads, no transaction, no raw SQL", () => {
+    expect(src).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\s*\(/);
+    expect(src).not.toMatch(/\$(executeRaw|queryRaw|transaction)/);
+    expect(src).not.toMatch(/ensurePersonalWorkspace/);
+    const calls = [...src.matchAll(/db\.(\w+)\.(\w+)\s*\(/g)].map((m) => m[2]);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect(["findMany", "findUnique"]).toContain(c);
+  });
+  it("has no 'use server' directive and no auth (callers authenticate)", () => {
+    expect(src).not.toMatch(/["']use server["']/);
+    expect(src).not.toMatch(/\brequireAuth\b|\bauth\s*\(/);
+  });
+  it("finds the household return through getEntityBySlug(\"personal\"), like the engine loader and every tax page", () => {
+    expect(src).toMatch(/getEntityBySlug\(\s*["']personal["']\s*\)/);
+    expect(src).not.toMatch(/entity\.findFirst/);
+  });
+});

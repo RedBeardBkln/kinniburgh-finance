@@ -2,26 +2,36 @@
 // computed return (plan section 7, .claude/pipeline/ty2025-pdf-forms-and-overrides).
 //
 // Principles (CLAUDE.md rule 8 and the plan):
-//   - PURE: no DB, no I/O. The loader (overrides-build.ts) feeds rows in.
+//   - PURE: no DB, no I/O. The loader (lib/tax2025-overrides-build.ts, OUTSIDE this
+//     tree) feeds rows in.
 //   - Overrides never edit inputs and never edit the engine result in place:
 //     applyOverrides returns a NEW "effective" view (deep copies; `results` is
 //     never touched). Every consumer (sheet, CSV, PDF) reads the effective view
 //     so an override can never be silently applied or silently dropped.
-//   - Three kinds. "line": pin a line to whole dollars (downstream lines are NOT
-//     recomputed; they are flagged via LINE_FLOW). "decision": fed into the
-//     engine as a recorded decision so the return recomputes consistently.
+//   - Three kinds. "line": pin a line to whole dollars (Tier 1: ONLY that line
+//     changes; the lines downstream of it are NOT recomputed, they are flagged via
+//     LINE_FLOW and the totals are marked "not recomputed"). "decision": fed into
+//     the engine as a recorded decision so the return recomputes consistently.
 //     "rule_ack": records that the CPA reviewed a rule; changes no number, only
 //     moves the matching blocking open items to an "Acknowledged" list.
-//   - A line whose computed value (or status, or engine version) changed after
-//     the override was set is STALE: still applied (it is an explicit
-//     instruction) but flagged and counted as a blocking open item.
+//   - A line override on a BLOCKED line (missing input / needs CPA / not yet
+//     computed) supplies the value with provenance: the line prints, and every
+//     blocking open item whose lines are ALL supplied this way moves to the
+//     "resolved by override" list. Totals stay "not computed" (D2).
+//   - A line whose computed value or status changed after the override was set is
+//     STALE: still applied (it is an explicit instruction) but flagged and counted
+//     as a blocking open item. An engine-version change ALONE (value unchanged) is
+//     an advisory "engine updated" item, never blocking (D3).
 //   - No free-text values: a value is cents (whole dollars) or an enumerated
 //     choice id. The reason is free text, is stored and shown, and is never
 //     written to AuditLog (the action layer enforces that).
 //   - Money is integer cents here (rule 2). Engine line amounts are whole dollars.
 
+import { Decimal } from "@prisma/client/runtime/library";
 import { z } from "zod";
 import { downstreamOf } from "@/lib/tax2025/line-flow";
+import { dollarsToCents } from "@/lib/tax2025/money";
+import { formatDollars, formatOverrideDate } from "@/lib/tax2025/override-format";
 import {
   hasAmount,
   type DecisionId,
@@ -136,7 +146,7 @@ export function checkLineOverrideAgainstBase(valueCents: number, line: ReturnLin
   if (!line) {
     return { ok: false, error: "That line is not on the computed return (lines the engine does not emit yet cannot be overridden)." };
   }
-  if (hasAmount(line.status) && line.amount !== null && Math.round(line.amount * 100) === valueCents) {
+  if (hasAmount(line.status) && line.amount !== null && dollarsToCents(new Decimal(line.amount)) === valueCents) {
     return { ok: false, error: "No change: the override equals the computed value." };
   }
   return { ok: true };
@@ -152,7 +162,7 @@ export const reasonSchema = z
 
 export type OverrideActionResult =
   | { ok: true; id: string; version: number }
-  | { ok: false; error: string; code?: "conflict" | "not_wired" };
+  | { ok: false; error: string; code?: "conflict" };
 
 /** One version of one target, as returned by listTaxReturnOverrideHistory. Reasons are tax records. */
 export interface OverrideHistoryRow {
@@ -207,7 +217,7 @@ function withVersion(s: { status: string; cents: number | null }, engineVersion:
 }
 
 export function lineSnapshot(line: ReturnLine, engineVersion?: string): ComputedSnapshot {
-  return withVersion({ status: line.status, cents: line.amount === null ? null : Math.round(line.amount * 100) }, engineVersion);
+  return withVersion({ status: line.status, cents: line.amount === null ? null : dollarsToCents(new Decimal(line.amount)) }, engineVersion);
 }
 
 export function ruleSnapshot(status: RuleStatus, engineVersion?: string): ComputedSnapshot {
@@ -405,32 +415,10 @@ export function decisionsFromOverrides(rows: readonly OverrideRow[]): Ty2025Deci
   return out;
 }
 
+
 // ── Formatting ────────────────────────────────────────────────────────────────
 
-const USD0 = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 0,
-});
-
-/** Whole dollars, e.g. "$12,345" / "-$500". */
-export function formatDollars(dollars: number): string {
-  return USD0.format(dollars);
-}
-
-const ET_DATE = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/New_York",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
-/** "2026-10-11" in America/New_York (en-CA is the YYYY-MM-DD locale). */
-export function formatOverrideDate(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : ET_DATE.format(d);
-}
+export { formatDollars, formatOverrideDate };
 
 function describeState(status: string, cents: number | null): string {
   if (status === "computed" && cents !== null) return formatDollars(cents / 100);
@@ -464,6 +452,8 @@ export interface AppliedLineOverride extends AppliedCommon {
   formLine: string;
   /** The base (computed) line when the override was applied. */
   was: { status: RuleStatus; amount: number | null };
+  /** The computed line had no value (missing input / needs CPA / not yet computed): the override SUPPLIES it. */
+  wasBlocked: boolean;
   /** The override value in whole dollars. */
   nowAmount: number;
   stale: StaleInfo | null;
@@ -513,18 +503,65 @@ export interface StaleOverride {
   version: number;
   info: StaleInfo;
 }
+/** The engine version changed after the override was set but the computed value did NOT (advisory only). */
+export interface EngineChangedOverride {
+  id: string;
+  targetKind: OverrideTargetKind;
+  targetKey: string;
+  version: number;
+  was: string;
+  now: string;
+  message: string;
+}
+/** A blocking engine open item whose lines were ALL supplied by line overrides: no longer counted as blocking, still shown. */
+export interface ResolvedByOverride {
+  item: OpenItem;
+  overrideIds: string[];
+  /** formatOverrideNote of each override that supplied one of the item's lines. */
+  notes: string[];
+}
+
+/** The nine headline rows and the line(s) each one is read from (return.ts buildHeadline). */
+export const HEADLINE_ROWS = {
+  "federal.agi": ["f1040.11a"],
+  "federal.taxableIncome": ["f1040.15"],
+  "federal.totalTax": ["f1040.24"],
+  "federal.totalPayments": ["f1040.33"],
+  /** The engine shows owe minus overpaid (positive = owe, negative = refund). */
+  "federal.balance": ["f1040.37", "f1040.34"],
+  "connecticut.ctAgi": ["ct1040.ctAgi"],
+  "connecticut.tax": ["ct1040.6"],
+  "connecticut.totalPayments": ["ct1040.18", "ct1040.19", "ct1040.20"],
+  "connecticut.balance": ["ct1040.balance"],
+} as const satisfies Record<string, readonly LineKey[]>;
+export type HeadlineRowId = keyof typeof HEADLINE_ROWS;
+export const HEADLINE_ROW_IDS = Object.keys(HEADLINE_ROWS) as HeadlineRowId[];
+
+export interface HeadlineRowState {
+  /** A source line of this row is overridden: the row's figure is NOT the engine's. */
+  overridden: boolean;
+  /** A source line of this row is downstream of an override and was NOT recomputed. */
+  dependsOnOverride: boolean;
+  /** The row's figure read from the effective lines (whole dollars) when a source line is overridden and every source has a value; else null. */
+  effectiveAmount: number | null;
+}
 
 export interface EffectiveReturn {
   taxYear: 2025;
   filingStatus: "mfj";
+  /** The engine version of the base return these overrides were applied to. */
+  engineVersion: string;
   lines: Partial<Record<LineKey, EffectiveLine>>;
-  /** Adjusted open items: acknowledged blocking items removed, override items added. */
+  /** Adjusted open items: acknowledged / resolved blocking items removed, override items added. */
   openItems: OpenItem[];
   /** Blocking items moved out by an acknowledgement, still visible to the reader. */
   acknowledged: { ruleId: string; override: AppliedAckOverride; items: OpenItem[] }[];
+  /** Blocking items moved out because every line they name was supplied by a line override, still visible to the reader. */
+  resolvedByOverride: ResolvedByOverride[];
   decisions: EffectiveDecision[];
-  /** A copy of the engine headline with blockingItemCount adjusted. Totals are the ENGINE's, see totalsNotRecomputed. */
+  /** A copy of the engine headline with blockingItemCount / complete adjusted. Totals are the ENGINE's, see totalsNotRecomputed and headlineRows. */
   headline: Headline;
+  headlineRows: Record<HeadlineRowId, HeadlineRowState>;
   /** True when a line override is in force: headline totals and downstream lines were NOT recomputed. */
   totalsNotRecomputed: boolean;
   applied: {
@@ -533,14 +570,20 @@ export interface EffectiveReturn {
     acks: AppliedAckOverride[];
   };
   stale: StaleOverride[];
+  engineChanged: EngineChangedOverride[];
   orphans: OrphanOverride[];
   invalid: InvalidOverride[];
   anomalies: OverrideAnomaly[];
 }
 
 export interface ApplyOptions {
-  /** Engine version string when 1a exports one; stale detection also keys on it. */
+  /** Engine version to compare snapshots with. Defaults to base.engineVersion. */
   engineVersion?: string;
+}
+
+/** "CPA" or "Owner (Eric/Eva)": the plain labels the UI uses for the two authorities. */
+export function authorityLabel(authority: OverrideAuthority): string {
+  return authority === "cpa" ? "CPA" : "Owner (Eric/Eva)";
 }
 
 function who(o: { authority: OverrideAuthority }): { tag: string; by: string } {
@@ -574,19 +617,25 @@ function lineWhere(line: ReturnLine): string {
   return `${line.form} line ${line.formLine}`;
 }
 
-function staleOf(snapshot: ComputedSnapshot, now: ComputedSnapshot): { was: string; now: string; versionOnly: boolean } | null {
-  const valueChanged = snapshot.status !== now.status || snapshot.cents !== now.cents;
-  const versionChanged =
-    snapshot.engineVersion !== undefined && now.engineVersion !== undefined && snapshot.engineVersion !== now.engineVersion;
-  if (!valueChanged && !versionChanged) return null;
-  if (valueChanged) {
-    return { was: describeState(snapshot.status, snapshot.cents), now: describeState(now.status, now.cents), versionOnly: false };
+type SnapshotComparison =
+  | { kind: "same" }
+  | { kind: "value"; was: string; now: string }
+  | { kind: "engine"; was: string; now: string };
+
+/** Value or status moved = "value" (blocking stale); only the engine version moved = "engine" (advisory). */
+function compareSnapshot(snapshot: ComputedSnapshot, now: ComputedSnapshot): SnapshotComparison {
+  if (snapshot.status !== now.status || snapshot.cents !== now.cents) {
+    return { kind: "value", was: describeState(snapshot.status, snapshot.cents), now: describeState(now.status, now.cents) };
   }
-  return { was: `engine ${snapshot.engineVersion ?? "?"}`, now: `engine ${now.engineVersion ?? "?"}`, versionOnly: true };
+  if (snapshot.engineVersion !== undefined && now.engineVersion !== undefined && snapshot.engineVersion !== now.engineVersion) {
+    return { kind: "engine", was: `engine ${snapshot.engineVersion}`, now: `engine ${now.engineVersion}` };
+  }
+  return { kind: "same" };
 }
 
 function itemMatchesRule(item: OpenItem, ruleId: string, ruleLineKeys: ReadonlySet<LineKey>): boolean {
-  if (item.id === ruleId || item.id.startsWith(`${ruleId}:`)) return true;
+  // Real ids: "rule:<ruleId>" (return.ts ruleOpenItems). The bare / "<ruleId>:" forms are kept for older callers.
+  if (item.id === `rule:${ruleId}` || item.id === ruleId || item.id.startsWith(`${ruleId}:`)) return true;
   // Conservative: every line the item names must belong to the rule. An item
   // that names no lines, or lines of other rules, is never auto-acknowledged.
   return item.lineKeys.length > 0 && item.lineKeys.every((k) => ruleLineKeys.has(k));
@@ -602,6 +651,13 @@ function openItem(
   return { id, severity, message, action, lineKeys, refs: [] };
 }
 
+/** The lines (present on the return) that depend on `key` per LINE_FLOW: what a pin on `key` does NOT recompute. */
+export function affectedLines(key: LineKey, present: Partial<Record<LineKey, unknown>>): LineKey[] {
+  return downstreamOf(key)
+    .filter((k) => present[k] !== undefined)
+    .sort();
+}
+
 /**
  * Applies the active overrides to a computed return WITHOUT mutating it. Pure.
  * `results` is read only for rule ids / statuses / line keys (acks) and is never
@@ -613,7 +669,7 @@ export function applyOverrides(
   opts: ApplyOptions = {}
 ): EffectiveReturn {
   const { active, invalid, anomalies } = selectActiveOverrides(rows);
-  const engineVersion = opts.engineVersion;
+  const engineVersion = opts.engineVersion ?? base.engineVersion;
 
   const lines: Partial<Record<LineKey, EffectiveLine>> = {};
   for (const [key, line] of Object.entries(base.lines)) {
@@ -629,6 +685,7 @@ export function applyOverrides(
   const appliedAcks: AppliedAckOverride[] = [];
   const acknowledged: EffectiveReturn["acknowledged"] = [];
   const stale: StaleOverride[] = [];
+  const engineChanged: EngineChangedOverride[] = [];
   const orphans: OrphanOverride[] = [];
   const extraItems: OpenItem[] = [];
   const dependents = new Map<LineKey, Set<LineKey>>();
@@ -667,6 +724,13 @@ export function applyOverrides(
       )
     );
   };
+  const markEngineChanged = (o: ActiveOverride, what: string, was: string, now: string, valueNote: string) => {
+    const message = `${what} was set under ${was}; the return engine is now ${now}. ${valueNote}`;
+    engineChanged.push({ id: o.id, targetKind: o.targetKind, targetKey: o.targetKey, version: o.version, was, now, message });
+    extraItems.push(
+      openItem(`override-engine:${o.targetKind}:${o.targetKey}`, "advisory", message, "Re-confirm it when convenient (set it again with a reason) or clear it.", [])
+    );
+  };
 
   for (const o of active) {
     if (o.targetKind === "line") {
@@ -676,15 +740,13 @@ export function applyOverrides(
         continue;
       }
       const key = o.targetKey as LineKey;
-      const staleParts = staleOf(o.snapshot, lineSnapshot(entry.base, engineVersion));
+      const cmp = compareSnapshot(o.snapshot, lineSnapshot(entry.base, engineVersion));
       let staleInfo: StaleInfo | null = null;
-      if (staleParts) {
+      if (cmp.kind === "value") {
         staleInfo = {
-          was: staleParts.was,
-          now: staleParts.now,
-          message: staleParts.versionOnly
-            ? `Override on ${lineWhere(entry.base)} may be out of date: the return engine changed (${staleParts.was} to ${staleParts.now}) after it was set. Re-confirm or clear.`
-            : `Override on ${lineWhere(entry.base)} may be out of date: computed value changed from ${staleParts.was} to ${staleParts.now} after it was set. Re-confirm or clear.`,
+          was: cmp.was,
+          now: cmp.now,
+          message: `Override on ${lineWhere(entry.base)} may be out of date: computed value changed from ${cmp.was} to ${cmp.now} after it was set. Re-confirm or clear.`,
         };
       }
       const applied: AppliedLineOverride = {
@@ -694,6 +756,7 @@ export function applyOverrides(
         form: entry.base.form,
         formLine: entry.base.formLine,
         was: { status: entry.base.status, amount: entry.base.amount },
+        wasBlocked: !hasAmount(entry.base.status),
         nowAmount: o.valueCents / 100,
         stale: staleInfo,
       };
@@ -702,6 +765,14 @@ export function applyOverrides(
       if (staleInfo) {
         entry.stale = staleInfo;
         markStale(o, staleInfo, [key]);
+      } else if (cmp.kind === "engine") {
+        markEngineChanged(
+          o,
+          `Override on ${lineWhere(entry.base)}`,
+          cmp.was,
+          cmp.now,
+          `The computed value did not change (${describeState(o.snapshot.status, o.snapshot.cents)}).`
+        );
       }
       appliedLines.push(applied);
       for (const d of downstreamOf(key)) {
@@ -726,28 +797,29 @@ export function applyOverrides(
         orphan(o, `Decision override ${meta.label} cannot be shown: the computed return carries no ${meta.decisionId} decision.`);
         continue;
       }
-      // Only an ENGINE change makes a decision override stale: its own effect is
-      // the status flip from default_undecided to decided, which is expected.
-      const versionStale =
-        o.snapshot.engineVersion !== undefined && engineVersion !== undefined && o.snapshot.engineVersion !== engineVersion;
-      const staleInfo: StaleInfo | null = versionStale
-        ? {
-            was: `engine ${o.snapshot.engineVersion ?? "?"}`,
-            now: `engine ${engineVersion ?? "?"}`,
-            message: `Decision ${meta.label} may be out of date: the return engine changed after it was recorded. Re-confirm or clear.`,
-          }
-        : null;
+      // A decision's own effect is the status flip from default_undecided to decided, which is expected, so it
+      // is never blocking-stale; an engine version change is an advisory note only.
+      const versionChanged =
+        o.snapshot.engineVersion !== undefined && o.snapshot.engineVersion !== engineVersion;
       const applied: AppliedDecisionOverride = {
         ...common(o),
         targetKind: "decision",
         decisionId: meta.decisionId,
         label: meta.label,
         choice: o.choice,
-        stale: staleInfo,
+        stale: null,
       };
       target.override = applied;
       appliedDecisions.push(applied);
-      if (staleInfo) markStale(o, staleInfo, []);
+      if (versionChanged) {
+        markEngineChanged(
+          o,
+          `Decision ${meta.label}`,
+          `engine ${o.snapshot.engineVersion ?? "?"}`,
+          `engine ${engineVersion}`,
+          "The decision is applied as recorded."
+        );
+      }
       if (target.chosen !== o.choice || target.status !== "decided") {
         extraItems.push(
           openItem(
@@ -784,18 +856,43 @@ export function applyOverrides(
       if (staleInfo) {
         // Conservative: what is shown is not what the CPA reviewed, so nothing is un-blocked.
         markStale(o, staleInfo, []);
-      } else if (isAckableStatus(result.status)) {
-        const ruleKeys = new Set<LineKey>(result.lines.map((l) => l.key));
-        for (let i = openItems.length - 1; i >= 0; i--) {
-          const item = openItems[i];
-          if (!item || item.severity !== "blocking" || !itemMatchesRule(item, result.ruleId, ruleKeys)) continue;
-          applied.items.unshift(item);
-          openItems.splice(i, 1);
-          removedBlocking += 1;
+      } else {
+        if (o.snapshot.engineVersion !== undefined && o.snapshot.engineVersion !== engineVersion) {
+          markEngineChanged(
+            o,
+            `Acknowledgement of rule ${result.ruleId}`,
+            `engine ${o.snapshot.engineVersion}`,
+            `engine ${engineVersion}`,
+            "The rule's status did not change."
+          );
         }
-        if (applied.items.length > 0) acknowledged.push({ ruleId: result.ruleId, override: applied, items: applied.items });
+        if (isAckableStatus(result.status)) {
+          const ruleKeys = new Set<LineKey>(result.lines.map((l) => l.key));
+          for (let i = openItems.length - 1; i >= 0; i--) {
+            const item = openItems[i];
+            if (!item || item.severity !== "blocking" || !itemMatchesRule(item, result.ruleId, ruleKeys)) continue;
+            applied.items.unshift(item);
+            openItems.splice(i, 1);
+            removedBlocking += 1;
+          }
+          if (applied.items.length > 0) acknowledged.push({ ruleId: result.ruleId, override: applied, items: applied.items });
+        }
       }
       appliedAcks.push(applied);
+    }
+  }
+
+  // D2: a blocking engine item whose lines are ALL supplied by (fresh) overrides on blocked lines is resolved.
+  const supplier = new Map<LineKey, AppliedLineOverride>();
+  for (const l of appliedLines) if (l.wasBlocked && l.stale === null) supplier.set(l.targetKey as LineKey, l);
+  const resolvedByOverride: ResolvedByOverride[] = [];
+  const keptItems: OpenItem[] = [];
+  for (const item of openItems) {
+    if (item.severity === "blocking" && item.lineKeys.length > 0 && item.lineKeys.every((k) => supplier.has(k))) {
+      const used = [...new Set(item.lineKeys.map((k) => supplier.get(k)))].filter((x): x is AppliedLineOverride => x !== undefined);
+      resolvedByOverride.push({ item, overrideIds: used.map((u) => u.id), notes: used.map((u) => formatOverrideNote(u)) });
+    } else {
+      keptItems.push(item);
     }
   }
 
@@ -839,22 +936,42 @@ export function applyOverrides(
     extraItems.push(openItem(`override-conflict:${a.targetKind}:${a.targetKey}`, "advisory", a.message, "Re-confirm or clear the override.", []));
   }
 
-  const finalItems = [...openItems, ...extraItems];
+  const finalItems = [...keptItems, ...extraItems];
   const headline = structuredClone(base.headline);
   const addedBlocking = extraItems.filter((i) => i.severity === "blocking").length;
-  headline.blockingItemCount = Math.max(0, headline.blockingItemCount - removedBlocking + addedBlocking);
+  headline.blockingItemCount = Math.max(0, headline.blockingItemCount - removedBlocking - resolvedByOverride.length + addedBlocking);
+  const totalsNotRecomputed = appliedLines.length > 0;
+  headline.complete = base.headline.complete && headline.blockingItemCount === 0 && !totalsNotRecomputed;
+
+  const headlineRows = {} as Record<HeadlineRowId, HeadlineRowState>;
+  for (const id of HEADLINE_ROW_IDS) {
+    const sources: readonly LineKey[] = HEADLINE_ROWS[id];
+    const overridden = sources.some((k) => lines[k]?.override !== undefined);
+    const dependsOnOverride = sources.some((k) => dependents.has(k));
+    const amounts = sources.map((k) => lines[k]?.effective.amount ?? null);
+    let effectiveAmount: number | null = null;
+    if (overridden && amounts.every((a): a is number => a !== null)) {
+      // Whole-dollar integers: plain arithmetic is exact. Federal balance = owe - overpaid (as the engine shows it).
+      effectiveAmount = id === "federal.balance" ? amounts.reduce((a, b) => a - b) : amounts.reduce((a, b) => a + b, 0);
+    }
+    headlineRows[id] = { overridden, dependsOnOverride, effectiveAmount };
+  }
 
   return {
     taxYear: base.taxYear,
     filingStatus: base.filingStatus,
+    engineVersion: base.engineVersion,
     lines,
     openItems: finalItems,
     acknowledged,
+    resolvedByOverride,
     decisions,
     headline,
-    totalsNotRecomputed: appliedLines.length > 0,
+    headlineRows,
+    totalsNotRecomputed,
     applied: { lines: appliedLines, decisions: appliedDecisions, acks: appliedAcks },
     stale,
+    engineChanged,
     orphans,
     invalid,
     anomalies,

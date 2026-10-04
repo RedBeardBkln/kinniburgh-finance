@@ -27,7 +27,8 @@ import {
   type OverrideTargetKind,
   type OverrideValueKind,
 } from "@/lib/tax2025/overrides";
-import { loadBaseAndActive, loadOverrideHistory, resolvePersonalEntityId } from "@/lib/tax2025/overrides-build";
+import { containsSsnLikeText } from "@/lib/tax-extraction-schema";
+import { loadBaseAndActive, loadOverrideHistory, resolvePersonalEntityId } from "@/lib/tax2025-overrides-build";
 import { LINE_KEYS } from "@/lib/tax2025/types";
 
 // TY2025 return overrides: Eric records a CPA instruction (or his own decision) over
@@ -48,7 +49,7 @@ type Result = OverrideActionResult;
 const yearSchema = z
   .number()
   .int()
-  .refine((y) => isSupportedOverrideTaxYear(y), "Overrides are supported for tax year 2025 only.");
+  .refine((y): y is 2025 => isSupportedOverrideTaxYear(y), "Overrides are supported for tax year 2025 only.");
 
 const authoritySchema = z.enum(OVERRIDE_AUTHORITIES);
 
@@ -133,34 +134,26 @@ function isUniqueViolation(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
 }
 
-function isNotWired(e: unknown): boolean {
-  return e instanceof Error && e.name === "BaseReturnNotWiredError";
-}
+const SSN_REASON_ERROR = "The reason looks like a Social Security Number; remove it.";
 
-const NOT_WIRED: Result = {
-  ok: false,
-  code: "not_wired",
-  error: "The return engine is not connected to overrides yet, so no override can be recorded.",
-};
+/** Reasons are stored and printed on the PDF cover, so SSN-like text is refused BEFORE any DB or engine call. */
+function reasonLooksLikeSsn(reason: string): boolean {
+  return containsSsnLikeText(reason);
+}
 
 export async function setTaxReturnOverride(input: z.input<typeof setSchema>): Promise<Result> {
   const user = await requireAuth();
   const parsed = setSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
   const v = parsed.data;
+  if (reasonLooksLikeSsn(v.reason)) return { ok: false, error: SSN_REASON_ERROR };
 
   const author = await db.user.findUnique({ where: { id: user.id }, select: { name: true } });
   if (!author) return { ok: false, error: "Your user record was not found." };
 
   // The server rebuilds the BASE return itself: client-supplied numbers are never trusted.
-  let loaded;
-  try {
-    loaded = await loadBaseAndActive(v.taxYear);
-  } catch (e) {
-    if (isNotWired(e)) return NOT_WIRED;
-    throw e;
-  }
-  if (!loaded) return { ok: false, error: "The Personal entity was not found." };
+  const loaded = await loadBaseAndActive(v.taxYear);
+  if ("error" in loaded) return { ok: false, error: loaded.error };
   const { entityId, base, engineVersion } = loaded;
 
   let valueKind: OverrideValueKind;
@@ -263,6 +256,7 @@ export async function clearTaxReturnOverride(input: z.input<typeof clearSchema>)
   const user = await requireAuth();
   const parsed = clearSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  if (reasonLooksLikeSsn(parsed.data.reason)) return { ok: false, error: SSN_REASON_ERROR };
 
   const row = await db.taxReturnOverride.findFirst({ where: { id: parsed.data.id, archivedAt: null } });
   if (!row) return { ok: false, error: "Override not found (it may already be cleared or replaced)." };

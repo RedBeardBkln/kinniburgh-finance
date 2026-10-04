@@ -33,7 +33,7 @@ const loader = vi.hoisted(() => ({
   loadOverrideHistory: vi.fn(),
   resolvePersonalEntityId: vi.fn(),
 }));
-vi.mock("@/lib/tax2025/overrides-build", () => loader);
+vi.mock("@/lib/tax2025-overrides-build", () => loader);
 
 import { clearTaxReturnOverride, listTaxReturnOverrideHistory, setTaxReturnOverride } from "@/actions/tax-return-overrides";
 import type { LineKey, ReturnLine, RuleStatus, Ty2025Return } from "@/lib/tax2025/types";
@@ -42,6 +42,7 @@ const USER = "11111111-1111-4111-8111-111111111111";
 const PERSONAL = "22222222-2222-4222-8222-222222222222";
 const ROW = "55555555-5555-4555-8555-555555555555";
 const REASON = "CPA instruction by phone, call 10/7";
+const ENGINE = "test-engine-1";
 
 function line(key: LineKey, amount: number | null, status: RuleStatus = "computed"): ReturnLine {
   return { key, form: "Schedule 1", formLine: "3", label: key, status, amount, exact: null, reason: null, ruleId: "r", citations: [], refs: [] };
@@ -49,6 +50,7 @@ function line(key: LineKey, amount: number | null, status: RuleStatus = "compute
 
 function base(): Ty2025Return {
   return {
+    engineVersion: ENGINE,
     taxYear: 2025,
     filingStatus: "mfj",
     lines: { "sch1.3": line("sch1.3", 12345), "sch1.13": line("sch1.13", null, "missing_input") },
@@ -75,9 +77,20 @@ function base(): Ty2025Return {
         balance: { status: "computed", amount: 0, reason: null },
       },
       blockingItemCount: 0,
+      unverifiedDocumentCount: 0,
+      derivedInputCount: 0,
+      undecidedDecisionCount: 0,
+      caveats: [],
       provisional: null,
     },
     citations: [],
+    scheduleC: null,
+    scheduleD: null,
+    formsRequired: {},
+    attestations: {
+      digitalAssets: { value: false, status: "answered", where: "w", refs: [] },
+      foreignAccounts: { value: false, status: "answered", where: "w", refs: [] },
+    },
   };
 }
 
@@ -108,7 +121,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   authMock.mockResolvedValue({ user: { id: USER } });
   mockDb.user.findUnique.mockResolvedValue({ name: "Eric Kinniburgh" });
-  loader.loadBaseAndActive.mockResolvedValue({ entityId: PERSONAL, rows: [], base: base() });
+  loader.loadBaseAndActive.mockResolvedValue({ entityId: PERSONAL, rows: [], base: base(), engineVersion: ENGINE });
   loader.resolvePersonalEntityId.mockResolvedValue(PERSONAL);
   loader.loadOverrideHistory.mockResolvedValue([]);
   mockDb.$transaction.mockImplementation(async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb));
@@ -208,19 +221,52 @@ describe("setTaxReturnOverride: validation (nothing is written on a rejection)",
     expect(writes()).toBe(0);
   });
 
-  it("says so (without writing) when the return engine is not connected yet", async () => {
-    const err = new Error("not wired");
-    err.name = "BaseReturnNotWiredError";
-    loader.loadBaseAndActive.mockRejectedValue(err);
+  it("returns the loader's plain error (fail-closed) when the overrides or the return cannot be loaded", async () => {
+    loader.loadBaseAndActive.mockResolvedValue({ error: "The recorded CPA overrides could not be read, so the return is not shown." });
     const res = await setTaxReturnOverride(lineInput);
-    expect(res).toMatchObject({ ok: false, code: "not_wired" });
+    expect(res).toEqual({ ok: false, error: "The recorded CPA overrides could not be read, so the return is not shown." });
     expect(writes()).toBe(0);
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
   });
 
   it("fails cleanly when the Personal entity is missing", async () => {
-    loader.loadBaseAndActive.mockResolvedValue(null);
+    loader.loadBaseAndActive.mockResolvedValue({ error: "The Personal entity was not found." });
     expect((await setTaxReturnOverride(lineInput)).ok).toBe(false);
     expect(writes()).toBe(0);
+  });
+});
+
+describe("a reason that looks like a Social Security Number is refused BEFORE any db or engine call", () => {
+  const SSN_REASONS = ["per CPA: SSN 123-45-6789", "ssn is 123 45 6789 ok", "123456789 was typed", "use 123.45.6789"];
+
+  it.each(SSN_REASONS)("set refuses %j with no db, loader or write", async (reason) => {
+    const res = await setTaxReturnOverride({ ...lineInput, reason });
+    expect(res).toEqual({ ok: false, error: "The reason looks like a Social Security Number; remove it." });
+    expect(mockDb.user.findUnique).not.toHaveBeenCalled();
+    expect(loader.loadBaseAndActive).not.toHaveBeenCalled();
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+    expect(writes()).toBe(0);
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it.each(SSN_REASONS)("clear refuses %j with no db read or write", async (reason) => {
+    const res = await clearTaxReturnOverride({ id: ROW, reason });
+    expect(res).toEqual({ ok: false, error: "The reason looks like a Social Security Number; remove it." });
+    expect(mockDb.taxReturnOverride.findFirst).not.toHaveBeenCalled();
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("an ordinary reason with dates, amounts and a year is NOT mistaken for an SSN", async () => {
+    const res = await setTaxReturnOverride({ ...lineInput, reason: "CPA call 2026-10-07 about $12,345 for tax year 2025" });
+    expect(res.ok).toBe(true);
+  });
+
+  it("a successful audit row never holds the reason or any SSN-like text", async () => {
+    await setTaxReturnOverride({ ...lineInput, reason: "Because the CPA said so on the 7th" });
+    const audit = JSON.stringify(mockDb.auditLog.create.mock.calls[0]![0].data);
+    expect(audit).not.toMatch(/\b\d{3}[-\s.]?\d{2}[-\s.]?\d{4}\b/);
+    expect(audit).not.toContain("CPA said so");
   });
 });
 
@@ -246,7 +292,7 @@ describe("setTaxReturnOverride: writes", () => {
       setByName: "Eric Kinniburgh",
     });
     // the snapshot is the SERVER's base line (12,345 dollars), never a client value
-    expect(data.computedSnapshot).toEqual({ status: "computed", cents: 1_234_500 });
+    expect(data.computedSnapshot).toEqual({ status: "computed", cents: 1_234_500, engineVersion: ENGINE });
     expect(revalidateMock).toHaveBeenCalledWith("/tax/forms/2025");
     expect(revalidateMock).toHaveBeenCalledWith("/tax/forms/2025/return");
   });
@@ -312,15 +358,15 @@ describe("setTaxReturnOverride: writes", () => {
     await setTaxReturnOverride({ taxYear: 2025, targetKind: "decision", targetKey: "homeOfficeMethod", choice: "actual", reason: REASON });
     const d = mockDb.taxReturnOverride.create.mock.calls[0]![0].data as Record<string, unknown>;
     expect(d).toMatchObject({ targetKind: "decision", targetKey: "homeOfficeMethod", valueKind: "choice", valueText: "actual", valueCents: null });
-    expect(d.computedSnapshot).toEqual({ status: "default_undecided", cents: null });
+    expect(d.computedSnapshot).toEqual({ status: "default_undecided", cents: null, engineVersion: ENGINE });
 
     await setTaxReturnOverride({ taxYear: 2025, targetKind: "rule_ack", targetKey: "schedule-a", reason: REASON });
     const a = mockDb.taxReturnOverride.create.mock.calls[1]![0].data as Record<string, unknown>;
     expect(a).toMatchObject({ targetKind: "rule_ack", targetKey: "schedule-a", valueKind: "ack", valueCents: null, valueText: null });
-    expect(a.computedSnapshot).toEqual({ status: "needs_cpa_judgment", cents: null });
+    expect(a.computedSnapshot).toEqual({ status: "needs_cpa_judgment", cents: null, engineVersion: ENGINE });
   });
 
-  it("includes the engine version in the snapshot when the loader reports one", async () => {
+  it("takes the engine version for the snapshot from the loader (the return the sheet shows)", async () => {
     loader.loadBaseAndActive.mockResolvedValue({ entityId: PERSONAL, rows: [], base: base(), engineVersion: "2025.3" });
     await setTaxReturnOverride(lineInput);
     expect(mockDb.taxReturnOverride.create.mock.calls[0]![0].data.computedSnapshot).toEqual({

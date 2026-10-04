@@ -55,12 +55,16 @@ function line(key: LineKey, amount: number | null, status: RuleStatus = "compute
 
 const HA = (status: RuleStatus = "computed", amount: number | null = 0): HeadlineAmount => ({ status, amount, reason: null });
 
-function headline(blockingItemCount: number): Headline {
+function headline(blockingItemCount: number, complete = false): Headline {
   return {
-    complete: false,
+    complete,
     federal: { agi: HA(), taxableIncome: HA(), totalTax: HA(), totalPayments: HA(), balance: HA() },
     connecticut: { ctAgi: HA(), tax: HA(), totalPayments: HA(), balance: HA() },
     blockingItemCount,
+    unverifiedDocumentCount: 0,
+    derivedInputCount: 0,
+    undecidedDecisionCount: 0,
+    caveats: [],
     provisional: null,
   };
 }
@@ -102,6 +106,7 @@ function baseReturn(over: Partial<Ty2025Return> = {}): Ty2025Return {
     "sch3.1": line("sch3.1", 0, "not_applicable"),
   };
   return {
+    engineVersion: "test-v1",
     taxYear: 2025,
     filingStatus: "mfj",
     lines,
@@ -117,6 +122,13 @@ function baseReturn(over: Partial<Ty2025Return> = {}): Ty2025Return {
     decisions: decisions(),
     headline: headline(4),
     citations: [],
+    scheduleC: null,
+    scheduleD: null,
+    formsRequired: {},
+    attestations: {
+      digitalAssets: { value: false, status: "answered", where: "Form 1040 page 1, digital assets question", refs: [] },
+      foreignAccounts: { value: false, status: "answered", where: "Schedule B Part III, foreign accounts and trusts", refs: [] },
+    },
     ...over,
   };
 }
@@ -198,6 +210,7 @@ describe("applyOverrides: line pin", () => {
     const eff = applyOverrides(baseReturn(), rows);
     expect(eff.lines["sch1.13"]?.effective.status).toBe("overridden");
     expect(eff.stale).toEqual([]);
+    expect(eff.applied.lines.map((l) => l.wasBlocked).sort()).toEqual([false, true, true]);
     const notes = eff.applied.lines.map(formatOverrideNote);
     expect(notes.some((n) => n.includes("was missing input, now $13,000"))).toBe(true);
     expect(notes.some((n) => n.includes("was not yet computed"))).toBe(true);
@@ -238,18 +251,33 @@ describe("applyOverrides: stale detection", () => {
     expect(eff.lines["sch1.3"]?.stale).toMatchObject({ was: "$12,345", now: "missing input" });
   });
 
-  it("flags an engine-version change only when both versions are known", () => {
+  it("an engine-version change ALONE (value unchanged) is an advisory item, never a blocking stale (D3)", () => {
     const snap = (engineVersion?: string): ComputedSnapshot =>
       engineVersion === undefined ? { status: "computed", cents: 1_234_500 } : { status: "computed", cents: 1_234_500, engineVersion };
+    const base = baseReturn(); // engineVersion "test-v1"
+    const changed = applyOverrides(base, [row({ targetKind: "line", targetKey: "sch1.3", computedSnapshot: snap("v0") })]);
+    expect(changed.lines["sch1.3"]?.stale).toBeUndefined();
+    expect(changed.lines["sch1.3"]?.effective).toEqual({ amount: 13000, status: "overridden" });
+    expect(changed.stale).toEqual([]);
+    expect(changed.engineChanged).toHaveLength(1);
+    expect(changed.engineChanged[0]).toMatchObject({ targetKey: "sch1.3", was: "engine v0", now: "engine test-v1" });
+    const adv = changed.openItems.find((i) => i.id === "override-engine:line:sch1.3");
+    expect(adv?.severity).toBe("advisory");
+    expect(changed.headline.blockingItemCount).toBe(base.headline.blockingItemCount); // blocking count unchanged
+    // same version, unknown snapshot version, and an explicit option all behave
+    expect(applyOverrides(base, [row({ targetKind: "line", targetKey: "sch1.3", computedSnapshot: snap("test-v1") })]).engineChanged).toEqual([]);
+    expect(applyOverrides(base, [row({ targetKind: "line", targetKey: "sch1.3", computedSnapshot: snap() })]).engineChanged).toEqual([]);
+    expect(applyOverrides(base, [row({ targetKind: "line", targetKey: "sch1.3", computedSnapshot: snap("v0") })], { engineVersion: "v0" }).engineChanged).toEqual([]);
+  });
+
+  it("a changed base value is blocking +1 even when the engine version also changed", () => {
     const base = baseReturn();
-    const stale = applyOverrides(base, [row({ targetKind: "line", targetKey: "sch1.3", computedSnapshot: snap("v1") })], { engineVersion: "v2" });
-    expect(stale.lines["sch1.3"]?.stale?.message).toContain("return engine changed");
-    const same = applyOverrides(base, [row({ targetKind: "line", targetKey: "sch1.3", computedSnapshot: snap("v1") })], { engineVersion: "v1" });
-    expect(same.lines["sch1.3"]?.stale).toBeUndefined();
-    const unknownSnapshot = applyOverrides(base, [row({ targetKind: "line", targetKey: "sch1.3", computedSnapshot: snap() })], { engineVersion: "v2" });
-    expect(unknownSnapshot.lines["sch1.3"]?.stale).toBeUndefined();
-    const unknownNow = applyOverrides(base, [row({ targetKind: "line", targetKey: "sch1.3", computedSnapshot: snap("v1") })]);
-    expect(unknownNow.lines["sch1.3"]?.stale).toBeUndefined();
+    const eff = applyOverrides(base, [
+      row({ targetKind: "line", targetKey: "sch1.3", computedSnapshot: { status: "computed", cents: 1_000_000, engineVersion: "v0" } }),
+    ]);
+    expect(eff.stale).toHaveLength(1);
+    expect(eff.engineChanged).toEqual([]); // the value change is the (blocking) finding
+    expect(eff.headline.blockingItemCount).toBe(base.headline.blockingItemCount + 1);
   });
 
   it("lineSnapshot / ruleSnapshot produce what the stale check compares", () => {
@@ -333,7 +361,7 @@ describe("applyOverrides: downstream (LINE_FLOW) flags", () => {
     expect(eff.lines["f1040.11a"]?.dependsOnOverridden).toEqual(["sch1.13", "sch1.3"]);
   });
 
-  it("LINE_FLOW: every key is a real LineKey, no self edges, Schedule C expense lines feed line 28, walk is cycle-safe", () => {
+  it("LINE_FLOW: every key is a real LineKey, no self edges, Schedule C expense lines feed line 28, walk is cycle-safe (full guard in tax2025-line-flow.test.ts)", () => {
     const known = new Set<string>(LINE_KEYS);
     for (const [from, tos] of Object.entries(LINE_FLOW)) {
       expect(known.has(from), `source ${from}`).toBe(true);
