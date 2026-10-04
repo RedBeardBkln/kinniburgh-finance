@@ -7,22 +7,36 @@ import { useEffect, useId, useRef } from "react";
 // click on the backdrop close it, focus moves into the dialog on open and returns to the
 // button that opened it on close, role="dialog" aria-modal="true". Full-screen and
 // scrollable below 640 px, a centred card above. No window.confirm anywhere.
+// While `busy` (a save or clear is in flight) Escape, the backdrop and the Close button do
+// nothing, so the action's result text cannot be lost; the dialog closes itself on success.
 
-export function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function ModalShell({
+  title,
+  onClose,
+  busy = false,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  busy?: boolean;
+  children: React.ReactNode;
+}) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
+  const busyRef = useRef(busy);
 
-  // Keep the latest onClose without re-running the focus effect below.
+  // Keep the latest onClose / busy without re-running the focus effect below.
   useEffect(() => {
     closeRef.current = onClose;
+    busyRef.current = busy;
   });
 
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     panelRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeRef.current();
+      if (e.key === "Escape" && !busyRef.current) closeRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => {
@@ -32,7 +46,7 @@ export function ModalShell({ title, onClose, children }: { title: string; onClos
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 sm:items-center sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 sm:items-center sm:p-4" onClick={busy ? undefined : onClose}>
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -46,7 +60,7 @@ export function ModalShell({ title, onClose, children }: { title: string; onClos
           <h2 id={titleId} className="text-sm font-semibold">
             {title}
           </h2>
-          <button type="button" onClick={onClose} className="min-h-[44px] px-2 text-xs text-muted-foreground hover:text-foreground sm:min-h-0">
+          <button type="button" onClick={onClose} disabled={busy} className="min-h-[44px] px-2 text-xs text-muted-foreground hover:text-foreground sm:min-h-0">
             Close
           </button>
         </div>

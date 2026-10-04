@@ -81,7 +81,7 @@ function DecisionDialog({ data, taxYear, onClose }: { data: DecisionDialogData; 
   }
 
   return (
-    <ModalShell title={`${current === null ? "Record" : "Change"} decision ${data.id}`} onClose={onClose}>
+    <ModalShell title={`${current === null ? "Record" : "Change"} decision ${data.id}`} onClose={onClose} busy={busy}>
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">{data.label}</p>
         <p className="text-xs text-muted-foreground">

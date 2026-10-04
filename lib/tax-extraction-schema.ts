@@ -896,10 +896,15 @@ export function isUsableTaxExtraction(docType: string, extractionData: unknown):
 // and non-breaking spaces collapse to their ASCII forms. Requires \b before the
 // 3-digit group and after the 4-digit group, so longer digit runs (amounts, IDs
 // with 10+ digits), EINs (2-7) and dates (4-2-2) do not match.
-const SSN_LIKE = /\b\d{3}[-\s.‐-―−]?\d{2}[-\s.‐-―−]?\d{4}\b/;
+// Hardened (overrides-wiring review, N4): up to three separator characters between groups
+// ("123  45  6789", "123 - 45 - 6789") and invisible format characters (zero-width space /
+// joiners, soft hyphen, bidi marks, BOM) are removed first, so they cannot split the digits.
+// Spaced single digits ("1 2 3 4 ...") are deliberately NOT matched: tables of digits are common.
+const SSN_LIKE = /\b\d{3}[-\s.‐-―−]{0,3}\d{2}[-\s.‐-―−]{0,3}\d{4}\b/;
+const INVISIBLE_FORMAT_CHARS = /[­͏؜᠎​-‏‪-‮⁠-⁤﻿]/g;
 
 export function containsSsnLikeText(text: string): boolean {
-  return SSN_LIKE.test(text.normalize("NFKC"));
+  return SSN_LIKE.test(text.normalize("NFKC").replace(INVISIBLE_FORMAT_CHARS, ""));
 }
 
 /**

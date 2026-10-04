@@ -84,7 +84,7 @@ export function OverrideDialog({ line, taxYear, onClose }: { line: OverrideDialo
   }
 
   return (
-    <ModalShell title={`${current === null ? "Set a figure for" : "Change the figure for"} ${line.form}, line ${line.formLine}`} onClose={onClose}>
+    <ModalShell title={`${current === null ? "Set a figure for" : "Change the figure for"} ${line.form}, line ${line.formLine}`} onClose={onClose} busy={busy}>
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">{line.label}</p>
 
