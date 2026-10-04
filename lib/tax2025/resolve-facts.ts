@@ -28,6 +28,7 @@ import type {
   Ty2025Facts,
   W2Fact,
 } from "@/lib/tax2025/facts";
+import { findGlMapEntry } from "@/lib/tax2025/gl-schedule-c-map";
 import { NONE_GROUP_IDS, type NoneGroupId } from "@/lib/tax2025/line-catalog";
 import {
   missingLeaf,
@@ -100,6 +101,8 @@ export interface RawAnswers {
   noInterestConfirmed?: boolean;
   noDividendsConfirmed?: boolean;
   noPropertyTaxConfirmed?: boolean;
+  /** Owner confirms 1099-DIV boxes 2b / 2c / 2d (unrecaptured section 1250, section 1202, collectibles gain) are all zero. */
+  dividendBoxes2b2dConfirmedZero?: boolean;
   statedNone?: Partial<Record<NoneGroupId, boolean>>;
   /** Owner classification per property tax bill document id. */
   billClassifications?: Record<string, PropertyBillKind>;
@@ -121,6 +124,8 @@ export interface RawTy2025Inputs {
     glLines: GlLineFact[];
     booksEmpty: boolean;
     glExcludedTransactionCount: number;
+    /** 2025 EKC transactions with no GL code (invisible to the P&L); absent = not supplied. */
+    uncodedTransactionCount?: number;
     mileage: { id?: string; miles: number; ratePerMile: string; dateIso: string }[];
     fixedAssets: FixedAssetFact[];
   };
@@ -539,6 +544,19 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       refs: [...new Set(otherIncomeBoxes.map((b) => b.docId))].map((id): Ref => ({ kind: "document", id, label: "1099" })),
     });
   }
+  // S4: the Qualified Dividends and Capital Gain Tax Worksheet is valid only with no unrecaptured section 1250 gain, section 1202
+  // gain or 28% (collectibles) gain (those need the Schedule D Tax Worksheet). The extraction does not read 1099-DIV boxes 2b-2d.
+  if (dividends.length > 0 && answers.dividendBoxes2b2dConfirmedZero !== true) {
+    addItem({
+      id: "dividend-boxes-2b-2d",
+      severity: "blocking",
+      message:
+        "1099-DIV boxes 2b, 2c and 2d (unrecaptured section 1250 gain, section 1202 gain, collectibles gain) are not read by the extraction. The tax computation uses the Qualified Dividends and Capital Gain Tax Worksheet, which is only valid when all three are zero.",
+      action: "Check the 1099-DIV and confirm boxes 2b, 2c and 2d are zero (or tell the CPA so the Schedule D Tax Worksheet is used).",
+      lineKeys: ["f1040.16", "qdcg.25"],
+      refs: dividends.flatMap((d) => d.refs),
+    });
+  }
   const box3Total = interest.reduce((s, i) => s + (i.box3Cents ?? 0), 0);
   if (box3Total > 0) {
     addItem({
@@ -770,6 +788,33 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       action: "Confirm the Schedule C owner.",
     });
   }
+  // B1: uncoded EKC transactions are invisible to the P&L (computePL skips them): never a silent total.
+  const uncoded = raw.ekc.uncodedTransactionCount ?? 0;
+  if (uncoded > 0) {
+    addItem({
+      id: "ekc-uncoded-transactions",
+      severity: "blocking",
+      message: `${uncoded} EK Consulting transaction(s) dated ${year} have no GL code, so Schedule C income and expenses (lines 28, 29, 31) cannot be totaled: the P&L only sees coded transactions.`,
+      action: "GL-code every EK Consulting 2025 transaction at /business/ek-consulting/gl.",
+      lineKeys: ["schc.28", "schc.29", "schc.31"],
+    });
+  }
+  // S5: computePL reports abs(); a revenue code that nets negative or an expense code that nets positive would read as the opposite sign.
+  for (const g of raw.ekc.glLines) {
+    if (g.signedCents === undefined) continue;
+    const flipped = g.glType === "revenue" ? g.signedCents < 0 : g.signedCents > 0;
+    // "Returns and allowances" (Schedule C line 2) is an income-type account whose normal balance is an outflow
+    const target = findGlMapEntry(g.name)?.target;
+    if (!flipped || (target?.kind === "line" && target.line === "2")) continue;
+    addItem({
+      id: `gl-sign-flip:${g.code}`,
+      severity: "blocking",
+      message: `GL account "${g.name}" (${g.code}) is a ${g.glType} account but nets ${g.signedCents < 0 ? "negative (an outflow)" : "positive (an inflow)"} for ${year}; the P&L reports it as a positive ${g.glType}, which would misstate Schedule C.`,
+      action: "Review the transactions coded to this account (a refund, a miscoded row or a reversed sign).",
+      refs: [{ kind: "gl", id: g.code, label: g.name }],
+    });
+  }
+
   const mileageNone: Sourced<boolean> =
     p.businessMileage === null
       ? missingLeaf()
@@ -877,6 +922,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
         glLines: raw.ekc.glLines,
         booksEmpty: raw.ekc.booksEmpty,
         glExcludedTransactionCount: raw.ekc.glExcludedTransactionCount,
+        ...(raw.ekc.uncodedTransactionCount !== undefined ? { uncodedTransactionCount: raw.ekc.uncodedTransactionCount } : {}),
         mileage: raw.ekc.mileage,
         mileageNoneConfirmed: mileageNone,
         homeOfficeEligibility: homeElig,

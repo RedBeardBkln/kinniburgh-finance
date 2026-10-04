@@ -318,6 +318,8 @@ export interface ProvisionalHeadline {
   ctTax: number | null;
   ctPayments: number | null;
   ctBalance: number | null;
+  /** Every line the provisional pass could compute (whole dollars). Estimates only: never print them as computed. */
+  lines: Partial<Record<LineKey, number>>;
 }
 
 export interface Headline {
@@ -338,6 +340,19 @@ export interface Headline {
     balance: HeadlineAmount;
   };
   blockingItemCount: number;
+  /**
+   * `complete` means: every headline amount is computed and there is no blocking open item. It does NOT mean "nothing left to
+   * check": the caveats below are things the numbers rest on or leave out (unverified AI document reads, inferred owner /
+   * residence, decisions still at their default, deliberately unestimated penalty lines). A sheet must print them next to
+   * a "complete" headline.
+   */
+  unverifiedDocumentCount: number;
+  /** Inputs inferred rather than stated (Schedule C owner by name, primary residence by the 1098 address). */
+  derivedInputCount: number;
+  /** Decisions (X1 / X3 / X5) still at their default alternative. */
+  undecidedDecisionCount: number;
+  /** Plain-language caveats (advisory), one per item above plus every informational line. */
+  caveats: string[];
   provisional: ProvisionalHeadline | null;
 }
 
@@ -347,7 +362,11 @@ export interface ScheduleCAccountDetail {
   name: string;
   /** Booked amount, integer cents (unsigned, as the P&L reports it). */
   rawCents: number;
-  /** Amount that goes on the line after the account's own rule (meals: 50%). */
+  /**
+   * Amount that goes on the line after the account's own rule (meals: 50%), informational only: for meals each account is rounded
+   * to whole dollars while the LINE applies 50% once to the cent-accurate total, so per-account figures may differ from the
+   * line by a dollar or two. Print line amounts from the line, not from these.
+   */
   deductibleCents: number;
 }
 
@@ -380,6 +399,12 @@ export type FormId =
   | "f8960"
   | "f8283"
   | "f2210"
+  | "f8889"
+  | "f8880"
+  | "f5695"
+  | "f4562"
+  | "f8829"
+  | "schd"
   | "ct1040";
 
 /** Whether a form belongs in the filing packet, derived from the computed return. */

@@ -40,6 +40,12 @@ export const NONE_GROUP_TEXT = {
   se_other:
     "No farm income, church employee income, unreported tips (Form 4137), Form 8919 wages, railroad (RRTA) compensation or optional SE methods.",
   qbi_carryforwards: "No prior-year qualified business loss or REIT / PTP loss carryforwards (Form 8995).",
+  /**
+   * Interim statement (Phase 1b replaces it with per-person "born before Jan 2, 1961" / blind answers and applies the
+   * additional standard deduction, $1,600 per qualifying spouse MFJ, itself). It gates 1040 line 12e only: it has no catalog line.
+   */
+  age_blind_standard_deduction:
+    "Neither spouse was born before January 2, 1961 (age 65 or older at the end of 2025) or is legally blind: no additional standard deduction on 1040 line 12e.",
 } as const;
 
 export type NoneGroupId = keyof typeof NONE_GROUP_TEXT;

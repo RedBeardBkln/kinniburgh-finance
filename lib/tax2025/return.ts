@@ -82,7 +82,9 @@ const GATES: Readonly<Record<string, readonly Gate[]>> = {
   "addl-medicare-8959": [{ groups: ["se_other"], lines: "all" }],
   "schedule-a": [
     { groups: ["sch_a_other"], lines: ["scha.14"] },
-    { groups: ["medical_expenses", "sch_a_other"], lines: ["scha.17", "f1040.12e"] },
+    { groups: ["medical_expenses", "sch_a_other"], lines: ["scha.17"] },
+    // B2 (interim): 12e = max(itemized, standard); the standard deduction is $1,600 higher per spouse who is 65+ or blind (not modeled until 1b)
+    { groups: ["medical_expenses", "sch_a_other", "age_blind_standard_deduction"], lines: ["f1040.12e"] },
   ],
   "qbi-8995": [{ groups: ["qbi_carryforwards"], lines: "all" }],
   "schedule-c": [{ groups: ["sch_c_other_lines"], lines: ["schc.28", "schc.29", "schc.31"] }],
@@ -177,8 +179,12 @@ class Assembly {
     this.line(key, status, amount, reason, ruleId, [], refs);
   }
 
-  blocked(key: LineKey, status: Blocked, reason: string, ruleId: string): void {
+  blocked(key: LineKey, status: Blocked, reason: string, ruleId: string, informational = false): void {
     this.line(key, status, null, reason, ruleId);
+    if (informational) {
+      const l = this.lines.get(key);
+      if (l) this.lines.set(key, { ...l, informational: true });
+    }
   }
 
   /** Registers a rule result: its lines enter the return (first writer of a key wins), gated by "none" statements. */
@@ -198,11 +204,12 @@ class Assembly {
         const status = l.status ?? result.status;
         if (missingGroups.size === 0 || !hasAmount(status)) return l;
         const why = [...missingGroups].map((grp) => NONE_GROUP_TEXT[grp]).join(" ");
+        const statedFalse = [...missingGroups].some((grp) => this.facts.statedNone[grp]?.value === false);
         return {
           ...l,
           amount: null,
           exact: null,
-          status: "not_yet_computed",
+          status: statedFalse ? "needs_cpa_judgment" : "not_yet_computed",
           reason: `Needs an owner/CPA statement before this line is final. ${why}`,
         };
       });
@@ -370,6 +377,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   const schedCInput = {
     glLines: sc.glLines,
     booksEmpty: sc.booksEmpty,
+    uncodedTransactionCount: fill ? 0 : (sc.uncodedTransactionCount ?? 0),
     mileage: sc.mileage,
     mileageNoneConfirmed: fill ? (noMileage ?? sc.mileage.length === 0) : noMileage === true,
     homeOfficeEligibility: sc.homeOfficeEligibility.value ?? (fill ? ("no" as const) : null),
@@ -382,6 +390,9 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     if (sc.mileageNoneConfirmed.value === null && sc.mileage.length === 0) A.assumedFacts.push("No business mileage (not stated)");
     if (sc.homeOfficeEligibility.value === null) A.assumedFacts.push("No home office deduction (eligibility not answered)");
     if (!sc.fixedAssetsNoneConfirmed && sc.fixedAssets.length === 0) A.assumedFacts.push("No depreciable EK Consulting assets (not confirmed)");
+  }
+  if (fill && (sc.uncodedTransactionCount ?? 0) > 0) {
+    A.assumedFacts.push(`${sc.uncodedTransactionCount} uncoded EK Consulting transaction(s) ignored (not in any Schedule C total)`);
   }
   const schedC = computeScheduleC(schedCInput);
   A.scheduleC = schedC.detail;
@@ -438,7 +449,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     A.blocked("f1040.7a", "missing_input", noInvestmentDocsReason("dividend"), "income");
   }
   // 1040 line 7b: no verified meaning, left explicitly uncomputed
-  A.blocked("f1040.7b", "not_yet_computed", "Not collected: see the 2025 Form 1040 instructions for line 7b.", "income");
+  A.blocked("f1040.7b", "not_yet_computed", "Not collected: see the 2025 Form 1040 instructions for line 7b.", "income", true);
 
   // Schedule B (payer rows are a table; the totals are lines)
   if (interest !== null) A.fixed("schb.2", interest, "computed", null, "income", interestRefs);
@@ -480,12 +491,16 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   if (fill) {
     if (sa.propertyBills.some((b) => b.kind === "unclassified" || b.paid === null)) A.assumedFacts.push("Unclassified / unpaid property tax bills, assumed $0");
     if (sa.mortgages.some((m) => m.interest === null || m.principal === null)) A.assumedFacts.push("Missing Form 1098 boxes, assumed $0");
+    if (sa.mortgages.some((m) => m.needsReview)) A.assumedFacts.push("Form 1098 interest for a property that is not (or cannot be shown to be) the primary residence treated as primary-residence Schedule A interest");
   }
   const mortgages = fill ? sa.mortgages.map((m) => ({ ...m, interest: m.interest ?? ZERO, principal: m.principal ?? ZERO, needsReview: false })) : sa.mortgages;
   const donationsNone = facts.deductions.noDonationsConfirmed.value === true || (fill && sa.donations.length === 0);
   const propertyNone = facts.deductions.noPropertyTaxConfirmed.value === true || (fill && bills.length === 0);
   if (fill && sa.donations.length === 0 && facts.deductions.noDonationsConfirmed.value !== true) A.assumedFacts.push("No charitable gifts (not confirmed)");
   if (fill && bills.length === 0 && facts.deductions.noPropertyTaxConfirmed.value !== true) A.assumedFacts.push("No property tax paid (not confirmed)");
+  if (fill && facts.statedNone.age_blind_standard_deduction?.value !== true) {
+    A.assumedFacts.push("Neither spouse is 65+ or blind (no additional standard deduction; not stated)");
+  }
   const schedA = computeScheduleA({
     agi,
     ctWithholding,
@@ -610,9 +625,9 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   A.sum("f1040.32", ["f1040.27a", "f1040.28", "f1040.29", "f1040.30", "f1040.31"]);
   A.derive("f1040.34", ["f1040.33", "f1040.24"], (v) => maxD(ZERO, v[0]!.minus(v[1]!)));
   A.derive("f1040.37", ["f1040.24", "f1040.33"], (v) => maxD(ZERO, v[0]!.minus(v[1]!)));
-  A.blocked("f1040.35a", "not_yet_computed", "How much of an overpayment to refund or apply to 2026 is a choice for the owner / CPA.", "election");
-  A.blocked("f1040.36", "not_yet_computed", "How much of an overpayment to apply to 2026 estimated tax is a choice for the owner / CPA.", "election");
-  A.blocked("f1040.38", "not_yet_computed", "The Form 2210 underpayment penalty estimate is computed in Phase 1b (the IRS will also figure it).", "election");
+  A.blocked("f1040.35a", "not_yet_computed", "How much of an overpayment to refund or apply to 2026 is a choice for the owner / CPA.", "election", true);
+  A.blocked("f1040.36", "not_yet_computed", "How much of an overpayment to apply to 2026 estimated tax is a choice for the owner / CPA.", "election", true);
+  A.blocked("f1040.38", "not_yet_computed", "The Form 2210 underpayment penalty estimate is computed in Phase 1b (the IRS will also figure it).", "election", true);
 
   // 11. Connecticut
   const ctTax = computeCtTax({
@@ -675,7 +690,15 @@ function combineAmount(a: HeadlineAmount, b: HeadlineAmount, op: (x: number, y: 
   return { status, amount: null, reason: a.amount === null ? a.reason : b.reason };
 }
 
-function buildHeadline(A: Assembly, blockingItemCount: number, provisional: ProvisionalHeadline | null): Headline {
+function buildHeadline(A: Assembly, blockingItemCount: number, provisional: ProvisionalHeadline | null, openItems: readonly OpenItem[] = []): Headline {
+  const unverifiedDocumentCount = openItems.filter((o) => o.id.startsWith("doc-unverified:")).length;
+  const derivedInputCount = openItems.filter((o) => o.id === "schedule-c-owner-derived" || o.id === "primary-residence-derived").length;
+  const undecidedDecisionCount = A.decisions.filter((d) => d.status === "default_undecided").length;
+  const caveats: string[] = [];
+  if (unverifiedDocumentCount > 0) caveats.push(`${unverifiedDocumentCount} document(s) counted in the numbers are unverified AI reads.`);
+  for (const o of openItems) if (o.id === "schedule-c-owner-derived" || o.id === "primary-residence-derived") caveats.push(o.message);
+  if (undecidedDecisionCount > 0) caveats.push(`${undecidedDecisionCount} decision(s) are at their default alternative (default, undecided).`);
+  for (const o of openItems) if (o.id.startsWith("info:")) caveats.push(o.message);
   const owe = headlineAmount(A, "f1040.37");
   const over = headlineAmount(A, "f1040.34");
   const federalBalance = combineAmount(owe, over, (o, v) => o - v);
@@ -703,6 +726,10 @@ function buildHeadline(A: Assembly, blockingItemCount: number, provisional: Prov
     federal,
     connecticut,
     blockingItemCount,
+    unverifiedDocumentCount,
+    derivedInputCount,
+    undecidedDecisionCount,
+    caveats,
     provisional,
   };
 }
@@ -728,6 +755,9 @@ function provisionalFrom(A: Assembly): ProvisionalHeadline {
     ctTax: get("ct1040.6"),
     ctPayments: c.every((x) => x !== null) ? c.reduce<number>((a, b) => a + (b ?? 0), 0) : null,
     ctBalance: get("ct1040.balance"),
+    lines: Object.fromEntries(
+      [...A.lines.values()].filter((l) => hasAmount(l.status) && l.amount !== null).map((l) => [l.key, l.amount])
+    ) as Partial<Record<LineKey, number>>,
   };
 }
 
@@ -782,6 +812,20 @@ function noneGroupOpenItems(A: Assembly): OpenItem[] {
     if (!meta.group) continue;
     const l = A.lines.get(meta.key);
     if (l !== undefined && !hasAmount(l.status)) byGroup.set(meta.group, [...(byGroup.get(meta.group) ?? []), meta.key]);
+  }
+  // Gate-only groups (no catalog line): one item while unstated.
+  const gateOnly: { group: NoneGroupId; lineKeys: LineKey[] }[] = [{ group: "age_blind_standard_deduction", lineKeys: ["f1040.12e"] }];
+  for (const g of gateOnly) {
+    if (A.facts.statedNone[g.group]?.value !== true) {
+      out.push({
+        id: `none:${g.group}`,
+        severity: "blocking",
+        message: `Needs an owner/CPA statement: ${NONE_GROUP_TEXT[g.group]}`,
+        action: "State whether either spouse is 65 or older (born before Jan 2, 1961) or blind; Phase 1b replaces this with per-person answers and adds $1,600 per qualifying spouse.",
+        lineKeys: g.lineKeys,
+        refs: [],
+      });
+    }
   }
   for (const [group, keys] of byGroup) {
     out.push({
@@ -896,6 +940,24 @@ export function computeFormsRequired(ret: Pick<Ty2025Return, "lines" | "results"
     niitAmt === null ? { required: "blocking", reason: "The NIIT screen is not computed yet." } : niitAmt > 0 ? { required: true, reason: "Net investment income tax applies." } : { required: false, reason: "No net investment income tax." };
   const noncash = facts.deductions.donations.filter((d) => d.kind === "noncash").reduce((s, d) => s + d.amountCents, 0);
   out.f8283 = noncash > K.FORM_8283_NONCASH_THRESHOLD.value * 100 ? { required: true, reason: "Noncash gifts are over $500." } : { required: false, reason: "Noncash gifts are not over $500." };
+  // Forms this engine does not compute: listed so the packet never silently omits them (the CPA decides).
+  const hasW = facts.income.w2s.some((w) => w.box12.some((e) => e.code === "W"));
+  out.f8889 = hasW
+    ? { required: "blocking", reason: "A W-2 shows box 12 code W (HSA contributions): Form 8889 is required and is not computed yet (Phase 1b)." }
+    : { required: "blocking", reason: "HSA coverage and contributions are not collected yet (Phase 1b): Form 8889 cannot be ruled out." };
+  out.f8880 = { required: "blocking", reason: "The saver's credit (Form 8880) is computed in Phase 1b; eligibility depends on AGI and per-person retirement contributions." };
+  out.f5695 = facts.statedNone.solar_credit?.value === true
+    ? { required: false, reason: "The owner states there is no 2025 residential clean energy credit (any carryforward is read from the 2024 return)." }
+    : { required: "blocking", reason: "Whether a Form 5695 credit or carryforward applies is not stated." };
+  out.f4562 = facts.income.scheduleC.fixedAssets.length > 0
+    ? { required: "blocking", reason: "Depreciable assets are on the register: Form 4562 (decision X2) is a CPA call and is not computed yet." }
+    : { required: false, reason: "No depreciable EK Consulting assets on the register." };
+  out.f8829 = facts.income.scheduleC.homeOfficeEligibility.value === "yes_exclusive"
+    ? { required: "blocking", reason: "A home office is claimed: Form 8829 is needed only if the CPA chooses the actual method (decision X1)." }
+    : { required: false, reason: "No home office deduction claimed." };
+  out.schd = facts.income.otherIncomeBoxes.some((b) => b.variant === "1099-B")
+    ? { required: "blocking", reason: "A 1099-B was read: Schedule D / Form 8949 are not computed by this engine." }
+    : { required: false, reason: "No 1099-B sales on file (capital gain distributions go directly on 1040 line 7a)." };
   out.f2210 = { required: false, reason: "The IRS figures any underpayment penalty itself; the estimate arrives in Phase 1b and Form 2210 is attached only to request a waiver or another method." };
   return out;
 }
@@ -934,6 +996,10 @@ function blockedWholeReturn(facts: Ty2025Facts, status: string): Ty2025Return {
       federal: { agi: blockedAmount, taxableIncome: blockedAmount, totalTax: blockedAmount, totalPayments: blockedAmount, balance: blockedAmount },
       connecticut: { ctAgi: blockedAmount, tax: blockedAmount, totalPayments: blockedAmount, balance: blockedAmount },
       blockingItemCount: 1,
+      unverifiedDocumentCount: 0,
+      derivedInputCount: 0,
+      undecidedDecisionCount: 0,
+      caveats: [],
       provisional: null,
     },
     citations: [],
@@ -973,7 +1039,7 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
     ...STANDING_ADVISORIES,
   ];
   const blockingItemCount = openItems.filter((o) => o.severity === "blocking").length;
-  const strictHeadline = buildHeadline(A, blockingItemCount, null);
+  const strictHeadline = buildHeadline(A, blockingItemCount, null, openItems);
   const provisional = strictHeadline.complete ? null : provisionalFrom(assemble(facts, decisions, true));
   const headline = { ...strictHeadline, provisional };
   const ret: Ty2025Return = {

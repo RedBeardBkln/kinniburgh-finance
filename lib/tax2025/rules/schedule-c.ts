@@ -47,6 +47,8 @@ export interface ScheduleCInput {
   glLines: GlLineFact[];
   /** True when the entity has no GL-coded P&L activity at all. */
   booksEmpty: boolean;
+  /** 2025 EKC transactions with no GL code (invisible to the P&L). More than 0 blocks lines 28 / 29 / 31. Absent = 0. */
+  uncodedTransactionCount?: number;
   mileage: { miles: number; ratePerMile: string; dateIso: string }[];
   mileageNoneConfirmed: boolean;
   homeOfficeEligibility: "yes_exclusive" | "yes_shared" | "no" | null;
@@ -171,6 +173,21 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
   for (const g of input.glLines) {
     if (g.totalCents === 0) continue;
     const entry = findGlMapEntry(g.name);
+    // S5: a revenue code netting negative / an expense code netting positive (except Returns and allowances) is a sign flip:
+    // the P&L's abs() total would count it in the wrong direction, so it is a CPA call, never silently used.
+    const flipped = g.signedCents !== undefined && (g.glType === "revenue" ? g.signedCents < 0 : g.signedCents > 0);
+    const isReturns = entry?.target.kind === "line" && entry.target.line === "2";
+    if (flipped && !isReturns) {
+      detail.needsCpa.push({
+        code: g.code,
+        name: g.name,
+        totalCents: g.totalCents,
+        reason: `This ${g.glType} account nets ${g.signedCents! < 0 ? "negative" : "positive"} for the year (opposite to its type); the P&L's absolute total would count it in the wrong direction.`,
+      });
+      if (g.glType === "revenue") needsCpaRevenue = true;
+      else needsCpaExpense = true;
+      continue;
+    }
     if (!entry) {
       detail.unmapped.push({ code: g.code, name: g.name, totalCents: g.totalCents, glType: g.glType });
       if (g.glType === "revenue") unmappedRevenue = true;
@@ -511,6 +528,22 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
     reasons.push(`Net profit ${fmt(amounts.get("31")!)}: gross income ${fmt(l7 ?? ZERO)} minus expenses ${fmt(l28 ?? ZERO)} minus home office ${fmt(line30)}.`);
   } else {
     block("31", worstBlocked([statusOfId("29"), statusOfId("30")]) ?? "missing_input", "Tentative profit or the home office deduction is not computed.");
+  }
+
+  // B1: transactions with no GL code are invisible to the P&L: the totals cannot be trusted, never a silent number.
+  const uncoded = input.uncodedTransactionCount ?? 0;
+  if (uncoded > 0) {
+    const why = `${uncoded} 2025 EK Consulting transaction(s) have no GL code, so the books are incomplete (the P&L only sees coded transactions).`;
+    for (const id of ["28", "29", "31"] as const) {
+      const idx = lines.findIndex((l) => l.key === scheduleCLineKey(id));
+      const blockedLn = blockedLine(scheduleCLineKey(id), lbl(id), formLineOf(id), "missing_input", why);
+      if (idx >= 0) lines[idx] = blockedLn;
+      else lines.push(blockedLn);
+      amounts.delete(id);
+    }
+    for (let i = reasons.length - 1; i >= 0; i--) if (reasons[i]!.startsWith("Net profit ")) reasons.splice(i, 1);
+    reasons.push(why);
+    missing.push("GL code on every EK Consulting 2025 transaction");
   }
 
   // detail lines

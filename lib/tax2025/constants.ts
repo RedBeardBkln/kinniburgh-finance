@@ -149,7 +149,7 @@ export const CONSTANTS = {
     "FEDERAL_BRACKETS_MFJ",
     FEDERAL_BRACKETS_MFJ_2025,
     URL_1040_INSTR,
-    "MFJ ordinary-income brackets (Tax Computation Worksheet equivalent); recorded in specs/09 from IR-2024-273 / Rev. Proc. 2024-40, unchanged by OBBBA.",
+    "MFJ ordinary-income brackets (Tax Computation Worksheet equivalent). Cited sources: the 2025 Form 1040 instructions (Tax Computation Worksheet, confirmed again against the printed Tax Table) and, in specs/09, IR-2024-273 / Rev. Proc. 2024-40 (unchanged by OBBBA).",
     VERIFIED_ON_SPEC09_FIRST_PASS
   ),
 
