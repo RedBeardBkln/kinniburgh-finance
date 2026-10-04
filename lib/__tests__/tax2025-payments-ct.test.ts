@@ -158,6 +158,27 @@ describe("computeCtPayments (acceptance 9: CT payments reach lines 18-20)", () =
     expect(amt(r, "ct1040.20")).toBe("750");
     expect(r.status).toBe("computed");
   });
+  it("line 18 adds the whole-dollar Column C rows (each W-2 rounded), not the rounded sum of the cents", () => {
+    const base = { hasW2: true, estimates: D(0), priorYearOverpaymentApplied: D(0), extensionPayment: D(0) };
+    // 100.50 + 100.50 = 201.00 exact, but the form shows 101 + 101 = 202
+    const half = computeCtPayments({ ...base, withholding: D("201.00"), withholdingRows: [D("100.50"), D("100.50")] });
+    expect(amt(half, "ct1040.18")).toBe("202");
+    // 100.40 + 100.40 = 200.80 exact -> 201 as a sum, but the rows are 100 + 100 = 200
+    const down = computeCtPayments({ ...base, withholding: D("200.80"), withholdingRows: [D("100.40"), D("100.40")] });
+    expect(amt(down, "ct1040.18")).toBe("200");
+    // Eric's four W-2s: 11,123.90 + 1,945.13 + 332.92 + 2,189.12 -> 11,124 + 1,945 + 333 + 2,189 = 15,591 (same as the rounded sum, 15,591.07)
+    const eric = computeCtPayments({
+      ...base,
+      withholding: D("15591.07"),
+      withholdingRows: [D("11123.90"), D("1945.13"), D("332.92"), D("2189.12")],
+    });
+    expect(amt(eric, "ct1040.18")).toBe("15591");
+    // no rows given (or none known): the rounded sum, as before
+    expect(amt(computeCtPayments({ ...base, withholding: D("201.00") }), "ct1040.18")).toBe("201");
+    expect(amt(computeCtPayments({ ...base, withholding: D("200.80"), withholdingRows: null }), "ct1040.18")).toBe("201");
+    // unknown withholding stays missing_input whatever the rows are
+    expect(st(computeCtPayments({ ...base, withholding: null, withholdingRows: [D(1)] }), "ct1040.18")).toBe("missing_input");
+  });
   it("unknown CT estimates / extension payment -> missing_input", () => {
     const r = computeCtPayments({
       withholding: D(5400),

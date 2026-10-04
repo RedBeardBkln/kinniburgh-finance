@@ -38,6 +38,8 @@ export interface W2Aggregates {
   medicareWithheld: Decimal | null;
   /** CT withholding on W-2s; null if any W-2 has none read. */
   ctWithholding: Decimal | null;
+  /** One exact amount per W-2 (the CT-1040 Column C rows 18a-18e, each printed in whole dollars); null when `ctWithholding` is. */
+  ctWithholdingRows: Decimal[] | null;
   /** The Schedule C owner's own W-2 boxes 3 + 7; null when unknowable (no owner, unattributed W-2, or a box 3 not read). */
   ownerSsWagesAndTips: Decimal | null;
   people: PersonSsWithholding[];
@@ -71,6 +73,7 @@ export function aggregateW2s(facts: Ty2025Facts): W2Aggregates {
     largestBox5,
     medicareWithheld: w2s.length === 0 ? null : sumCentsStrict(w2s.map((w) => w.medicareWithheldCents)),
     ctWithholding: w2s.length === 0 ? null : sumCentsStrict(w2s.map((w) => w.ctWithheldCents)),
+    ctWithholdingRows: w2s.length === 0 || w2s.some((w) => w.ctWithheldCents === null) ? null : w2s.map((w) => centsToDollars(w.ctWithheldCents ?? 0)),
     ownerSsWagesAndTips: ownerSs,
     people: facts.household.people.map((p) => {
       const mine = w2s.filter((w) => w.personUserId === p.userId);

@@ -48,12 +48,28 @@ export interface FitOptions {
   padding?: number;
 }
 
-/** Lines a text takes at `size` inside `fieldWidth` (the same layout call the field appearance makes). */
-export function lineCount(font: PDFFont, text: string, size: number, fieldWidth: number, padding = 1): number {
+/** The laid-out lines of a text at `size` inside `fieldWidth` (the same layout call the field appearance makes). */
+function layoutLines(font: PDFFont, text: string, size: number, fieldWidth: number, padding: number): { count: number; widest: number } {
   const width = fieldWidth - 2 * padding;
   // The bounds height is irrelevant to the line breaking.
   const layout = layoutMultilineText(text, { alignment: TextAlignment.Left, font, fontSize: size, bounds: { x: 0, y: 0, width, height: 1000 } });
-  return layout.lines.length;
+  return { count: layout.lines.length, widest: layout.lines.reduce((w, l) => Math.max(w, l.width), 0) };
+}
+
+/** Lines a text takes at `size` inside `fieldWidth`. */
+export function lineCount(font: PDFFont, text: string, size: number, fieldWidth: number, padding = 1): number {
+  return layoutLines(font, text, size, fieldWidth, padding).count;
+}
+
+/**
+ * Whether `text` is fully visible at `size`: at most `maxLines` lines AND every laid-out line within the usable width.
+ * pdf-lib only breaks at whitespace, so one unbroken token wider than the box stays on a single line and is clipped
+ * by the viewer; counting lines alone would call that a fit.
+ */
+export function fits(font: PDFFont, text: string, size: number, o: FitOptions): boolean {
+  const padding = o.padding ?? 1;
+  const { count, widest } = layoutLines(font, text, size, o.fieldWidth, padding);
+  return count <= o.maxLines && widest <= o.fieldWidth - 2 * padding;
 }
 
 function truncateHead(font: PDFFont, head: string, tail: string, size: number, o: FitOptions): string {
@@ -61,14 +77,14 @@ function truncateHead(font: PDFFont, head: string, tail: string, size: number, o
   while (words.length > 1) {
     words.pop();
     const candidate = `${words.join(" ")}...${tail}`;
-    if (lineCount(font, candidate, size, o.fieldWidth, o.padding) <= o.maxLines) return candidate;
+    if (fits(font, candidate, size, o)) return candidate;
   }
   // One word left: cut characters.
   let chars = (words[0] ?? "").length;
   while (chars > 1) {
     chars -= 1;
     const candidate = `${(words[0] ?? "").slice(0, chars)}...${tail}`;
-    if (lineCount(font, candidate, size, o.fieldWidth, o.padding) <= o.maxLines) return candidate;
+    if (fits(font, candidate, size, o)) return candidate;
   }
   return `...${tail}`;
 }
@@ -78,8 +94,7 @@ export function fitText(font: PDFFont, original: string, attempts: readonly FitA
   for (const a of attempts) {
     const text = `${a.head}${a.tail}`;
     for (const size of a.sizes) {
-      const lines = lineCount(font, text, size, o.fieldWidth, o.padding);
-      if (lines <= o.maxLines) return { text, fontSize: size, lines, changed: text !== original, truncated: false };
+      if (fits(font, text, size, o)) return { text, fontSize: size, lines: lineCount(font, text, size, o.fieldWidth, o.padding), changed: text !== original, truncated: false };
     }
   }
   const last = attempts[attempts.length - 1];

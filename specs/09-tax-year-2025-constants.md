@@ -268,7 +268,7 @@ instructions (`https://portal.ct.gov/-/media/drs/forms/2025/income/2025-ct-1040-
 | 15 | Use tax (Schedule 4 line 69); "If no tax is due, enter 0" | existing |
 | 16 | Add lines 14 and 15 | L14 + L15 |
 | 17 | "Enter amount from Line 16" | = L16 |
-| 18 / 19 / 20 | withholding (18a-18e Column C, 18f from CT-1040WH), estimates and prior-year overpayment, CT-1040 EXT payment | existing |
+| 18 / 19 / 20 | withholding (18a-18e Column C, 18f from CT-1040WH), estimates and prior-year overpayment, CT-1040 EXT payment. Line 18 adds Column C; the CT W-2 instruction says to enter each box 17 amount "in whole dollars" in Column C, so line 18 is the sum of the per-W-2 rounded rows (not the rounded sum of the cents; they differ by $1 when the cents do not cancel) | existing (line 18 rounding per row since ty2025-1b.4) |
 | 20a-20d | CT EITC (Schedule CT-EITC line 16, 40% of the federal EIC), claim of right credit (CT-1040 CRC line 6), pass-through entity tax credit (Schedule CT-PE line 1), historic home credit | owner statement `ct_other_credits` |
 | 21 | Add lines 18, 19, 20, 20a, 20b, 20c, 20d | sum |
 | 22 | "If Line 21 is more than Line 17, subtract Line 17 from Line 21" (overpayment) | max(0, L21 - L17) |

@@ -1000,6 +1000,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   A.register(credit, { refs: facts.deductions.propertyTaxBills.flatMap((b) => b.refs), owns: ["ct1040.11", "ct1040.s3.63", "ct1040.s3.65", "ct1040.s3.67"] });
   const ctPay = computeCtPayments({
     withholding: ctWithholding,
+    withholdingRows: w2.ctWithholdingRows,
     hasW2: w2.hasW2 || fill,
     estimates: estimatesForYear(ctEstList, 2025),
     priorYearOverpaymentApplied: A.assume(leafDollars(facts.payments.ctPriorYearOverpaymentApplied), ZERO, "2024 CT overpayment applied, assumed $0"),

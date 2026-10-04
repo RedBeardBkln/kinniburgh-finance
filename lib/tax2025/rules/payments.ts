@@ -215,6 +215,12 @@ export function computeFederalPayments(input: FederalPaymentsInput): RuleResult 
 export interface CtPaymentsInput {
   /** CT income tax withheld (W-2 box 17 CT lines + paystubs); null = not read. */
   withholding: Decimal | null;
+  /**
+   * The exact amount of each W-2 (the Column C rows 18a-18e). The CT W-2 instruction asks for each box 17 amount "in whole
+   * dollars" in Column C and line 18 adds Column C, so line 18 is the sum of the rounded rows, not the rounded sum (they
+   * differ by $1 when the cents do not cancel). Omitted/null: line 18 is the rounded `withholding`.
+   */
+  withholdingRows?: readonly Decimal[] | null;
   hasW2: boolean;
   /** CT estimated payments applying to 2025 plus 2024 overpayment applied; null parts = unknown. */
   estimates: Decimal | null;
@@ -234,7 +240,15 @@ export function computeCtPayments(input: CtPaymentsInput): RuleResult {
     lines.push(miss("ct1040.18", "Connecticut income tax withheld", "18", "CT withholding (W-2 box 17) is not available for every W-2."));
     missing.push("CT withholding");
   } else {
-    lines.push(amountLine("ct1040.18", "Connecticut income tax withheld", "18", roundLine(input.withholding)));
+    const rows = input.withholdingRows ?? null;
+    if (rows !== null && rows.length > 0) {
+      const line18 = rows.reduce((acc, r) => acc.plus(roundLine(r)), ZERO);
+      lines.push(
+        amountLine("ct1040.18", "Connecticut income tax withheld", "18", line18, "computed", "Sum of the whole-dollar Column C entries (one per W-2, each rounded to the nearest dollar), as the form's line 18 adds Column C.")
+      );
+    } else {
+      lines.push(amountLine("ct1040.18", "Connecticut income tax withheld", "18", roundLine(input.withholding)));
+    }
   }
   if (input.estimates === null || input.priorYearOverpaymentApplied === null) {
     lines.push(
