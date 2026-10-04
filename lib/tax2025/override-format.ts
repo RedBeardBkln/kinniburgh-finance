@@ -2,6 +2,11 @@
 // dialog helpers (override-input.ts). PURE and dependency-free on purpose: the
 // client bundle imports it, so it must not pull in the Prisma runtime.
 
+export const REASON_MIN_LENGTH = 3;
+export const REASON_MAX_LENGTH = 500;
+/** 21,000,000 dollars = 2,100,000,000 cents, inside Postgres INTEGER (2,147,483,647). */
+export const OVERRIDE_MAX_ABS_DOLLARS = 21_000_000;
+
 const USD0 = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",

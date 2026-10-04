@@ -31,7 +31,13 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { z } from "zod";
 import { downstreamOf } from "@/lib/tax2025/line-flow";
 import { dollarsToCents } from "@/lib/tax2025/money";
-import { formatDollars, formatOverrideDate } from "@/lib/tax2025/override-format";
+import {
+  OVERRIDE_MAX_ABS_DOLLARS,
+  REASON_MAX_LENGTH,
+  REASON_MIN_LENGTH,
+  formatDollars,
+  formatOverrideDate,
+} from "@/lib/tax2025/override-format";
 import {
   hasAmount,
   type DecisionId,
@@ -62,10 +68,8 @@ export type OverrideArchiveKind = (typeof OVERRIDE_ARCHIVE_KINDS)[number];
 
 export const SUPPORTED_OVERRIDE_TAX_YEARS: readonly number[] = [2025];
 
-export const REASON_MIN_LENGTH = 3;
-export const REASON_MAX_LENGTH = 500;
-/** 21,000,000 dollars = 2,100,000,000 cents, inside Postgres INTEGER (2,147,483,647). */
-export const OVERRIDE_MAX_ABS_DOLLARS = 21_000_000;
+// The limits live in override-format.ts (dependency-free) so the client dialog helpers share them.
+export { REASON_MIN_LENGTH, REASON_MAX_LENGTH, OVERRIDE_MAX_ABS_DOLLARS };
 export const OVERRIDE_MAX_ABS_CENTS = OVERRIDE_MAX_ABS_DOLLARS * 100;
 
 export function isSupportedOverrideTaxYear(year: number): boolean {

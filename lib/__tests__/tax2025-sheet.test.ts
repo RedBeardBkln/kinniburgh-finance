@@ -11,10 +11,10 @@ import {
   openItemOwner,
   overrideNote,
   type SheetLine,
-  type SheetLineOverride,
   type SheetModel,
   type SheetRawDocument,
 } from "@/lib/tax2025-sheet";
+import { applyOverrides, formatOverrideNote, lineSnapshot, type EffectiveReturn, type OverrideRow } from "@/lib/tax2025/overrides";
 import { SHEET_CSV_COLUMNS, csvNumber, csvText, sheetCsvRow, sheetToCsv } from "@/lib/tax2025-sheet-csv";
 import { buildCardConclusions } from "@/lib/tax2025-sheet-conclusions";
 import { loadSheet } from "@/lib/tax2025-sheet-load";
@@ -41,8 +41,31 @@ const DOCS: SheetRawDocument[] = [
   { id: "unused-doc", docType: "other", taxYear: 2025, verified: true, legacyFormat: false, subjectType: null },
 ];
 
-function model(ret: Ty2025Return, extra: { overrides?: Record<string, SheetLineOverride> } = {}): SheetModel {
+function model(ret: Ty2025Return, extra: { effective?: EffectiveReturn } = {}): SheetModel {
   return buildSheetModel({ ret, documents: DOCS, now: NOW, ...extra });
+}
+
+/** A recorded line override row, snapshotted from the return it is applied to. */
+function pinRow(ret: Ty2025Return, key: (typeof LINE_KEYS)[number], valueCents: number, over: Partial<OverrideRow> = {}): OverrideRow {
+  const l = ret.lines[key];
+  if (!l) throw new Error(`no line ${key}`);
+  return {
+    id: "00000000-0000-4000-8000-0000000000bb",
+    taxYear: 2025,
+    targetKind: "line",
+    targetKey: key,
+    version: 1,
+    valueKind: "money_cents",
+    valueCents,
+    valueText: null,
+    computedSnapshot: lineSnapshot(l, ret.engineVersion),
+    authority: "cpa",
+    reason: "per the 1099 correction",
+    setByName: "the CPA",
+    setAt: new Date("2026-10-05T14:00:00Z"),
+    archivedAt: null,
+    ...over,
+  };
 }
 
 function allLines(m: SheetModel): SheetLine[] {
@@ -343,20 +366,78 @@ describe("sheet model: provenance, documents and overrides", () => {
     expect(m2.documents.some((d) => d.id === "w2-eric-a" && d.statusText === "not in the loader's document list")).toBe(true);
   });
 
-  it("renders an optional override per line (structural type, no import) and counts it", () => {
-    const ov: SheetLineOverride = { was: 100, now: 150, by: "the CPA", at: "2026-10-05T14:00:00Z", reason: "per the 1099 correction" };
-    const m = model(golden, { overrides: { "f1040.1a": ov } });
+  it("renders a recorded override per line (the effective value, the ONE note wording, the computed value it replaced) and counts it", () => {
+    const was = golden.lines["f1040.1a"]?.amount;
+    expect(was).not.toBeNull();
+    const eff = applyOverrides(golden, [pinRow(golden, "f1040.1a", 15_000)]);
+    const m = model(golden, { effective: eff });
     const l = allLines(m).find((x) => x.key === "f1040.1a");
-    expect(l?.override).toEqual({ ...ov, stale: false });
+    expect(l?.status).toBe("overridden");
+    expect(l?.statusLabel).toBe("CPA override");
+    expect(l?.amount).toBe(150);
+    expect(l?.amountText).toBe("$150");
+    expect(l?.override).toMatchObject({
+      nowAmount: 150,
+      computedAmount: was,
+      authorityLabel: "CPA",
+      by: "the CPA",
+      atDate: "2026-10-05",
+      reason: "per the 1099 correction",
+      supplied: false,
+      stale: false,
+    });
+    expect(l?.override?.note).toBe(formatOverrideNote(eff.applied.lines[0]!));
+    expect(overrideNote(l!.override!)).toBe(l!.override!.note);
+    expect(l?.computed.amount).toBe(was);
     expect(m.overrideCount).toBe(1);
-    expect(overrideNote(ov)).toBe("Override: was $100, now $150, by the CPA on 2026-10-05: per the 1099 correction");
-    expect(allLines(model(golden)).every((x) => x.override === null)).toBe(true);
-    // CSV override columns are filled only for that line
+    expect(m.summary.overrides.lineCount).toBe(1);
+    expect(m.summary.overrides.totalsNotRecomputed).toBe(true);
+    expect(m.summary.completenessText).toContain("Totals are NOT recomputed");
+    expect(m.summary.statusCounts.overridden).toBe(1);
+    // dependents are flagged (and the headline AGI row says so), the overridden line itself is not
+    expect(allLines(m).find((x) => x.key === "f1040.9")?.dependsOnOverridden).toContainEqual({ key: "f1040.1a", text: "Form 1040 1a" });
+    expect(l?.dependsOnOverridden).toEqual([]);
+    expect(m.summary.federal[0]?.dependsOnOverride).toBe(true);
+    // no overrides in the build: every line is mirrored, offers no dialog, and the panel model is empty
+    const plain = model(golden);
+    expect(allLines(plain).every((x) => x.override === null && !x.canOverride && x.dependsOnOverridden.length === 0)).toBe(true);
+    expect(plain.summary.overrides.lineCount).toBe(0);
+    // with an effective view but no rows the lines can be overridden and nothing is marked
+    const none = model(golden, { effective: applyOverrides(golden, []) });
+    expect(allLines(none).every((x) => x.override === null && x.canOverride)).toBe(true);
+    // CSV: the effective amount, the status cell and the override columns are filled only for that line
     const rows = parseCsv(sheetToCsv(m));
     const row = rows.find((r) => r[2] === "f1040.1a");
-    expect(row?.[8]).toBe("150");
+    expect(row?.[4]).toBe("150"); // amount = the effective amount
+    expect(row?.[5]).toBe("CPA override");
+    expect(row?.[8]).toBe("150"); // override_amount
     expect(row?.[9]).toBe("the CPA");
-    expect(rows.slice(2).filter((r) => r[2] !== "f1040.1a" && r[8] !== "").length).toBe(0);
+    expect(row?.[10]).toBe("2026-10-05"); // override_at, YYYY-MM-DD in America/New_York
+    expect(row?.[11]).toBe("per the 1099 correction");
+    expect(row?.[12]).toBe(String(was)); // computed_amount
+    expect(row?.[13]).toBe("CPA");
+    expect(row?.[14]).toBe("1");
+    expect(row?.[15]).toBe("no");
+    expect(row?.[16]).toBe(l!.override!.note);
+    expect(rows.slice(2, -1).filter((r) => r[2] !== "f1040.1a" && r[8] !== "").length).toBe(0);
+    const dependent = rows.find((r) => r[2] === "f1040.9");
+    expect(dependent?.[17]).toContain("Form 1040 1a");
+    expect(rows[rows.length - 1]![7]).toContain("1 override(s) in force");
+  });
+
+  it("a pin on a BLOCKED line prints its value with the override provenance; the engine's reason moves to `computed`", () => {
+    const blocked = computeTy2025Return(emptyFacts());
+    expect(blocked.lines["sch3.1"]?.amount).toBeNull();
+    const eff = applyOverrides(blocked, [pinRow(blocked, "sch3.1", 250_000)]);
+    const m = model(blocked, { effective: eff });
+    const l = allLines(m).find((x) => x.key === "sch3.1");
+    expect(l).toMatchObject({ status: "overridden", amount: 2500, amountText: "$2,500", reason: null });
+    expect(l?.override?.supplied).toBe(true);
+    expect(l?.computed.blocked).toBe(true);
+    expect(l?.chips).toEqual([{ kind: "override", label: "CPA override by the CPA on 2026-10-05", href: null }]);
+    expect(m.summary.overrides.resolvedByOverride.map((r) => r.id)).toEqual(["rule:foreign-tax-credit"]);
+    expect(m.openItems.some((i) => i.id === "rule:foreign-tax-credit")).toBe(false);
+    expect(m.summary.blockingItemCount).toBe(blocked.headline.blockingItemCount - 1);
   });
 
   it("carries the static sign-off checklist", () => {
@@ -401,14 +482,21 @@ describe("CSV export", () => {
       "override_by",
       "override_at",
       "override_reason",
+      "computed_amount",
+      "override_authority",
+      "override_version",
+      "override_stale",
+      "override_note",
+      "depends_on_override",
     ]);
     expect(rows.length).toBe(allLines(m).length + 3);
     for (const r of rows) expect(r.length).toBe(SHEET_CSV_COLUMNS.length);
     const last = rows[rows.length - 1]!;
     expect(last[0]).toBe("DRAFT NOTICE");
     expect(last[7]).toContain("the CPA is the preparer of record");
+    expect(last[7]).not.toContain("override(s) in force");
     // override columns are empty when no override exists
-    for (const r of rows.slice(2)) expect(r.slice(8)).toEqual(["", "", "", ""]);
+    for (const r of rows.slice(2)) expect(r.slice(8)).toEqual(["", "", "", "", "", "", "", "", "", ""]);
   });
 
   it("uses CRLF line endings and ends with a newline", () => {
@@ -459,6 +547,11 @@ describe("CSV export", () => {
       chips: [{ kind: "owner_answer", label: "+answer", href: null }],
       defaultUndecided: null,
       override: null,
+      computed: { amount: -42, amountText: "-$42", statusLabel: "computed", reason: null, blocked: false },
+      affects: [],
+      affectsMore: 0,
+      dependsOnOverridden: [],
+      canOverride: false,
     };
     const parsed = parseCsv(`${sheetCsvRow(line)}\r\n`)[0]!;
     expect(parsed[3]).toBe("'=evil, \"label\"");
@@ -537,13 +630,15 @@ describe("loadSheet (injected builder, no DB)", () => {
     expect(JSON.stringify(res)).not.toContain("123-45-6789");
   });
 
-  it("applies injected overrides", async () => {
+  it("shows the effective (overridden) values when the builder returns them", async () => {
     const res = await loadSheet(2025, {
-      build: async () => ({ ret: golden, raw }),
+      build: async () => ({ ret: golden, raw, effective: applyOverrides(golden, [pinRow(golden, "f1040.1a", 200)]) }),
       now: () => NOW,
-      overrides: async () => ({ "f1040.1a": { was: 1, now: 2, by: "x", at: "2026-10-05T00:00:00Z", reason: "r" } }),
     });
     expect(res.kind === "ok" && res.model.overrideCount).toBe(1);
+    // without `effective` the sheet is the engine's own return
+    const plain = await loadSheet(2025, { build: async () => ({ ret: golden, raw }), now: () => NOW });
+    expect(plain.kind === "ok" && plain.model.overrideCount).toBe(0);
   });
 });
 
@@ -600,7 +695,9 @@ describe("source checks (page, components, styles)", () => {
   it("the Forms page wiring keeps the cards and counters logic untouched", () => {
     const forms = read("app/tax/forms/[year]/page.tsx");
     expect(forms).toContain("conclusion={conclusions[entry.id]}");
-    expect(forms).toContain("{year === PDF_SUPPORTED_YEAR ? <PdfDownloadButtons year={year} /> : null}");
+    expect(forms).toContain("{year === PDF_SUPPORTED_YEAR ? <PdfDownloadButtons year={year} overrideCount={overrideCount} /> : null}");
+    // T9b: the Forms page banner says the card figures are the engine's and points at the sheet when overrides are in force
+    expect(forms).toContain("{overrideCount} CPA override(s) are in force. The card figures below are the engine");
     expect(forms).toContain("data.needsCpaInput.map");
     expect(forms).toContain("<FormsSummary data={data} />");
     const buttons = read("components/tax/forms/pdf-download-buttons.tsx");

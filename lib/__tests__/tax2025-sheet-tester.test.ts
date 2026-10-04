@@ -1,6 +1,13 @@
 import React, { createElement } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
+
+// The override chips are client components that import the (DB-backed) server actions; nothing is called while rendering.
+vi.mock("@/actions/tax-return-overrides", () => ({
+  setTaxReturnOverride: vi.fn(),
+  clearTaxReturnOverride: vi.fn(),
+  listTaxReturnOverrideHistory: vi.fn(),
+}));
 import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { computeTy2025Return } from "@/lib/tax2025/return";
@@ -433,12 +440,15 @@ describe("tester: P5 ordering and owner-vs-CPA split", () => {
 // ── (6) CSV ───────────────────────────────────────────────────────────────────
 
 describe("tester: CSV columns, escaping, formula guard, numeric amounts, PII", () => {
-  it("header columns exactly as specified and every row has 12 cells (RFC 4180 parse) for all fixtures", () => {
+  it("header columns exactly as specified (the first 12 in place, 6 override columns appended) and every row has 18 cells (RFC 4180 parse) for all fixtures", () => {
     for (const { ret } of FIXTURES) {
       const rows = parseCsv(sheetToCsv(sheet(ret)));
       expect(rows[0]![0]).toBe("DRAFT for CPA review - computed from the inputs shown; the CPA is the preparer of record");
-      expect(rows[1]).toEqual(["form", "line_id", "line_key", "label", "amount", "status", "provenance", "citation_reason", "override_amount", "override_by", "override_at", "override_reason"]);
-      for (const r of rows) expect(r.length).toBe(12);
+      expect(rows[1]).toEqual([
+        "form", "line_id", "line_key", "label", "amount", "status", "provenance", "citation_reason", "override_amount", "override_by", "override_at", "override_reason",
+        "computed_amount", "override_authority", "override_version", "override_stale", "override_note", "depends_on_override",
+      ]);
+      for (const r of rows) expect(r.length).toBe(18);
     }
   });
 
@@ -565,7 +575,7 @@ describe("tester: page / route / Forms page source facts", () => {
   });
   it("Forms page diff touches only the engine call and the conclusion prop (no counters / cards / questionnaire change)", () => {
     const forms = read("app/tax/forms/[year]/page.tsx");
-    expect(forms).toContain("year === PDF_SUPPORTED_YEAR ? loadSheet(year, { build: buildTy2025Return }) : Promise.resolve(null)");
+    expect(forms).toContain("year === PDF_SUPPORTED_YEAR ? loadSheet(year, { build: buildTy2025ReturnWithOverrides }) : Promise.resolve(null)");
     expect(forms).toContain('sheet?.kind === "ok" ? sheet.conclusions : {}');
     expect((forms.match(/conclusion=\{conclusions\[entry\.id\]\}/g) ?? []).length).toBe(3);
   });

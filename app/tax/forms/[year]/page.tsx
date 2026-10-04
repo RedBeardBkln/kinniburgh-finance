@@ -5,7 +5,7 @@ import type { Route } from "next";
 import { db } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
 import { loadFormsPageData } from "@/lib/tax-forms-build";
-import { buildTy2025Return } from "@/lib/tax2025-build";
+import { buildTy2025ReturnWithOverrides } from "@/lib/tax2025-overrides-build";
 import { loadSheet } from "@/lib/tax2025-sheet-load";
 import type { CardConclusion } from "@/lib/tax2025-sheet-conclusions";
 import { FormCard } from "@/components/tax/forms/form-card";
@@ -37,9 +37,11 @@ export default async function TaxFormsPage({ params }: PageProps) {
   const [data, workspaceYears, sheet] = await Promise.all([
     loadFormsPageData(year),
     db.taxWorkspace.findMany({ select: { taxYear: true }, distinct: ["taxYear"] }),
-    year === PDF_SUPPORTED_YEAR ? loadSheet(year, { build: buildTy2025Return }) : Promise.resolve(null),
+    year === PDF_SUPPORTED_YEAR ? loadSheet(year, { build: buildTy2025ReturnWithOverrides }) : Promise.resolve(null),
   ]);
   const conclusions: Record<string, CardConclusion> = sheet?.kind === "ok" ? sheet.conclusions : {};
+  // The card conclusions are the ENGINE's own figures (they are not override-aware); the banner below says so.
+  const overrideCount = sheet?.kind === "ok" ? sheet.model.summary.overrides.lineCount : 0;
 
   // Year chips: every workspace year + the current year (+ the one being viewed).
   const currentYear = new Date().getUTCFullYear();
@@ -88,7 +90,17 @@ export default async function TaxFormsPage({ params }: PageProps) {
           </div>
         </div>
 
-        {year === PDF_SUPPORTED_YEAR ? <PdfDownloadButtons year={year} /> : null}
+        {overrideCount > 0 ? (
+          <div className="rounded-md border-2 border-violet-400 bg-violet-50 px-4 py-3 text-sm text-violet-950" role="status" data-testid="forms-overrides-banner">
+            {overrideCount} CPA override(s) are in force. The card figures below are the engine&apos;s computed values; the review sheet and the PDF packet
+            show the overrides.{" "}
+            <Link href={`/tax/forms/${year}/return` as Route} className="font-medium underline">
+              Open the review sheet
+            </Link>
+          </div>
+        ) : null}
+
+        {year === PDF_SUPPORTED_YEAR ? <PdfDownloadButtons year={year} overrideCount={overrideCount} /> : null}
 
         <FormsSummary data={data} />
 

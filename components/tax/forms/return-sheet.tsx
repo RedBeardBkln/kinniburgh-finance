@@ -15,6 +15,9 @@ import {
   type SheetOpenItem,
   type SheetStatus,
 } from "@/lib/tax2025-sheet";
+import { OverrideDecisionButton } from "@/components/tax/forms/override-decision-button";
+import { OverrideLineButton } from "@/components/tax/forms/override-line-button";
+import { OverridesPanel } from "@/components/tax/forms/overrides-panel";
 
 // The printable CPA REVIEW SHEET (Phase 1c). A server component: it receives ONLY the
 // plain-JSON SheetModel (built from the engine's Ty2025Return) - no Decimals, no raw
@@ -33,6 +36,7 @@ const STATUS_CLASS: Readonly<Record<SheetStatus, string>> = {
   not_yet_computed: "border-amber-300 bg-amber-50 text-amber-900",
   needs_cpa_rule_unverified: "border-violet-300 bg-violet-50 text-violet-800",
   needs_cpa_judgment: "border-violet-300 bg-violet-50 text-violet-800",
+  overridden: "border-fuchsia-400 bg-fuchsia-50 text-fuchsia-900 font-semibold",
 };
 
 const CHIP_CLASS: Readonly<Record<SheetChipKind, string>> = {
@@ -43,12 +47,13 @@ const CHIP_CLASS: Readonly<Record<SheetChipKind, string>> = {
   derived: "border-border bg-muted text-muted-foreground",
   paystub: "border-slate-300 bg-slate-50 text-slate-700",
   decision: "border-violet-300 bg-violet-50 text-violet-800",
+  override: "border-fuchsia-400 bg-fuchsia-50 text-fuchsia-900",
 };
 
-function StatusBadge({ status }: { status: SheetStatus }) {
+function StatusBadge({ status, label }: { status: SheetStatus; label?: string }) {
   return (
     <span className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] ${STATUS_CLASS[status]}`}>
-      {SHEET_STATUS_LABELS[status]}
+      {label ?? SHEET_STATUS_LABELS[status]}
     </span>
   );
 }
@@ -87,7 +92,7 @@ function HeadlineTable({ title, rows, showProvisional }: { title: string; rows: 
         <thead>
           <tr className="border-b text-left text-xs text-muted-foreground">
             <th className="py-1 pr-3 font-medium">Item</th>
-            <th className="py-1 pr-3 text-right font-medium">Computed</th>
+            <th className="py-1 pr-3 text-right font-medium">Computed by the app</th>
             <th className="py-1 pr-3 font-medium">Status</th>
             {showProvisional ? <th className="py-1 text-right font-medium">Provisional estimate</th> : null}
           </tr>
@@ -96,7 +101,19 @@ function HeadlineTable({ title, rows, showProvisional }: { title: string; rows: 
           {rows.map((r) => (
             <tr key={r.label} className="border-b align-top">
               <td className="py-1 pr-3">{r.label}</td>
-              <td className="py-1 pr-3 text-right tabular-nums font-medium">{r.computedText}</td>
+              <td className="py-1 pr-3 text-right tabular-nums font-medium">
+                {r.computedText}
+                {r.overridden ? (
+                  <span className="block text-[11px] font-semibold text-fuchsia-900" data-testid="headline-overridden">
+                    OVERRIDDEN line: {r.effectiveText !== null ? `figure with the override ${r.effectiveText}` : "see the override on the line"}
+                  </span>
+                ) : null}
+                {r.dependsOnOverride ? (
+                  <span className="block text-[11px] font-normal text-fuchsia-900" data-testid="headline-depends">
+                    depends on an override; not recomputed
+                  </span>
+                ) : null}
+              </td>
               <td className="py-1 pr-3">
                 <StatusBadge status={r.status} />
               </td>
@@ -140,6 +157,7 @@ function PartSummary({ model }: { model: SheetModel }) {
       >
         {s.completenessText}
       </p>
+      <OverridesPanel summary={s.overrides} />
       <HeadlineTable title="Federal (Form 1040)" rows={s.federal} showProvisional={!s.complete} />
       <HeadlineTable title="Connecticut (CT-1040)" rows={s.connecticut} showProvisional={!s.complete} />
       {!s.complete && s.provisionalNote !== null ? (
@@ -188,17 +206,46 @@ function PartSummary({ model }: { model: SheetModel }) {
 
 // ── P2 / P3 ───────────────────────────────────────────────────────────────────
 
-function LineRow({ line }: { line: SheetLine }) {
+function LineRow({ line, taxYear }: { line: SheetLine; taxYear: 2025 }) {
   const muted = line.status === "not_applicable" || line.status === "informational";
   const blocked = line.amount === null && !muted;
+  const ov = line.override;
   return (
-    <tr className={`border-b align-top ${muted ? "text-muted-foreground" : ""} ${blocked ? "bg-amber-50/40" : ""}`} data-line-key={line.key}>
+    <tr
+      className={`border-b align-top ${muted ? "text-muted-foreground" : ""} ${blocked ? "bg-amber-50/40" : ""} ${ov !== null ? "bg-fuchsia-50/50" : ""}`}
+      data-line-key={line.key}
+    >
       <td className="whitespace-nowrap py-1 pr-2 text-xs tabular-nums">{line.formLine}</td>
       <td className="py-1 pr-2">
         {line.label}
-        {line.override !== null ? (
+        {ov !== null ? (
           <span className="mt-1 block rounded border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[11px] text-violet-900" data-testid="override-note">
-            {overrideNote(line.override)}
+            {overrideNote(ov)}
+          </span>
+        ) : null}
+        {line.dependsOnOverridden.length > 0 ? (
+          <span className="mt-1 block rounded border border-fuchsia-300 bg-fuchsia-50 px-1.5 py-0.5 text-[11px] text-fuchsia-900" data-testid="depends-on-override">
+            depends on an override, not recomputed: {line.dependsOnOverridden.map((d) => d.text).join(", ")}
+          </span>
+        ) : null}
+        {line.canOverride ? (
+          <span className="mt-1 block">
+            <OverrideLineButton
+              taxYear={taxYear}
+              line={{
+                key: line.key,
+                form: line.form,
+                formLine: line.formLine,
+                label: line.label,
+                computed: line.computed,
+                override:
+                  ov === null
+                    ? null
+                    : { id: ov.id, version: ov.version, authority: ov.authority, nowAmount: ov.nowAmount, note: overrideNote(ov), reason: ov.reason, stale: ov.stale },
+                affects: line.affects,
+                affectsMore: line.affectsMore,
+              }}
+            />
           </span>
         ) : null}
       </td>
@@ -206,7 +253,7 @@ function LineRow({ line }: { line: SheetLine }) {
         {line.amountText}
       </td>
       <td className="py-1 pr-2">
-        <StatusBadge status={line.status} />
+        <StatusBadge status={line.status} label={line.statusLabel} />
       </td>
       <td className="py-1 pr-2">
         <div className="flex flex-wrap gap-1">
@@ -239,7 +286,7 @@ function LineRow({ line }: { line: SheetLine }) {
   );
 }
 
-function FormGroup({ group }: { group: SheetFormGroup }) {
+function FormGroup({ group, taxYear }: { group: SheetFormGroup; taxYear: 2025 }) {
   return (
     <div className="break-inside-avoid-page space-y-1">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -264,7 +311,7 @@ function FormGroup({ group }: { group: SheetFormGroup }) {
           </thead>
           <tbody>
             {group.lines.map((l) => (
-              <LineRow key={l.key} line={l} />
+              <LineRow key={l.key} line={l} taxYear={taxYear} />
             ))}
           </tbody>
         </table>
@@ -284,7 +331,7 @@ function PartLines({ id, title, intro, groups, model, withAttestations }: { id: 
         <p className="text-xs text-muted-foreground">{intro}</p>
       </div>
       {groups.map((g) => (
-        <FormGroup key={g.form} group={g} />
+        <FormGroup key={g.form} group={g} taxYear={model.taxYear} />
       ))}
       {withAttestations ? (
         <div className="break-inside-avoid space-y-1">
@@ -326,7 +373,7 @@ function Alternative({ alt }: { alt: SheetAlternative }) {
   );
 }
 
-function Decision({ d }: { d: SheetDecision }) {
+function Decision({ d, taxYear, canRecord }: { d: SheetDecision; taxYear: 2025; canRecord: boolean }) {
   return (
     <div className="break-inside-avoid space-y-2 rounded-lg border p-4" data-decision={d.id}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -340,6 +387,29 @@ function Decision({ d }: { d: SheetDecision }) {
         </span>
       </div>
       {d.affectedLines.length > 0 ? <p className="text-xs text-muted-foreground">Lines affected: {d.affectedLines.join(", ")}</p> : null}
+      {d.override !== null ? (
+        <p className="rounded border border-violet-300 bg-violet-50 px-2 py-1 text-xs text-violet-900" data-testid="decision-override-note">
+          {d.override.note}
+        </p>
+      ) : null}
+      {canRecord && d.decisionKey !== null ? (
+        <div>
+          <OverrideDecisionButton
+            taxYear={taxYear}
+            data={{
+              id: d.id,
+              label: d.label,
+              decisionKey: d.decisionKey,
+              undecided: d.undecided,
+              choices: d.choices,
+              override:
+                d.override === null
+                  ? null
+                  : { id: d.override.id, version: d.override.version, authority: d.override.authority, choice: d.override.choice, note: d.override.note },
+            }}
+          />
+        </div>
+      ) : null}
       <div className="grid gap-2 md:grid-cols-2">
         {d.alternatives.map((a) => (
           <Alternative key={a.id} alt={a} />
@@ -368,7 +438,7 @@ function PartDecisions({ model }: { model: SheetModel }) {
       </div>
       {model.decisions.length === 0 ? <p className="text-sm">The engine raised no decision for this return.</p> : null}
       {model.decisions.map((d) => (
-        <Decision key={d.id} d={d} />
+        <Decision key={d.id} d={d} taxYear={model.taxYear} canRecord={model.federal.some((g) => g.lines.some((l) => l.canOverride))} />
       ))}
       {model.decisionPlaceholders.length > 0 ? (
         <div className="space-y-1 break-inside-avoid">

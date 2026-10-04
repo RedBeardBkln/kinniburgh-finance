@@ -13,15 +13,17 @@ import { buildCardConclusions, type CardConclusion } from "@/lib/tax2025-sheet-c
 import {
   SHEET_SUPPORTED_YEAR,
   buildSheetModel,
-  type SheetLineOverride,
   type SheetModel,
   type SheetRawDocument,
 } from "@/lib/tax2025-sheet";
+import type { EffectiveReturn } from "@/lib/tax2025/overrides";
 import type { Ty2025Return } from "@/lib/tax2025/types";
 
 export interface SheetBuildOk {
   ret: Ty2025Return;
   raw: { documents: readonly SheetRawDocument[] };
+  /** The return with the recorded CPA overrides applied (buildTy2025ReturnWithOverrides). Absent: the sheet shows the engine's own return. */
+  effective?: EffectiveReturn;
 }
 
 export type SheetBuilder = (taxYear: 2025) => Promise<SheetBuildOk | { error: string }>;
@@ -29,8 +31,6 @@ export type SheetBuilder = (taxYear: 2025) => Promise<SheetBuildOk | { error: st
 export interface SheetLoadDeps {
   build: SheetBuilder;
   now?: () => Date;
-  /** Optional per-line overrides (the overrides module arrives from another branch). */
-  overrides?: () => Promise<Readonly<Record<string, SheetLineOverride>>>;
 }
 
 export type LoadedSheet =
@@ -43,12 +43,11 @@ export async function loadSheet(year: number, deps: SheetLoadDeps): Promise<Load
   try {
     const built = await deps.build(SHEET_SUPPORTED_YEAR);
     if ("error" in built) return { kind: "error", message: built.error };
-    const overrides = deps.overrides ? await deps.overrides() : undefined;
     const model = buildSheetModel({
       ret: built.ret,
       documents: built.raw.documents,
       now: (deps.now ?? (() => new Date()))(),
-      ...(overrides ? { overrides } : {}),
+      ...(built.effective ? { effective: built.effective } : {}),
     });
     return { kind: "ok", model, conclusions: buildCardConclusions(built.ret) };
   } catch (err) {

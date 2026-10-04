@@ -11,15 +11,16 @@
 //     carries an amount (digits and an optional leading minus, exempt from the guard);
 //     a line without an amount has an EMPTY amount cell, never 0;
 //   - the DRAFT label is the FIRST row (then the header row) and the closing notice row repeats it;
-//   - the override columns are reserved: empty unless an override note was supplied.
+//   - overrides (T9b): `amount` is the EFFECTIVE amount (the override value for an overridden
+//     line) and the status cell says "CPA override" / "Owner override". The first 12 columns keep
+//     their meaning (override_amount = the pinned whole dollars, override_by, override_at as
+//     YYYY-MM-DD in America/New_York, override_reason = the reason text); the columns after them
+//     are appended: computed_amount (what the engine computed), override_authority,
+//     override_version, override_stale, override_note (the same sentence the sheet, the PDF field
+//     note and the cover print) and depends_on_override (lines this one depends on that were
+//     overridden and NOT recomputed). Every text cell goes through csvText.
 
-import {
-  SHEET_STATUS_LABELS,
-  overrideNote,
-  type SheetFormGroup,
-  type SheetLine,
-  type SheetModel,
-} from "@/lib/tax2025-sheet";
+import { overrideNote, type SheetFormGroup, type SheetLine, type SheetModel } from "@/lib/tax2025-sheet";
 
 export const SHEET_CSV_COLUMNS = [
   "form",
@@ -34,6 +35,12 @@ export const SHEET_CSV_COLUMNS = [
   "override_by",
   "override_at",
   "override_reason",
+  "computed_amount",
+  "override_authority",
+  "override_version",
+  "override_stale",
+  "override_note",
+  "depends_on_override",
 ] as const;
 
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;
@@ -70,13 +77,19 @@ export function sheetCsvRow(l: SheetLine): string {
     csvText(l.key),
     csvText(l.label),
     csvNumber(l.amount),
-    csvText(SHEET_STATUS_LABELS[l.status]),
+    csvText(l.statusLabel),
     csvText(provenanceText(l)),
     csvText(citationReasonText(l)),
-    ov === null ? "" : csvNumber(ov.now),
+    ov === null ? "" : csvNumber(ov.nowAmount),
     ov === null ? "" : csvText(ov.by),
-    ov === null ? "" : csvText(ov.at),
+    ov === null ? "" : csvText(ov.atDate),
+    ov === null ? "" : csvText(ov.reason),
+    ov === null ? "" : csvNumber(ov.computedAmount),
+    ov === null ? "" : csvText(ov.authorityLabel),
+    ov === null ? "" : csvNumber(ov.version),
+    ov === null ? "" : csvText(ov.stale ? "yes" : "no"),
     ov === null ? "" : csvText(overrideNote(ov)),
+    l.dependsOnOverridden.length === 0 ? "" : csvText(l.dependsOnOverridden.map((d) => d.text).join("; ")),
   ].join(",");
 }
 
@@ -84,15 +97,24 @@ function rowsOf(groups: readonly SheetFormGroup[]): string[] {
   return groups.flatMap((g) => g.lines.map(sheetCsvRow));
 }
 
+function noticeText(model: SheetModel): string {
+  const base = `${model.draftLabel}. Engine ${model.engineVersion}, generated ${model.generatedAtDisplay}. Lines with an empty amount are NOT zero: they are not computed.`;
+  const o = model.summary.overrides;
+  if (o.lineCount === 0) return base;
+  return `${base} ${o.lineCount} override(s) in force (see the override_* columns); ${o.totalsNotRecomputed ? "totals are NOT recomputed and lines that depend on an override are flagged in depends_on_override." : "no total depends on them."}`;
+}
+
 /** The whole CSV text (CRLF line endings, trailing newline). */
 export function sheetToCsv(model: SheetModel): string {
-  // FIRST row: the DRAFT label (padded to the column count so every row still parses to 12 cells), then the header.
-  const draftRow = [csvText(model.draftLabel), ...Array.from({ length: SHEET_CSV_COLUMNS.length - 1 }, () => "")].join(",");
+  const width = SHEET_CSV_COLUMNS.length;
+  // FIRST row: the DRAFT label (padded to the column count so every row still parses to the same number of cells), then the header.
+  const draftRow = [csvText(model.draftLabel), ...Array.from({ length: width - 1 }, () => "")].join(",");
   const rows: string[] = [draftRow, SHEET_CSV_COLUMNS.join(","), ...rowsOf(model.federal), ...rowsOf(model.connecticut)];
   // A closing row so the framing travels with the file (amount column stays empty).
-  rows.push(
-    [csvText("DRAFT NOTICE"), "", "", "", "", "", "", csvText(`${model.draftLabel}. Engine ${model.engineVersion}, generated ${model.generatedAtDisplay}. Lines with an empty amount are NOT zero: they are not computed.`), "", "", "", ""].join(",")
-  );
+  const notice = Array.from({ length: width }, () => "");
+  notice[0] = csvText("DRAFT NOTICE");
+  notice[7] = csvText(noticeText(model));
+  rows.push(notice.join(","));
   return `${rows.join("\r\n")}\r\n`;
 }
 
