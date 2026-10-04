@@ -114,6 +114,10 @@ export const COMPLETE_HEADLINE: Headline = {
     balance: ha("computed", -200),
   },
   blockingItemCount: 0,
+  unverifiedDocumentCount: 0,
+  derivedInputCount: 0,
+  undecidedDecisionCount: 0,
+  caveats: [],
   provisional: null,
 };
 
@@ -133,10 +137,15 @@ export const INCOMPLETE_HEADLINE: Headline = {
     balance: ha("missing_input", null),
   },
   blockingItemCount: 2,
+  unverifiedDocumentCount: 0,
+  derivedInputCount: 0,
+  undecidedDecisionCount: 0,
+  caveats: [],
   provisional: {
     note: "Estimate with unresolved lines treated as $0 (synthetic).",
     assumedZeroLines: ["f1040.2b", "sch1.3"],
     assumedFacts: [],
+    lines: {},
     agi: 90000,
     taxableIncome: 55000,
     totalTax: 8000,
