@@ -86,7 +86,7 @@ describe("tester: 1040 blank-by-design classification re-derived from the catalo
       /social security|S S N|identifying number|E I N|routing|account number|account type|P I N|phone|email|address|preparer|designee|signature|occupation|dependent/i;
     const benign = new Set([
       `${P1}f1_29[0]`, // HOH/QSS child's name (name only, not_modeled blank)
-      `${P1}f1_51[0]`, // 1e dependent care benefits (money line, text matches 'dependent')
+      `${P1}f1_51[0]`, // 1e dependent care benefits (money line since T2a, text matches 'dependent')
       `${P1}f1_68[0]`, // 6a social security BENEFITS (money line)
       "topmostSubform[0].Page2[0].c2_1[0]", // 12a someone can claim you as a dependent
       "topmostSubform[0].Page2[0].c2_2[0]",
@@ -103,8 +103,10 @@ describe("tester: 1040 blank-by-design classification re-derived from the catalo
     for (const f of loadCatalog("f1040").fields) {
       if (!sens.test(f.speak ?? "") && !/SSN|Routing|Account|Address/.test(f.name)) continue;
       checked += 1;
-      expect(written.has(f.name), `${f.name} must never be written`).toBe(false);
+      // Benign fields are money lines (or name-only boxes) whose speak text merely contains a sensitive word;
+      // since the full 1040 map (T2a) they may be written. Every other sensitive field must never be.
       if (benign.has(f.name)) continue;
+      expect(written.has(f.name), `${f.name} must never be written`).toBe(false);
       const reason = blankByReason.get(f.name);
       expect(reason, `${f.name} (${f.speak?.slice(0, 40)})`).toBeDefined();
       expect(reason, `${f.name}`).not.toBe("not_modeled");
