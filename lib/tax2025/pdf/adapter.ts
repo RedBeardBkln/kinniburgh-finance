@@ -305,7 +305,34 @@ function buildTables(ret: Ty2025Return, facts: Ty2025Facts): TableBuild {
 
   // CT-1040 Schedule 3 (property tax credit) rows 60-62: the engine's own qualifying rule
   // (primary residence + up to two motor vehicles); other real estate / personal property never appears.
-  tables["ct.propertyTax"] = ctPropertyTaxRows(facts.deductions.propertyTaxBills).rows;
+  // When the credit is fully phased out (or line 10 is 0) the engine marks Schedule 3 lines 63 / 65 / 67 not_applicable:
+  // the schedule exists only to claim the credit, so it is left entirely blank (printing row 60 alone would not foot) and the cover says why.
+  const s3Total = ret.lines["ct1040.s3.63"];
+  const propertyRows = ctPropertyTaxRows(facts.deductions.propertyTaxBills).rows;
+  if (s3Total !== undefined && s3Total.status === "not_applicable") {
+    tables["ct.propertyTax"] = [];
+    items.push({
+      id: "adapter:ct.schedule3-blank",
+      severity: "advisory",
+      formLabel: "CT-1040",
+      lineKeys: ["ct1040.11", "ct1040.s3.63"],
+      message: `CT-1040 Schedule 3 (property tax credit) is left blank on purpose: ${s3Total.reason ?? "no credit can be claimed."}`,
+      action: "No action unless the CPA concludes a credit can be claimed.",
+    });
+  } else {
+    tables["ct.propertyTax"] = propertyRows;
+    if (propertyRows.length > 0 && s3Total !== undefined && carriesAmount(s3Total.status)) {
+      items.push({
+        id: "adapter:ct.schedule3-boxes",
+        severity: "advisory",
+        formLabel: "CT-1040",
+        lineKeys: ["ct1040.s3.63"],
+        message:
+          "CT-1040 Schedule 3: the printed form also asks for the Connecticut tax town or district, the date(s) paid and the line 66 decimal; this packet has no field for them.",
+        action: "Key the town, the dates paid and the line 66 decimal on Schedule 3 before filing.",
+      });
+    }
+  }
 
   // Schedule C Part V other expenses (rows only when the engine exposes the items).
   let partVRows: PdfTableRow[] = [];

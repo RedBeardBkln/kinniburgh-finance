@@ -122,8 +122,19 @@ describe("the engine's formsRequired verdict decides the packet (maps tester D2)
 });
 
 describe("table, header and answer wiring", () => {
-  it("ct.propertyTax is ctPropertyTaxRows(facts.deductions.propertyTaxBills).rows (description + amount)", async () => {
-    const { facts, view } = build();
+  /** The golden fixture's CT AGI is above the property tax credit phase-out, so Schedule 3 is left blank; this makes the engine say a credit applies. */
+  function withCreditEligible(ret: Ty2025Return): Ty2025Return {
+    const mk = (key: "ct1040.s3.63" | "ct1040.s3.65" | "ct1040.s3.67", amount: number) => {
+      const l = ret.lines[key];
+      if (!l) throw new Error(`${key} missing`);
+      return { ...l, status: "computed" as const, amount, exact: String(amount), reason: null };
+    };
+    return { ...ret, lines: { ...ret.lines, "ct1040.s3.63": mk("ct1040.s3.63", 6000), "ct1040.s3.65": mk("ct1040.s3.65", 300), "ct1040.s3.67": mk("ct1040.s3.67", 270) } };
+  }
+
+  it("ct.propertyTax is ctPropertyTaxRows(facts.deductions.propertyTaxBills).rows (description + amount) when a credit can be claimed", async () => {
+    const { facts, ret } = build();
+    const view = toPdfReturnView(withCreditEligible(ret), facts, OPTS);
     expect(view.tables["ct.propertyTax"]).toEqual(ctPropertyTaxRows(facts.deductions.propertyTaxBills).rows);
     expect(view.tables["ct.propertyTax"]?.[0]?.cells).toEqual({ description: "27 Old Barry Rd", amount: 6000 });
     // and the CT-1040 Schedule 3 row 60 prints it
@@ -131,6 +142,22 @@ describe("table, header and answer wiring", () => {
     const f = await readAllFields(res.bytes);
     expect(f.get("ct1040.l60d")).toBe("27 Old Barry Rd");
     expect(f.get("ct1040.l60")).toBe("6,000");
+    expect(f.get("ct1040.l63")).toBe("6,000");
+    expect(f.get("ct1040.l65")).toBe("300");
+    expect(f.get("ct1040.l67")).toBe("270");
+    expect(view.openItems.some((i) => i.id === "adapter:ct.schedule3-boxes")).toBe(true);
+  });
+
+  it("fully phased out (the golden fixture): Schedule 3 is left entirely blank and the cover item says why", async () => {
+    const { ret, view } = build();
+    expect(ret.lines["ct1040.s3.63"]?.status).toBe("not_applicable");
+    expect(view.tables["ct.propertyTax"]).toEqual([]);
+    const item = view.openItems.find((i) => i.id === "adapter:ct.schedule3-blank");
+    expect(item?.severity).toBe("advisory");
+    expect(item?.message).toContain("fully phased out");
+    const res = await fillForm("ct1040", view, ct1040Map, DEFAULT_FILL_OPTIONS);
+    const f = await readAllFields(res.bytes);
+    for (const k of ["l60", "l60d", "l61", "l62", "l63", "l65", "l67", "l68"]) expect(f.get(`ct1040.${k}`) ?? "", k).toBe("");
   });
 
   it("other real estate and unclassified bills never reach the Schedule 3 table", () => {
@@ -141,7 +168,8 @@ describe("table, header and answer wiring", () => {
       { ...base, label: "56 Arbor Rd bill", address: "56 Arbor Rd", kind: "other_real_estate", paidInYearCents: 900_000 },
       { ...base, label: "Mystery bill", address: null, kind: "unclassified", paidInYearCents: 100_000 },
     );
-    const { view } = build(facts);
+    const ret = computeTy2025Return(facts);
+    const view = toPdfReturnView(withCreditEligible(ret), facts, OPTS);
     expect(view.tables["ct.propertyTax"]).toHaveLength(1);
     expect(JSON.stringify(view.tables["ct.propertyTax"])).not.toContain("Arbor");
   });
@@ -367,14 +395,12 @@ describe("B1: forms the engine requires but the packet cannot generate are liste
 });
 
 describe("B2: a blank line is never read as a zero unless it is one", () => {
-  it("every mapped line whose pending key the engine does not emit raises an item, expected or not", async () => {
+  it("the engine emits every CT-1040 derived line (no pending keys): lines 3, 7, 8, 12, 13, 14, 16, 17, 21 are real lines and raise no 'not emitted' item", async () => {
     const { view } = build();
     const res = await fillForm("ct1040", view, ct1040Map, DEFAULT_FILL_OPTIONS);
     for (const key of ["ct1040.3", "ct1040.7", "ct1040.8", "ct1040.12", "ct1040.13", "ct1040.14", "ct1040.16", "ct1040.17", "ct1040.21"] as const) {
-      expect(view.lines[key], `${key} is not emitted`).toBeUndefined();
-      const item = res.openItems.find((i) => i.id === `noemit:ct1040:${key}`);
-      expect(item, key).toBeDefined();
-      expect(item?.severity).toBe("advisory");
+      expect(view.lines[key], `${key} is emitted`).toBeDefined();
+      expect(res.openItems.some((i) => i.id === `noemit:ct1040:${key}`), key).toBe(false);
     }
   });
 
@@ -408,12 +434,12 @@ describe("B2: a blank line is never read as a zero unless it is one", () => {
     expect(text).not.toContain("A blank form line with no open item is a computed zero");
   });
 
-  it("the CT-1040 not-modeled lines (18f, 20a-20d, 23-25, 29, 30, 63/65/67, 69a-d) are listed on the cover; Schedule 1 detail lines 31-49 are engine lines now (ty2025-mip-ct-schedule1)", async () => {
+  it("the CT-1040 not-modeled lines (18f, 23 / 24 / 24a, 69a / 69c / 69d) are listed on the cover; lines 20a-20d, 25, 29, 30, 63/65/67 and 69b are engine lines now (ty2025-ct1040-derived-lines)", async () => {
     const { view } = build();
     const res = await fillForm("ct1040", view, ct1040Map, DEFAULT_FILL_OPTIONS);
     const joined = res.blankNotes.join(" | ");
-    for (const needle of ["18f", "20a-20d", "23, 24, 24a, 25", "29, 30", "63, 65, 67", "69a-69d"]) expect(joined, needle).toContain(needle);
-    expect(joined).not.toContain("Schedule 1 detail");
+    for (const needle of ["18f", "23, 24, 24a", "69a, 69c, 69d"]) expect(joined, needle).toContain(needle);
+    for (const gone of ["20a-20d", "lines 29, 30", "63, 65, 67", "69a-69d", "Schedule 1 detail"]) expect(joined, gone).not.toContain(gone);
   });
 });
 

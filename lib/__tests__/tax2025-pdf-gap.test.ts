@@ -64,6 +64,15 @@ describe("gap report", () => {
     expect(zero?.reason).toMatch(/computed zero|not applicable/);
   });
 
+  it("no map uses a pending key for the golden fixture; the CT-1040 in particular has none (ty2025-ct1040-derived-lines)", () => {
+    const gaps = buildGapReport(viewOf(fullFacts()), FORM_MAPS, catalogs);
+    const ct = gaps.find((g) => g.formId === "ct1040");
+    expect(ct).toBeDefined();
+    expect(ct?.pendingKeysUsed).toEqual([]);
+    expect(PENDING_LINE_KEYS.filter((k) => k.startsWith("ct1040."))).toEqual([]);
+    for (const g of gaps) expect(g.pendingKeysUsed, g.formId).toEqual([]);
+  });
+
   it("explains a blocked line with the engine's reason (empty fixture) and renders text", () => {
     const view = viewOf(emptyFacts());
     const gaps = buildGapReport(view, FORM_MAPS, catalogs);

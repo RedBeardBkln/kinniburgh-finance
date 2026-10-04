@@ -132,12 +132,18 @@ describe("CT-1040 map", () => {
     expect(report.unclaimed).toEqual([]);
   });
 
-  it("every money line is a real engine LINE_KEY or a pending key; the keys the engine emits are real", () => {
+  it("every money line is a real engine LINE_KEY; no CT-1040 key is pending", () => {
     const real = new Set<string>(LINE_KEYS);
     const pending = new Set<string>(PENDING_LINE_KEYS);
     const used = ct1040Map.lines.flatMap((l) => (l.kind === "money" ? [l.line] : []));
-    for (const k of used) expect(real.has(k) || pending.has(k), k).toBe(true);
-    for (const k of ["ct1040.1", "ct1040.additions", "ct1040.subtractions", "ct1040.ctAgi", "ct1040.6", "ct1040.9", "ct1040.10", "ct1040.11", "ct1040.15", "ct1040.18", "ct1040.19", "ct1040.20", "ct1040.27", "ct1040.28", "ct1040.balance"]) {
+    for (const k of used) expect(real.has(k), k).toBe(true);
+    for (const k of used) expect(pending.has(k), `${k} is not pending`).toBe(false);
+    for (const k of [
+      "ct1040.1", "ct1040.additions", "ct1040.3", "ct1040.subtractions", "ct1040.ctAgi", "ct1040.6", "ct1040.7", "ct1040.8", "ct1040.9", "ct1040.10", "ct1040.11",
+      "ct1040.12", "ct1040.13", "ct1040.14", "ct1040.15", "ct1040.16", "ct1040.17", "ct1040.18", "ct1040.19", "ct1040.20", "ct1040.20a", "ct1040.20b", "ct1040.20c",
+      "ct1040.20d", "ct1040.21", "ct1040.22", "ct1040.25", "ct1040.26", "ct1040.27", "ct1040.28", "ct1040.29", "ct1040.30", "ct1040.s3.63", "ct1040.s3.65",
+      "ct1040.s3.67", "ct1040.s4.69b",
+    ]) {
       expect(real.has(k), `${k} is an engine key`).toBe(true);
       expect(used, `${k} is mapped`).toContain(k);
     }
@@ -147,8 +153,6 @@ describe("CT-1040 map", () => {
       expect(ct1040Map.lines.some((l) => l.kind === "money" && l.line === `ct1040.s1.${id}` && l.field === `ct1040.l${id}`), `l${id} maps ct1040.s1.${id}`).toBe(true);
       expect(ct1040Map.blank.some((b) => "field" in b && b.field === `ct1040.l${id}`), `l${id} is not a blank any more`).toBe(false);
     }
-    // Pending keys used are exactly the lines the engine does not emit; none of them is a real key.
-    for (const k of used.filter((u) => !real.has(u))) expect(pending.has(k), k).toBe(true);
   });
 
   const FULL = linesOf([
@@ -157,16 +161,23 @@ describe("CT-1040 map", () => {
     ["ct1040.subtractions", 200],
     ["ct1040.s1.42", 1000], // a detail line with an amount prints on its own printed line
     ["ct1040.s1.39", 0], // a zero detail line stays blank, like the totals 38 / 50 when zero
+    ["ct1040.3", 151200],
     ["ct1040.ctAgi", 151000],
     ["ct1040.6", 7000],
+    ["ct1040.8", 7000],
     ["ct1040.10", 7000],
     ["ct1040.11", 300],
+    ["ct1040.12", 6700],
+    ["ct1040.14", 6700],
     ["ct1040.15", 0],
+    ["ct1040.16", 6700],
+    ["ct1040.17", 6700],
     ["ct1040.18", 5000],
-    ["ct1040.balance", 1700],
+    ["ct1040.21", 5000],
+    ["ct1040.26", 1700],
   ]);
 
-  it("golden read-back: lines, names, MFJ box, balance on line 26, everything else empty", async () => {
+  it("golden read-back: lines, names, MFJ box, tax due on line 26, everything else empty", async () => {
     FULL["ct1040.9"] = engineLine("ct1040.9", 0, "not_applicable", "No federal AMT.");
     const view = viewWith({ lines: FULL, formsRequired: { ct1040: required(true) } });
     const result = await assertMapGolden(
@@ -181,14 +192,21 @@ describe("CT-1040 map", () => {
         "ct1040.l1": "150,000",
         "ct1040.l2": "1,200",
         "ct1040.l4": "200",
+        "ct1040.l3": "151,200",
         "ct1040.l5": "151,000",
         "ct1040.l6": "7,000",
+        "ct1040.l8": "7,000",
         // line 9 is not applicable (0): blank
         "ct1040.l10": "7,000",
         "ct1040.l11": "300",
+        "ct1040.l12": "6,700",
+        "ct1040.l14": "6,700",
         "ct1040.l15": "0", // printed instruction: if no tax is due, enter 0
+        "ct1040.l16": "6,700",
+        "ct1040.l17": "6,700",
         "ct1040.l18": "5,000",
-        "ct1040.l26": "1,700", // tax due: the positive balance
+        "ct1040.l21": "5,000",
+        "ct1040.l26": "1,700", // tax due: line 17 more than line 21
         "ct1040.l38": "1,200",
         "ct1040.l42": "1,000",
         "ct1040.l50": "200",
@@ -248,33 +266,35 @@ describe("CT-1040 map", () => {
     });
   });
 
-  describe("the signed CT balance prints on line 26 (due) or line 22 (overpayment), never both", () => {
-    const run = async (balance: number) => {
-      const result = await fillForm("ct1040", viewWith({ lines: linesOf([["ct1040.balance", balance]]) }), ct1040Map, NO_STAMP);
+  describe("line 26 (tax due) and line 22 (overpayment) are their own engine lines, never both", () => {
+    const run = async (due: number, over: number) => {
+      const lines = linesOf([["ct1040.26", due], ["ct1040.22", over]]);
+      const result = await fillForm("ct1040", viewWith({ lines }), ct1040Map, NO_STAMP);
       return readAllFields(result.bytes);
     };
-    it("positive: tax due on line 26 only", async () => {
-      const f = await run(1234);
+    it("tax due: line 26 only", async () => {
+      const f = await run(1234, 0);
       expect(f.get("ct1040.l26")).toBe("1,234");
       expect(f.get("ct1040.l22")).toBe("");
     });
-    it("negative: overpayment (as a positive number) on line 22 only", async () => {
-      const f = await run(-987);
+    it("overpayment: line 22 only", async () => {
+      const f = await run(0, 987);
       expect(f.get("ct1040.l22")).toBe("987");
       expect(f.get("ct1040.l26")).toBe("");
     });
     it("zero: both blank", async () => {
-      const f = await run(0);
+      const f = await run(0, 0);
       expect(f.get("ct1040.l22")).toBe("");
       expect(f.get("ct1040.l26")).toBe("");
     });
-    it("a missing balance leaves both blank with a blocking item", async () => {
-      const lines = linesOf([engineLine("ct1040.balance", null, "missing_input", "a CT line is not computed")]);
+    it("a blocked line 22 / 26 leaves both blank with a blocking item", async () => {
+      const lines = linesOf([engineLine("ct1040.22", null, "missing_input", "a CT line is not computed"), engineLine("ct1040.26", null, "missing_input", "a CT line is not computed")]);
       const result = await fillForm("ct1040", viewWith({ lines }), ct1040Map, NO_STAMP);
       const f = await readAllFields(result.bytes);
       expect(f.get("ct1040.l22")).toBe("");
       expect(f.get("ct1040.l26")).toBe("");
-      expect(result.openItems.find((o) => o.id === "blank:ct1040:ct1040.balance")?.severity).toBe("blocking");
+      expect(result.openItems.find((o) => o.id === "blank:ct1040:ct1040.22")?.severity).toBe("blocking");
+      expect(result.openItems.find((o) => o.id === "blank:ct1040:ct1040.26")?.severity).toBe("blocking");
     });
   });
 
@@ -454,9 +474,17 @@ describe("CT-1040 map against the real engine output", () => {
     const balance = amount("ct1040.balance");
     expect(f.get(balance > 0 ? "ct1040.l26" : "ct1040.l22")).toBe(fmt(Math.abs(balance)));
     expect(f.get(balance > 0 ? "ct1040.l22" : "ct1040.l26")).toBe("");
-    // The engine's penalty / interest lines need the CPA: blank + blocking item, never 0.
-    expect(f.get("ct1040.l27")).toBe("");
-    expect(result.openItems.find((o) => o.id === "blank:ct1040:ct1040.27")?.severity).toBe("blocking");
+    // The derived lines print (the form says to enter 0 on these) and foot.
+    for (const [field, key] of [["l3", "ct1040.3"], ["l8", "ct1040.8"], ["l12", "ct1040.12"], ["l14", "ct1040.14"], ["l16", "ct1040.16"], ["l17", "ct1040.17"], ["l21", "ct1040.21"]] as const) {
+      expect(f.get(`ct1040.${field}`), key).toBe(fmt(amount(key)));
+    }
+    // With nothing due, penalty and interest are a computed 0 (blank); with something due they need the CPA (informational).
+    if (balance > 0) {
+      expect(f.get("ct1040.l27")).toBe("");
+      expect(result.openItems.find((o) => o.id === "blank:ct1040:ct1040.27")).toBeDefined();
+    } else {
+      expect(ret.lines["ct1040.27"]?.status).toBe("not_applicable");
+    }
   });
 
   it("the engine requires the CT-1040 (formsRequired.ct1040) so the packet includes it", async () => {
