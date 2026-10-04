@@ -48,6 +48,9 @@ export function dispositionFor(finding: Pick<Finding, "key" | "evidenceHash">, d
   return best;
 }
 
+/** Check id prefix of the L1 finding that says a decision is still at its default alternative (l1/engine-state.ts). */
+export const DEFAULT_DECISION_CHECK = "L1.D2.decision";
+
 export type FindingStatus = "open" | "accepted";
 
 /** accepted only for an acceptable finding whose latest disposition is "accepted" with a written reason. */
@@ -59,8 +62,11 @@ export function findingStatus(finding: Pick<Finding, "key" | "evidenceHash" | "a
 }
 
 /** Gates the approval while open: blocker / high, and an unverified LLM finding that was downgraded from one of them (D2). */
-export function isGatingFinding(f: Pick<Finding, "severity" | "downgradedFrom" | "citation">): boolean {
+export function isGatingFinding(f: Pick<Finding, "severity" | "downgradedFrom" | "citation"> & { check?: string }): boolean {
   if (isGatingSeverity(f.severity)) return true;
+  // Owner decision (2026-10-04): a decision still at its DEFAULT alternative (X1, X3, X5 and any future one) gates approval until the owner
+  // records the decision (the finding disappears with the new return state) or accepts the default with a written reason.
+  if (f.check !== undefined && f.check.startsWith(DEFAULT_DECISION_CHECK)) return true;
   return f.downgradedFrom !== undefined && isGatingSeverity(f.downgradedFrom) && f.citation.sourceStatus === "unverified";
 }
 
@@ -143,8 +149,8 @@ function layerItem(
   if (run === "partial") return { id, label, state: "fail", detail: "not finished: some checks have not completed", openCount: open.length };
   if (run === "failed") return { id, label, state: "fail", detail: "a check failed to run (the gate fails closed)", openCount: open.length };
   if (extraNotReady !== null) return { id, label, state: "fail", detail: extraNotReady, openCount: open.length };
-  if (open.length > 0) return { id, label, state: "fail", detail: `${open.length} open blocker/high item(s)`, openCount: open.length };
-  return { id, label, state: "pass", detail: "no open blocker/high items", openCount: 0 };
+  if (open.length > 0) return { id, label, state: "fail", detail: `${open.length} open item(s) that block approval`, openCount: open.length };
+  return { id, label, state: "pass", detail: "nothing open that blocks approval", openCount: 0 };
 }
 
 export function evaluateGate(input: GateInput): GateResult {

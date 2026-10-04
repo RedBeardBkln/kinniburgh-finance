@@ -124,7 +124,26 @@ function numericColumn(rows: readonly PdfTableRow[], column: string): { total: n
 function tableFinding(rule: TableRule, rows: readonly PdfTableRow[], ctx: L1Context): Finding[] {
   if (!formIsFiled(ctx, rule.form, rule.engineForm)) return [];
   const total = lineState(ctx, rule.total);
-  if (total.amount === null || rows.length === 0) return [];
+  if (total.amount === null) return [];
+  if (rows.length === 0) {
+    // a printed line with an amount but no rows under it cannot be proven (fail closed: never a silent pass)
+    if (total.amount === 0) return [];
+    return [
+      makeFinding({
+        layer: "L1",
+        check: `L1.F1.${rule.id}`,
+        severity: "blocker",
+        area: rule.area,
+        formKey: rule.form,
+        lineKey: rule.total,
+        message: `${lineTitle(rule.total)} is ${usd(total.amount)} but the printed table under it has no rows, so the line cannot be proven to add up. The form says: "${rule.quote}"`,
+        evidence: [...evidenceOf(ctx, [rule.total]), { ref: `table:${rule.table}`, amount: 0, status: "no rows" }],
+        citation: { sources: [{ kind: "form_text", id: `${rule.form}:${rule.total.split(".").slice(1).join(".")}`, quote: rule.quote }], sourceStatus: "verified" },
+        recommendedAction: "Do not file with this difference. Compare the line with its source documents and rebuild the packet.",
+        acceptable: false,
+      }),
+    ];
+  }
   const { total: sumRows, bad } = numericColumn(rows, rule.column);
   // Each row is rounded to whole dollars on its own while the printed line is rounded once from the cents.
   const tolerance = Math.floor(rows.length / 2);
@@ -257,8 +276,8 @@ export const footingCheck: L1Check = {
   run(ctx) {
     const out = runRules(ctx, "footing");
     for (const rule of TABLE_RULES) {
-      const rows = (ctx.view.tables as Partial<Record<string, readonly PdfTableRow[]>>)[rule.table];
-      if (rows !== undefined) out.push(...tableFinding(rule, rows, ctx));
+      const rows = (ctx.view.tables as Partial<Record<string, readonly PdfTableRow[]>>)[rule.table] ?? [];
+      out.push(...tableFinding(rule, rows, ctx));
     }
     out.push(...f8949Findings(ctx));
     return out;

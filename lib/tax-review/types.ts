@@ -104,6 +104,8 @@ export interface Finding {
   area: FindingArea;
   formKey?: string;
   lineKey?: LineKey;
+  /** What distinguishes this finding from others of the same check / form / line (part of the key); not stored in the table. */
+  ruleTag?: string;
   message: string;
   evidence: EvidenceItem[];
   citation: FindingCitation;
@@ -204,6 +206,7 @@ export const findingSchema = z
     area: z.enum(FINDING_AREAS),
     formKey: z.string().max(60).optional(),
     lineKey: z.string().max(80).optional(),
+    ruleTag: z.string().max(300).optional(),
     message: z.string().min(1).max(MESSAGE_MAX),
     evidence: z.array(evidenceItemSchema).max(60),
     citation: z.object({ sources: z.array(sourceCitationSchema).max(10), sourceStatus: z.enum(SOURCE_STATUSES) }).strict(),
@@ -242,7 +245,7 @@ export function makeFinding(draft: FindingDraft): Finding {
   const origin = draft.origin ?? "deterministic";
   if (!draft.acceptable && origin !== "deterministic") throw new FindingError(`only a deterministic finding can be a non-acceptable invariant (${draft.check})`);
   const citation = draft.citation ?? NO_CITATION;
-  const texts = [draft.message, draft.recommendedAction, draft.challenge ?? "", ...citation.sources.flatMap((s) => [s.id, s.quote ?? ""]), ...evidence.map((e) => `${e.ref} ${e.note ?? ""}`)];
+  const texts = [draft.ruleTag ?? "", draft.message, draft.recommendedAction, draft.challenge ?? "", ...citation.sources.flatMap((s) => [s.id, s.quote ?? ""]), ...evidence.map((e) => `${e.ref} ${e.note ?? ""}`)];
   if (texts.some((t) => !isSafeOutgoing(t))) throw new FindingError(`finding ${draft.check} contains SSN-like, EIN-like or long digit text`);
   const finding: Finding = {
     key: findingKey({ layer: draft.layer, check: draft.check, ...(draft.formKey !== undefined ? { formKey: draft.formKey } : {}), ...(draft.lineKey !== undefined ? { lineKey: draft.lineKey } : {}), ...(draft.ruleTag !== undefined ? { ruleTag: draft.ruleTag } : {}) }),
@@ -252,6 +255,7 @@ export function makeFinding(draft: FindingDraft): Finding {
     area: draft.area,
     ...(draft.formKey !== undefined ? { formKey: draft.formKey } : {}),
     ...(draft.lineKey !== undefined ? { lineKey: draft.lineKey } : {}),
+    ...(draft.ruleTag !== undefined ? { ruleTag: draft.ruleTag } : {}),
     message: draft.message,
     evidence: evidence.map((e) => ({ ...e })),
     citation: { sources: citation.sources.map((s) => ({ ...s })), sourceStatus: citation.sourceStatus },

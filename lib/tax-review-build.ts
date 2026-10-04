@@ -59,7 +59,7 @@ export function loadFormData(): FormData {
 }
 
 async function defaultQuestionnaires(taxYear: number, entityId: string): Promise<FingerprintQuestionnaireInput[]> {
-  const rows = await db.taxQuestionnaire.findMany({ where: { taxYear, entityId }, select: { questionnaireId: true, definitionVersion: true, answers: true } });
+  const rows = await db.taxQuestionnaire.findMany({ where: { taxYear, entityId }, select: { questionnaireId: true, definitionVersion: true, answers: true }, orderBy: { questionnaireId: "asc" } });
   return rows.map((r) => ({ questionnaireId: r.questionnaireId, definitionVersion: r.definitionVersion, answers: r.answers }));
 }
 
