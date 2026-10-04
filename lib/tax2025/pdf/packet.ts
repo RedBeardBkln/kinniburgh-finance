@@ -107,6 +107,15 @@ export async function buildPacket(view: PdfReturnView, options: PacketOptions): 
   const openItems = [...itemById.values()];
   const model = buildCoverModel({ view, forms, fillItems: openItems, continuations, stamp });
   const cover = await renderCover(model);
+  if (model.redactedCount > 0) {
+    openItems.push({
+      id: "cover:ssnlike",
+      severity: "blocking",
+      source: "fill",
+      formId: "cover",
+      message: `${model.redactedCount} cover text value(s) looked like a Social Security Number and were replaced by a placeholder.`,
+    });
+  }
 
   const mtime = new Date(view.generatedAt);
   const zippable: Zippable = { [COVER_FILE_NAME]: [cover.bytes, { mtime, level: 0 }] };

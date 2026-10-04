@@ -34,7 +34,7 @@ describe("cover model", () => {
   it("complete headline prints the numbers; negative balance is a refund", () => {
     const lines = text(buildCoverModel(input()).blocks);
     expect(lines).toContain("Federal AGI: $96,734");
-    expect(lines).toContain("Federal balance (positive = owed, negative = refund): $-1,500");
+    expect(lines).toContain("Federal balance (positive = owed, negative = refund): -$1,500");
     expect(lines.some((l) => l.startsWith("PROVISIONAL"))).toBe(false);
   });
 

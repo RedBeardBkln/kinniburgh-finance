@@ -42,3 +42,4 @@ export {
   type PacketResult,
 } from "@/lib/tax2025/pdf/packet";
 export { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
+export { safeText, SSN_PLACEHOLDER, type SafeText } from "@/lib/tax2025/pdf/safe-text";

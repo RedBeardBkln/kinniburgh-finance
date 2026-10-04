@@ -15,7 +15,7 @@ import {
   type PdfOpenItem,
   type PdfReturnView,
 } from "@/lib/tax2025/pdf/types";
-import { sanitizeWinAnsi } from "@/lib/tax2025/pdf/winansi";
+import { safeText } from "@/lib/tax2025/pdf/safe-text";
 
 export interface CoverForm {
   formId: string;
@@ -45,6 +45,8 @@ export type CoverBlock =
   | { kind: "spacer" };
 
 export interface CoverModel {
+  /** Number of cover strings replaced because they looked like an SSN (a blocking notice is in `blocks`). */
+  redactedCount: number;
   fingerprint12: string;
   blocks: CoverBlock[];
 }
@@ -59,8 +61,13 @@ const BLANK_POLICY =
   "A blank form line with no open item is a computed zero (IRS convention: a blank is zero); only totals and lines the form " +
   "tells you to complete are printed as 0.";
 
+/** "$1,234" / "-$1,234" (sign before the currency symbol). */
+function money(n: number): string {
+  return n < 0 ? `-$${formatDollars(-n)}` : `$${formatDollars(n)}`;
+}
+
 function dollars(n: number | null): string {
-  return n === null ? "not computed" : `$${formatDollars(n)}`;
+  return n === null ? "not computed" : money(n);
 }
 
 function sortOpen<T extends { severity: string }>(items: T[]): T[] {
@@ -238,13 +245,37 @@ export function buildCoverModel(input: CoverInput): CoverModel {
     b.push({ kind: "heading", text: `Continuation: ${c.table} (${c.formId}), all ${c.rows.length} rows` });
     c.rows.forEach((row, idx) => {
       const cells = Object.entries(row)
-        .map(([k, v]) => `${k}: ${typeof v === "number" ? `$${formatDollars(v)}` : (v ?? "")}`)
+        .map(([k, v]) => `${k}: ${typeof v === "number" ? money(v) : (v ?? "")}`)
         .join(" | ");
       b.push({ kind: "bullet", text: `${idx + 1}. ${cells}` });
     });
   }
 
-  return { fingerprint12: fp12, blocks: b };
+  // Every string on the cover passes through safeText (plan 6.4): SSN-like text is replaced by a
+  // placeholder and ONE blocking notice (without the digits) is added at the top.
+  let refused = 0;
+  const guard = (t: string): string => {
+    const s = safeText(t);
+    if (s.refused) refused += 1;
+    return s.text;
+  };
+  const safeBlocks: CoverBlock[] = b.map((blk): CoverBlock => {
+    switch (blk.kind) {
+      case "kv":
+        return { kind: "kv", label: guard(blk.label), value: guard(blk.value) };
+      case "spacer":
+        return blk;
+      default:
+        return { kind: blk.kind, text: guard(blk.text) };
+    }
+  });
+  if (refused > 0) {
+    safeBlocks.splice(1, 0, {
+      kind: "bullet",
+      text: `[BLOCKING] ${refused} text value(s) on this cover looked like a Social Security Number and were replaced by a placeholder; check the source text (open-item messages, override notes, payer names).`,
+    });
+  }
+  return { fingerprint12: fp12, blocks: safeBlocks, redactedCount: refused };
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
@@ -257,7 +288,7 @@ const LEAD = 12.5;
 
 function wrap(text: string, font: PDFFont, size: number, width: number): string[] {
   const out: string[] = [];
-  for (const para of sanitizeWinAnsi(text).split("\n")) {
+  for (const para of safeText(text).text.split("\n")) {
     let line = "";
     for (const word of para.split(" ")) {
       let w = word;
@@ -354,7 +385,7 @@ export async function renderCover(model: CoverModel): Promise<RenderedCover> {
   // Footer on every page (needs the final page count).
   const total = pages.length;
   pages.forEach((p, idx) => {
-    p.drawText(sanitizeWinAnsi(`DRAFT - not a filed return - fp ${model.fingerprint12} - cover page ${idx + 1} of ${total}`), {
+    p.drawText(safeText(`DRAFT - not a filed return - fp ${model.fingerprint12} - cover page ${idx + 1} of ${total}`).text, {
       x: MARGIN,
       y: MARGIN - 24,
       size: 7,

@@ -5,7 +5,7 @@
 // check, plan section 11.)
 
 import { rgb, type PDFDocument, type PDFFont } from "pdf-lib";
-import { sanitizeWinAnsi } from "@/lib/tax2025/pdf/winansi";
+import { safeText } from "@/lib/tax2025/pdf/safe-text";
 
 export const STAMP_FONT_SIZE = 6;
 export const STAMP_BOTTOM_OFFSET = 7;
@@ -19,7 +19,7 @@ export const ALTERNATIVE_STAMP_TEXT = "ALTERNATIVE - not included in return tota
 
 /** Draw `text` at the bottom of every page of `doc`. */
 export function stampPages(doc: PDFDocument, font: PDFFont, text: string): void {
-  const safe = sanitizeWinAnsi(text);
+  const safe = safeText(text).text;
   for (const page of doc.getPages()) {
     const box = page.getMediaBox();
     page.drawText(safe, {

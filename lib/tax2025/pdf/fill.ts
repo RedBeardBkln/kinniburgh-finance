@@ -22,7 +22,6 @@ import {
   StandardFonts,
   type PDFField,
 } from "pdf-lib";
-import { containsSsnLikeText } from "@/lib/tax-extraction-schema";
 import { collectClaims } from "@/lib/tax2025/pdf/completeness";
 import { formatDollars, splitName } from "@/lib/tax2025/pdf/format";
 import { resolveFieldValue } from "@/lib/tax2025/pdf/policy";
@@ -39,23 +38,25 @@ import type {
   PacketOpenItem,
   PdfReturnView,
 } from "@/lib/tax2025/pdf/types";
-import { sanitizeWinAnsi } from "@/lib/tax2025/pdf/winansi";
+import { safeText } from "@/lib/tax2025/pdf/safe-text";
 
 export const OVERFLOW_LABEL = "Other (see statement)";
 const MAX_TOOLTIP = 600;
 
-function tooltipText(note: string, original: string | null): string {
-  const base = sanitizeWinAnsi(note);
+function tooltipText(base: string, original: string | null): string {
   const combined = original ? `${base} | ${original}` : base;
   return combined.length > MAX_TOOLTIP ? `${combined.slice(0, MAX_TOOLTIP - 3)}...` : combined;
 }
 
-function setTooltip(field: PDFField, note: string): void {
+/** Set the field tooltip (/TU). The note goes through safeText; returns true when it was refused as SSN-like. */
+function setTooltip(field: PDFField, note: string): boolean {
   const dict = field.acroField.dict;
   const existing = dict.lookup(PDFName.of("TU"));
   const original =
-    existing instanceof PDFString || existing instanceof PDFHexString ? sanitizeWinAnsi(existing.decodeText()) : null;
-  dict.set(PDFName.of("TU"), PDFHexString.fromText(tooltipText(note, original)));
+    existing instanceof PDFString || existing instanceof PDFHexString ? safeText(existing.decodeText()).text : null;
+  const safe = safeText(note);
+  dict.set(PDFName.of("TU"), PDFHexString.fromText(tooltipText(safe.text, original)));
+  return safe.refused;
 }
 
 function headerValue(source: HeaderSource, view: PdfReturnView): { text: string | null; split: boolean } {
@@ -125,9 +126,34 @@ export async function fillForm(
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const items = new Map<string, PacketOpenItem>();
   const addItem = (item: PacketOpenItem): void => {
+    // Item messages can carry engine text (reasons, labels): never let SSN-like digits through.
+    const safe = safeText(item.message);
+    if (safe.refused) {
+      const id = `fill:${formId}:ssnlike:item:${item.id}`;
+      if (!items.has(id)) {
+        items.set(id, {
+          id,
+          severity: "blocking",
+          source: "fill",
+          formId,
+          message: `An open-item message (${item.id}) looked like a Social Security Number and was withheld.`,
+        });
+      }
+      item = { ...item, message: safe.text };
+    }
     if (!items.has(item.id)) items.set(item.id, item);
   };
   const filled: string[] = [];
+  // Values each choice's sibling boxes expect, to tell "unanswered" from "answered with something unrecognised".
+  const expectedByChoice = new Map<string, Set<string | boolean>>();
+  for (const l of map.lines) {
+    if (l.kind !== "check") continue;
+    const set = expectedByChoice.get(l.choice) ?? new Set<string | boolean>();
+    set.add(l.equals);
+    expectedByChoice.set(l.choice, set);
+  }
+  const recognised = (choice: string, answer: string | boolean): boolean =>
+    expectedByChoice.get(choice)?.has(answer) ?? false;
   const continuations: ContinuationList[] = [];
 
   const textField = (name: string): PDFTextField => {
@@ -138,9 +164,10 @@ export async function fillForm(
 
   /** Write sanitized text into a text field, guarding SSN-like text and over-wide values. Returns true if written. */
   const writeText = (name: string, raw: string, note?: string): boolean => {
-    const text = sanitizeWinAnsi(raw).trim();
+    const safe = safeText(raw);
+    const text = safe.text.trim();
     if (text === "") return false;
-    if (containsSsnLikeText(text)) {
+    if (safe.refused) {
       addItem({
         id: `fill:${formId}:ssnlike:${name}`,
         severity: "blocking",
@@ -165,7 +192,16 @@ export async function fillForm(
       return false;
     }
     f.setText(text);
-    if (note) setTooltip(f, note);
+    if (note && setTooltip(f, note)) {
+      addItem({
+        id: `fill:${formId}:ssnlike:tooltip:${name}`,
+        severity: "blocking",
+        source: "fill",
+        formId,
+        field: name,
+        message: `A tooltip note for field ${name} looked like a Social Security Number and was replaced by a placeholder.`,
+      });
+    }
     filled.push(name);
     return true;
   };
@@ -180,7 +216,18 @@ export async function fillForm(
       const box = form.getFieldMaybe(entry.field);
       if (!(box instanceof PDFCheckBox)) throw new Error(`fillForm ${formId}: field "${entry.field}" is not a checkbox`);
       const answer = view.answers[entry.choice];
-      if (answer === undefined || answer === null) {
+      if (answer !== undefined && answer !== null && !recognised(entry.choice, answer)) {
+        // Present but not one of the values any sibling box expects: never guess, say so.
+        const shown = safeText(String(answer).slice(0, 40));
+        addItem({
+          id: `fill:${formId}:answer:${entry.choice}`,
+          severity: shown.refused ? "blocking" : "advisory",
+          source: "fill",
+          formId,
+          field: entry.field,
+          message: `Answer not recognised: ${entry.label ?? entry.choice} = "${shown.text}"; the boxes are left unchecked.`,
+        });
+      } else if (answer === undefined || answer === null) {
         if (entry.required) {
           addItem({
             id: `fill:${formId}:answer:${entry.choice}`,
