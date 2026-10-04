@@ -339,7 +339,7 @@ export default async function BalanceSheetPage({ params, searchParams }: PagePro
           {period
             ? "Period figures use closing balances from uploaded bank statements; accounts without a statement in the period fall back to the most recent synced balance. Business-owned fixed assets not linked to accounts are excluded."
             : "Balances reflect the most recent account sync. Business-owned fixed assets not yet linked to accounts are excluded."}{" "}
-          Confirm all figures with your CPA — this is not financial advice.
+          Confirm all figures with your accountant or tax preparer — this is not financial advice.
         </p>
       </div>
     </AppShell>

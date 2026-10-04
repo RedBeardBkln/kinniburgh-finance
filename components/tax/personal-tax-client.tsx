@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ownerWording } from "@/lib/tax-wording";
 import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
 import { TaxDocumentUpload, type DocumentRow } from "@/components/tax/tax-document-upload";
 import { OtherYearDocuments, type OtherYearDocument } from "@/components/tax/other-year-documents";
@@ -199,7 +200,7 @@ export function PersonalTaxClient(props: Props) {
             <p className="text-sm text-green-600">All questions answered. Run the AI review for your personalized guidance.</p>
           )}
           {unanswered.map((q) => {
-            const [questionText, context] = q.question.split("\n\n");
+            const [questionText, context] = ownerWording(q.question).split("\n\n");
             const isPromoted = promotedIds.has(q.id);
             return (
               <div
@@ -231,8 +232,8 @@ export function PersonalTaxClient(props: Props) {
                         onClick={() => handleAnswer(q.id, opt.value)}
                         className="block w-full text-left rounded-md border px-3 py-2 hover:border-primary transition-colors"
                       >
-                        <span className="text-sm font-medium">{opt.label}</span>
-                        <span className="mt-0.5 block text-xs text-muted-foreground">{opt.note}</span>
+                        <span className="text-sm font-medium">{ownerWording(opt.label)}</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">{ownerWording(opt.note)}</span>
                       </button>
                     ))}
                   </div>
@@ -283,7 +284,7 @@ export function PersonalTaxClient(props: Props) {
                 .map((q) => (
                   <div key={q.id} className="flex items-center justify-between gap-2 text-sm">
                     <span className="text-muted-foreground">
-                      {q.question.split("\n\n")[0]}
+                      {ownerWording(q.question).split("\n\n")[0]}
                     </span>
                     <span className="flex items-center gap-2">
                       <span className="font-medium">{String(q.answer)}</span>

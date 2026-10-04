@@ -9,6 +9,7 @@ import { TaxDocumentUpload, type DocumentRow } from "@/components/tax/tax-docume
 import { OtherYearDocuments, type OtherYearDocument } from "@/components/tax/other-year-documents";
 import type { PersonRef } from "@/lib/document-attribution";
 import { CHECKLIST_LABEL_TO_DOC_TYPES } from "@/lib/tax-checklist";
+import { ownerWording } from "@/lib/tax-wording";
 import {
   updateWorkspace,
   toggleChecklistItem,
@@ -69,7 +70,9 @@ export function TaxWorkspaceClient({
   const [deadline, setDeadline] = useState(
     initialDeadline ? initialDeadline.split("T")[0] : ""
   );
-  const [notes, setNotes] = useState(initialNotes ?? "");
+  // Text stored before the wording change can still say "CPA": it is reworded when it is SHOWN (nothing is written to the database
+  // by this; the notes are saved only when the owner edits and saves them, and then as the text he sees).
+  const [notes, setNotes] = useState(ownerWording(initialNotes ?? ""));
   const [items, setItems] = useState(initialItems);
   const [newItemLabel, setNewItemLabel] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -81,7 +84,7 @@ export function TaxWorkspaceClient({
   const [savedSnapshot, setSavedSnapshot] = useState({
     status: initialStatus,
     deadline: initialDeadline ? initialDeadline.split("T")[0] : "",
-    notes: initialNotes ?? "",
+    notes: ownerWording(initialNotes ?? ""),
   });
   const pendingHrefRef = useRef<string | null>(null);
 
@@ -232,7 +235,7 @@ export function TaxWorkspaceClient({
               className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 h-9 text-sm font-medium hover:bg-accent"
               download
             >
-              Export CPA Bundle (CSV)
+              Export Accountant Bundle (CSV)
             </a>
           </div>
         </CardContent>
@@ -268,7 +271,7 @@ export function TaxWorkspaceClient({
                   className="mt-0.5 h-4 w-4 rounded border-gray-300 cursor-pointer"
                 />
                 <span className={`flex-1 text-sm ${item.completed ? "line-through text-muted-foreground" : ""}`}>
-                  {item.label}
+                  {ownerWording(item.label)}
                 </span>
                 {linkedDocTypes && (
                   <span

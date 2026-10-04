@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
+import { ownerWording } from "@/lib/tax-wording";
 import { Card, CardContent } from "@/components/ui/card";
 import { listTaxDeadlines } from "@/actions/tax-deadlines";
 import { MarkFiledButton } from "@/components/tax/deadline-actions";
@@ -185,7 +186,7 @@ export default async function TaxPage() {
                           <td className="px-4 py-2 text-xs text-muted-foreground">
                             {d.entity.name.split(",")[0]}
                           </td>
-                          <td className="px-4 py-2 font-medium">{d.label}</td>
+                          <td className="px-4 py-2 font-medium">{ownerWording(d.label)}</td>
                           <td className="px-4 py-2 text-xs">
                             <span className="rounded-full bg-muted px-2 py-0.5">
                               {TYPE_LABELS[d.type] ?? d.type}

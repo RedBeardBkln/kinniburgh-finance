@@ -153,9 +153,9 @@ export default async function PLPage({ params, searchParams }: PageProps) {
               Download CSV
             </Link>
             <ExportCsvButton
-              filename={`cpa-bundle-${slug}-${currentYear}.csv`}
+              filename={`accountant-bundle-${slug}-${currentYear}.csv`}
               action={exportCpaBundle.bind(null, entity.id, currentYear)}
-              label="Export CPA bundle"
+              label="Export accountant bundle"
             />
           </div>
         </div>
@@ -371,12 +371,12 @@ export default async function PLPage({ params, searchParams }: PageProps) {
                   Rough cash-reserve estimate based on a flat percentage of projected net income —
                   not a computed tax liability. Doesn&rsquo;t account for tax brackets,
                   self-employment tax, deductions, or your household&rsquo;s full return. Confirm
-                  the right rate and any required estimated payments with your CPA.
+                  the right rate and any required estimated payments with your accountant or tax preparer.
                 </p>
                 {slug === "sudden-valley" && (
                   <p className="text-xs text-muted-foreground">
                     Sudden Valley&rsquo;s chart of accounts is still a placeholder, not yet
-                    reconciled against a CPA/QuickBooks export — treat these figures as rough.
+                    reconciled against an accountant's or QuickBooks export — treat these figures as rough.
                   </p>
                 )}
               </div>
@@ -385,7 +385,7 @@ export default async function PLPage({ params, searchParams }: PageProps) {
         )}
 
         <p className="text-xs text-muted-foreground">
-          Only transactions coded to revenue or expense GL codes are included. Confirm all figures with your CPA — this is not tax advice.
+          Only transactions coded to revenue or expense GL codes are included. Confirm all figures with your accountant or tax preparer — this is not tax advice.
         </p>
       </div>
     </AppShell>

@@ -72,7 +72,7 @@ export default async function BankStatementsPage({ params }: PageProps) {
               Statements are stored permanently in the tax document vault (archive only —
               never deleted). Extraction reads the statement period and per-account
               opening/closing balances; always review unconfirmed rows.
-              {entity.type === "business" && " Balance sheets are drafts for CPA review — not financial advice."}
+              {entity.type === "business" && " Balance sheets are drafts for your review — not financial advice."}
             </p>
           </CardContent>
         </Card>

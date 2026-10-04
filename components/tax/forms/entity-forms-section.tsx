@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import type { EntityFormsSection } from "@/lib/tax-forms";
 import { FormCard } from "@/components/tax/forms/form-card";
+import { ownerWording } from "@/lib/tax-wording";
 
 // One business entity's block on the Forms page, grouped under the household
 // return: what (if anything) it files, where its activity is reported, and its
@@ -19,7 +20,7 @@ export function EntityFormsSectionView({ section, taxYear }: { section: EntityFo
         <div>
           <h3 className="text-base font-semibold">{section.entityName}</h3>
           {section.taxStatusNotes && (
-            <p className="mt-0.5 text-xs text-muted-foreground">Entity record: {section.taxStatusNotes}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Entity record: {ownerWording(section.taxStatusNotes)}</p>
           )}
         </div>
         {!section.activeForYear && (

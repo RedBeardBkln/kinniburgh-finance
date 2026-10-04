@@ -177,7 +177,7 @@ export default async function BusinessPage() {
 
         <p className="text-xs text-muted-foreground">
           P&amp;L figures include only GL-coded transactions. Assign GL codes via the coding queue to improve accuracy.
-          Confirm all filing deadlines with your CPA — this is not tax advice.
+          Confirm all filing deadlines with your accountant or tax preparer — this is not tax advice.
         </p>
       </div>
     </AppShell>

@@ -93,7 +93,7 @@ export default async function MileagePage({ params, searchParams }: PageProps) {
                 </p>
               </div>
               <p className="text-xs text-muted-foreground self-end pb-0.5">
-                Confirm IRS mileage rate with your CPA — this is not tax advice.
+                Confirm IRS mileage rate with your accountant or tax preparer — this is not tax advice.
               </p>
             </CardContent>
           </Card>

@@ -192,11 +192,12 @@ function stripComments(src: string): string {
 }
 
 describe("pages and components: no CPA in the rendered text", () => {
-  const roots = ["components/tax", "app/tax", "components/donations", "components/fixed-assets"].map((r) => join(ROOT, r));
+  const roots = ["components/tax", "app/tax", "app/business", "components/donations", "components/fixed-assets"].map((r) => join(ROOT, r));
   const files = roots.flatMap((r) => walk(r));
 
-  // D7 (orchestrator decision): the bookkeeping "Export CPA bundle" button is not about the return review and is left alone.
-  const ALLOWED_LINES: readonly RegExp[] = [/Export CPA Bundle \(CSV\)/];
+  // The bookkeeping pages ("Export accountant bundle", "confirm with your accountant or tax preparer") are scanned too (tester Y D3);
+  // nothing is allowed any more: identifiers such as the exportCpaBundle action name are not part of a line the scan flags.
+  const ALLOWED_LINES: readonly RegExp[] = [];
 
   it("scans a meaningful number of files", () => {
     expect(files.length).toBeGreaterThan(40);
