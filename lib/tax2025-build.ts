@@ -32,9 +32,22 @@ import type { Ty2025Decisions, Ty2025Return } from "@/lib/tax2025/types";
 // "Return completeness" TaxQuestionnaire row (its EFFECTIVE answers, through
 // lib/tax2025/answers.ts) for estimated / extension payments, the "stated none"
 // statements and the per-person retirement / HSA / tips / overtime answers.
+//
+// SECURITY / 1c CHECKLIST: this module has NO auth. A page or server action that uses it must call requireAuth() itself and may pass
+// only `ret` (and chosen facts) to a client component: never `resolved`, never `loadTy2025RawInputs` output (the full effective
+// extraction of every document: payer EINs, addresses, loan last-4). buildTy2025Return's `raw` is already reduced to a document-free summary.
+
+/**
+ * Raw inputs WITHOUT the documents' extraction data, names or issuer details: only what a caller needs to explain a result.
+ * The full `RawTy2025Inputs` (effective extraction of every document: payer EINs, addresses, loan last-4) never leaves this module's
+ * `loadTy2025RawInputs`.
+ */
+export type SafeRawSummary = Omit<RawTy2025Inputs, "documents"> & {
+  documents: { id: string; docType: string; taxYear: number | null; verified: boolean; legacyFormat: boolean; subjectType: string | null }[];
+};
 
 export interface Ty2025Build {
-  raw: RawTy2025Inputs;
+  raw: SafeRawSummary;
   resolved: ResolvedFacts;
   facts: Ty2025Facts;
   ret: Ty2025Return;
@@ -126,17 +139,32 @@ export async function loadTy2025RawInputs(taxYear: 2025): Promise<RawTy2025Input
   let glLines: GlLineFact[] = [];
   let booksEmpty = true;
   let glExcludedTransactionCount = 0;
+  let uncodedTransactionCount = 0;
   let mileage: RawTy2025Inputs["ekc"]["mileage"] = [];
   let fixedAssets: FixedAssetFact[] = [];
   if (ekc) {
-    const [pl, mileageRows, assetRows] = await Promise.all([
+    // Same filters and UTC window as computePL (lib/reports.ts). computePL silently skips transactions that have no GL
+    // code and reports every total as abs(); these two extra READ-ONLY groupBy queries surface (a) the uncoded 2025
+    // transactions and (b) the SIGNED net per GL code, so neither can hide a number.
+    const txWhere = { entityId: ekc.id, archivedAt: null, transferPairId: null, postedAt: { gte: bounds.start, lte: yearEnd } };
+    const [pl, uncodedRows, signedRows, mileageRows, assetRows] = await Promise.all([
       computePL(ekc.id, bounds.start, yearEnd),
+      db.transaction.groupBy({ by: ["glCodeId"], where: { ...txWhere, glCodeId: null }, _count: { _all: true } }),
+      db.transaction.groupBy({ by: ["glCodeId"], where: { ...txWhere, glCodeId: { not: null } }, _sum: { amount: true } }),
       db.mileageEntry.findMany({ where: { entityId: ekc.id, archivedAt: null, date: { gte: bounds.start, lt: bounds.endExclusive } } }),
       db.fixedAsset.findMany({ where: { entityId: ekc.id, archivedAt: null }, orderBy: [{ placedInServiceDate: "asc" }, { createdAt: "asc" }] }),
     ]);
+    uncodedTransactionCount = uncodedRows
+      .filter((r) => r.glCodeId === null)
+      .reduce((n, r) => n + (r._count?._all ?? 0), 0);
+    const signedByCode = new Map<string, number>();
+    for (const r of signedRows) {
+      if (r.glCodeId !== null && r._sum?.amount != null) signedByCode.set(r.glCodeId, dollarsToCents(r._sum.amount));
+    }
+    const signed = (id: string): { signedCents?: number } => (signedByCode.has(id) ? { signedCents: signedByCode.get(id)! } : {});
     glLines = [
-      ...pl.incomeLines.map((l): GlLineFact => ({ glCodeId: l.glCodeId, code: l.code, name: l.name, glType: "revenue", totalCents: dollarsToCents(l.total) })),
-      ...pl.expenseLines.map((l): GlLineFact => ({ glCodeId: l.glCodeId, code: l.code, name: l.name, glType: "expense", totalCents: dollarsToCents(l.total) })),
+      ...pl.incomeLines.map((l): GlLineFact => ({ glCodeId: l.glCodeId, code: l.code, name: l.name, glType: "revenue", totalCents: dollarsToCents(l.total), ...signed(l.glCodeId) })),
+      ...pl.expenseLines.map((l): GlLineFact => ({ glCodeId: l.glCodeId, code: l.code, name: l.name, glType: "expense", totalCents: dollarsToCents(l.total), ...signed(l.glCodeId) })),
     ];
     booksEmpty = glLines.length === 0;
     glExcludedTransactionCount = pl.excludedFromPL.transactionCount;
@@ -176,7 +204,7 @@ export async function loadTy2025RawInputs(taxYear: 2025): Promise<RawTy2025Input
     returnCompletenessStale,
     primaryResidence: inferPrimaryResidence(rawDocs, taxYear),
     paystubs: { federalWithheldCents: stubWithholding.federalWithholdingCents, ctWithheldCents: stubWithholding.ctWithholdingCents },
-    ekc: { glLines, booksEmpty, glExcludedTransactionCount, mileage, fixedAssets },
+    ekc: { glLines, booksEmpty, glExcludedTransactionCount, uncodedTransactionCount, mileage, fixedAssets },
     donations: donationFacts,
   };
 }
@@ -194,5 +222,9 @@ export async function buildTy2025Return(
   if ("error" in raw) return raw;
   const resolved = resolveFacts(raw);
   const ret = computeTy2025Return(resolved.facts, decisions, { conflicts: resolved.conflicts, openItems: resolved.openItems });
-  return { raw, resolved, facts: resolved.facts, ret };
+  const safeRaw: SafeRawSummary = {
+    ...raw,
+    documents: raw.documents.map((d) => ({ id: d.id, docType: d.docType, taxYear: d.taxYear, verified: d.verified, legacyFormat: d.legacyFormat, subjectType: d.subjectType })),
+  };
+  return { raw: safeRaw, resolved, facts: resolved.facts, ret };
 }

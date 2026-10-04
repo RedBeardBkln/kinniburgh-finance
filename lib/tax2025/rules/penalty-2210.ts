@@ -94,7 +94,8 @@ const EST_NOTE = "The IRS figures this penalty itself (leave Form 1040 line 38 b
 export function dayNumber(iso: string): number {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   if (!m) throw new Error(`Bad date ${iso}`);
-  return Math.round(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86_400_000);
+  // UTC midnights are exact multiples of 86,400,000 ms, so the quotient is already an integer
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86_400_000;
 }
 
 /** Penalty (before rounding) on `amount` unpaid from `fromIso` (exclusive) through `toIso` (inclusive), by rate period. */

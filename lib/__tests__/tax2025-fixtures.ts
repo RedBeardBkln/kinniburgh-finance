@@ -190,6 +190,7 @@ export function fullFacts(): Ty2025Facts {
     p.bornBefore1961 = owner(false);
     p.blind = owner(false);
   }
+  f.returnAnswers.attestations = { digitalAssets: owner(false), foreignAccounts: owner(false) };
 
   f.income.w2s = [
     w2({

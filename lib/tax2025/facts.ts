@@ -148,6 +148,11 @@ export const glLineFactSchema = z.object({
   glType: z.enum(["revenue", "expense"]),
   /** Unsigned total for the year, integer cents (computePL's abs total). */
   totalCents: cents,
+  /**
+   * SIGNED net for the year, integer cents (negative = outflow), read by the loader because computePL reports abs().
+   * Absent = not read. A revenue code that nets negative or an expense code that nets positive is flagged (sign flip).
+   */
+  signedCents: cents.optional(),
 });
 export type GlLineFact = z.infer<typeof glLineFactSchema>;
 
@@ -177,6 +182,11 @@ const scheduleCSchema = z.object({
   glLines: z.array(glLineFactSchema),
   /** True when the entity has no GL-coded P&L activity at all (books not coded). */
   booksEmpty: z.boolean(),
+  /**
+   * 2025 EK Consulting transactions with NO GL code (archivedAt null, transferPairId null, same window as the P&L). computePL
+   * skips them, so they are invisible to Schedule C: more than 0 blocks lines 28 / 29 / 31. Absent = not supplied (treated as 0).
+   */
+  uncodedTransactionCount: z.number().int().optional(),
   /** GL-coded transactions that are NOT P&L (balance-sheet / equity / unknown type): count, for the notes. */
   glExcludedTransactionCount: z.number().int(),
   mileage: z.array(mileageFactSchema),

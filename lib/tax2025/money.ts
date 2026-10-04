@@ -11,7 +11,8 @@ export const ZERO = new Decimal(0);
  * IRS whole-dollar rounding (1040 instructions, "Rounding Off to Whole Dollars",
  * verified 2026-10-03): amounts under 50 cents are dropped, 50 to 99 cents round up
  * to the next dollar. `ROUND_HALF_UP` is "half away from zero", so a loss of
- * $2.50 rounds to -$3, the same magnitude rule.
+ * $2.50 rounds to -$3, the same magnitude rule. (The IRS text only defines the rule for positive amounts; negative
+ * lines such as a Schedule C loss use the same magnitude rule, an immaterial convention.)
  */
 export function roundLine(x: Decimal): Decimal {
   return x.toDecimalPlaces(0, Decimal.ROUND_HALF_UP);

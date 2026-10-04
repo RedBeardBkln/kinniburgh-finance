@@ -296,3 +296,46 @@ describe("computeScheduleC: line 30 home office (decision X1)", () => {
     expect(st(computeScheduleC(input({ homeOfficeSqft: null })).result, "schc.30")).toBe("missing_input");
   });
 });
+
+// Round 2, D1: Simplified Method Worksheet line 1 (Schedule C instructions; Pub 587 for 2025 returns): the simplified
+// deduction is the smaller of the gross income limitation (Schedule C line 29) or 300 sq ft x $5, and never below 0.
+describe("computeScheduleC: home office gross income limitation (D1)", () => {
+  const rev = (dollars: number) => [gl("4000", "Services", "revenue", dollars * 100)];
+
+  it("revenue $1,000, 300 sq ft: line 29 = 1,000, line 30 = min(1,500, 1,000) = 1,000, line 31 = 0", () => {
+    const { result } = computeScheduleC(input({ glLines: rev(1000), homeOfficeSqft: 300 }));
+    expect(amt(result, "schc.29")).toBe("1000");
+    expect(amt(result, "schc.30")).toBe("1000");
+    expect(amt(result, "schc.31")).toBe("0");
+    expect(result.lines.find((l) => l.key === "schc.30")?.reason).toContain("gross income limitation");
+    expect(result.alternatives?.find((a) => a.id === "simplified")?.reasons.join(" ")).toContain("gross income limitation");
+  });
+
+  it("a Schedule C loss before the home office: line 30 = 0 and line 31 stays the loss (the deduction cannot add to it)", () => {
+    // revenue 500, expenses 800 (meals not involved): line 29 = -300
+    const { result } = computeScheduleC(
+      input({ glLines: [...rev(500), gl("5010", "Office expenses:Software & apps", "expense", 80_000)], homeOfficeSqft: 300 })
+    );
+    expect(amt(result, "schc.29")).toBe("-300");
+    expect(amt(result, "schc.30")).toBe("0");
+    expect(amt(result, "schc.31")).toBe("-300");
+  });
+
+  it("profit exactly equal to the simplified amount (1,500) is not limited; one dollar less is", () => {
+    const at = computeScheduleC(input({ glLines: rev(1500), homeOfficeSqft: 300 })).result;
+    expect(amt(at, "schc.30")).toBe("1500");
+    expect(at.lines.find((l) => l.key === "schc.30")?.reason ?? "").not.toContain("limitation");
+    const under = computeScheduleC(input({ glLines: rev(1499), homeOfficeSqft: 300 })).result;
+    expect(amt(under, "schc.30")).toBe("1499");
+    expect(amt(under, "schc.31")).toBe("0");
+  });
+
+  it("when tentative profit is not known (unmapped account) line 30 is blocked, not shown uncapped", () => {
+    const { result } = computeScheduleC(
+      input({ glLines: [...rev(1000), gl("7777", "Mystery account", "expense", 5_000)], homeOfficeSqft: 300 })
+    );
+    expect(st(result, "schc.29")).toBe("missing_input");
+    expect(st(result, "schc.30")).toBe("missing_input");
+    expect(amt(result, "schc.30")).toBeNull();
+  });
+});

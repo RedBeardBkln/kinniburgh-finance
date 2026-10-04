@@ -156,7 +156,7 @@ export const CONSTANTS = {
     "FEDERAL_BRACKETS_MFJ",
     FEDERAL_BRACKETS_MFJ_2025,
     URL_1040_INSTR,
-    "MFJ ordinary-income brackets (Tax Computation Worksheet equivalent); recorded in specs/09 from IR-2024-273 / Rev. Proc. 2024-40, unchanged by OBBBA.",
+    "MFJ ordinary-income brackets (Tax Computation Worksheet equivalent). Cited sources: the 2025 Form 1040 instructions (Tax Computation Worksheet, confirmed again against the printed Tax Table) and, in specs/09, IR-2024-273 / Rev. Proc. 2024-40 (unchanged by OBBBA).",
     VERIFIED_ON_SPEC09_FIRST_PASS
   ),
 
@@ -394,6 +394,12 @@ export const CONSTANTS = {
   MEALS_DEDUCTIBLE_FRACTION: def("MEALS_DEDUCTIBLE_FRACTION", 0.5, URL_SCH_C_INSTR, "Business meals are generally 50% deductible."),
   HOME_OFFICE_RATE_PER_SQFT: def("HOME_OFFICE_RATE_PER_SQFT", HOME_OFFICE_SIMPLIFIED_RATE_PER_SQFT, URL_SCH_C_INSTR, "Simplified home-office method: $5 per square foot."),
   HOME_OFFICE_MAX_SQFT: def("HOME_OFFICE_MAX_SQFT", HOME_OFFICE_SIMPLIFIED_MAX_SQFT, URL_SCH_C_INSTR, "Simplified home-office method: at most 300 square feet. The election is irrevocable for the year."),
+  HOME_OFFICE_GROSS_INCOME_LIMIT: def(
+    "HOME_OFFICE_GROSS_INCOME_LIMIT",
+    "Schedule C line 29 (floored at 0)",
+    URL_SCH_C_INSTR,
+    "Simplified Method Worksheet line 1 (Schedule C instructions; Pub 587 for 2025 returns, https://www.irs.gov/pub/irs-pdf/p587.pdf, worksheet line 5 'smaller of line 1 or line 4, if zero or less enter -0-'): the simplified deduction cannot exceed the gross income limitation, which is Schedule C line 29 (plus Form 8949 / 4797 gains and minus losses not allocable to the home, not modeled). Wording re-read 2026-10-03."
+  ),
   SECTION_179_MAX: def("SECTION_179_MAX", 2500000, URL_4562_INSTR, "Section 179 maximum deduction."),
   SECTION_179_PHASEOUT_START: def("SECTION_179_PHASEOUT_START", 4000000, URL_4562_INSTR, "Section 179 reduced dollar-for-dollar above this amount of 179 property."),
   SECTION_179_SUV_CAP: def("SECTION_179_SUV_CAP", 31300, URL_4562_INSTR, "Section 179 cap for certain SUVs."),

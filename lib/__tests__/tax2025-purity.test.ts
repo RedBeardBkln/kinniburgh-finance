@@ -92,7 +92,7 @@ describe("lib/tax2025-build.ts is read-only", () => {
   it("only reads through findMany / findUnique / computePL", () => {
     const calls = [...src.matchAll(/db\.(\w+)\.(\w+)\s*\(/g)].map((m) => m[2]);
     expect(calls.length).toBeGreaterThan(5);
-    for (const c of calls) expect(["findMany", "findUnique"]).toContain(c);
+    for (const c of calls) expect(["findMany", "findUnique", "groupBy"]).toContain(c);
   });
   it("has no 'use server' directive (it is a library, not an action)", () => {
     expect(src).not.toMatch(/["']use server["']/);

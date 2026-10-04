@@ -31,6 +31,7 @@ import {
   type Ty2025Facts,
   type W2Fact,
 } from "@/lib/tax2025/facts";
+import { findGlMapEntry } from "@/lib/tax2025/gl-schedule-c-map";
 import { NONE_GROUP_IDS, type NoneGroupId } from "@/lib/tax2025/line-catalog";
 import {
   missingLeaf,
@@ -103,6 +104,8 @@ export interface RawAnswers {
   noInterestConfirmed?: boolean;
   noDividendsConfirmed?: boolean;
   noPropertyTaxConfirmed?: boolean;
+  /** Owner confirms 1099-DIV boxes 2b / 2c / 2d (unrecaptured section 1250, section 1202, collectibles gain) are all zero. */
+  dividendBoxes2b2dConfirmedZero?: boolean;
   statedNone?: Partial<Record<NoneGroupId, boolean>>;
   /** Owner classification per property tax bill document id. */
   billClassifications?: Record<string, PropertyBillKind>;
@@ -128,6 +131,8 @@ export interface RawTy2025Inputs {
     glLines: GlLineFact[];
     booksEmpty: boolean;
     glExcludedTransactionCount: number;
+    /** 2025 EKC transactions with no GL code (invisible to the P&L); absent = not supplied. */
+    uncodedTransactionCount?: number;
     mileage: { id?: string; miles: number; ratePerMile: string; dateIso: string }[];
     fixedAssets: FixedAssetFact[];
   };
@@ -205,6 +210,36 @@ export function addressesMatch(a: string, b: string): boolean {
 /** W-2 box 12 codes that are employee deferrals or HSA contributions (used only for the conflict check). */
 const BOX12_DEFERRAL_CODES = new Set(["D", "E", "F", "G", "H", "S", "AA", "BB", "W"]);
 
+/** Signature of a document for exact-duplicate detection; null for types this resolver does not de-duplicate. */
+function duplicateKey(doc: RawDocument): string | null {
+  const data = dataOf(doc);
+  const person = doc.subjectUserId ?? "";
+  const str = (k: string) => strOrNull(data[k]) ?? "";
+  const num = (k: string) => String(intOrNull(data[k]) ?? "");
+  switch (doc.docType) {
+    case "w2":
+      return ["w2", person, str("employerEIN") || str("employerName").toLowerCase(), num("wagesCents"), num("federalWithheldCents"), num("socialSecurityWagesCents"), num("medicareWagesCents")].join("|");
+    case "1099": {
+      const amounts = Object.keys(data)
+        .filter((k) => k.endsWith("Cents") && intOrNull(data[k]) !== null)
+        .sort()
+        .map((k) => `${k}=${String(data[k])}`)
+        .join(",");
+      if (amounts === "") return null;
+      return ["1099", person, str("payerEIN") || str("payerName").toLowerCase(), str("formVariant"), amounts].join("|");
+    }
+    case "mortgage_interest":
+    case "form_1098":
+      if (num("interestCents") === "") return null;
+      return ["1098", str("servicerName").toLowerCase(), num("interestCents"), num("principalBalanceCents"), normalizeAddress(str("propertyAddress"))].join("|");
+    case "property_tax":
+      if (num("totalTaxBilledCents") === "" && num("paidInTaxYearCents") === "") return null;
+      return ["property_tax", str("jurisdictionName").toLowerCase(), normalizeAddress(str("propertyAddress")), str("parcelId"), str("taxType"), num("totalTaxBilledCents"), num("paidInTaxYearCents")].join("|");
+    default:
+      return null;
+  }
+}
+
 // ── Resolver ──────────────────────────────────────────────────────────────────
 
 export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
@@ -218,7 +253,40 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
   const answered = <T>(v: T | undefined, label: string, key: string): Sourced<T> =>
     v === undefined ? missingLeaf<T>() : sourced(v, "answer_owner", [{ kind: "questionnaire", id: key, label }]);
 
-  const docsForYear = raw.documents.filter((d) => d.taxYear === year && (d.extractionStatus === "complete" || d.reextractIncomplete === true));
+  const usableDocs = raw.documents.filter((d) => d.taxYear === year && (d.extractionStatus === "complete" || d.reextractIncomplete === true));
+
+  // Exact duplicate documents (same type, year, person, issuer and the same key amounts) are counted ONCE and raise a
+  // BLOCKING open item: silently counting both would double the income / withholding / deduction, and silently dropping one
+  // would hide a possible second real document. The copy counted is the owner-verified one, else the first on file.
+  const docsForYear: RawDocument[] = [];
+  const firstByKey = new Map<string, RawDocument>();
+  for (const d of usableDocs) {
+    const key = duplicateKey(d);
+    if (key === null) {
+      docsForYear.push(d);
+      continue;
+    }
+    const kept = firstByKey.get(key);
+    if (kept === undefined) {
+      firstByKey.set(key, d);
+      docsForYear.push(d);
+      continue;
+    }
+    // prefer the verified copy as the one counted
+    const counted = !kept.verified && d.verified ? d : kept;
+    const ignored = counted === kept ? d : kept;
+    if (counted !== kept) {
+      docsForYear.splice(docsForYear.indexOf(kept), 1, d);
+      firstByKey.set(key, d);
+    }
+    addItem({
+      id: `doc-duplicate:${d.docType}:${counted.id}:${ignored.id}`,
+      severity: "blocking",
+      message: `Two ${d.docType} documents are exact duplicates (same type, year, person, issuer and amounts). The engine counted ${counted.verified ? "the verified copy" : "the first copy"} (${counted.id}) once and ignored the other (${ignored.id}) so nothing is double counted, but it cannot tell whether the second is a genuine second form.`,
+      action: "Archive the duplicate, or tell the CPA if both are real forms.",
+      refs: [docRef(counted, d.docType), docRef(ignored, d.docType)],
+    });
+  }
 
   // ── Household ────────────────────────────────────────────────────────────────
   const p = raw.planning;
@@ -346,20 +414,16 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       });
     }
   }
-  // duplicate W-2s
-  for (let i = 0; i < w2s.length; i++) {
-    for (let j = i + 1; j < w2s.length; j++) {
-      const a = w2s[i]!;
-      const b = w2s[j]!;
-      if (a.employer !== null && a.employer === b.employer && a.wagesCents === b.wagesCents && a.fedWithheldCents === b.fedWithheldCents) {
-        addItem({
-          id: `w2-duplicate:${a.docId}:${b.docId}`,
-          severity: "advisory",
-          message: `Two W-2 documents from ${a.employer} have identical wages and withholding: one may be a duplicate.`,
-          action: "Archive the duplicate if it is one.",
-          refs: [...a.refs, ...b.refs],
-        });
-      }
+  for (const person of raw.people) {
+    const mine = w2s.filter((w) => w.personUserId === person.userId);
+    if (mine.length > 1 && mine.some((w) => w.employerEin === null)) {
+      addItem({
+        id: `w2-no-ein:${person.userId}`,
+        severity: "advisory",
+        message: `${person.name} has ${mine.length} W-2s and at least one has no employer EIN read, so employers are told apart by name (needed for the excess Social Security credit, which requires more than one employer).`,
+        action: "Enter the employer EIN on the W-2 review screen.",
+        refs: mine.flatMap((w) => w.refs),
+      });
     }
   }
 
@@ -438,6 +502,19 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       else {
         for (const k of ["int_box4Cents", "div_box4Cents", "nec_box4Cents", "misc_box4Cents"]) federal1099Withheld += intOrNull(data[k]) ?? 0;
       }
+    } else {
+      // Legacy-format document that is not a 1099-INT: its withholding cannot be attributed reliably and is NOT counted.
+      const legacyWithheld = headlineWithheld ?? 0;
+      addItem({
+        id: `legacy-1099-withholding:${doc.id}`,
+        severity: legacyWithheld > 0 ? "blocking" : "advisory",
+        message:
+          legacyWithheld > 0
+            ? `The legacy-format ${formVariant ?? "1099"} from ${payer ?? "a payer"} shows federal withholding of $${(legacyWithheld / 100).toFixed(2)}, which is NOT counted in 1040 line 25b (older extractions cannot be trusted for non-interest withholding).`
+            : `The legacy-format ${formVariant ?? "1099"} from ${payer ?? "a payer"} was read before per-box withholding existed; any withholding on it is not counted.`,
+        action: "Re-extract the document so the withholding boxes are read.",
+        refs: [ref],
+      });
     }
 
     // income this engine does not compute: captured, never dropped
@@ -474,6 +551,19 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       refs: [...new Set(otherIncomeBoxes.map((b) => b.docId))].map((id): Ref => ({ kind: "document", id, label: "1099" })),
     });
   }
+  // S4: the Qualified Dividends and Capital Gain Tax Worksheet is valid only with no unrecaptured section 1250 gain, section 1202
+  // gain or 28% (collectibles) gain (those need the Schedule D Tax Worksheet). The extraction does not read 1099-DIV boxes 2b-2d.
+  if (dividends.length > 0 && answers.dividendBoxes2b2dConfirmedZero !== true) {
+    addItem({
+      id: "dividend-boxes-2b-2d",
+      severity: "blocking",
+      message:
+        "1099-DIV boxes 2b, 2c and 2d (unrecaptured section 1250 gain, section 1202 gain, collectibles gain) are not read by the extraction. The tax computation uses the Qualified Dividends and Capital Gain Tax Worksheet, which is only valid when all three are zero.",
+      action: "Check the 1099-DIV and confirm boxes 2b, 2c and 2d are zero (or tell the CPA so the Schedule D Tax Worksheet is used).",
+      lineKeys: ["f1040.16", "qdcg.25"],
+      refs: dividends.flatMap((d) => d.refs),
+    });
+  }
   const box3Total = interest.reduce((s, i) => s + (i.box3Cents ?? 0), 0);
   if (box3Total > 0) {
     addItem({
@@ -497,8 +587,17 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
   const mortgages: MortgageFact[] = [];
   for (const doc of docsForYear.filter((d) => d.docType === "mortgage_interest" || d.docType === "form_1098")) {
     const data = dataOf(doc);
-    if (intOrNull(data.interestCents) === null) continue;
     const lender = strOrNull(data.servicerName);
+    if (intOrNull(data.interestCents) === null) {
+      // Never dropped: the fact is kept with a null interest (Schedule A line 8a then reports missing_input) and a blocking item says why.
+      addItem({
+        id: `form1098-no-interest:${doc.id}`,
+        severity: "blocking",
+        message: `The Form 1098 from ${lender ?? "a lender"} has no mortgage interest (box 1) read, so Schedule A mortgage interest cannot be totaled.`,
+        action: "Open the document, enter box 1 or re-extract it.",
+        refs: [docRef(doc, "1098")],
+      });
+    }
     mortgages.push({
       docId: doc.id,
       lender,
@@ -527,6 +626,20 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       message: `The primary residence is taken to be ${primaryAddress.address} (${primaryAddress.note ?? "derived"}); the property tax credit and Schedule A classification depend on it.`,
       action: "Confirm the primary residence address.",
     });
+  }
+  {
+    const distinct: string[] = [];
+    for (const m of mortgages) if (m.propertyAddress && !distinct.some((d) => addressesMatch(d, m.propertyAddress!))) distinct.push(m.propertyAddress);
+    const other = primaryAddress ? mortgages.filter((m) => m.propertyAddress && !addressesMatch(m.propertyAddress, primaryAddress.address)) : [];
+    if ((!primaryAddress && distinct.length > 1) || other.length > 0) {
+      addItem({
+        id: "form1098-multiple-properties",
+        severity: "blocking",
+        message: `Form 1098 interest is reported for ${distinct.length} different properties (${distinct.join("; ")}) and the primary residence ${primaryAddress ? `is ${primaryAddress.address}` : "cannot be told apart"}: the interest on a property that is not the primary residence is not silently treated as primary-residence Schedule A interest.`,
+        action: "Confirm which property is the primary residence and how each other 1098 property is used (second home, rental).",
+        refs: mortgages.flatMap((m) => m.refs),
+      });
+    }
   }
   const propertyTaxBills: PropertyTaxBill[] = [];
   for (const doc of docsForYear.filter((d) => d.docType === "property_tax")) {
@@ -682,6 +795,33 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       action: "Confirm the Schedule C owner.",
     });
   }
+  // B1: uncoded EKC transactions are invisible to the P&L (computePL skips them): never a silent total.
+  const uncoded = raw.ekc.uncodedTransactionCount ?? 0;
+  if (uncoded > 0) {
+    addItem({
+      id: "ekc-uncoded-transactions",
+      severity: "blocking",
+      message: `${uncoded} EK Consulting transaction(s) dated ${year} have no GL code, so Schedule C income and expenses (lines 28, 29, 31) cannot be totaled: the P&L only sees coded transactions.`,
+      action: "GL-code every EK Consulting 2025 transaction at /business/ek-consulting/gl.",
+      lineKeys: ["schc.28", "schc.29", "schc.31"],
+    });
+  }
+  // S5: computePL reports abs(); a revenue code that nets negative or an expense code that nets positive would read as the opposite sign.
+  for (const g of raw.ekc.glLines) {
+    if (g.signedCents === undefined) continue;
+    const flipped = g.glType === "revenue" ? g.signedCents < 0 : g.signedCents > 0;
+    // "Returns and allowances" (Schedule C line 2) is an income-type account whose normal balance is an outflow
+    const target = findGlMapEntry(g.name)?.target;
+    if (!flipped || (target?.kind === "line" && target.line === "2")) continue;
+    addItem({
+      id: `gl-sign-flip:${g.code}`,
+      severity: "blocking",
+      message: `GL account "${g.name}" (${g.code}) is a ${g.glType} account but nets ${g.signedCents < 0 ? "negative (an outflow)" : "positive (an inflow)"} for ${year}; the P&L reports it as a positive ${g.glType}, which would misstate Schedule C.`,
+      action: "Review the transactions coded to this account (a refund, a miscoded row or a reversed sign).",
+      refs: [{ kind: "gl", id: g.code, label: g.name }],
+    });
+  }
+
   const mileageNone: Sourced<boolean> =
     p.businessMileage === null
       ? missingLeaf()
@@ -746,7 +886,8 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
   if (answers.returnAnswers === undefined) {
     addItem({
       id: "return-completeness-not-started",
-      severity: "blocking",
+      // advisory: every line that needs an answer is already missing_input (and blocking) on its own
+      severity: "advisory",
       message: "The Return completeness questionnaire has not been answered: retirement and HSA answers, tips, overtime, estimated payments and the \"none\" statements are all unknown.",
       action: "Answer the Return completeness questionnaire (Forms page, Form 1040 card).",
     });
@@ -915,6 +1056,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
         glLines: raw.ekc.glLines,
         booksEmpty: raw.ekc.booksEmpty,
         glExcludedTransactionCount: raw.ekc.glExcludedTransactionCount,
+        ...(raw.ekc.uncodedTransactionCount !== undefined ? { uncodedTransactionCount: raw.ekc.uncodedTransactionCount } : {}),
         mileage: raw.ekc.mileage,
         mileageNoneConfirmed: mileageNone,
         homeOfficeEligibility: homeElig,

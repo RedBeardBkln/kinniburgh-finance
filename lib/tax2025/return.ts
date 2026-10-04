@@ -97,7 +97,9 @@ const GATES: Readonly<Record<string, readonly Gate[]>> = {
   "addl-medicare-8959": [{ groups: ["se_other"], lines: "all" }],
   "schedule-a": [
     { groups: ["sch_a_other"], lines: ["scha.14"] },
-    { groups: ["medical_expenses", "sch_a_other"], lines: ["scha.17", "f1040.12e"] },
+    { groups: ["medical_expenses", "sch_a_other"], lines: ["scha.17"] },
+    // 12e = max(itemized, standard); the standard deduction itself (+$1,600 per age 65+ / blind box) comes from standard-deduction.ts
+    { groups: ["medical_expenses", "sch_a_other"], lines: ["f1040.12e"] },
   ],
   "qbi-8995": [{ groups: ["qbi_carryforwards"], lines: "all" }],
   "schedule-c": [{ groups: ["sch_c_other_lines"], lines: ["schc.28", "schc.29", "schc.31"] }],
@@ -197,8 +199,12 @@ class Assembly {
     this.line(key, status, amount, reason, ruleId, [], refs);
   }
 
-  blocked(key: LineKey, status: Blocked, reason: string, ruleId: string): void {
+  blocked(key: LineKey, status: Blocked, reason: string, ruleId: string, informational = false): void {
     this.line(key, status, null, reason, ruleId);
+    if (informational) {
+      const l = this.lines.get(key);
+      if (l) this.lines.set(key, { ...l, informational: true });
+    }
   }
 
   /** Registers a rule result: its lines enter the return (first writer of a key wins), gated by "none" statements. */
@@ -218,11 +224,12 @@ class Assembly {
         const status = l.status ?? result.status;
         if (missingGroups.size === 0 || !hasAmount(status)) return l;
         const why = [...missingGroups].map((grp) => NONE_GROUP_TEXT[grp]).join(" ");
+        const statedFalse = [...missingGroups].some((grp) => this.facts.statedNone[grp]?.value === false);
         return {
           ...l,
           amount: null,
           exact: null,
-          status: "not_yet_computed",
+          status: statedFalse ? "needs_cpa_judgment" : "not_yet_computed",
           reason: `Needs an owner/CPA statement before this line is final. ${why}`,
         };
       });
@@ -251,6 +258,7 @@ class Assembly {
         amount: hasAmount(status) && l.amount !== null ? l.amount.toNumber() : null,
         exact: hasAmount(status) && l.exact !== undefined && l.exact !== null ? l.exact.toString() : hasAmount(status) && l.amount !== null ? l.amount.toString() : null,
         reason: l.reason ?? null,
+        ...(l.informational ? { informational: true } : {}),
         ruleId: working.ruleId,
         citations: working.citations,
         refs: opts.refs ?? [],
@@ -413,6 +421,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   const schedCInput = {
     glLines: sc.glLines,
     booksEmpty: sc.booksEmpty,
+    uncodedTransactionCount: fill ? 0 : (sc.uncodedTransactionCount ?? 0),
     mileage: sc.mileage,
     mileageNoneConfirmed: fill ? (noMileage ?? sc.mileage.length === 0) : noMileage === true,
     homeOfficeEligibility: sc.homeOfficeEligibility.value ?? (fill ? ("no" as const) : null),
@@ -425,6 +434,9 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     if (sc.mileageNoneConfirmed.value === null && sc.mileage.length === 0) A.assumedFacts.push("No business mileage (not stated)");
     if (sc.homeOfficeEligibility.value === null) A.assumedFacts.push("No home office deduction (eligibility not answered)");
     if (!sc.fixedAssetsNoneConfirmed && sc.fixedAssets.length === 0) A.assumedFacts.push("No depreciable EK Consulting assets (not confirmed)");
+  }
+  if (fill && (sc.uncodedTransactionCount ?? 0) > 0) {
+    A.assumedFacts.push(`${sc.uncodedTransactionCount} uncoded EK Consulting transaction(s) ignored (not in any Schedule C total)`);
   }
   const schedC = computeScheduleC(schedCInput);
   A.scheduleC = schedC.detail;
@@ -481,7 +493,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     A.blocked("f1040.7a", "missing_input", noInvestmentDocsReason("dividend"), "income");
   }
   // 1040 line 7b: no verified meaning, left explicitly uncomputed
-  A.blocked("f1040.7b", "not_yet_computed", "Not collected: see the 2025 Form 1040 instructions for line 7b.", "income");
+  A.blocked("f1040.7b", "not_yet_computed", "Not collected: see the 2025 Form 1040 instructions for line 7b.", "income", true);
 
   // Schedule B (payer rows are a table; the totals are lines)
   if (interest !== null) A.fixed("schb.2", interest, "computed", null, "income", interestRefs);
@@ -587,8 +599,9 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   if (fill) {
     if (sa.propertyBills.some((b) => b.kind === "unclassified" || b.paid === null)) A.assumedFacts.push("Unclassified / unpaid property tax bills, assumed $0");
     if (sa.mortgages.some((m) => m.interest === null || m.principal === null)) A.assumedFacts.push("Missing Form 1098 boxes, assumed $0");
+    if (sa.mortgages.some((m) => m.needsReview)) A.assumedFacts.push("Form 1098 interest for a property that is not (or cannot be shown to be) the primary residence treated as primary-residence Schedule A interest");
   }
-  const mortgages = fill ? sa.mortgages.map((m) => ({ ...m, interest: m.interest ?? ZERO, principal: m.principal ?? ZERO })) : sa.mortgages;
+  const mortgages = fill ? sa.mortgages.map((m) => ({ ...m, interest: m.interest ?? ZERO, principal: m.principal ?? ZERO, needsReview: false })) : sa.mortgages;
   const donationsNone = facts.deductions.noDonationsConfirmed.value === true || (fill && sa.donations.length === 0);
   const propertyNone = facts.deductions.noPropertyTaxConfirmed.value === true || (fill && bills.length === 0);
   if (fill && sa.donations.length === 0 && facts.deductions.noDonationsConfirmed.value !== true) A.assumedFacts.push("No charitable gifts (not confirmed)");
@@ -605,6 +618,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     donationsNoneConfirmed: donationsNone,
     ...(decisions.arborRoadPropertyTax ? { arborDecision: decisions.arborRoadPropertyTax } : {}),
     standardDeduction: std,
+    ...(stdRule.status === "needs_cpa_judgment" ? { standardDeductionStatus: "needs_cpa_judgment" as const } : {}),
   });
   const schedARefs = [...facts.deductions.mortgages.flatMap((m) => m.refs), ...facts.deductions.propertyTaxBills.flatMap((b) => b.refs), ...w2Refs];
   A.register(schedA, { refs: schedARefs });
@@ -772,8 +786,8 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   A.sum("f1040.32", ["f1040.27a", "f1040.28", "f1040.29", "f1040.30", "f1040.31"]);
   A.derive("f1040.34", ["f1040.33", "f1040.24"], (v) => maxD(ZERO, v[0]!.minus(v[1]!)));
   A.derive("f1040.37", ["f1040.24", "f1040.33"], (v) => maxD(ZERO, v[0]!.minus(v[1]!)));
-  A.blocked("f1040.35a", "not_yet_computed", "How much of an overpayment to refund or apply to 2026 is a choice for the owner / CPA.", "election");
-  A.blocked("f1040.36", "not_yet_computed", "How much of an overpayment to apply to 2026 estimated tax is a choice for the owner / CPA.", "election");
+  A.blocked("f1040.35a", "not_yet_computed", "How much of an overpayment to refund or apply to 2026 is a choice for the owner / CPA.", "election", true);
+  A.blocked("f1040.36", "not_yet_computed", "How much of an overpayment to apply to 2026 estimated tax is a choice for the owner / CPA.", "election", true);
   {
     const sumKeys = (keys: LineKey[]): Decimal | null => {
       let t = ZERO;
@@ -806,7 +820,9 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     });
     const penRefs = [...facts.priorYear.totalTaxCents.refs, ...facts.payments.federalEstimates.refs, ...refsFrom(ra.priorYear.filedJoint, ra.priorYear.hadExcludedTaxOrRefundable)];
     A.register(pen, { refs: penRefs });
-    A.copy("f1040.38", "f2210.19", penRefs);
+    // Line 38 is informational: the estimate when it can be computed, otherwise an explicit "not estimated" (the IRS figures it)
+    if (A.peek("f2210.19") !== null) A.copy("f1040.38", "f2210.19", penRefs);
+    else A.blocked("f1040.38", "not_yet_computed", `The Form 2210 estimate is not available (${A.lines.get("f2210.19")?.reason ?? "inputs missing"}); the IRS figures any underpayment penalty itself.`, "election", true);
     A.register(
       computeSchedule3Summary({
         foreignTax: A.peek("sch3.1"),
@@ -895,7 +911,15 @@ function combineAmount(a: HeadlineAmount, b: HeadlineAmount, op: (x: number, y: 
   return { status, amount: null, reason: a.amount === null ? a.reason : b.reason };
 }
 
-function buildHeadline(A: Assembly, blockingItemCount: number, provisional: ProvisionalHeadline | null): Headline {
+function buildHeadline(A: Assembly, blockingItemCount: number, provisional: ProvisionalHeadline | null, openItems: readonly OpenItem[] = []): Headline {
+  const unverifiedDocumentCount = openItems.filter((o) => o.id.startsWith("doc-unverified:")).length;
+  const derivedInputCount = openItems.filter((o) => o.id === "schedule-c-owner-derived" || o.id === "primary-residence-derived").length;
+  const undecidedDecisionCount = A.decisions.filter((d) => d.status === "default_undecided").length;
+  const caveats: string[] = [];
+  if (unverifiedDocumentCount > 0) caveats.push(`${unverifiedDocumentCount} document(s) counted in the numbers are unverified AI reads.`);
+  for (const o of openItems) if (o.id === "schedule-c-owner-derived" || o.id === "primary-residence-derived") caveats.push(o.message);
+  if (undecidedDecisionCount > 0) caveats.push(`${undecidedDecisionCount} decision(s) are at their default alternative (default, undecided).`);
+  for (const o of openItems) if (o.id.startsWith("info:")) caveats.push(o.message);
   const owe = headlineAmount(A, "f1040.37");
   const over = headlineAmount(A, "f1040.34");
   const federalBalance = combineAmount(owe, over, (o, v) => o - v);
@@ -918,10 +942,15 @@ function buildHeadline(A: Assembly, blockingItemCount: number, provisional: Prov
   };
   const all = [...Object.values(federal), ...Object.values(connecticut)];
   return {
-    complete: all.every((h) => h.status === "computed" || h.status === "not_applicable"),
+    // complete = every headline amount is computed AND no blocking item (unresolved duplicates, unassigned W-2 ...) remains
+    complete: all.every((h) => h.status === "computed" || h.status === "not_applicable") && blockingItemCount === 0,
     federal,
     connecticut,
     blockingItemCount,
+    unverifiedDocumentCount,
+    derivedInputCount,
+    undecidedDecisionCount,
+    caveats,
     provisional,
   };
 }
@@ -947,6 +976,9 @@ function provisionalFrom(A: Assembly): ProvisionalHeadline {
     ctTax: get("ct1040.6"),
     ctPayments: c.every((x) => x !== null) ? c.reduce<number>((a, b) => a + (b ?? 0), 0) : null,
     ctBalance: get("ct1040.balance"),
+    lines: Object.fromEntries(
+      [...A.lines.values()].filter((l) => hasAmount(l.status) && l.amount !== null).map((l) => [l.key, l.amount])
+    ) as Partial<Record<LineKey, number>>,
   };
 }
 
@@ -971,6 +1003,23 @@ function ruleOpenItems(A: Assembly): OpenItem[] {
             ? "Computed in a later phase (or state the amount)."
             : "The CPA decides or supplies the rule.",
       lineKeys: keys.slice(0, 40),
+      refs: [],
+    });
+  }
+  return out;
+}
+
+/** Informational lines (amount deliberately not estimated) become one advisory item each; they never block. */
+function informationalOpenItems(A: Assembly): OpenItem[] {
+  const out: OpenItem[] = [];
+  for (const l of A.lines.values()) {
+    if (l.informational !== true || hasAmount(l.status)) continue;
+    out.push({
+      id: `info:${l.key}`,
+      severity: "advisory",
+      message: `${l.form} ${l.formLine} (${l.label}) is informational and not estimated: ${l.reason ?? ""}`.trim(),
+      action: "The CPA figures it if it applies.",
+      lineKeys: [l.key],
       refs: [],
     });
   }
@@ -1107,10 +1156,13 @@ export function computeFormsRequired(ret: Pick<Ty2025Return, "lines" | "results"
         ? { required: "blocking", reason: "Schedule 1-A is not final until its inputs are answered." }
         : { required: false, reason: "No Schedule 1-A deduction." };
   const hsaAmounts = (["f8889a.2", "f8889a.9", "f8889a.13", "f8889b.2", "f8889b.9", "f8889b.13"] as LineKey[]).map((k) => amount(k));
+  const hasW = facts.income.w2s.some((w) => w.box12.some((e) => e.code === "W"));
+  // A stated sch1.13 override (facts.adjustments.hsa) rules the form in or out by itself; otherwise the Form 8889 lines decide.
+  const hsaKeys: LineKey[] = facts.adjustments.hsa.value !== null ? ["sch1.13"] : ["f8889a.13", "f8889b.13", "sch1.13"];
   out.f8889 = hsaAmounts.some((v) => v !== null && v > 0)
     ? { required: true, reason: "HSA contributions or employer HSA contributions are reported (one Form 8889 per spouse)." }
-    : (["f8889a.13", "f8889b.13", "sch1.13"] as LineKey[]).some((k) => blockedStatus(k))
-      ? { required: "blocking", reason: "Cannot tell until the HSA questions are answered." }
+    : hsaKeys.some((k) => blockedStatus(k))
+      ? { required: "blocking", reason: hasW ? "A W-2 shows box 12 code W (HSA contributions): Form 8889 cannot be ruled out until the HSA questions are answered." : "Cannot tell until the HSA questions are answered." }
       : { required: false, reason: "No HSA activity." };
   const saver = amount("f8880.12");
   out.f8880 =
@@ -1127,6 +1179,19 @@ export function computeFormsRequired(ret: Pick<Ty2025Return, "lines" | "results"
         ? `The IRS figures any underpayment penalty itself; the regular-method estimate is $${pen}. Form 2210 is attached only to request a waiver or another method.`
         : "The IRS figures any underpayment penalty itself; Form 2210 is attached only to request a waiver or another method.",
   };
+  // Forms this engine does not compute: listed so the packet never silently omits them (the CPA decides).
+  out.f5695 = facts.statedNone.solar_credit?.value === true
+    ? { required: false, reason: "The owner states there is no 2025 residential clean energy credit (any carryforward is read from the 2024 return)." }
+    : { required: "blocking", reason: "Whether a Form 5695 credit or carryforward applies is not stated." };
+  out.f4562 = facts.income.scheduleC.fixedAssets.length > 0
+    ? { required: "blocking", reason: "Depreciable assets are on the register: Form 4562 (decision X2) is a CPA call and is not computed yet." }
+    : { required: false, reason: "No depreciable EK Consulting assets on the register." };
+  out.f8829 = facts.income.scheduleC.homeOfficeEligibility.value === "yes_exclusive"
+    ? { required: "blocking", reason: "A home office is claimed: Form 8829 is needed only if the CPA chooses the actual method (decision X1)." }
+    : { required: false, reason: "No home office deduction claimed." };
+  out.schd = facts.income.otherIncomeBoxes.some((b) => b.variant === "1099-B")
+    ? { required: "blocking", reason: "A 1099-B was read: Schedule D / Form 8949 are not computed by this engine." }
+    : { required: false, reason: "No 1099-B sales on file (capital gain distributions go directly on 1040 line 7a)." };
   return out;
 }
 
@@ -1193,6 +1258,10 @@ function blockedWholeReturn(facts: Ty2025Facts, status: string): Ty2025Return {
       federal: { agi: blockedAmount, taxableIncome: blockedAmount, totalTax: blockedAmount, totalPayments: blockedAmount, balance: blockedAmount },
       connecticut: { ctAgi: blockedAmount, tax: blockedAmount, totalPayments: blockedAmount, balance: blockedAmount },
       blockingItemCount: 1,
+      unverifiedDocumentCount: 0,
+      derivedInputCount: 0,
+      undecidedDecisionCount: 0,
+      caveats: [],
       provisional: null,
     },
     citations: [],
@@ -1229,12 +1298,13 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
     ...(extras.openItems ?? []),
     ...ruleOpenItems(A),
     ...attestationOpenItems(attestations),
+    ...informationalOpenItems(A),
     ...noneGroupOpenItems(A),
     ...decisionOpenItems(A.decisions),
     ...STANDING_ADVISORIES,
   ];
   const blockingItemCount = openItems.filter((o) => o.severity === "blocking").length;
-  const strictHeadline = buildHeadline(A, blockingItemCount, null);
+  const strictHeadline = buildHeadline(A, blockingItemCount, null, openItems);
   const provisional = strictHeadline.complete ? null : provisionalFrom(assemble(facts, decisions, true));
   const headline = { ...strictHeadline, provisional };
   const ret: Ty2025Return = {

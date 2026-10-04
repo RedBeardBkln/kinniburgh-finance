@@ -64,6 +64,11 @@ export interface MortgageInput {
   mortgageInsurance: Decimal | null;
   points: Decimal | null;
   legacyFormat: boolean;
+  /**
+   * The 1098 is for a property that is not (or cannot be shown to be) the primary residence. Its interest is not
+   * silently treated as primary-residence Schedule A interest: line 8a becomes needs_cpa_judgment (fail safe).
+   */
+  needsReview?: boolean;
 }
 
 export interface DonationInput {
@@ -98,6 +103,8 @@ export interface ScheduleAInput {
    * so the standard-versus-itemized comparison is blocked (never silently the base amount).
    */
   standardDeduction?: Decimal | null;
+  /** Status to report on line 12e when `standardDeduction` is null (needs_cpa_judgment for a "not sure" box); default missing_input. */
+  standardDeductionStatus?: "missing_input" | "needs_cpa_judgment";
 }
 
 const CITATIONS = [
@@ -251,9 +258,15 @@ function evaluate(input: ScheduleAInput, treatment: Treatment): Evaluation {
     missing.push("Form 1098 (mortgage interest)");
     block("missing_input");
   } else {
+    const review = input.mortgages.filter((m) => m.needsReview === true);
     const interestMissing = input.mortgages.some((m) => m.interest === null);
     const principalMissing = input.mortgages.some((m) => m.principal === null);
-    if (interestMissing || principalMissing) {
+    if (review.length > 0) {
+      const reason = `${review.length} Form 1098(s) (${review.map((m) => m.label).join(", ")}) are for a property that is not the primary residence, or the primary residence cannot be told apart: whether that interest is Schedule A interest (second home) or belongs elsewhere (rental, Schedule E) is a CPA call, so line 8a is not computed.`;
+      lines.push(blockedLine("scha.8a", LINE8_LABEL, "8a", "needs_cpa_judgment", reason));
+      missing.push("which Form 1098 properties are the primary residence / a qualified second home");
+      block("needs_cpa_judgment");
+    } else if (interestMissing || principalMissing) {
       const what = interestMissing ? "interest (box 1)" : "outstanding principal (box 2)";
       const reason = `A Form 1098 has no ${what} read, so the interest deduction and the $${K.MORTGAGE_DEBT_LIMIT.value.toLocaleString("en-US")} debt-limit check cannot be completed.`;
       lines.push(blockedLine("scha.8a", LINE8_LABEL, "8a", "missing_input", reason));
@@ -371,7 +384,7 @@ export function computeScheduleA(input: ScheduleAInput): RuleResult {
         "f1040.12e",
         "Standard or itemized deduction",
         "12",
-        "missing_input",
+        input.standardDeductionStatus ?? "missing_input",
         "The standard deduction is not known yet (the age 65 / blind boxes on Form 1040 line 12d are not answered), so the comparison with the itemized total cannot be made."
       )
     );

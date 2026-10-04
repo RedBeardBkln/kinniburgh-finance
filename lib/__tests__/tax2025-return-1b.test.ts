@@ -320,7 +320,7 @@ describe("resolveFacts: Return completeness cross-checks and open items", () => 
 
   it("without the questionnaire there is a blocking 'not started' item and a facts object that still validates", () => {
     const { facts, openItems } = resolveFacts(raw([]));
-    expect(openItems.find((o) => o.id === "return-completeness-not-started")?.severity).toBe("blocking");
+    expect(openItems.find((o) => o.id === "return-completeness-not-started")?.severity).toBe("advisory");
     expect(facts.returnAnswers.people.map((p) => p.slot)).toEqual(["a", "b"]);
     expect(facts.returnAnswers.people[0]!.userId).toBe(ERIC_ID);
     expect(ty2025FactsSchema.safeParse(facts).success).toBe(true);

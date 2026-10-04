@@ -312,8 +312,8 @@ export function computeCtBalance(input: CtBalanceInput): RuleResult {
   const informational =
     "Informational: the late-payment penalty rate (10%) and interest (1% per month) are verified, but the minimum penalty, the months to count and how the extension payment is treated are not, so no amount is estimated.";
   lines.push(
-    blockedLine("ct1040.27", "Late payment penalty", "27", "needs_cpa_rule_unverified", informational),
-    blockedLine("ct1040.28", "Interest", "28", "needs_cpa_rule_unverified", informational)
+    { ...blockedLine("ct1040.27", "Late payment penalty", "27", "needs_cpa_rule_unverified", informational), informational: true },
+    { ...blockedLine("ct1040.28", "Interest", "28", "needs_cpa_rule_unverified", informational), informational: true }
   );
 
   if (input.taxBeforeCredits !== null && input.propertyTaxCredit !== null && input.useTax !== null && input.totalPayments !== null) {

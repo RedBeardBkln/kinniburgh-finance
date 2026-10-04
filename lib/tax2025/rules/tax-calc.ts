@@ -79,32 +79,34 @@ const CITATIONS = [
 ];
 
 /**
- * Qualified Dividends and Capital Gain Tax Worksheet (1040 instructions), MFJ.
- * Line numbers match the printed worksheet.
+ * Qualified Dividends and Capital Gain Tax Worksheet (1040 instructions), MFJ. `line` is keyed by the PRINTED 2025
+ * worksheet line numbers (re-read from the 2025 1040 instructions text: line 5 = line 1 - line 4, line 6 = $96,700,
+ * line 7 = smaller of 1 or 6, line 8 = smaller of 5 or 7, line 9 = taxed at 0%, line 10 = smaller of 1 or 4, line 11 = line 9,
+ * line 12 = 10 - 11, line 13 = $600,050 ...). The Form 4952 investment-interest line of older years does not exist.
  */
 export function qdcgWorksheet(taxableIncome: Decimal, qualifiedDividends: Decimal, netCapitalGain: Decimal): QdcgWorksheet {
   const l1 = taxableIncome;
   const l2 = qualifiedDividends;
   const l3 = maxD(ZERO, netCapitalGain);
   const l4 = l2.plus(l3);
-  const l5 = ZERO; // investment interest expense election (Form 4952): not modeled
-  const l6 = maxD(ZERO, l4.minus(l5));
-  const l7 = maxD(ZERO, l1.minus(l6));
-  const l8 = minD(l1, D(K.QDCG_ZERO_RATE_LIMIT_MFJ.value));
-  const l9 = minD(l7, l8);
-  const l10 = l8.minus(l9); // taxed at 0%
-  const l11 = minD(l1, l6);
-  const l12 = l11.minus(l10);
+  const l5 = maxD(ZERO, l1.minus(l4));
+  const l6 = D(K.QDCG_ZERO_RATE_LIMIT_MFJ.value);
+  const l7 = minD(l1, l6);
+  const l8 = minD(l5, l7);
+  const l9 = l7.minus(l8); // taxed at 0%
+  const l10 = minD(l1, l4);
+  const l11 = l9;
+  const l12 = l10.minus(l11);
   const l13 = D(K.QDCG_FIFTEEN_RATE_LIMIT_MFJ.value);
   const l14 = minD(l1, l13);
-  const l15 = l7.plus(l10);
+  const l15 = l5.plus(l9);
   const l16 = maxD(ZERO, l14.minus(l15));
   const l17 = minD(l12, l16);
   const l18 = l17.times(K.QDCG_FIFTEEN_RATE.value);
-  const l19 = l10.plus(l17);
-  const l20 = l11.minus(l19);
+  const l19 = l9.plus(l17);
+  const l20 = l10.minus(l19);
   const l21 = l20.times(K.QDCG_TWENTY_RATE.value);
-  const l22 = taxOnAmount(l7).tax;
+  const l22 = taxOnAmount(l5).tax;
   // "include cents when adding the amounts and round off only the total"
   const l23 = roundLine(l18.plus(l21).plus(l22));
   const l24 = roundLine(taxOnAmount(l1).tax);

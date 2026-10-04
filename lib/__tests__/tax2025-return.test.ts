@@ -245,7 +245,7 @@ describe("computeTy2025Return: incomplete facts", () => {
     const ret = computeTy2025Return(f);
     for (const k of ["sch1.13", "sch1.20", "f1040.13b", "sch3.4"] as const) expect(st(ret, k), k).toBe("missing_input");
     expect(st(ret, "f1040.11a")).not.toBe("computed");
-    expect(st(ret, "f1040.38")).toBe("missing_input");
+    expect(st(ret, "f1040.38")).toBe("not_yet_computed"); // informational: the estimate is not available, the IRS figures the penalty
     expect(st(ret, "f1040.35a")).toBe("not_yet_computed");
   });
 

@@ -140,9 +140,13 @@ describe("resolveFacts: W-2s (per person, boxes 3/4/5/6/7/12/13/14, CT lines, EI
     expect(openItems.find((o) => o.id === "doc-unverified:unverified")?.severity).toBe("advisory");
   });
 
-  it("identical W-2s from the same employer are flagged as a possible duplicate", () => {
-    const { openItems } = resolveFacts(raw({ documents: [w2doc("a", ERIC_ID, {}), w2doc("b", ERIC_ID, {})] }));
-    expect(openItems.some((o) => o.id.startsWith("w2-duplicate:"))).toBe(true);
+  it("D2: identical W-2s are counted ONCE and raise a BLOCKING open item (the verified copy is the one counted)", () => {
+    const { facts, openItems } = resolveFacts(raw({ documents: [w2doc("a", ERIC_ID, {}, { verified: false }), w2doc("b", ERIC_ID, {})] }));
+    expect(facts.income.w2s.map((w) => w.docId)).toEqual(["b"]);
+    const item = openItems.find((o) => o.id.startsWith("doc-duplicate:w2:"));
+    expect(item?.severity).toBe("blocking");
+    expect(item?.message).toContain("verified copy");
+    expect(item?.id).toBe("doc-duplicate:w2:b:a");
   });
 });
 

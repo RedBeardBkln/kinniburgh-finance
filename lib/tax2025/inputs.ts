@@ -8,6 +8,7 @@ import type { PersonSsWithholding } from "@/lib/tax2025/rules/payments";
 import type { DonationInput, MortgageInput, PropertyBillInput } from "@/lib/tax2025/rules/schedule-a";
 import { ZERO, centsToDollars } from "@/lib/tax2025/money";
 import type { EstimatedPayment, Ty2025Facts } from "@/lib/tax2025/facts";
+import { addressesMatch } from "@/lib/tax2025/resolve-facts";
 
 /** Sum of cents as dollars; null if any value is null. An empty list sums to 0 (callers decide whether "no documents" is missing). */
 export function sumCentsStrict(values: readonly (number | null)[]): Decimal | null {
@@ -70,7 +71,7 @@ export function aggregateW2s(facts: Ty2025Facts): W2Aggregates {
     ownerSsWagesAndTips: ownerSs,
     people: facts.household.people.map((p) => {
       const mine = w2s.filter((w) => w.personUserId === p.userId);
-      return { name: p.name, w2Count: mine.length, totalWithheld: sumCentsStrict(mine.map((w) => w.socialSecurityWithheldCents)) };
+      return { name: p.name, w2Count: distinctEmployerCount(mine), totalWithheld: sumCentsStrict(mine.map((w) => w.socialSecurityWithheldCents)) };
     }),
     unattributedW2Count: unattributed.length,
     nonCtStateWithholdingPresent: w2s.some((w) => w.stateLines.some((l) => l.stateCode !== null && l.stateCode !== "CT" && (l.withheldCents ?? 0) > 0)),
@@ -151,7 +152,7 @@ export function scheduleAInputs(facts: Ty2025Facts): {
       kind: b.kind,
       paid: b.paidInYearCents === null ? null : centsToDollars(b.paidInYearCents),
     })),
-    mortgages: facts.deductions.mortgages.map((m) => ({
+    mortgages: facts.deductions.mortgages.map((m, _i, all) => ({
       docId: m.docId,
       label: m.lender ?? "mortgage",
       interest: m.interestCents === null ? null : centsToDollars(m.interestCents),
@@ -159,6 +160,7 @@ export function scheduleAInputs(facts: Ty2025Facts): {
       mortgageInsurance: m.mortgageInsuranceCents === null ? null : centsToDollars(m.mortgageInsuranceCents),
       points: m.pointsCents === null ? null : centsToDollars(m.pointsCents),
       legacyFormat: m.legacyFormat,
+      needsReview: mortgageNeedsReview(m.propertyAddress, all.map((x) => x.propertyAddress), facts.deductions.primaryResidenceAddress.value),
     })),
     donations: facts.deductions.donations.map((d) => ({
       id: d.id,
@@ -171,3 +173,29 @@ export function scheduleAInputs(facts: Ty2025Facts): {
   };
 }
 
+
+/**
+ * A 1098 needs review when its property is not the known primary residence, or, with no known primary residence, when the
+ * 1098s on file are for more than one distinct property (the primary one cannot be told apart). One 1098 (or several for
+ * the same property) with an unknown primary residence is accepted, as before.
+ */
+export function mortgageNeedsReview(address: string | null, allAddresses: readonly (string | null)[], primary: string | null): boolean {
+  if (primary !== null) return address !== null && !addressesMatch(address, primary);
+  const distinct: string[] = [];
+  for (const a of allAddresses) if (a !== null && !distinct.some((d) => addressesMatch(d, a))) distinct.push(a);
+  return distinct.length > 1;
+}
+
+/**
+ * Number of DISTINCT employers among a person's W-2s: by employer EIN, falling back to the employer name when the EIN is
+ * not read (the resolver raises an advisory for that), falling back to the document when neither is known. Two W-2s from
+ * one employer (a correction, or a duplicate) are one employer: the excess Social Security credit needs two employers.
+ */
+export function distinctEmployerCount(w2s: readonly { employerEin: string | null; employer: string | null; docId: string }[]): number {
+  const keys = new Set(
+    w2s.map((w) =>
+      w.employerEin !== null && w.employerEin !== "" ? `ein:${w.employerEin.replace(/\D/g, "")}` : w.employer !== null && w.employer.trim() !== "" ? `name:${w.employer.trim().toLowerCase()}` : `doc:${w.docId}`
+    )
+  );
+  return keys.size;
+}
