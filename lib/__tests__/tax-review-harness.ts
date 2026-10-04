@@ -5,8 +5,8 @@
 //   cleanScenario(): wages, Schedule C, interest, dividends, standard deduction: the "clean" return. It must raise NO finding of
 //                    severity medium or higher.
 //   richScenario():  an "Eric-shaped" return that exercises more forms: two W-2s per person, Schedule A (mortgage, property tax),
-//                    Schedule B, Schedule D with Form 8949 summary rows, Form 8959. NIIT applies there, and Form 8960 has no PDF on
-//                    this branch, so the one expected finding is the required-form blocker for it.
+//                    Schedule B, Schedule D with Form 8949 summary rows, Form 8959. NIIT applies there, so Form 8960 is required (its PDF
+//                    exists since the Schedule 1-A / Form 8960 merge, so the rich return raises no required-form blocker).
 // Real return data (names, payers, amounts) is never committed: every name and amount here is synthetic.
 
 import { readFileSync } from "node:fs";
@@ -260,6 +260,8 @@ export interface PipelineOptions {
   /** Replace the maps used to FILL the packet. */
   fillMaps?: readonly FormMap[];
   hooks?: AssembleHooks;
+  /** Also build the final package the way the ?final=1 route does (production does). */
+  includeFinalPackage?: boolean;
 }
 
 export async function buildPipeline(s: Scenario, opts: PipelineOptions = {}): Promise<Pipeline> {
@@ -283,6 +285,7 @@ export async function buildPipeline(s: Scenario, opts: PipelineOptions = {}): Pr
       lineLabels: loadLineLabels(),
       blankFormIds: blankFormIds(),
       sheetDocuments: s.raw.documents.map((d) => ({ id: d.id, docType: d.docType, taxYear: d.taxYear, verified: d.verified, legacyFormat: d.legacyFormat, subjectType: d.subjectType })),
+      ...(opts.includeFinalPackage === true ? { includeFinalPackage: true } : {}),
     },
     opts.hooks
   );

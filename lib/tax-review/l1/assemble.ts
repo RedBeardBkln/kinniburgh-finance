@@ -12,12 +12,13 @@ import { formatOverrideNote, type EffectiveReturn, type OverrideRow } from "@/li
 import { toPdfReturnView } from "@/lib/tax2025/pdf/adapter";
 import type { FormCatalog } from "@/lib/tax2025/pdf/catalog";
 import { buildCoverModel } from "@/lib/tax2025/pdf/cover";
+import { buildFinalPackage } from "@/lib/tax2025/pdf/final-package";
 import { requiredFormsWithoutPdf } from "@/lib/tax2025/pdf/no-pdf-forms";
 import { buildPacket } from "@/lib/tax2025/pdf/packet";
 import type { FormMap, PdfReturnView } from "@/lib/tax2025/pdf/types";
 import type { RawTy2025Inputs } from "@/lib/tax2025/resolve-facts";
 import type { Ty2025Return } from "@/lib/tax2025/types";
-import type { L1Context, L1Packet, LineLabelTable } from "@/lib/tax-review/l1/context";
+import type { FinalPackageProbe, L1Context, L1Packet, LineLabelTable } from "@/lib/tax-review/l1/context";
 
 export interface AssembleInput {
   ret: Ty2025Return;
@@ -35,6 +36,11 @@ export interface AssembleInput {
   blankFormIds: ReadonlySet<string>;
   /** The documents as the sheet lists them (ids, types, years, verification). */
   sheetDocuments: readonly SheetRawDocument[];
+  /**
+   * Also build the final package exactly as the `?final=1` route would (buildFinalPackage, no approval date), so L1 can say whether
+   * the package can be released for this return and that it carries the same field values as the checked draft. Production: true.
+   */
+  includeFinalPackage?: boolean;
 }
 
 export interface AssembleHooks {
@@ -67,6 +73,11 @@ export async function assembleL1Context(input: AssembleInput, hooks: AssembleHoo
   const built = await buildPacket(view, { stamp, maps: input.maps });
   const packet: L1Packet = { files: built.files, forms: built.forms, openItems: built.openItems, continuations: built.continuations };
   await hooks.afterPacket?.(packet);
+  let finalPackage: FinalPackageProbe | null = null;
+  if (input.includeFinalPackage === true) {
+    const result = await buildFinalPackage(view, { maps: input.maps, approvedAt: null });
+    finalPackage = result.ok ? { ok: true, files: result.files.map((f) => ({ name: f.name, formId: f.formId, bytes: f.bytes })) } : { ok: false, reason: result.reason };
+  }
   const cover = buildCoverModel({ view, forms: built.forms, fillItems: built.openItems, continuations: built.continuations, stamp, missingForms: requiredFormsWithoutPdf(view) });
   return {
     mode: input.mode,
@@ -78,6 +89,7 @@ export async function assembleL1Context(input: AssembleInput, hooks: AssembleHoo
     csvText,
     cover,
     packet,
+    finalPackage,
     maps: hooks.mapsForChecks ?? input.maps,
     catalogs: input.catalogs,
     lineLabels: input.lineLabels,

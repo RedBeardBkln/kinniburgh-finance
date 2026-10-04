@@ -229,9 +229,11 @@ describe("L1.E2 reasonableness", () => {
 });
 
 describe("L1.G1 required forms exist", () => {
-  it("passes on the clean return; the rich one is blocked by the missing Form 8960 PDF, and says what to do", async () => {
+  it("passes on the clean and the rich return (Schedule 1-A and Form 8960 have PDFs now); a required form with no map is blocked and says what to do", async () => {
     expect(await run(requiredFormsCheck, clean)).toEqual([]);
-    const f = await run(requiredFormsCheck, rich);
+    expect(await run(requiredFormsCheck, rich)).toEqual([]);
+    // the rich return needs Form 8960 (NIIT): take its map away and the form has no PDF, which is the blocker
+    const f = await run(requiredFormsCheck, { ...rich, maps: rich.maps.filter((m) => m.formId !== "f8960") });
     expect(f.map((x) => x.check)).toEqual(["L1.G1.no-pdf"]);
     expect(f[0]?.severity).toBe("blocker");
     expect(f[0]?.acceptable).toBe(false);
@@ -327,12 +329,12 @@ describe("L1.X1 same figures on every surface", () => {
 });
 
 describe("plain wording of quoted engine text", () => {
-  it("never leaves a CPA reference in text the reviewer shows", () => {
+  it("never leaves a CPA reference in text the reviewer shows (the shared owner-wording layer, lib/tax-wording.ts)", () => {
     expect(plainText("Ask the CPA about it.")).toBe("Ask a tax professional about it.");
-    expect(plainText("The CPA decides.")).toBe("you decide.");
+    expect(plainText("The CPA decides.")).toBe("You decide.");
     expect(plainText("if the CPA chooses the actual method")).toBe("if you choose the actual method");
-    expect(plainText("left for the CPA to figure")).toBe("left for the owner to figure");
-    expect(plainText("CPA review needed")).toBe("a tax professional review needed");
+    expect(plainText("left for the CPA to figure")).toBe("left for you to figure");
+    expect(plainText("CPA review needed")).toBe("Your review needed");
     expect(plainText("x".repeat(500), 50)).toHaveLength(50);
   });
   it("status ids become plain words", () => {

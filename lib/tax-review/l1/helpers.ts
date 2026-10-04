@@ -5,6 +5,7 @@ import type { PdfLine, PdfLineStatus } from "@/lib/tax2025/pdf/types";
 import type { EvidenceItem } from "@/lib/tax-review/types";
 import type { L1Context } from "@/lib/tax-review/l1/context";
 import type { FormId } from "@/lib/tax2025/types";
+import { ownerWording } from "@/lib/tax-wording";
 
 /** "$1,234" / "-$1,234" (the thousands commas keep a long amount from looking like an identifier). */
 export function usd(n: number): string {
@@ -62,18 +63,12 @@ export function lineTitle(key: string): string {
 }
 
 /**
- * Engine text can still say "the CPA"; nothing the reviewer writes may imply one reviews the return. This is the minimal rewrite
- * the checks apply to engine-supplied prose they quote; the wording layer that replaces it is a separate step of the task.
+ * Engine text can still say "the CPA"; nothing the reviewer writes may imply one reviews the return. Quoted engine prose goes
+ * through the shared owner-wording layer (lib/tax-wording.ts, the same one the sheet, the cover and the PDF tooltips use), then
+ * whitespace is squeezed and the text is cut to `max` characters.
  */
 export function plainText(text: string, max = 300): string {
-  const t = text
-    .replace(/\bthe CPA decides\b/gi, "you decide")
-    .replace(/\bthe CPA chooses\b/gi, "you choose")
-    .replace(/\b(ask|tell|confirm with|check with|review with|consult) (?:the|your) CPA\b/gi, "$1 a tax professional")
-    .replace(/\bthe CPA\b/gi, "the owner")
-    .replace(/\bCPA\b/g, "a tax professional")
-    .replace(/\s+/g, " ")
-    .trim();
+  const t = ownerWording(text).replace(/\s+/g, " ").trim();
   return t.length > max ? `${t.slice(0, max - 3)}...` : t;
 }
 

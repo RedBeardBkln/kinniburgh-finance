@@ -167,6 +167,8 @@ export async function runReviewForYear(year: 2025, generatedBy: string, mode: "d
     lineLabels,
     blankFormIds,
     sheetDocuments: inputs.raw.documents.map((d) => ({ id: d.id, docType: d.docType, taxYear: d.taxYear, verified: d.verified, legacyFormat: d.legacyFormat, subjectType: d.subjectType })),
+    // the final package is built the way the ?final=1 route builds it, so "the package can be released" is part of the review
+    includeFinalPackage: mode === "draft",
   });
   const l1 = await runL1(ctx);
   const l2 = runL2();
@@ -178,7 +180,7 @@ export async function runReviewForYear(year: 2025, generatedBy: string, mode: "d
     l2,
     engine: engineGateState(ctx),
     config: { fingerprintVersion: FINGERPRINT_VERSION, fingerprintParts: inputs.fingerprint.parts, l1Version: L1_VERSION, l2Version: 0, mode },
-    l1Summary: l1.summary,
+    l1Summary: { ...l1.summary, status: l1.status },
     l2Summary: { status: l2.status, coverage: l2.coverage },
   };
 }

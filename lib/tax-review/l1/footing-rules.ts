@@ -36,6 +36,20 @@ export interface FootingRule {
   parts: readonly Term[];
   /** The form says "if zero or less, enter 0": total = max(0, sum). */
   floor0?: boolean;
+  /** "sum" (default): total = signed sum of the parts. "min": the form says "enter the smaller of line A or line B" (parts are A and B). */
+  combine?: "sum" | "min";
+  /**
+   * The form says to SKIP this line when its own test fails ("If zero or less, enter the amount from line 7 on line 13": lines 10-12
+   * of Schedule 1-A are left blank). The engine marks such a line not_applicable (a printed blank, not a computed zero), and
+   * then the arithmetic of that line is not checked: the line the form carries the amount to (13) is checked instead.
+   */
+  skipWhenNotApplicable?: boolean;
+  /**
+   * The line is a copy line ("Enter the amount from line 3") at the top of a Part of the form that the filer completes only when
+   * it applies (Schedule 1-A parts II to V). The engine prints the whole Part blank (not_applicable) when it is not used, so the
+   * rule is skipped whatever the source line says.
+   */
+  skipIfBlank?: boolean;
   /** Allowed difference in whole dollars (default 0). */
   tolerance?: number;
   toleranceReason?: string;
@@ -58,7 +72,7 @@ function sum(
   parts: readonly Term[],
   quote: string,
   area: FindingArea,
-  over: Partial<Pick<FootingRule, "floor0" | "tolerance" | "toleranceReason" | "category">> = {}
+  over: Partial<Pick<FootingRule, "floor0" | "tolerance" | "toleranceReason" | "category" | "combine" | "skipWhenNotApplicable" | "skipIfBlank">> = {}
 ): FootingRule {
   return { id, category: "footing", form, engineForm, total, parts, quote, sourceId: `${form}:${total.split(".").slice(1).join(".")}`, area, ...over };
 }
@@ -71,7 +85,7 @@ function link(
   source: LineKey,
   quote: string,
   area: FindingArea,
-  over: Partial<Pick<FootingRule, "floor0" | "tolerance" | "quoteForm">> = {}
+  over: Partial<Pick<FootingRule, "floor0" | "tolerance" | "quoteForm" | "skipIfBlank">> = {}
 ): FootingRule {
   return { id, category: "link", form, engineForm, total, parts: p(source), quote, sourceId: `${over.quoteForm ?? form}:${source.split(".").slice(1).join(".")}`, area, ...over };
 }
@@ -309,9 +323,44 @@ const F8959: FootingRule[] = [
   link("f8959.8", "f8959", "f8959", "f8959.8", "se.6", "8. Self-employment income from Schedule S E (Form 1040), Part I, line 6. If you had a loss, enter 0.", "tax", { floor0: true }),
 ];
 
+// Schedule 1-A. Only the additions, subtractions and "enter the amount from line N" lines are rules: the lines that multiply by a
+// printed dollar figure or percentage ($100, $200, 6%), or cap at a printed maximum ($25,000, $12,500, $10,000, $6,000), repeat a
+// rate or threshold and belong to the recomputation layer (L2), as the header of this file says. The engine prints a line the
+// form says to skip (10-12, 18-20, 27-29, 33-34, when the phase-out does not start) as not_applicable: those rules are
+// skipped (skipWhenNotApplicable), and the carried-to line (13, 21, 30) is checked with the skipped line as zero.
+// Line 2e (excluded Puerto Rico / foreign income) is not modeled and prints blank, so line 3 is line 1 (a blank is a zero on the form).
 const SCH1A: FootingRule[] = [
+  link("sch1a.1", "f1040s1a", "sch1a", "sch1a.1", "f1040.11b", "1. Enter the amount from Form 1040, 1040-S R, or 1040-N R, line 11b.", "deductions", { quoteForm: "f1040s1a" }),
+  link("sch1a.3", "f1040s1a", "sch1a", "sch1a.3", "sch1a.1", "3. Add lines 1 and 2e.", "deductions"),
+  sum("sch1a.6", "f1040s1a", "sch1a", "sch1a.6", p("sch1a.4c", "sch1a.5"), "6. Add lines 4c and 5.", "deductions"),
+  link("sch1a.8", "f1040s1a", "sch1a", "sch1a.8", "sch1a.3", "8. Enter the amount from line 3.", "deductions", { skipIfBlank: true }),
+  sum("sch1a.10", "f1040s1a", "sch1a", "sch1a.10", [{ key: "sch1a.8" }, { key: "sch1a.9", sign: -1 }], "10. Subtract line 9 from line 8. If zero or less, enter the amount from line 7 on line 13.", "deductions", { floor0: true, skipWhenNotApplicable: true }),
+  sum("sch1a.13", "f1040s1a", "sch1a", "sch1a.13", [{ key: "sch1a.7" }, { key: "sch1a.12", sign: -1 }], "13. Qualified tips deduction. Subtract line 12 from line 7. If zero or less, enter 0.", "deductions", { floor0: true }),
+  sum("sch1a.14c", "f1040s1a", "sch1a", "sch1a.14c", p("sch1a.14a", "sch1a.14b"), "14c. Add lines 14a and 14b.", "deductions"),
+  link("sch1a.16", "f1040s1a", "sch1a", "sch1a.16", "sch1a.3", "16. Enter the amount from line 3.", "deductions", { skipIfBlank: true }),
+  sum("sch1a.18", "f1040s1a", "sch1a", "sch1a.18", [{ key: "sch1a.16" }, { key: "sch1a.17", sign: -1 }], "18. Subtract line 17 from line 16. If zero or less, enter the amount from line 15 on line 21.", "deductions", { floor0: true, skipWhenNotApplicable: true }),
+  sum("sch1a.21", "f1040s1a", "sch1a", "sch1a.21", [{ key: "sch1a.15" }, { key: "sch1a.20", sign: -1 }], "21. Qualified overtime compensation deduction. Subtract line 20 from line 15. If zero or less, enter 0.", "deductions", { floor0: true }),
+  link("sch1a.25", "f1040s1a", "sch1a", "sch1a.25", "sch1a.3", "25. Enter the amount from line 3.", "deductions", { skipIfBlank: true }),
+  sum("sch1a.27", "f1040s1a", "sch1a", "sch1a.27", [{ key: "sch1a.25" }, { key: "sch1a.26", sign: -1 }], "27. Subtract line 26 from line 25. If zero or less, enter the amount from line 24 on line 30.", "deductions", { floor0: true, skipWhenNotApplicable: true }),
+  sum("sch1a.30", "f1040s1a", "sch1a", "sch1a.30", [{ key: "sch1a.24" }, { key: "sch1a.29", sign: -1 }], "30. Qualified passenger vehicle loan interest deduction. Subtract line 29 from line 24. If zero or less, enter 0.", "deductions", { floor0: true }),
+  link("sch1a.31", "f1040s1a", "sch1a", "sch1a.31", "sch1a.3", "31. Enter the amount from line 3.", "deductions", { skipIfBlank: true }),
+  sum("sch1a.33", "f1040s1a", "sch1a", "sch1a.33", [{ key: "sch1a.31" }, { key: "sch1a.32", sign: -1 }], "33. Subtract line 32 from line 31. If zero or less, enter $6,000 on line 35.", "deductions", { floor0: true, skipWhenNotApplicable: true }),
   sum("sch1a.37", "f1040s1a", "sch1a", "sch1a.37", p("sch1a.36a", "sch1a.36b"), "37. Enhanced deduction for seniors. Add lines 36a and 36b.", "deductions"),
   sum("sch1a.38", "f1040s1a", "sch1a", "sch1a.38", p("sch1a.13", "sch1a.21", "sch1a.30", "sch1a.37"), "38. Add lines 13, 21, 30, and 37.", "deductions"),
+];
+
+// Form 8960 (individuals, Parts I-III). Line 17 is line 16 times 3.8% (a printed rate: L2 owns it) and line 13 is MAGI with the
+// printed "see instructions" adjustments, so neither is a footing rule here; lines 12 and 16 are, because the form prints them as
+// "subtract" and "enter the smaller of". Line 17 itself reaches Schedule 2 line 12 through the sch2.12 link above.
+const F8960: FootingRule[] = [
+  sum("f8960.4c", "f8960", "f8960", "f8960.4c", p("f8960.4a", "f8960.4b"), "4c. Combine lines 4a and 4b.", "tax"),
+  sum("f8960.5d", "f8960", "f8960", "f8960.5d", p("f8960.5a", "f8960.5b", "f8960.5c"), "5d. Combine lines 5a through 5c.", "tax"),
+  sum("f8960.8", "f8960", "f8960", "f8960.8", p("f8960.1", "f8960.2", "f8960.3", "f8960.4c", "f8960.5d", "f8960.6", "f8960.7"), "8. Total investment income. Combine lines 1, 2, 3, 4c, 5d, 6, and 7.", "tax"),
+  sum("f8960.9d", "f8960", "f8960", "f8960.9d", p("f8960.9a", "f8960.9b", "f8960.9c"), "9d. Add lines 9a, 9b, and 9c.", "tax"),
+  sum("f8960.11", "f8960", "f8960", "f8960.11", p("f8960.9d", "f8960.10"), "11. Total deductions and modifications. Add lines 9d and 10.", "tax"),
+  sum("f8960.12", "f8960", "f8960", "f8960.nii", [{ key: "f8960.8" }, { key: "f8960.11", sign: -1 }], "12. Net investment income. Subtract Part I I, line 11, from Part I, line 8.", "tax", { floor0: true }),
+  sum("f8960.15", "f8960", "f8960", "f8960.15", [{ key: "f8960.13" }, { key: "f8960.14", sign: -1 }], "15. Subtract line 14 from line 13. If zero or less, enter 0.", "tax", { floor0: true }),
+  sum("f8960.16", "f8960", "f8960", "f8960.16", p("f8960.nii", "f8960.15"), "16. Enter the smaller of line 12 or line 15.", "tax", { combine: "min" }),
 ];
 
 // ── CT-1040 (flat form: the quote is the engine's printed-line label, see the header) ──
@@ -361,6 +410,7 @@ export const FOOTING_RULES: readonly FootingRule[] = [
   ...F8995,
   ...F8959,
   ...SCH1A,
+  ...F8960,
   ...CT,
 ];
 

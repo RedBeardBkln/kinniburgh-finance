@@ -28,6 +28,13 @@ export interface L1Packet {
   continuations: readonly ContinuationList[];
 }
 
+/**
+ * The final package as the download route would build it for this return (buildFinalPackage, approval date left out): either its
+ * files (forms with a formId; the index and the attachments have none) or the reason the route would refuse (409). null / absent
+ * = not built (the checks that need it are skipped, and say so in the run summary).
+ */
+export type FinalPackageProbe = { ok: true; files: readonly L1PacketFile[] } | { ok: false; reason: string };
+
 /** formId -> AcroForm field name -> the printed line label found next to it on the blank PDF (data/forms/2025/line-labels.json). */
 export type LineLabelTable = Readonly<Record<string, Readonly<Record<string, string>>>>;
 
@@ -57,6 +64,8 @@ export interface L1Context {
   /** The cover page model of the packet (null = not built). */
   cover: CoverModel | null;
   packet: L1Packet;
+  /** The final package as the download route would build it (see FinalPackageProbe); absent in the unit tests that do not need it. */
+  finalPackage?: FinalPackageProbe | null;
   maps: readonly FormMap[];
   /** Parsed field catalogs of the blank forms, by formId (for the unkeyed-line check). */
   catalogs: Readonly<Record<string, FormCatalog>>;
