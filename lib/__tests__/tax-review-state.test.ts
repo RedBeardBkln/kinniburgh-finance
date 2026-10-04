@@ -128,6 +128,6 @@ describe("buildReviewState", () => {
     const s = buildReviewState({ ...base, latest: { run: run({ startedAt: new Date("2026-10-05T10:00:00Z") }), findings: [finding("L1.x")] } });
     const round = JSON.parse(JSON.stringify(s)) as typeof s;
     expect(round.latestRun?.startedAt).toBe("2026-10-05T10:00:00.000Z");
-    expect(Object.keys(s).sort()).toEqual(["approval", "approver", "canApproveNow", "currentFingerprint12", "findings", "gate", "latestRun", "notRunNotice", "runIsStale", "runs", "totals", "year"]);
+    expect(Object.keys(s).sort()).toEqual(["ai", "approval", "approver", "canApproveNow", "currentFingerprint12", "findings", "gate", "latestRun", "notRunNotice", "register", "registerNarrated", "runIsStale", "runs", "totals", "year"]);
   });
 });

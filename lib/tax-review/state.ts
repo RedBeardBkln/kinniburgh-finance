@@ -7,6 +7,8 @@
 import { approvalInForce, currentApproval, evaluateGate, findingStatus, isGatingFinding, type ApprovalRow, type DispositionRow, type GateEngineState, type GateInput, type GateResult, type LayerRunState } from "@/lib/tax-review/gate";
 import type { ApproverResolution } from "@/lib/tax-review/approver";
 import { countBySeverity, SEVERITIES, type EvidenceItem, type Finding, type FindingCitation, type ReviewLayer, type Severity } from "@/lib/tax-review/types";
+import { emptyProgress, l3GateState, type AiReviewProgress, type AiRunStatus, type TaskProgress } from "@/lib/tax-review/llm/progress";
+import type { RegisterEntry } from "@/lib/tax-review/llm/register";
 
 /** Said plainly on the page while a layer has not run: there is no waiver (owner decision D8). */
 export const NOT_RUN_NOTICE = "Independent recalculation and AI review passes not run yet: required before approval.";
@@ -62,6 +64,8 @@ export function gateInputFor(args: {
   dispositions: readonly DispositionRow[];
   currentFingerprint: string;
   engine: GateEngineState;
+  /** The AI review passes' state for this run (derived from its events by lib/tax-review/llm/progress.ts); absent = never run. */
+  l3?: { status: LayerRunState; adversarialCompleted: boolean };
 }): GateInput {
   const { run } = args;
   const l2 = run === null ? "not_run" : layerStateOf(run.l2Summary);
@@ -74,8 +78,9 @@ export function gateInputFor(args: {
     dispositions: args.dispositions,
     l1: { status: run === null ? "not_run" : l1StateOf(run.l1Summary) },
     l2: { status: l2, coverageListed: Array.isArray(coverage) && coverage.length > 0 },
-    // L3 (the AI review passes) is Phase B: never run here, so the gate stays red and approval is impossible
-    l3: { status: "not_run", adversarialCompleted: false },
+    // L3 (the AI review passes): only a state derived from the stored events counts; no event = not run, which keeps the gate red
+    // (there is no waiver). A run for an older return is already red through the fingerprint item.
+    l3: run === null || args.l3 === undefined ? { status: "not_run", adversarialCompleted: false } : args.l3,
   };
 }
 
@@ -99,6 +104,63 @@ export interface FindingDto {
   acceptedReason: string | null;
   acceptedBy: string | null;
   acceptedAt: string | null;
+  /** The adversarial pass's note against this finding (annotation only: it never closes or changes the finding). */
+  challenge?: string | null;
+}
+
+/** What the page shows of an AI review (counts, task states, tokens and an estimate; never the payload or a model's text). */
+export interface AiReviewDto {
+  status: AiRunStatus;
+  model: string | null;
+  promptVersion: string | null;
+  completedCount: number;
+  totalCount: number;
+  tasks: { id: string; pass: string; title: string; state: TaskProgress["state"]; attempts: number; failures: number; inputTokens: number; outputTokens: number; errorKind: string | null; findingCount: number; rejectedCount: number; unverifiedCount: number }[];
+  inputTokens: number;
+  outputTokens: number;
+  costUsdSoFar: number | null;
+  estimate: { expectedUsd: number; worstCaseUsd: number; inputTokens: number; outputTokens: number; warn: boolean; warnThresholdUsd: number; priceSource: "env" | "default_upper_bound"; inPerMtok: number; outPerMtok: number; model: string } | null;
+  nextTask: string | null;
+  busy: boolean;
+}
+
+/** The cost estimate shown BEFORE an AI review starts (nothing is sent until the owner confirms it). */
+export interface AiEstimateDto {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  expectedUsd: number;
+  worstCaseUsd: number;
+  warn: boolean;
+  warnThresholdUsd: number;
+  priceSource: "env" | "default_upper_bound";
+  inPerMtok: number;
+  outPerMtok: number;
+  payloadBytes: number;
+  tasks: { id: string; inputTokens: number; outputTokens: number }[];
+  /** An AI review already exists for this run (it can be resumed, not started again). */
+  alreadyStarted: boolean;
+  runId: string;
+}
+
+export function toAiDto(p: AiReviewProgress): AiReviewDto {
+  return {
+    status: p.status,
+    model: p.model,
+    promptVersion: p.promptVersion,
+    completedCount: p.completedCount,
+    totalCount: p.totalCount,
+    tasks: p.tasks.map((t) => ({ id: t.id, pass: t.pass, title: t.title, state: t.state, attempts: t.attempts, failures: t.failures, inputTokens: t.usage.inputTokens, outputTokens: t.usage.outputTokens, errorKind: t.error?.kind ?? null, findingCount: t.findingCount, rejectedCount: t.rejectedCount, unverifiedCount: t.unverifiedCount })),
+    inputTokens: p.usage.inputTokens,
+    outputTokens: p.usage.outputTokens,
+    costUsdSoFar: p.costUsdSoFar,
+    estimate:
+      p.estimate === null
+        ? null
+        : { expectedUsd: p.estimate.expectedUsd, worstCaseUsd: p.estimate.worstCaseUsd, inputTokens: p.estimate.inputTokens, outputTokens: p.estimate.outputTokens, warn: p.estimate.warn, warnThresholdUsd: p.estimate.warnThresholdUsd, priceSource: p.estimate.price.source, inPerMtok: p.estimate.price.inPerMtok, outPerMtok: p.estimate.price.outPerMtok, model: p.estimate.model },
+    nextTask: p.nextTask,
+    busy: p.busy,
+  };
 }
 
 export interface RunDto {
@@ -140,6 +202,11 @@ export interface ReviewStateDto {
   notRunNotice: string | null;
   /** Approval can be recorded right now (the gate is green and the signed-in account is the owner's); the server re-checks everything. */
   canApproveNow: boolean;
+  /** The AI review passes of the run the gate looks at (status "not_run" when none started). */
+  ai: AiReviewDto;
+  /** The judgments register: the AI-narrated wording when that task completed, else the engine's own text. */
+  register: RegisterEntry[];
+  registerNarrated: boolean;
 }
 
 export function toRunDto(run: RunRowLike, currentFingerprint: string): RunDto {
@@ -165,7 +232,7 @@ export function toRunDto(run: RunRowLike, currentFingerprint: string): RunDto {
   };
 }
 
-export function toFindingDto(f: Finding, dispositions: readonly DispositionDetail[]): FindingDto {
+export function toFindingDto(f: Finding, dispositions: readonly DispositionDetail[], challenge: string | null = null): FindingDto {
   const status = findingStatus(f, dispositions);
   let acceptedReason: string | null = null;
   let acceptedBy: string | null = null;
@@ -201,6 +268,7 @@ export function toFindingDto(f: Finding, dispositions: readonly DispositionDetai
     acceptedReason,
     acceptedBy,
     acceptedAt,
+    challenge: challenge ?? f.challenge ?? null,
   };
 }
 
@@ -212,13 +280,19 @@ export interface ReviewStateInput {
   dispositions: readonly DispositionDetail[];
   approvals: readonly ApprovalDetail[];
   approver: ApproverResolution;
+  /** The AI review of the run in `latest` (folded from its events); absent = none. */
+  ai?: AiReviewProgress | null;
+  /** The engine's own register for the current return (shown when no narrated one exists). */
+  register?: readonly RegisterEntry[];
 }
 
 export function buildReviewState(input: ReviewStateInput): ReviewStateDto {
   const run = input.latest?.run ?? null;
   const findings = input.latest?.findings ?? [];
-  const gate = evaluateGate(gateInputFor({ run, findings, dispositions: input.dispositions, currentFingerprint: input.currentFingerprint, engine: input.engine }));
-  const dtos = findings.map((f) => toFindingDto(f, input.dispositions));
+  const ai = run === null ? emptyProgress() : input.ai ?? emptyProgress();
+  const gate = evaluateGate(gateInputFor({ run, findings, dispositions: input.dispositions, currentFingerprint: input.currentFingerprint, engine: input.engine, l3: l3GateState(ai) }));
+  const challengeOf = new Map(ai.challenges.map((c) => [c.findingKey, c.note]));
+  const dtos = findings.map((f) => toFindingDto(f, input.dispositions, challengeOf.get(f.key) ?? null));
   // the latest word: an approved row not followed by a withdrawal (any fingerprint)
   const inForceRows = approvalInForce(input.approvals);
   const current = currentApproval(input.approvals, input.currentFingerprint);
@@ -247,6 +321,9 @@ export function buildReviewState(input: ReviewStateInput): ReviewStateDto {
     approver: { allowed: input.approver.allowed, reason: input.approver.reason },
     notRunNotice: l2l3Red ? NOT_RUN_NOTICE : null,
     canApproveNow: gate.verdict === "passed" && input.approver.allowed,
+    ai: toAiDto(ai),
+    register: [...(ai.narratedRegister ?? input.register ?? [])],
+    registerNarrated: ai.narratedRegister !== null,
   };
 }
 

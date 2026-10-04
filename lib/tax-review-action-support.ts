@@ -36,6 +36,9 @@ export type ReviewActionResult<T extends object = Record<string, never>> = ({ ok
 export type ReviewAuditType =
   | "tax_review_run_started"
   | "tax_review_disposition"
+  | "tax_review_ai_started"
+  | "tax_review_ai_task_done"
+  | "tax_review_ai_cancelled"
   | "tax_return_approved"
   | "tax_return_approval_withdrawn";
 

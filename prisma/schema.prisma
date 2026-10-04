@@ -1163,6 +1163,26 @@ model TaxReturnApproval {
   @@index([taxYear, entityId, at])
 }
 
+// One step of the AI review passes (L3) of a TaxReviewRun: run_started (config + estimate), payload (the exact redacted JSON that was
+// sent), register, task_started / task_completed / task_failed per task, cancelled, stale. APPEND-ONLY, like the run row it belongs
+// to (the run row is immutable): the state of an AI review is DERIVED from these events (lib/tax-review/llm/progress.ts). `eventKey`
+// is unique per run, which makes every append idempotent and lets two tabs race for a task safely. No relation to TaxReviewRun on
+// purpose (additive migration that touches no existing table). The L3 findings themselves are ordinary TaxReviewFinding rows of the
+// same run (layer "L3"). Never stores a value outside the redacted payload.
+model TaxReviewRunEvent {
+  id        String   @id @default(uuid())
+  runId     String
+  eventKey  String   // "run_started" | "payload" | "register" | "start:<task>:<n>" | "done:<task>" | "fail:<task>:<n>" | "cancelled" | "stale"
+  kind      String
+  taskId    String?
+  attempt   Int?
+  data      Json
+  createdAt DateTime @default(now())
+
+  @@unique([runId, eventKey])
+  @@index([runId, createdAt])
+}
+
 // ─── Tax deadlines (quarterly estimates + annual filings) ─────────────────────
 
 

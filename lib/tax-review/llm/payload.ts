@@ -255,11 +255,35 @@ function documentsOf(facts: Ty2025Facts, docs: readonly PayloadDocumentInput[], 
   });
 }
 
-function incomeOf(facts: Ty2025Facts, ret: Ty2025Return, labels: PersonLabels, aliasOf: AliasOf): ReviewPayload["income"] {
+/** "keep": the payer / employer name as read from the document (default; a brokerage or bank name helps the model recognise the form). "generic": "Employer A", "Payer B" ... (stable per name). */
+export type PayerNameMode = "keep" | "generic";
+
+interface PayerNames {
+  employer(name: string | null): string;
+  payer(name: string | null): string;
+}
+
+function makePayerNames(mode: PayerNameMode): PayerNames {
+  const seen = new Map<string, string>();
+  const label = (kind: string, name: string | null): string => {
+    const key = `${kind}|${(name ?? "").trim().toLowerCase()}`;
+    const have = seen.get(key);
+    if (have !== undefined) return have;
+    const n = [...seen.keys()].filter((k) => k.startsWith(`${kind}|`)).length;
+    const out = `${kind} ${String.fromCharCode(65 + (n % 26))}${n >= 26 ? String(Math.floor(n / 26)) : ""}`;
+    seen.set(key, out);
+    return out;
+  };
+  return mode === "generic"
+    ? { employer: (n) => (n === null || n.trim() === "" ? "" : label("Employer", n)), payer: (n) => (n === null || n.trim() === "" ? "" : label("Payer", n)) }
+    : { employer: (n) => clip(n, 80), payer: (n) => clip(n, 80) };
+}
+
+function incomeOf(facts: Ty2025Facts, ret: Ty2025Return, labels: PersonLabels, aliasOf: AliasOf, names: PayerNames): ReviewPayload["income"] {
   const w2 = facts.income.w2s.map((w) => ({
     doc: aliasOf(w.docId),
     person: labels.of(w.personUserId),
-    employer: clip(w.employer, 80),
+    employer: names.employer(w.employer),
     verified: w.basis === "doc_verified",
     box1: dollars(w.wagesCents),
     box2: dollars(w.fedWithheldCents),
@@ -275,18 +299,18 @@ function incomeOf(facts: Ty2025Facts, ret: Ty2025Return, labels: PersonLabels, a
     state: w.stateLines.map((s) => ({ state: s.stateCode, wages: dollars(s.wagesCents), withheld: dollars(s.withheldCents) })),
     ctWithheld: dollars(w.ctWithheldCents),
   }));
-  const interest = facts.income.interest.map((x) => ({ doc: aliasOf(x.docId), payer: clip(x.payer, 80), verified: x.basis === "doc_verified", box1: dollars(x.box1Cents), box3: dollars(x.box3Cents), box4: dollars(x.box4Cents), box6: dollars(x.box6Cents), box8: dollars(x.box8Cents), box9: dollars(x.box9Cents) }));
-  const dividends = facts.income.dividends.map((x) => ({ doc: aliasOf(x.docId), payer: clip(x.payer, 80), verified: x.basis === "doc_verified", box1a: dollars(x.box1aCents), box1b: dollars(x.box1bCents), box2a: dollars(x.box2aCents), box3: dollars(x.box3Cents), box4: dollars(x.box4Cents), box5: dollars(x.box5Cents), box7: dollars(x.box7Cents), box11: dollars(x.box11Cents) }));
+  const interest = facts.income.interest.map((x) => ({ doc: aliasOf(x.docId), payer: names.payer(x.payer), verified: x.basis === "doc_verified", box1: dollars(x.box1Cents), box3: dollars(x.box3Cents), box4: dollars(x.box4Cents), box6: dollars(x.box6Cents), box8: dollars(x.box8Cents), box9: dollars(x.box9Cents) }));
+  const dividends = facts.income.dividends.map((x) => ({ doc: aliasOf(x.docId), payer: names.payer(x.payer), verified: x.basis === "doc_verified", box1a: dollars(x.box1aCents), box1b: dollars(x.box1bCents), box2a: dollars(x.box2aCents), box3: dollars(x.box3Cents), box4: dollars(x.box4Cents), box5: dollars(x.box5Cents), box7: dollars(x.box7Cents), box11: dollars(x.box11Cents) }));
   const brokerSales = facts.income.brokerSales.map((x) => ({
     doc: aliasOf(x.docId),
-    payer: clip(x.payer, 80),
+    payer: names.payer(x.payer),
     verified: x.basis === "doc_verified",
     summaryRead: x.summaryRead,
     rows: x.rows.map((r) => ({ form: r.form, box: r.box, proceeds: dollars(r.proceedsCents), cost: dollars(r.costCents), washSale: dollars(r.washSaleLossDisallowedCents), brokerGainLoss: dollars(r.gainLossCents) })),
     sec1256: dollars(x.sec1256AggregateCents),
     has1099Da: x.forms1099DaPresent,
   }));
-  const other = facts.income.otherIncomeBoxes.map((x) => ({ doc: aliasOf(x.docId), payer: clip(x.payer, 80), variant: x.variant, box: x.box, label: clip(x.label, 80), amount: dollars(x.amountCents) }));
+  const other = facts.income.otherIncomeBoxes.map((x) => ({ doc: aliasOf(x.docId), payer: names.payer(x.payer), variant: x.variant, box: x.box, label: clip(x.label, 80), amount: dollars(x.amountCents) }));
   const sc = ret.scheduleC;
   const scheduleC =
     sc === null
@@ -461,6 +485,8 @@ export interface PayloadInput {
   l1Findings: readonly Finding[];
   /** Generic labels of the business entities (their real names are scrubbed). */
   entityLabels: readonly string[];
+  /** Employer / payer names: kept as read (default) or replaced by "Employer A" / "Payer B" labels. */
+  payerNames?: PayerNameMode;
 }
 
 /** The payload with real names still in it: ONLY `serializePayload` may turn it into outgoing text. */
@@ -501,7 +527,7 @@ export function buildReviewPayload(input: PayloadInput, people: readonly Househo
     openItems: ret.openItems.map((o) => ({ id: o.id, severity: o.severity, message: clip(o.message, 300), action: clip(o.action, 200), lineKeys: [...o.lineKeys] })),
     conflicts: ret.conflicts.map((c) => ({ factKey: c.factKey, chosen: c.chosen, reason: clip(c.reason, 240) })),
     documents: documentsOf(facts, input.documents, labels, aliasOf),
-    income: incomeOf(facts, ret, labels, aliasOf),
+    income: incomeOf(facts, ret, labels, aliasOf, makePayerNames(input.payerNames ?? "keep")),
     deductions: deductionsOf(facts, aliasOf),
     payments: paymentsOf(facts),
     answers: answersOf(facts, labels),

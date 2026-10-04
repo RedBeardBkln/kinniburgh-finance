@@ -142,6 +142,19 @@ describe("fuzz: identifying text planted in the data never reaches the outgoing 
       }
     });
   }
+  it("payer names: kept as read by default; 'generic' replaces every employer and payer with a stable letter label", async () => {
+    const f = await richFixture();
+    const build = (mode?: "keep" | "generic") => serializePayload(buildReviewPayload({ ret: f.pipeline.ret, view: f.pipeline.ctx.view, facts: f.pipeline.ctx.facts, documents: [], bindings: [], l1Findings: [], entityLabels: [], ...(mode !== undefined ? { payerNames: mode } : {}) }, PEOPLE), PEOPLE, SCRUB).payload;
+    const kept = build();
+    expect(kept.income.w2.some((w) => /Alpine|Brewery|Employer/.test(String(w["employer"])))).toBe(true);
+    const generic = build("generic");
+    const names = [...generic.income.w2.map((w) => String(w["employer"])), ...generic.income.interest.map((x) => String(x["payer"])), ...generic.income.dividends.map((x) => String(x["payer"])), ...generic.income.brokerSales.map((x) => String(x["payer"]))];
+    expect(names.every((n) => /^(Employer|Payer) [A-Z]\d?$/.test(n))).toBe(true);
+    // the same employer gets the same label everywhere, and two different ones get two labels
+    const eric = generic.income.w2.filter((w) => w["person"] === "Taxpayer M").map((w) => w["employer"]);
+    expect(new Set(eric).size).toBe(eric.length);
+    expect(JSON.stringify(generic)).not.toMatch(/Alpine|Brewery|Sample Bank|Sample Brokerage/);
+  });
   it("an unlabelled household member refuses the whole payload (the real name is never the fallback)", async () => {
     const f = await richFixture();
     const people = [...PEOPLE, { userId: "u3", name: "Zed Stranger" }];

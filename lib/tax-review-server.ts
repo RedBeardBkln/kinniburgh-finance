@@ -1,6 +1,9 @@
 import { db } from "@/lib/db";
 import { loadReviewInputs } from "@/lib/tax-review-build";
 import { getRunWithFindings, listApprovals, listDispositionDetails, listRuns } from "@/lib/tax-review-store";
+import { dbAiRunStore } from "@/lib/tax-review-l3-store";
+import { emptyProgress, foldProgress, type AiReviewProgress } from "@/lib/tax-review/llm/progress";
+import { buildRegister, type RegisterEntry } from "@/lib/tax-review/llm/register";
 import { resolveApprover, type ApproverResolution } from "@/lib/tax-review/approver";
 import type { GateEngineState } from "@/lib/tax-review/gate";
 import { engineGateState } from "@/lib/tax-review/l1/engine-state";
@@ -21,6 +24,8 @@ export interface ReviewContext {
   engineVersion: string;
   engine: GateEngineState;
   approver: ApproverResolution;
+  /** The judgments register built from the engine's own state (the AI-narrated wording replaces it once that task completed). */
+  register?: RegisterEntry[];
 }
 
 export type ContextResult = { ok: true; ctx: ReviewContext } | { ok: false; error: string };
@@ -53,6 +58,7 @@ export async function loadReviewContext(year: 2025, userId: string): Promise<Con
       engineVersion: inputs.engineVersion,
       engine: engineGateState({ view: inputs.view, effective: inputs.built.effective }),
       approver: resolveApprover(users, inputs.ekcName, user.id),
+      register: buildRegister({ ret: inputs.built.ret, facts: inputs.built.facts }),
     },
   };
 }
@@ -63,14 +69,26 @@ export interface ReviewRecords {
   latest: { run: RunRowLike; findings: Finding[] } | null;
   dispositions: DispositionDetail[];
   approvals: ApprovalDetail[];
+  /** The AI review of the latest run, folded from its events (null = no run). */
+  ai?: AiReviewProgress | null;
+}
+
+/** The events of a run's AI review. A table that does not exist yet (migration not applied) or any read failure means "no AI review": the gate stays red. */
+async function readAiProgress(runId: string): Promise<AiReviewProgress> {
+  try {
+    return foldProgress(await dbAiRunStore().listEvents(runId), Date.now());
+  } catch (err) {
+    console.error("tax review: AI review events could not be read:", err instanceof Error ? err.name : "unknown error");
+    return emptyProgress();
+  }
 }
 
 export async function readReviewRecords(ctx: Pick<ReviewContext, "year" | "entityId" | "fingerprint">): Promise<ReviewRecords> {
   const runs = await listRuns(ctx.year, ctx.entityId, 25);
   const picked = pickRun(runs, ctx.fingerprint);
   const stored = picked === null ? null : await getRunWithFindings(picked.id, ctx.entityId);
-  const [dispositions, approvals] = await Promise.all([listDispositionDetails(ctx.year, ctx.entityId), listApprovals(ctx.year, ctx.entityId)]);
-  return { runs, latest: stored === null ? null : { run: stored.run, findings: stored.findings }, dispositions, approvals };
+  const [dispositions, approvals, ai] = await Promise.all([listDispositionDetails(ctx.year, ctx.entityId), listApprovals(ctx.year, ctx.entityId), picked === null ? Promise.resolve(null) : readAiProgress(picked.id)]);
+  return { runs, latest: stored === null ? null : { run: stored.run, findings: stored.findings }, dispositions, approvals, ai };
 }
 
 export function stateOf(ctx: ReviewContext, records: ReviewRecords): ReviewStateDto {
@@ -82,6 +100,8 @@ export function stateOf(ctx: ReviewContext, records: ReviewRecords): ReviewState
     dispositions: records.dispositions,
     approvals: records.approvals,
     approver: ctx.approver,
+    ai: records.ai,
+    register: ctx.register,
   });
 }
 
