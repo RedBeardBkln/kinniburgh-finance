@@ -415,7 +415,8 @@ describe("tester: P5 ordering and owner-vs-CPA split", () => {
     expect(actions.length).toBeGreaterThan(30);
     const cpa = actions.filter((a) => openItemOwner({ id: "x", action: a }) === "cpa");
     // the CPA-routed ones must read like a CPA action
-    for (const a of cpa) expect(a, a).toMatch(/CPA|Review the boxes|Review the state lines|Computed in a later phase|foreign tax credit rule/);
+    // (the person-matching action is routed to the owner by its item id, rc-person-unmatched:*; this probe uses a dummy id)
+    for (const a of cpa) expect(a, a).toMatch(/CPA|Review the boxes|Review the state lines|Computed in a later phase|foreign tax credit rule|first name match/);
   });
 
   it("D3 regression: derived-figure 'Provide:' items (taxable income, AGI, Schedule C profit ...) are NOT owner homework", () => {
