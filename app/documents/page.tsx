@@ -12,9 +12,11 @@ import { isTaxDocType, suggestIssuerFromExtraction } from "@/lib/document-attrib
 import { buildExtractionOverview } from "@/lib/document-extraction-state";
 import { ExtractionCell } from "@/components/documents/extraction-cell";
 import { DocumentTypeCell } from "@/components/documents/document-type-cell";
+import { DocumentNameCell } from "@/components/documents/document-name-cell";
 import { ExtractionBulkBar } from "@/components/documents/extraction-bulk-bar";
 import { FillMissingYearsBar } from "@/components/documents/fill-missing-years-bar";
 import { planYearFill } from "@/lib/document-year";
+import { RETIREMENT_BADGE_LABEL } from "@/lib/retirement-statement";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -56,6 +58,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   extension: "Extension",
   property_tax: "Property Tax",
   donation_receipt: "Donation Receipt",
+  retirement_contribution: RETIREMENT_BADGE_LABEL,
   mortgage_interest: "Mortgage Interest",
   policy: "Policy",
   statement: "Statement",
@@ -69,6 +72,7 @@ const DOC_TYPE_COLORS: Record<string, string> = {
   extension: "bg-amber-50 text-amber-700 border-amber-200",
   property_tax: "bg-orange-50 text-orange-700 border-orange-200",
   donation_receipt: "bg-rose-50 text-rose-700 border-rose-200",
+  retirement_contribution: "bg-emerald-50 text-emerald-700 border-emerald-200",
   mortgage_interest: "bg-cyan-50 text-cyan-700 border-cyan-200",
   policy: "bg-teal-50 text-teal-700 border-teal-200",
   statement: "bg-gray-50 text-gray-700 border-gray-200",
@@ -168,6 +172,11 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
             active={sp.docType === "donation_receipt"}
             label="Donation receipts"
           />
+          <FilterLink
+            href={chipHref({ docType: "retirement_contribution" })}
+            active={sp.docType === "retirement_contribution"}
+            label="Retirement contributions"
+          />
           {entities.map((e) => (
             <FilterLink
               key={e.id}
@@ -225,11 +234,12 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                       </td>
                       {/* Falls back to the legacy upload note for documents that
                           have no generated name, so nothing previously visible is lost. */}
-                      <td
-                        className="px-4 py-2 text-xs truncate"
-                        title={doc.documentName ?? doc.notes ?? undefined}
-                      >
-                        {doc.documentName ?? doc.notes ?? <span className="text-muted-foreground">—</span>}
+                      <td className="px-4 py-2 text-xs">
+                        <DocumentNameCell
+                          documentId={doc.id}
+                          documentName={doc.documentName}
+                          fallbackText={doc.notes}
+                        />
                       </td>
                       <td className="px-4 py-2 text-xs text-muted-foreground">
                         {doc.entity.name.split(",")[0]}

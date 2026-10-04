@@ -33,7 +33,8 @@ export type TaxSchemaDocType =
   | "property_tax"
   | "k1"
   | "tax_return"
-  | "donation_receipt";
+  | "donation_receipt"
+  | "retirement_contribution";
 
 export const TAX_SCHEMA_DOC_TYPES: readonly TaxSchemaDocType[] = [
   "w2",
@@ -43,6 +44,7 @@ export const TAX_SCHEMA_DOC_TYPES: readonly TaxSchemaDocType[] = [
   "k1",
   "tax_return",
   "donation_receipt",
+  "retirement_contribution",
 ];
 
 export type ScalarKind =
@@ -64,6 +66,10 @@ export interface ScalarFieldSpec {
   kind: ScalarKind;
   label: string;
   options?: readonly string[];
+  /** enum only: plain-language label shown in the review form for an option (the stored value stays the option). */
+  optionLabels?: Readonly<Record<string, string>>;
+  /** text only: a value that looks like an account number (6+ digits, or long digit groups) is cleared, never stored. */
+  noAccountNumbers?: boolean;
   /** money only: may be negative (losses, signed K-1 amounts) */
   signed?: boolean;
   /** text only: stored upper-case (state / box 12 codes) */
@@ -127,7 +133,15 @@ export interface TaxSchema {
 /** Schema version stamped on expanded schemas. A stored extraction without it (or lower) is "older format". */
 export const CURRENT_SCHEMA_VERSION = 2;
 
-const EXPANDED_TYPES: readonly TaxSchemaDocType[] = ["w2", "1099", "form_1098", "property_tax", "k1", "donation_receipt"];
+const EXPANDED_TYPES: readonly TaxSchemaDocType[] = [
+  "w2",
+  "1099",
+  "form_1098",
+  "property_tax",
+  "k1",
+  "donation_receipt",
+  "retirement_contribution",
+];
 
 /** Raw Document.docType values whose schema was expanded (older extractions of these are "older format"). */
 export const EXPANDED_RAW_DOC_TYPES: readonly string[] = [
@@ -137,6 +151,7 @@ export const EXPANDED_RAW_DOC_TYPES: readonly string[] = [
   "property_tax",
   "k1",
   "donation_receipt",
+  "retirement_contribution",
 ];
 
 export function schemaTypeForDocType(docType: string): TaxSchemaDocType | null {
@@ -156,6 +171,8 @@ export function schemaTypeForDocType(docType: string): TaxSchemaDocType | null {
       return "tax_return";
     case "donation_receipt":
       return "donation_receipt";
+    case "retirement_contribution":
+      return "retirement_contribution";
     default:
       return null;
   }
@@ -625,6 +642,127 @@ const DONATION_RECEIPT_SCHEMA: TaxSchema = {
   ],
 };
 
+// ── Retirement contribution statement / Form 5498 (retirement-contribution-document-type) ─
+//
+// What a trustee reports to the participant about an IRA: IRS Form 5498 (IRA
+// Contribution Information). Box numbers and meanings below were verified
+// against the 2025 Form 5498 (https://www.irs.gov/pub/irs-prior/f5498--2025.pdf,
+// "Instructions for Participant") and the 2025 Instructions for Forms 1099-R
+// and 5498 (https://www.irs.gov/pub/irs-prior/i1099r--2025.pdf, "Specific
+// Instructions for Form 5498"), read 2026-10-04:
+//   box 1  IRA contributions (traditional IRA): made in 2025 and through April
+//          15, 2026, designated for 2025; excludes boxes 2-4, 8-10, 13a, 14a
+//   box 2  rollover contributions        box 3  Roth IRA conversion amount
+//   box 4  recharacterized contributions box 5  FMV of the account at year end
+//   box 7  checkboxes: IRA, SEP, SIMPLE, Roth IRA (both SEP and Roth IRA = a Roth SEP)
+//   box 8  SEP contributions             box 9  SIMPLE contributions
+//          (both: made during 2025 incl. contributions made in 2025 for 2024,
+//          NOT contributions made in 2026 for 2025)
+//   box 10 Roth IRA contributions: made in 2025 and through April 15, 2026, designated for 2025
+//   box 13a postponed/late contribution made in 2025 for a prior year (or a late
+//          rollover); box 13b the year it was made for
+// Other boxes (6 life insurance cost, 11-12 RMD, 14 repayments, 15 specified
+// assets) are NOT read: the app has no use for them yet.
+//
+// Deliberately NOT stored: the participant's name/address/TIN and the account
+// number (not even its last 4) - the owner assigns the person through the
+// document's own person tag. A form-year contribution that was made after
+// year-end is already inside boxes 1/10 (the form does not flag it), so there is
+// no separate "made after year-end" field. This type feeds nothing in the Forms
+// readiness registry or the engine (feeds: []): lib/retirement-statement.ts only
+// summarises what the statement says, for a later prefill step.
+
+const RETIREMENT_ACCOUNT_KINDS = [
+  "traditional_ira",
+  "roth_ira",
+  "sep_ira",
+  "simple_ira",
+  "employer_plan",
+  "unknown",
+] as const;
+
+const RETIREMENT_ACCOUNT_KIND_LABELS: Readonly<Record<string, string>> = {
+  traditional_ira: "Traditional IRA",
+  roth_ira: "Roth IRA",
+  sep_ira: "SEP IRA",
+  simple_ira: "SIMPLE IRA",
+  employer_plan: "401(k) or other employer plan statement",
+  unknown: "Not stated on the document",
+};
+
+const RETIREMENT_FORM_VARIANTS = ["form_5498", "other_statement"] as const;
+
+const RETIREMENT_FORM_VARIANT_LABELS: Readonly<Record<string, string>> = {
+  form_5498: "IRS Form 5498 (IRA Contribution Information)",
+  other_statement: "Some other statement (not Form 5498)",
+};
+
+const RETIREMENT_CONTRIBUTION_SCHEMA: TaxSchema = {
+  docType: "retirement_contribution",
+  title:
+    "retirement account contribution statement: IRS Form 5498 (IRA Contribution Information) or a trustee's / plan's own IRA or 401(k) statement (it may not be an IRS form)",
+  version: CURRENT_SCHEMA_VERSION,
+  groups: [
+    { id: "statement", label: "The statement" },
+    { id: "contributions", label: "Contributions for the year" },
+    { id: "other", label: "Rollovers, conversions and account value" },
+  ],
+  fields: [
+    field("int", "taxYear", "Year the contributions are for", "Form 5498 year (top right of the form)", "statement", {
+      min: 1990,
+      max: 2100,
+      hint: "The tax year the reported contributions are FOR: on Form 5498 the year printed in the form header (for example 2025). For another statement, the year it says contributions are for. Null if not stated.",
+    }),
+    field("enum", "formVariant", "Kind of document", "Form 5498 header", "statement", {
+      options: RETIREMENT_FORM_VARIANTS,
+      optionLabels: RETIREMENT_FORM_VARIANT_LABELS,
+      hint: "form_5498 only when the document is the IRS Form 5498 (titled IRA Contribution Information); other_statement for any other trustee, custodian or plan statement.",
+    }),
+    field("text", "issuerName", "Trustee / issuer", "Form 5498 trustee's or issuer's name", "statement", {
+      signal: true,
+      noAccountNumbers: true,
+      hint: "The company that holds the account (the TRUSTEE'S or ISSUER'S name on Form 5498), as printed. Name only: no address, no numbers.",
+    }),
+    field("enum", "accountKind", "Kind of account", "Form 5498 box 7", "statement", {
+      options: RETIREMENT_ACCOUNT_KINDS,
+      optionLabels: RETIREMENT_ACCOUNT_KIND_LABELS,
+      hint: "From the box 7 checkbox: IRA = traditional_ira, Roth IRA = roth_ira, SEP = sep_ira, SIMPLE = simple_ira. A 401(k) or other employer plan statement = employer_plan. If both SEP and Roth IRA are checked (a Roth SEP), or both SIMPLE and Roth IRA, return null. unknown only when the document is clearly a retirement statement but does not say which kind; null when you cannot read it.",
+    }),
+    money("iraContributionsCents", "Traditional IRA contributions", "Form 5498 box 1", "contributions", {
+      hint: "Box 1 only: traditional IRA contributions made during the year and through April 15 of the next year, designated for the form year. Never include boxes 2, 3, 4, 8, 9, 10, 13a or 14a here.",
+    }),
+    money("rothIraContributionsCents", "Roth IRA contributions", "Form 5498 box 10", "contributions", {
+      hint: "Box 10 only: Roth IRA contributions made during the year and through April 15 of the next year, designated for the form year.",
+    }),
+    money("sepContributionsCents", "SEP contributions (employer)", "Form 5498 box 8", "contributions", {
+      hint: "Box 8 only: employer contributions to a SEP IRA made during the year (this can include contributions made in that year for the prior year).",
+    }),
+    money("simpleContributionsCents", "SIMPLE contributions", "Form 5498 box 9", "contributions", {
+      hint: "Box 9 only: employer contributions and salary deferrals to a SIMPLE IRA made during the year.",
+    }),
+    money("postponedContributionCents", "Late or postponed contribution", "Form 5498 box 13a", "contributions", {
+      hint: "Box 13a only: a postponed contribution made this year for a PRIOR year, or a late rollover. Not included in box 1 or 2.",
+    }),
+    field("int", "postponedForYear", "Year the late contribution was for", "Form 5498 box 13b", "contributions", {
+      min: 1990,
+      max: 2100,
+      hint: "Box 13b only: the year the box 13a contribution was made for. Null when blank (it is blank for a late rollover).",
+    }),
+    money("rolloverContributionsCents", "Rollovers into the IRA", "Form 5498 box 2", "other", {
+      hint: "Box 2 only: rollover contributions, including direct rollovers (not conversions to a Roth IRA, which are box 3).",
+    }),
+    money("rothConversionCents", "Converted to a Roth IRA", "Form 5498 box 3", "other", {
+      hint: "Box 3 only: the amount converted from a traditional or SIMPLE IRA to a Roth IRA during the year.",
+    }),
+    money("recharacterizedContributionsCents", "Recharacterized contributions", "Form 5498 box 4", "other", {
+      hint: "Box 4 only: amounts moved (with earnings) from one type of IRA to another.",
+    }),
+    money("fairMarketValueCents", "Account value at year end", "Form 5498 box 5", "other", {
+      hint: "Box 5 only: the fair market value of all investments in the account at year end.",
+    }),
+  ],
+};
+
 export const TAX_SCHEMAS: Readonly<Record<TaxSchemaDocType, TaxSchema>> = {
   w2: W2_SCHEMA,
   "1099": F1099_SCHEMA,
@@ -633,6 +771,7 @@ export const TAX_SCHEMAS: Readonly<Record<TaxSchemaDocType, TaxSchema>> = {
   k1: K1_SCHEMA,
   tax_return: TAX_RETURN_SCHEMA,
   donation_receipt: DONATION_RECEIPT_SCHEMA,
+  retirement_contribution: RETIREMENT_CONTRIBUTION_SCHEMA,
 };
 
 export function getTaxSchema(schemaType: TaxSchemaDocType): TaxSchema {
@@ -690,7 +829,19 @@ export function containsSsnLikeText(text: string): boolean {
   return SSN_LIKE.test(text.normalize("NFKC"));
 }
 
+/**
+ * True for text carrying an account-number-shaped digit run: 6 or more digits in a
+ * row, or three or more digit groups joined by single hyphens/spaces (an account
+ * number printed in groups). Years, dates and short amounts do not match. Used on
+ * retirement statements, where an account number must never be extracted.
+ */
+export function containsAccountNumberLikeText(text: string): boolean {
+  return /\d{6,}|(?:\d{3,}[-\s]){2,}\d{2,}/.test(text.normalize("NFKC"));
+}
+
 const SSN_WARNING = "removed text that looked like an SSN";
+const ACCOUNT_NUMBER_WARNING = "removed text that looked like an account number";
+const ACCOUNT_NUMBER_SUMMARY_PLACEHOLDER = "Summary withheld: it contained text that looked like an account number.";
 const SSN_SUMMARY_PLACEHOLDER = "Summary withheld: it contained text that looked like a Social Security Number.";
 
 // ── Scalar conversion (shared by the normalizer and the correction validator) ──
@@ -787,6 +938,9 @@ function convertScalar(spec: ScalarFieldSpec, raw: unknown, strict: boolean): Co
       s = s.replace(CONTROL_CHARS, " ").replace(/\s+/g, " ").trim();
       if (s === "") return ok(null);
       if (containsSsnLikeText(s)) return { ok: false, reason: "looks like a Social Security Number", ssn: true };
+      if (spec.noAccountNumbers && containsAccountNumberLikeText(s)) {
+        return bad("looks like an account number, which is never stored");
+      }
       const maxLen = spec.maxLen ?? DEFAULT_TEXT_MAX;
       if (s.length > maxLen) {
         if (strict) return bad(`must be at most ${maxLen} characters`);
@@ -954,6 +1108,9 @@ export function normalizeTaxExtraction(schemaType: TaxSchemaDocType, parsed: unk
     if (containsSsnLikeText(cleaned)) {
       summary = SSN_SUMMARY_PLACEHOLDER;
       addWarning(SSN_WARNING);
+    } else if (schemaType === "retirement_contribution" && containsAccountNumberLikeText(cleaned)) {
+      summary = ACCOUNT_NUMBER_SUMMARY_PLACEHOLDER;
+      addWarning(ACCOUNT_NUMBER_WARNING);
     } else {
       summary = cleaned;
     }
@@ -1012,6 +1169,25 @@ export function crossFieldWarnings(
   const taxYear = num("taxYear");
   if (taxYear !== null && context.documentTaxYear != null && taxYear !== context.documentTaxYear) {
     out.push(`The form says tax year ${taxYear} but this document is filed under ${context.documentTaxYear}.`);
+  }
+
+  if (schemaType === "retirement_contribution") {
+    const kind = typeof data.accountKind === "string" ? data.accountKind : null;
+    const roth = num("rothIraContributionsCents");
+    const traditional = num("iraContributionsCents");
+    if (roth !== null && roth > 0 && (kind === "traditional_ira" || kind === "sep_ira" || kind === "simple_ira")) {
+      out.push("Roth IRA contributions (box 10) are filled in but the account is marked as a different kind - check the document.");
+    }
+    if (traditional !== null && traditional > 0 && kind === "roth_ira") {
+      out.push("Traditional IRA contributions (box 1) are filled in but the account is marked as a Roth IRA - check the document.");
+    }
+    const lateYear = num("postponedForYear");
+    if (num("postponedContributionCents") !== null && lateYear === null) {
+      out.push("A late or postponed contribution amount (box 13a) is filled in but not the year it was for (box 13b).");
+    }
+    if (lateYear !== null && taxYear !== null && lateYear >= taxYear) {
+      out.push("The late contribution (box 13b) should be for a year before the statement's year - check the document.");
+    }
   }
 
   if (schemaType === "1099") {
@@ -1218,6 +1394,14 @@ const TYPE_RULES: Partial<Record<TaxSchemaDocType, string[]>> = {
     "- If more than one gift is listed, set coversMultipleGifts to true and leave giftDate and cashAmountCents null; do not sum amounts.",
     "- Do not extract the donor's name, address, account number or any donor identification.",
     "- noGoodsOrServicesStated: silence is null. Do not infer 'no goods or services' from the absence of a statement.",
+    "- Use null for anything not clearly legible. Never guess.",
+  ],
+  retirement_contribution: [
+    "- This is a retirement account statement: IRS Form 5498 (IRA Contribution Information) or a trustee's / plan's own statement. Read only the boxes listed in the field guide, using the box numbers printed on the form.",
+    "- Each money field is ONE box. Never add boxes together, never move an amount from one box to another, never estimate. A box that is blank or not on this document is null (a printed 0.00 is 0).",
+    "- ACCOUNT NUMBERS: this overrides the general rule on account numbers. Do NOT output the account number or any part of it (not even the last 4 digits), and do not output the participant's name, address or taxpayer ID. Leave them out of every field including summary.",
+    "- taxYear is the year the contributions are FOR (on Form 5498 the year in the form header), not the year the form was printed or issued.",
+    "- A 401(k) or other employer plan statement is not Form 5498: set formVariant to other_statement and accountKind to employer_plan, and leave the money fields null unless the statement itself labels a figure with exactly the meaning described for that field.",
     "- Use null for anything not clearly legible. Never guess.",
   ],
 };

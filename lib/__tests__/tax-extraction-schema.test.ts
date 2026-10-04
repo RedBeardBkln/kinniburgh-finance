@@ -34,6 +34,7 @@ describe("registry shape", () => {
       "form_1098",
       "k1",
       "property_tax",
+      "retirement_contribution",
       "tax_return",
       "w2",
     ]);
@@ -48,7 +49,7 @@ describe("registry shape", () => {
 
   it("expanded schemas are version 2; tax_return keeps its unchanged version 1", () => {
     expect(CURRENT_SCHEMA_VERSION).toBe(2);
-    for (const t of ["w2", "1099", "form_1098", "property_tax", "k1", "donation_receipt"] as const) {
+    for (const t of ["w2", "1099", "form_1098", "property_tax", "k1", "donation_receipt", "retirement_contribution"] as const) {
       expect(schemaVersionFor(t)).toBe(2);
     }
     expect(schemaVersionFor("tax_return")).toBe(1);
@@ -58,6 +59,7 @@ describe("registry shape", () => {
       "k1",
       "mortgage_interest",
       "property_tax",
+      "retirement_contribution",
       "w2",
     ]);
   });

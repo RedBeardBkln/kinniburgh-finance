@@ -9,6 +9,8 @@ import { isTaxDocType } from "@/lib/document-attribution";
 import { STALE_READING_ERROR, isUsableExtraction } from "@/lib/document-extraction-state";
 import { appendExtractionEvent, applyCorrectionSet } from "@/lib/extraction-corrections";
 import { getTaxSchema, schemaTypeForDocType, validateCorrections } from "@/lib/tax-extraction-schema";
+import { resolveEffectiveExtraction } from "@/lib/extraction-effective";
+import { refreshAutoNameForYear } from "@/lib/document-rename";
 
 // Owner review of AI-extracted tax values (document-extraction-status-and-review,
 // pass 2).
@@ -58,6 +60,69 @@ function revalidateViews(documentId: string) {
   }
 }
 
+function intOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function effectiveDataOf(
+  doc: { docType: string; extractionData: unknown; extractionConfirmedAt: Date | null },
+  corrections: unknown
+): Record<string, unknown> {
+  const effective = resolveEffectiveExtraction({
+    docType: doc.docType,
+    extractionData: doc.extractionData,
+    extractionCorrections: corrections,
+    extractionConfirmedAt: doc.extractionConfirmedAt,
+  });
+  const data = isRecord(effective.extractionData) ? effective.extractionData.data : null;
+  return isRecord(data) ? data : {};
+}
+
+/**
+ * When the owner's correction changes the tax year the document's reading says
+ * (a property tax bill the AI read as 2024, corrected to 2025), an AUTO-generated
+ * name ("Property Tax Bill (2024)") is refreshed for the new year. A name the
+ * owner typed is never touched (refreshAutoNameForYear only matches the exact
+ * generated names). Best-effort and guarded: its own try/catch, and the write
+ * only lands if the name is still what was read, so it can never fail or undo
+ * the corrections write that already succeeded.
+ */
+async function refreshNameForYearChange(
+  doc: {
+    id: string;
+    docType: string;
+    extractionData: unknown;
+    extractionConfirmedAt: Date | null;
+    extractionCorrections: unknown;
+    documentName: string | null;
+    taxYear: number | null;
+  },
+  aiData: Record<string, unknown>,
+  newOverlay: unknown
+): Promise<void> {
+  try {
+    const before = effectiveDataOf(doc, doc.extractionCorrections);
+    const after = effectiveDataOf(doc, newOverlay);
+    const newYear = intOrNull(after.taxYear);
+    const oldYear = intOrNull(before.taxYear);
+    if (newYear === null || newYear === oldYear) return;
+    const next = refreshAutoNameForYear({
+      docType: doc.docType,
+      documentName: doc.documentName,
+      oldYears: [doc.taxYear, oldYear, intOrNull(aiData.taxYear)],
+      newYear,
+      dataVariants: [aiData, before],
+    });
+    if (next === null || next === doc.documentName) return;
+    await db.document.updateMany({
+      where: { id: doc.id, archivedAt: null, documentName: doc.documentName },
+      data: { documentName: next },
+    });
+  } catch {
+    // best effort - see above.
+  }
+}
+
 async function applyReview(
   userId: string,
   input: ReviewDocumentInput,
@@ -77,6 +142,8 @@ async function applyReview(
       extractionCorrections: true,
       extractedAt: true,
       extractionConfirmedAt: true,
+      documentName: true,
+      taxYear: true,
     },
   });
   if (!doc) return { ok: false, error: "Document not found" };
@@ -130,6 +197,8 @@ async function applyReview(
     },
   });
   if (write.count === 0) return { ok: false, error: STALE_READING_ERROR };
+
+  await refreshNameForYearChange(doc, aiData, applied.overlay);
 
   revalidateViews(doc.id);
   return { ok: true };

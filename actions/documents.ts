@@ -48,6 +48,7 @@ import { deriveEffectiveDocumentTaxYear, planYearFill } from "@/lib/document-yea
 import { resolveEffectiveExtraction } from "@/lib/extraction-effective";
 import { generateDocumentName } from "@/lib/doc-naming";
 import { RETYPE_TARGETS, isPlaceholderName, retypeBlockReason } from "@/lib/document-retype";
+import { DOCUMENT_NAME_MAX } from "@/lib/document-rename";
 
 async function requireAuth() {
   const session = await auth();
@@ -63,6 +64,7 @@ const DOC_TYPES = [
   "property_tax",
   "mortgage_interest",
   "donation_receipt",
+  "retirement_contribution",
   "policy",
   "statement",
   "bank_statement",
@@ -534,13 +536,14 @@ async function runExtraction(
       // best effort — see comment above.
     }
 
-    // Donation receipts only: refresh a PLACEHOLDER name ("Donation Receipt" or
-    // empty, e.g. right after a retype from "Other") from what was just read
-    // (charity + year). A name the owner typed is never touched. Same
-    // best-effort rules as the year fill above: its own try/catch (must never
+    // Donation receipts and retirement statements only: refresh a PLACEHOLDER name
+    // ("Donation Receipt" / "Retirement Contributions" or empty, e.g. right after a
+    // retype from "Other") from what was just read (charity or trustee + year).
+    // A name the owner typed is never touched. Same best-effort rules as the year
+    // fill above: its own try/catch (must never
     // flip a good "complete" to "failed"), and a guarded updateMany that
     // silently no-ops if the name changed while the 20-60 s extraction ran.
-    if (doc.docType === "donation_receipt") {
+    if (doc.docType === "donation_receipt" || doc.docType === "retirement_contribution") {
       try {
         if (isPlaceholderName(doc.documentName, doc.docType, doc.taxYear)) {
           const effectiveInput = {
@@ -552,7 +555,7 @@ async function runExtraction(
           const effective = resolveEffectiveExtraction(effectiveInput);
           const year = doc.taxYear ?? deriveEffectiveDocumentTaxYear(effectiveInput);
           const newName = generateDocumentName(
-            "donation_receipt",
+            doc.docType,
             year,
             effective.extractionData as Pick<ExtractedDocument, "docType" | "data">
           );
@@ -693,6 +696,71 @@ export async function changeDocumentType(input: {
     // ignore
   }
   return { ok: true, changed: true, extract: isExtractableDocType(nextDocType) };
+}
+
+// ── Rename a document (the /documents "Rename" control) ──────────────────────
+
+const renameDocumentSchema = z.object({
+  documentId: z.string().uuid(),
+  documentName: z
+    .string()
+    .trim()
+    .min(1, "Enter a name for the document.")
+    .max(DOCUMENT_NAME_MAX, `The name can be at most ${DOCUMENT_NAME_MAX} characters.`),
+});
+
+export type RenameDocumentInput = z.input<typeof renameDocumentSchema>;
+
+/**
+ * Sets a document's display name. It writes ONLY `documentName`: the file, the
+ * type, the extraction and its verification are untouched, so renaming is allowed
+ * even for a verified document (unlike a retype). The audit entry carries ids and
+ * the field name only, never the name text.
+ */
+export async function renameDocument(
+  input: RenameDocumentInput
+): Promise<{ ok: true; changed: boolean; documentName: string } | { ok: false; error: string }> {
+  const user = await requireAuth();
+  const userId = user.id;
+  if (!userId) return { ok: false, error: "Unauthorized" };
+
+  const parsed = renameDocumentSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  }
+  const { documentId, documentName } = parsed.data;
+
+  const doc = await db.document.findFirst({
+    where: { id: documentId, archivedAt: null },
+    select: { id: true, documentName: true },
+  });
+  if (!doc) return { ok: false, error: "Document not found" };
+  if (doc.documentName === documentName) return { ok: true, changed: false, documentName };
+
+  const written = await db.document.updateMany({
+    where: { id: documentId, archivedAt: null },
+    data: { documentName },
+  });
+  if (written.count === 0) return { ok: false, error: "Document not found" };
+
+  await db.auditLog.create({
+    data: {
+      changedBy: userId,
+      changeType: "document_rename",
+      before: { documentId, field: "documentName" },
+      after: { documentId, field: "documentName", length: documentName.length },
+    },
+  });
+
+  // Best-effort, outside the success/failure decision.
+  try {
+    revalidatePath("/documents");
+    revalidatePath("/tax");
+    revalidatePath(`/documents/${documentId}/review`);
+  } catch {
+    // ignore
+  }
+  return { ok: true, changed: true, documentName };
 }
 
 /**

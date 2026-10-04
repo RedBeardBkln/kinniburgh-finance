@@ -13,6 +13,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   extension: "Extension",
   property_tax: "Property Tax Bill",
   donation_receipt: "Donation Receipt",
+  retirement_contribution: "Retirement Contributions",
   mortgage_interest: "1098",
   mortgage_statement: "Mortgage Statement",
   tax_return: "Tax Return",
@@ -53,6 +54,9 @@ export function generateDocumentName(
       const m = typeof giftDate === "string" ? /^(\d{4})-\d{2}-\d{2}$/.exec(giftDate) : null;
       year = m ? Number(m[1]) : null;
     }
+  } else if (docType === "retirement_contribution") {
+    // Trustee/issuer + the year the contributions are FOR (data.taxYear, else the filed-under year).
+    source = typeof data["issuerName"] === "string" ? data["issuerName"] : null;
   } else if (docType === "w2") {
     source = typeof data["employerName"] === "string" ? data["employerName"] : null;
   } else if (docType === "1099") {

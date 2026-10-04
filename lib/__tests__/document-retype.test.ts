@@ -13,7 +13,7 @@ import { isExtractableDocType } from "@/lib/document-extraction-state";
 import { mimeTypeForFileKey } from "@/lib/document-upload";
 
 describe("retype targets", () => {
-  it("are exactly the owner-chosen tax-ish types, with donation_receipt included", () => {
+  it("are exactly the owner-chosen tax-ish types, with donation_receipt and retirement_contribution included", () => {
     expect([...RETYPE_TARGETS]).toEqual([
       "w2",
       "1099",
@@ -21,6 +21,7 @@ describe("retype targets", () => {
       "mortgage_interest",
       "property_tax",
       "donation_receipt",
+      "retirement_contribution",
       "tax_return",
       "extension",
       "other",

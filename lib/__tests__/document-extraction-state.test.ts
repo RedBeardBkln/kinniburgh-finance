@@ -124,6 +124,7 @@ describe("isCurrentSchema (legacy / older-format detection)", () => {
       "k1",
       "mortgage_interest",
       "property_tax",
+      "retirement_contribution",
       "w2",
     ]);
     expect(CURRENT_SCHEMA_VERSION).toBe(2);

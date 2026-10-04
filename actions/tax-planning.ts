@@ -266,6 +266,7 @@ const TAX_DOC_TYPES = [
   "property_tax",
   "mortgage_interest",
   "donation_receipt",
+  "retirement_contribution",
   "tax_return",
   "bank_statement",
   "other",
@@ -324,7 +325,8 @@ async function uploadTaxDocumentCore(input: {
   const extractable =
     docType === "w2" || docType === "1099" || docType === "k1" ||
     docType === "mortgage_interest" || docType === "tax_return" ||
-    docType === "property_tax" || docType === "donation_receipt";
+    docType === "property_tax" || docType === "donation_receipt" ||
+    docType === "retirement_contribution";
 
   if (extractable) {
     try {

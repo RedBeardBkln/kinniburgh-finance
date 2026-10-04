@@ -319,6 +319,7 @@ const DOC_TYPE_LABELS: Readonly<Record<string, string>> = {
   extension: "Extension",
   property_tax: "Property tax bill",
   donation_receipt: "Donation receipt",
+  retirement_contribution: "Retirement contributions",
   mortgage_interest: "1098",
   mortgage_statement: "Mortgage statement",
   tax_return: "Tax return",

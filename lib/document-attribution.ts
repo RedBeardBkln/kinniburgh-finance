@@ -24,6 +24,7 @@ export const TAX_DOC_TYPES = [
   "mortgage_interest",
   "property_tax",
   "donation_receipt",
+  "retirement_contribution",
   "tax_return",
   "extension",
 ] as const;
@@ -116,6 +117,8 @@ const ISSUER_KEY_BY_DOC_TYPE: Record<string, string> = {
   mortgage_statement: "servicerName",
   // A donation receipt's issuer is the charity that received the gift.
   donation_receipt: "organizationName",
+  // A retirement statement's issuer is the trustee/custodian that holds the account.
+  retirement_contribution: "issuerName",
 };
 
 /**

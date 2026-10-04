@@ -811,3 +811,37 @@ describe("a donation_receipt document on the Forms page", () => {
     expect(withReceipt.fieldsReady).toBe(without.fieldsReady);
   });
 });
+
+// ── Retirement statements on the Forms page (retirement-contribution-document-type) ──
+
+describe("a retirement_contribution document on the Forms page", () => {
+  const statement = (over: Partial<FormsDocumentInput> = {}) =>
+    doc({ id: "ret1", docType: "retirement_contribution", documentName: "Retirement Contributions", issuerName: "Betterment", ...over });
+
+  it("counts as one of the year's tax documents (attribution counts)", () => {
+    const data = buildFormsPageData(input({ documents: [statement()] }));
+    expect(data.attribution).toEqual({ taxDocCount: 1, unassignedPersonCount: 1, missingIssuerCount: 0 });
+    expect(buildFormsPageData(input({ documents: [statement({ issuerName: null })] })).attribution.missingIssuerCount).toBe(1);
+  });
+
+  it("is counted in the extraction basis like any other tax document", () => {
+    const extraction = { kind: "extracted_unverified" as const, label: "x", tone: "amber" as const, actions: [], outdated: false, correctionCount: 0 };
+    const data = buildFormsPageData(input({ documents: [statement({ extraction })] }));
+    expect(data.extractionBasis.documentCount).toBe(1);
+    expect(data.extractionBasis.unverified).toBe(1);
+  });
+
+  it("is listed as a source document on the Form 8880 card for its year only, and changes no readiness anywhere", () => {
+    const withDocs = buildFormsPageData(input({ documents: [statement(), statement({ id: "ret2", taxYear: 2024 })] }));
+    const without = buildFormsPageData(input());
+    expect(find(withDocs, "form-8880").inputs.map((i) => i.id)).toEqual(["ret1"]);
+    expect(find(without, "form-8880").inputs).toEqual([]);
+    const strip = (d: FormsPageData) =>
+      allEntries(d).map((e) => ({ id: e.id, applicability: e.applicability, readiness: e.readiness, fieldsReady: e.fieldsReady, fieldsTotal: e.fieldsTotal }));
+    expect(strip(withDocs)).toEqual(strip(without));
+  });
+
+  it("has a Forms label", () => {
+    expect(CPA_INPUT_FORMS.find((f) => f.id === "form-8880")?.inputDocTypes).toEqual(["retirement_contribution"]);
+  });
+});

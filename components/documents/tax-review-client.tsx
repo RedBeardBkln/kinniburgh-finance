@@ -539,7 +539,7 @@ function ScalarInput({
         <option value="">(blank)</option>
         {(spec.options ?? []).map((o) => (
           <option key={o} value={o}>
-            {o}
+            {spec.optionLabels?.[o] ?? o}
           </option>
         ))}
       </select>

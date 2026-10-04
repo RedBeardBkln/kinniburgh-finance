@@ -273,6 +273,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   mortgage_interest: "Mortgage interest (1098)",
   property_tax: "Property tax bill",
   donation_receipt: "Donation receipt",
+  retirement_contribution: "Retirement contributions",
   tax_return: "Prior-year return",
   extension: "Extension",
   bank_statement: "Bank statement",
@@ -499,6 +500,8 @@ export const CPA_INPUT_FORMS: readonly {
   opportunityKey: string;
   formMarker: string;
   reason: string;
+  /** Document types listed on the card as source documents (display only; never feeds readiness). */
+  inputDocTypes?: readonly string[];
 }[] = [
   {
     id: "form-8829",
@@ -530,6 +533,8 @@ export const CPA_INPUT_FORMS: readonly {
     opportunityKey: "retirement_savings_credit",
     formMarker: "Form 8880",
     reason: "The draft return computes the saver's credit from your retirement-contribution answers and the return's adjusted gross income (no credit above the Form 8880 limit); the CPA reviews it.",
+    // Listed so the owner can see the statements on file; they do not change the computed credit.
+    inputDocTypes: ["retirement_contribution"],
   },
   {
     id: "form-8889",
@@ -863,6 +868,7 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
           : f.reason,
         source: `lib/tax-guidance.ts baseOpportunitiesForHousehold ("${f.opportunityKey}") + evaluateAnswers`,
         opportunity: opportunityRef(f.opportunityKey),
+        ...(f.inputDocTypes ? { inputs: refs(personalDocs([...f.inputDocTypes])) } : {}),
         // Kept even when ruled out by a planning answer, so the answer can be reopened.
         questionnaire: householdQuestionnaire(f.id),
       })

@@ -8,6 +8,7 @@ import { requestDocumentUploadSlot, finalizeDocumentUpload } from "@/actions/doc
 import { validateDocumentFile } from "@/lib/document-upload";
 import { uploadTaxFile, type TaxDocType } from "@/components/tax/tax-document-upload";
 import { summarizeUploadBatch } from "@/lib/tax-doc-batch";
+import { RETIREMENT_PICKER_LABEL } from "@/lib/retirement-statement";
 import { MIN_TAX_YEAR, isValidPriorYear } from "@/lib/tax-year-range";
 import {
   ISSUER_MAX_LENGTH,
@@ -29,6 +30,7 @@ const DOC_TYPES = [
   { value: "extension", label: "Extension" },
   { value: "property_tax", label: "Property Tax" },
   { value: "donation_receipt", label: "Donation receipt / acknowledgment (AI extraction)" },
+  { value: "retirement_contribution", label: `${RETIREMENT_PICKER_LABEL} (AI extraction)` },
   { value: "mortgage_interest", label: "Mortgage Interest (1098)" },
   { value: "policy", label: "Insurance Policy (manual)" },
   { value: "statement", label: "Bank/Account Statement (manual)" },
@@ -202,6 +204,12 @@ export function DocumentUploadForm({ entities, defaultEntityId, people = [] }: P
             {docType === "tax_return" && (
               <p className="text-xs text-muted-foreground">
                 Tax year = the year the return covers (e.g. 2023 for the return filed in 2024).
+              </p>
+            )}
+            {docType === "retirement_contribution" && (
+              <p className="text-xs text-muted-foreground">
+                Tax year = the year the contributions are for (on Form 5498, the year printed at the top of the form).
+                Use &quot;Pertains to&quot; to say whose account it is.
               </p>
             )}
           </div>

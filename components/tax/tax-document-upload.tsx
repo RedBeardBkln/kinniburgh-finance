@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { documentTypeLabel } from "@/lib/doc-naming";
 import { isPlaceholderName } from "@/lib/document-retype";
+import { RETIREMENT_PICKER_LABEL } from "@/lib/retirement-statement";
 import { MAX_BATCH_FILES, summarizeUploadBatch, type UploadBatchResult } from "@/lib/tax-doc-batch";
 import { validateTaxDocumentFile } from "@/lib/tax-document-upload";
 import {
@@ -65,6 +66,7 @@ const DOC_TYPE_OPTIONS = [
   { value: "mortgage_interest", label: "Form 1098 (mortgage interest)" },
   { value: "property_tax", label: "Property tax bill" },
   { value: "donation_receipt", label: "Donation receipt / acknowledgment" },
+  { value: "retirement_contribution", label: RETIREMENT_PICKER_LABEL },
   { value: "tax_return", label: "Prior-year tax return" },
   { value: "extension", label: "Extension confirmation" },
   { value: "bank_statement", label: "Bank/investment statement" },
@@ -78,7 +80,7 @@ const DOC_TYPE_OPTIONS = [
 const BATCH_CONCURRENCY_LIMIT = 4;
 
 export type TaxDocType =
-  | "w2" | "1099" | "k1" | "extension" | "property_tax" | "donation_receipt"
+  | "w2" | "1099" | "k1" | "extension" | "property_tax" | "donation_receipt" | "retirement_contribution"
   | "mortgage_interest" | "tax_return" | "bank_statement" | "other";
 
 /** Optional attribution applied to an uploaded file (all null = Unassigned). */

@@ -7,6 +7,7 @@
 // types are produced by their own upload flows.
 
 import { documentTypeLabel, generateDocumentName } from "@/lib/doc-naming";
+import { RETIREMENT_PICKER_LABEL } from "@/lib/retirement-statement";
 
 export interface RetypeTarget {
   value: string;
@@ -22,6 +23,7 @@ export const RETYPE_TARGET_OPTIONS: readonly RetypeTarget[] = [
   { value: "mortgage_interest", label: "Form 1098 (mortgage interest)" },
   { value: "property_tax", label: "Property tax bill" },
   { value: "donation_receipt", label: "Donation receipt / acknowledgment" },
+  { value: "retirement_contribution", label: RETIREMENT_PICKER_LABEL },
   { value: "tax_return", label: "Prior-year tax return" },
   { value: "extension", label: "Extension confirmation" },
   { value: "other", label: "Other document" },

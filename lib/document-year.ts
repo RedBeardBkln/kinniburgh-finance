@@ -45,6 +45,8 @@ const ANNUAL_TAX_DOC_TYPES: ReadonlySet<string> = new Set([
   "form_1098",
   "property_tax",
   "tax_return",
+  // A retirement statement carries the year its contributions are FOR (data.taxYear).
+  "retirement_contribution",
 ]);
 
 // A donation receipt (donation_receipt) prints no tax year: it belongs to the
