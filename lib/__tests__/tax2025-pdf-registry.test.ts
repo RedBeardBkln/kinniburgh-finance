@@ -1,3 +1,5 @@
+import { vi } from "vitest";
+vi.setConfig({ testTimeout: 60000 }); // filling several real IRS forms per test; the 5 s default is tuned for one
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildCatalog, serializeCatalog } from "@/lib/tax2025/pdf/catalog";

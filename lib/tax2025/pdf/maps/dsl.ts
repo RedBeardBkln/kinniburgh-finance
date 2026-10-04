@@ -18,6 +18,14 @@ export function blanks(reason: BlankReason, ...fields: string[]): MapBlank[] {
   return fields.map((field) => ({ field, reason }));
 }
 
+/**
+ * Blank entries that also carry a plain-language note: the cover lists the note so a box the app does not
+ * decide (12a-12c, 7b, 3c-6d, ...) is never silently skipped. Entries sharing one note print one cover line.
+ */
+export function notedBlanks(reason: BlankReason, note: string, ...fields: string[]): MapBlank[] {
+  return fields.map((field) => ({ field, reason, note }));
+}
+
 /** `prefix + id + "[0]"` for each id (the common field-name shape). */
 export function ids(prefix: string, ...names: string[]): string[] {
   return names.map((n) => `${prefix}${n}[0]`);

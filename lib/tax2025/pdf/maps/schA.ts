@@ -22,6 +22,7 @@ const P1 = "form1[0].Page1[0].";
 
 export const schAMap: FormMap = {
   formId: "f1040sa",
+  engineFormId: "scha",
   lines: [
     // ── Medical and dental ──
     money(`${P1}f1_3[0]`, "scha.1"),

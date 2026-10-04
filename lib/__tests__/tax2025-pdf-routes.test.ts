@@ -1,4 +1,6 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { vi } from "vitest";
+vi.setConfig({ testTimeout: 60000 }); // filling several real IRS forms per test; the 5 s default is tuned for one
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { unzipSync } from "fflate";

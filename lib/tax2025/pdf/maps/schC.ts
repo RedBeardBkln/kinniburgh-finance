@@ -51,6 +51,7 @@ const partV: MapTable = {
 
 export const schCMap: FormMap = {
   formId: "f1040sc",
+  engineFormId: "schc",
   lines: [
     // ── Header answers (only when an answer exists) ──
     { kind: "text", field: `${P1}f1_3[0]`, answer: "schC.principalBusiness", label: "Schedule C line A principal business" },

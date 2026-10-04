@@ -3,7 +3,7 @@
 // the effective return. Money in PdfLine is INTEGER DOLLARS (the engine already
 // applied roundLine); no floats, no Decimal.
 
-import type { Headline, LineKey, RuleStatus } from "@/lib/tax2025/types";
+import type { FormId, Headline, LineKey, RuleStatus } from "@/lib/tax2025/types";
 import type { PendingLineKey } from "@/lib/tax2025/pdf/pending-line-keys";
 
 /** A line a map may reference: an engine key or a not-yet-emitted (pending) key. */
@@ -226,13 +226,13 @@ export interface MapTable {
 }
 
 export type MapBlank =
-  | { field: string; reason: BlankReason }
-  | { match: RegExp; reason: BlankReason };
+  | { field: string; reason: BlankReason; note?: string }
+  | { match: RegExp; reason: BlankReason; note?: string };
 
 export interface FormMap {
   formId: string;
   /** The engine's FormId for this form (Ty2025Return.formsRequired key), when the engine decides inclusion. */
-  engineFormId?: string;
+  engineFormId?: FormId;
   lines: MapLine[];
   tables: MapTable[];
   header: MapHeaderEntry[];
@@ -281,5 +281,11 @@ export interface FillResult {
   filledFields: string[];
   /** Per blank reason: how many fields were left blank by design. */
   blankByDesign: Partial<Record<BlankReason, number>>;
+  /**
+   * Plain-language notes of the blank entries that carry one (a box or entry the app does not
+   * decide, e.g. "12a: someone can claim you or your spouse as a dependent"). The cover lists
+   * each so a not-modeled box is never silently skipped. Deduplicated, in map order.
+   */
+  blankNotes: string[];
   continuations: ContinuationList[];
 }

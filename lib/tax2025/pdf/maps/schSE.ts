@@ -2,7 +2,7 @@
 // claimed exactly once. Every printed money line has an engine key (se.<line>, the
 // engine's prefix is `se`, not `schse`; see lib/tax2025/line-catalog.ts SE and
 // lib/tax2025/rules/se-medicare.ts): 1a-1b farm, 2 Schedule C profit, 3, 4a-4c, 5a-5b,
-// 6, 7 (the 2025 maximum), 8a-8d, 9, 10, 11, 12 (to Schedule 2 line 4), 13 (to
+// 6, 7 (the 2025 maximum; pre-printed, not filled), 8a-8d, 9, 10, 11, 12 (to Schedule 2 line 4), 13 (to
 // Schedule 1 line 15) and the Part II optional-method lines 14-17.
 //
 // The name is the person with self-employment income: the map uses the taxpayer name
@@ -18,6 +18,7 @@ const P2 = "topmostSubform[0].Page2[0].";
 
 export const schSEMap: FormMap = {
   formId: "f1040sse",
+  engineFormId: "schse",
   lines: [
     // ── Part I: self-employment tax ──
     money(`${P1}f1_3[0]`, "se.1a"),
@@ -30,7 +31,6 @@ export const schSEMap: FormMap = {
     money(`${P1}Line5a_ReadOrder[0].f1_10[0]`, "se.5a"),
     money(`${P1}f1_11[0]`, "se.5b"),
     money(`${P1}f1_12[0]`, "se.6"),
-    money(`${P1}f1_13[0]`, "se.7"),
     money(`${P1}Line8a_ReadOrder[0].f1_14[0]`, "se.8a"),
     money(`${P1}f1_15[0]`, "se.8b"),
     money(`${P1}f1_16[0]`, "se.8c"),
@@ -41,7 +41,6 @@ export const schSEMap: FormMap = {
     money(`${P1}f1_21[0]`, "se.12"),
     money(`${P1}f1_22[0]`, "se.13"),
     // ── Part II: optional methods ──
-    money(`${P2}f2_1[0]`, "se.14"),
     money(`${P2}f2_2[0]`, "se.15"),
     money(`${P2}f2_3[0]`, "se.16"),
     money(`${P2}f2_4[0]`, "se.17"),
@@ -52,5 +51,9 @@ export const schSEMap: FormMap = {
     ...blanks("ssn", `${P1}f1_2[0]`),
     // A. minister / Form 4361 box
     ...blanks("not_modeled", `${P1}c1_1[0]`),
+    // Line 7 (the $176,100 maximum) and line 14 (the optional-method maximum) are PRE-PRINTED on the form: the
+    // fields are read-only, 1-pt-wide dummy widgets laid over the printed constant (maps tester D1). Nothing is
+    // written into them; the engine still computes se.7 / se.14 and the printed constant matches it.
+    ...blanks("not_modeled", `${P1}f1_13[0]`, `${P2}f2_1[0]`),
   ],
 };

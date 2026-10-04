@@ -17,6 +17,7 @@ const P2 = "form1[0].Page2[0].";
 
 export const sch2Map: FormMap = {
   formId: "f1040s2",
+  engineFormId: "sch2",
   lines: [
     // ── Part I: tax ──
     money(`${P1}Line1a_ReadOrder[0].f1_03[0]`, "sch2.1a"),

@@ -1,3 +1,5 @@
+import { vi } from "vitest";
+vi.setConfig({ testTimeout: 60000 }); // filling several real IRS forms per test; the 5 s default is tuned for one
 // TESTER (independent) coverage for T2a/T2b: the 1040 + Schedules 1, 2, 3, A, C, SE field maps.
 // Everything here is derived WITHOUT the Coder's map tests or fixtures:
 //   1. own completeness: every AcroForm field of each real blank PDF is claimed exactly once.
@@ -24,6 +26,10 @@ import { emptyFacts, fullFacts, owner } from "./tax2025-fixtures";
 import geometry from "./fixtures/tester-pdf-line-geometry-2025.json";
 
 const FORMS = ["f1040", "f1040s1", "f1040s2", "f1040s3", "f1040sa", "f1040sc", "f1040sse"] as const;
+// Integration (T9): the registry now also holds the MVP-2 / CT maps. This file keeps testing the seven T2 maps
+// (the later maps have their own map tests); the registry itself is pinned below so a new map is a deliberate change.
+const LATER_FORMS = ["f1040sb", "f8995", "f8959", "ct1040"] as const;
+const T2_MAPS: readonly FormMap[] = FORM_MAPS.filter((m) => (FORMS as readonly string[]).includes(m.formId));
 
 function mapOf(formId: string): FormMap {
   const m = FORM_MAPS.find((x) => x.formId === formId);
@@ -38,8 +44,9 @@ async function realFieldNames(formId: string): Promise<string[]> {
 }
 
 describe("tester T2: own completeness against the real blank PDFs", () => {
-  it("the registry holds exactly the seven T2 maps", () => {
-    expect(FORM_MAPS.map((m) => m.formId).sort()).toEqual([...FORMS].sort());
+  it("the registry holds exactly the seven T2 maps plus the four later maps (Schedule B, 8995, 8959, CT-1040)", () => {
+    expect(FORM_MAPS.map((m) => m.formId).sort()).toEqual([...FORMS, ...LATER_FORMS].sort());
+    expect(T2_MAPS.map((m) => m.formId).sort()).toEqual([...FORMS].sort());
   });
   for (const formId of FORMS) {
     it(`${formId}: every AcroForm field claimed exactly once, nothing unknown`, async () => {
@@ -79,7 +86,15 @@ describe("tester T2: geometry oracle (pdf.js text positions) vs engine printed l
         const ok = found === printed || (found?.length === 1 && /^\d+[a-z]$/.test(printed) && printed.endsWith(found));
         expect(ok, `${formId} ${l.line}: engine says line ${printed}, the blank PDF prints "${found}" next to ${l.field}`).toBe(true);
       }
-      expect(n).toBe(Object.keys(table ?? {}).length);
+      // Every geometry row is either a mapped money field or a field the map deliberately blanks: Schedule SE
+      // lines 7 and 14 are read-only 1-pt dummy widgets over pre-printed constants (maps tester D1, moved to blank).
+      const blanked = new Set(map.blank.filter((b): b is { field: string; reason: typeof b.reason } => "field" in b).map((b) => b.field));
+      const unmapped = Object.keys(table ?? {}).filter((field) => !map.lines.some((l) => l.field === field));
+      for (const field of unmapped) expect(blanked.has(field), `${formId}: geometry row ${field} is neither mapped nor blank`).toBe(true);
+      expect(unmapped.sort()).toEqual(
+        formId === "f1040sse" ? ["topmostSubform[0].Page1[0].f1_13[0]", "topmostSubform[0].Page2[0].f2_1[0]"] : [],
+      );
+      expect(n + unmapped.length).toBe(Object.keys(table ?? {}).length);
     });
   }
 });
@@ -116,7 +131,7 @@ type Values = Record<string, string | boolean>;
 async function fillEverything(ret: Ty2025Return, answers?: Record<string, string | boolean | null>) {
   const view = viewFrom(ret, answers);
   const out: Record<string, { values: Values; items: string[] }> = {};
-  for (const map of FORM_MAPS) {
+  for (const map of T2_MAPS) {
     const res = await fillForm(map.formId, view, map, { stamp: true, fingerprint: "abcdef123456", stampDate: "2026-10-03" });
     const doc = await PDFDocument.load(res.bytes);
     const values: Values = {};
@@ -165,7 +180,7 @@ describe("tester T2: golden fixture through the REAL engine, read back from the 
 
   it("every printed amount equals the engine line (computed non-zero), blank otherwise, on all seven forms", async () => {
     const out = await fillEverything(ret);
-    for (const map of FORM_MAPS) {
+    for (const map of T2_MAPS) {
       for (const l of map.lines) {
         if (l.kind !== "money") continue;
         const rl = ret.lines[l.line as LineKey];
@@ -232,7 +247,7 @@ describe("tester T2: golden fixture through the REAL engine, read back from the 
   it("exactly one box is checked anywhere (MFJ, on-value /2); nothing else non-money is set; private fields stay empty", async () => {
     const out = await fillEverything(ret);
     const checkedAll: string[] = [];
-    for (const map of FORM_MAPS) {
+    for (const map of T2_MAPS) {
       const money = new Set(map.lines.filter((l) => l.kind === "money").map((l) => l.field));
       const header = new Set(map.header.map((h) => h.field));
       for (const [name, v] of Object.entries(out[map.formId]?.values ?? {})) {
@@ -287,7 +302,7 @@ describe("tester T2: golden fixture through the REAL engine, read back from the 
   it("not-yet-computed / missing lines are EMPTY, never '0', when the facts are empty", async () => {
     const r3 = computeTy2025Return(emptyFacts());
     const out = await fillEverything(r3);
-    for (const map of FORM_MAPS) {
+    for (const map of T2_MAPS) {
       for (const l of map.lines) {
         if (l.kind !== "money") continue;
         const rl = r3.lines[l.line as LineKey];
@@ -301,7 +316,7 @@ describe("tester T2: golden fixture through the REAL engine, read back from the 
 
 describe("tester T2: zero:'print' only on the plan's 1040 lines", () => {
   it("1040 zero set and expected set are exactly as planned; no other map has either", () => {
-    for (const map of FORM_MAPS) {
+    for (const map of T2_MAPS) {
       const zero = map.lines.filter((l) => l.kind === "money" && l.zero).map((l) => (l as { line: string }).line).sort();
       const exp = map.lines.filter((l) => l.kind === "money" && l.expected).map((l) => (l as { line: string }).line).sort();
       if (map.formId === "f1040") {

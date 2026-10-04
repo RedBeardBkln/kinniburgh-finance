@@ -1,3 +1,5 @@
+import { vi } from "vitest";
+vi.setConfig({ testTimeout: 60000 }); // filling several real IRS forms per test; the 5 s default is tuned for one
 import { describe, expect, it } from "vitest";
 import { buildPacket } from "@/lib/tax2025/pdf/packet";
 import { buildCoverModel, type CoverBlock } from "@/lib/tax2025/pdf/cover";
@@ -509,14 +511,27 @@ describe("overrides placeholder (T7 shape, injected)", () => {
 });
 
 describe("the adapter feeds the real packet builder", () => {
-  it("fills every registered map from the fixture view: each computed mapped line is written once with its formatted amount", async () => {
+  // With the engine's verdict wired (view.formsRequired), the packet holds exactly the forms the engine says
+  // the return needs: for the golden fixture the standard deduction wins (no Schedule A), interest and
+  // dividends are under the Schedule B threshold, there is no Schedule 3 amount and no Form 8959.
+  const GOLDEN_OMITTED = ["f1040s3", "f1040sa", "f1040sb", "f8959"];
+
+  it("fills every INCLUDED map from the fixture view: each computed mapped line is written once with its formatted amount", async () => {
     const f = fullFacts();
     const ret = computeTy2025Return(f);
     const view = toPdfReturnView(ret, f, OPTS);
     const packet = await buildPacket(view, { maps: FORM_MAPS });
     expect(packet.files[0]?.name).toBe("00-cover.pdf");
     expect(packet.files.length).toBeGreaterThanOrEqual(2);
+    // every map is either in the packet or listed as omitted with the engine's reason; none is lost
+    expect(packet.forms.map((x) => x.formId).sort()).toEqual(FORM_MAPS.map((m) => m.formId).sort());
+    expect(packet.forms.filter((x) => !x.included).map((x) => x.formId).sort()).toEqual(GOLDEN_OMITTED);
+    for (const omitted of packet.forms.filter((x) => !x.included)) {
+      expect(omitted.reason, omitted.formId).toContain("the engine reports it is not required");
+      expect(packet.files.some((x) => x.formId === omitted.formId), `${omitted.formId} must not be in the packet`).toBe(false);
+    }
     for (const map of FORM_MAPS) {
+      if (GOLDEN_OMITTED.includes(map.formId)) continue;
       const file = packet.files.find((x) => x.formId === map.formId);
       expect(file, `${map.formId} included`).toBeDefined();
       if (!file) continue;
@@ -524,11 +539,16 @@ describe("the adapter feeds the real packet builder", () => {
       const seen = new Set<string>();
       for (const entry of map.lines) {
         if (entry.kind !== "money") continue;
-        expect(seen.has(entry.line), `line ${entry.line} mapped twice on ${map.formId}`).toBe(false);
+        // Only the CT-1040 legitimately shows one engine amount in two boxes (page-1 line and the schedule
+        // that totals it, or the signed balance split into 22 / 26); everywhere else a repeat is a mapping bug.
+        if (map.formId !== "ct1040") expect(seen.has(entry.line), `line ${entry.line} mapped twice on ${map.formId}`).toBe(false);
         seen.add(entry.line);
         const line = view.lines[entry.line];
         if (line?.status === "computed" && line.amount !== null && line.amount !== 0) {
-          expect(fields.get(entry.field), `${map.formId} ${entry.line}`).toBe(formatDollars(line.amount));
+          // `sign`: one signed amount feeds two printed lines, each printing only its own direction.
+          const shown = entry.sign === undefined ? line.amount : entry.sign === "owed" ? Math.max(line.amount, 0) : Math.max(-line.amount, 0);
+          const want = shown === 0 ? "" : formatDollars(shown);
+          expect(fields.get(entry.field), `${map.formId} ${entry.line}`).toBe(want);
         }
       }
     }

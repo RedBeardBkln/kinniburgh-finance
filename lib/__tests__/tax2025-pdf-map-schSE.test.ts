@@ -18,7 +18,6 @@ const EXPECTED: Record<string, string | boolean> = {
   [`${P1}f1_7[0]`]: "48,022", // 4a
   [`${P1}f1_9[0]`]: "48,022", // 4c
   [`${P1}f1_12[0]`]: "48,022", // 6
-  [`${P1}f1_13[0]`]: "176,100", // 7 maximum earnings subject to social security tax
   [`${P1}Line8a_ReadOrder[0].f1_14[0]`]: "150,000", // 8a
   [`${P1}f1_17[0]`]: "150,000", // 8d
   [`${P1}f1_18[0]`]: "26,100", // 9
@@ -40,7 +39,6 @@ registerCommonMapTests({
     [`${P1}f1_7[0]`, /4a\. If line 3 is more than zero, multiply line 3 by 92\.35%/],
     [`${P1}f1_9[0]`, /4c\. Combine lines 4a and 4b/],
     [`${P1}f1_12[0]`, /6\. Add lines 4c and 5b/],
-    [`${P1}f1_13[0]`, /7\. Maximum amount of combined wages and self-employment earnings.*\$176,100/],
     [`${P1}Line8a_ReadOrder[0].f1_14[0]`, /8a\. Total social security wages and tips/],
     [`${P1}f1_17[0]`, /8d\. Add lines 8a, 8b, and 8c/],
     [`${P1}f1_18[0]`, /9\. Subtract line 8d from line 7/],
@@ -50,6 +48,31 @@ registerCommonMapTests({
     [`${P1}f1_22[0]`, /13\. Deduction for one-half of self-employment tax.*Schedule 1 \(Form 1040\), line 15/],
     [`${P2}f2_4[0]`, /17\. Enter the smaller of: two-thirds/],
   ],
+});
+
+describe("Schedule SE map: pre-printed constants (maps tester D1)", () => {
+  const SE7 = `${P1}f1_13[0]`;
+  const SE14 = `${P2}f2_1[0]`;
+
+  it("lines 7 and 14 are read-only 1-pt dummy widgets over a printed constant: blank by design, never written", async () => {
+    for (const n of [SE7, SE14]) {
+      expect(schSEMap.lines.some((l) => l.field === n), `${n} must not be a filled line`).toBe(false);
+      expect(schSEMap.blank.some((b) => "field" in b && b.field === n && b.reason === "not_modeled"), `${n} is blank by design`).toBe(true);
+    }
+    // the blank PDF really marks both read-only (so writing into them would be invisible and misleading)
+    const { PDFDocument } = await import("pdf-lib");
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const doc = await PDFDocument.load(fs.readFileSync(path.join(process.cwd(), "data", "forms", "2025", "f1040sse.pdf")), { updateMetadata: false });
+    for (const n of [SE7, SE14]) expect(doc.getForm().getTextField(n).isReadOnly(), n).toBe(true);
+    // and the filled form leaves them empty although the engine still computes line 7
+    const view = coreView();
+    expect(view.lines["se.7"]?.amount).toBe(176100);
+    const result = await fillForm("f1040sse", view, schSEMap, DEFAULT_FILL_OPTIONS);
+    const f = await readAllFields(result.bytes);
+    expect(f.get(SE7)).toBe("");
+    expect(f.get(SE14)).toBe("");
+  });
 });
 
 describe("Schedule SE map: policy details", () => {

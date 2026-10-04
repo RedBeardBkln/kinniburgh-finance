@@ -155,8 +155,13 @@ export async function fillForm(
     set.add(l.equals);
     expectedByChoice.set(l.choice, set);
   }
-  const recognised = (choice: string, answer: string | boolean): boolean =>
-    expectedByChoice.get(choice)?.has(answer) ?? false;
+  const recognised = (choice: string, answer: string | boolean): boolean => {
+    const expected = expectedByChoice.get(choice);
+    if (expected === undefined) return false;
+    // A yes/no attestation mapped as `equals: true` also accepts `false` (answered "no": unchecked, nothing to flag).
+    if (typeof answer === "boolean" && [...expected].some((e) => typeof e === "boolean")) return true;
+    return expected.has(answer);
+  };
   const continuations: ContinuationList[] = [];
 
   const textField = (name: string): PDFTextField => {
@@ -281,6 +286,7 @@ export async function fillForm(
   for (const t of map.tables) fillTable(formId, t, view, writeText, addItem, continuations, textField);
 
   const blankByDesign: Partial<Record<BlankReason, number>> = {};
+  const blankNotes: string[] = [];
   for (const b of map.blank) {
     let matched = 0;
     for (const n of fieldNames) {
@@ -292,6 +298,7 @@ export async function fillForm(
       }
     }
     blankByDesign[b.reason] = (blankByDesign[b.reason] ?? 0) + matched;
+    if (b.note !== undefined && matched > 0 && !blankNotes.includes(b.note)) blankNotes.push(b.note);
   }
 
   form.updateFieldAppearances(font);
@@ -309,6 +316,7 @@ export async function fillForm(
     openItems: [...items.values()],
     filledFields: filled,
     blankByDesign,
+    blankNotes,
     continuations,
   };
 }

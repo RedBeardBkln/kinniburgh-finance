@@ -16,10 +16,12 @@
 
 import type { Ty2025Facts } from "@/lib/tax2025/facts";
 import { centsToDollars, roundLine } from "@/lib/tax2025/money";
+import { ctPropertyTaxRows } from "@/lib/tax2025/pdf/ct-property-tax";
 import { fingerprintOf } from "@/lib/tax2025/pdf/format";
 import type {
   PdfAnswer,
   PdfDecision,
+  PdfFormRequirement,
   PdfLine,
   PdfLineStatus,
   PdfOpenItem,
@@ -50,6 +52,8 @@ export const TABLE_COLUMNS = {
   /** CT-1040 withholding rows 18a-18e: employer, FEIN, CT wages, CT tax withheld. */
   "ct.withholding": { label: "employer", ein: "ein", wages: "wages", amount: "withheld" },
   "schc.otherExpenses": { label: "label", amount: "amount" },
+  /** CT-1040 Schedule 3 rows 60-62 (built by ct-property-tax.ts, whose columns are CT_PROPERTY_TABLE_COLUMNS). */
+  "ct.propertyTax": { label: "description", amount: "amount" },
 } as const;
 
 export const PAYER_NOT_READ = "Payer not read";
@@ -137,6 +141,17 @@ function formLabelOfKey(key: string, lines: Partial<Record<LineKey, ReturnLine>>
   } catch {
     return "General";
   }
+}
+
+// ── Forms required (the engine's verdict, plan C7) ───────────────────────────
+
+/** Plain copy of Ty2025Return.formsRequired: the packet follows the engine's verdict before any line rule (policy.ts). */
+function formsRequiredOf(ret: Ty2025Return): Partial<Record<string, PdfFormRequirement>> {
+  const out: Partial<Record<string, PdfFormRequirement>> = {};
+  for (const [id, v] of Object.entries(ret.formsRequired)) {
+    if (v !== undefined) out[id] = { required: v.required, reason: v.reason };
+  }
+  return out;
 }
 
 // ── Decisions ─────────────────────────────────────────────────────────────────
@@ -287,28 +302,37 @@ function buildTables(ret: Ty2025Return, facts: Ty2025Facts): TableBuild {
     });
   }
 
-  // Schedule C Part V other expenses (only when the engine exposes the items).
+  // CT-1040 Schedule 3 (property tax credit) rows 60-62: the engine's own qualifying rule
+  // (primary residence + up to two motor vehicles); other real estate / personal property never appears.
+  tables["ct.propertyTax"] = ctPropertyTaxRows(facts.deductions.propertyTaxBills).rows;
+
+  // Schedule C Part V other expenses (rows only when the engine exposes the items).
+  let partVRows: PdfTableRow[] = [];
   if (ret.scheduleC) {
-    const rows: PdfTableRow[] = ret.scheduleC.otherExpenseItems.map((o) => ({
+    partVRows = ret.scheduleC.otherExpenseItems.map((o) => ({
       cells: {
         [cols["schc.otherExpenses"].label]: o.name,
         [cols["schc.otherExpenses"].amount]: centsToWholeDollars(o.amountCents),
       },
     }));
-    tables["schc.otherExpenses"] = rows;
-    const rc = roundingItem("adapter:schc.other-rounding", "Schedule C", "schc.27b", sumColumn(rows, cols["schc.otherExpenses"].amount), ret);
+    tables["schc.otherExpenses"] = partVRows;
+    const rc = roundingItem("adapter:schc.other-rounding", "Schedule C", "schc.27b", sumColumn(partVRows, cols["schc.otherExpenses"].amount), ret);
     if (rc) items.push(rc);
-    const l27b = ret.lines["schc.27b"];
-    if (rows.length === 0 && l27b && hasAmount(l27b.status) && l27b.amount !== null && l27b.amount !== 0) {
-      items.push({
-        id: "adapter:schc.other-no-items",
-        severity: "advisory",
-        formLabel: "Schedule C",
-        lineKeys: ["schc.27b", "schc.48"],
-        message: `Schedule C line 27b (other expenses) is $${l27b.amount} but the engine exposes no per-item data, so the Part V rows are blank.`,
-        action: "List the other expenses in Part V from the books.",
-      });
-    }
+  }
+  // A non-zero line 48 / 27b with no Part V rows is never silent (maps tester D3), whether the engine
+  // exposed an empty item list or no Schedule C detail at all (books unreadable).
+  const l48 = ret.lines["schc.48"];
+  const l27b = ret.lines["schc.27b"];
+  const otherTotal = [l48, l27b].map((l) => (l && hasAmount(l.status) && l.amount !== null ? l.amount : 0)).find((n) => n !== 0) ?? 0;
+  if (partVRows.length === 0 && otherTotal !== 0) {
+    items.push({
+      id: "adapter:schc.other-no-items",
+      severity: "advisory",
+      formLabel: "Schedule C",
+      lineKeys: ["schc.27b", "schc.48"],
+      message: `Schedule C line 48 (other expenses, carried to line 27b) is $${otherTotal} but the engine exposes no per-item data, so the Part V rows are blank.`,
+      action: "List the other expenses in Part V from the books.",
+    });
   }
 
   return { tables, items };
@@ -453,6 +477,7 @@ export function toPdfReturnView<O extends LineOverrideLike = LineOverrideLike>(
     generatedBy: opts.generatedBy,
     fingerprint,
     engineVersion: ret.engineVersion,
+    formsRequired: formsRequiredOf(ret),
     lines,
     header: header.header,
     answers,

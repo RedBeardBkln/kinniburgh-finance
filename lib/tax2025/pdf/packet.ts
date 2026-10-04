@@ -101,6 +101,7 @@ export async function buildPacket(view: PdfReturnView, options: PacketOptions): 
       included: true,
       reason: inclusion.reason,
       blankByDesign: result.blankByDesign,
+      blankNotes: result.blankNotes,
       ...(note === undefined ? {} : { note }),
     });
     for (const item of result.openItems) if (!itemById.has(item.id)) itemById.set(item.id, item);

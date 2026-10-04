@@ -17,12 +17,16 @@
 //     (answers.digitalAssets = "yes" | "no"); an advisory open item is raised.
 //   - Filing status: five separate checkboxes, exactly one is checked (MFJ = the box
 //     whose on-value is /2). The answer key is answers.filingStatus.
-//   - Everything else the engine/answers do not model (age 65+/blind boxes 12a-12d,
-//     deceased/combat-zone/other-tax-year header, "check if" boxes on lines 3c-7b, 16,
-//     27b-c, 35a, the one-line "type/specify" texts) is `not_modeled`: left blank and
-//     counted on the cover so the CPA knows it was not decided by the app.
+//   - Age 65+ / blind boxes (12d, you and spouse): required checks on the booleans
+//     answers.age65Taxpayer / blindTaxpayer / age65Spouse / blindSpouse. Until an answer
+//     exists the box stays unchecked and an "Answer needed" item is raised, because the
+//     boxes change the standard deduction the engine prints on 12e (31,500 assumes none).
+//   - Everything else the engine/answers do not model (12a-12c, "check if" boxes on lines
+//     3c-7b, 16, 27b-c, 35a, deceased/combat-zone/other-tax-year header, the one-line
+//     "type/specify" texts) is `not_modeled`: left blank, counted on the cover, and the
+//     boxes with a decision attached carry a `note` so the cover LISTS each one.
 
-import { blanks, ids, money } from "@/lib/tax2025/pdf/maps/dsl";
+import { blanks, ids, money, notedBlanks } from "@/lib/tax2025/pdf/maps/dsl";
 import type { FormMap } from "@/lib/tax2025/pdf/types";
 
 const P1 = "topmostSubform[0].Page1[0].";
@@ -102,6 +106,11 @@ export const f1040Map: FormMap = {
     // ── Digital assets Y/N: both stay unchecked until an attestation exists (open item) ──
     { kind: "check", field: `${P1}c1_10[0]`, choice: "digitalAssets", equals: "yes", required: true, label: "digital assets (yes/no)" },
     { kind: "check", field: `${P1}c1_10[1]`, choice: "digitalAssets", equals: "no", required: true, label: "digital assets (yes/no)" },
+    // ── 12d: age 65 or older / blind (booleans; Phase 1b supplies them). Unanswered = unchecked + an open item ──
+    { kind: "check", field: `${P2}c2_5[0]`, choice: "age65Taxpayer", equals: true, required: true, label: "12d: taxpayer was born before January 2, 1961 (65 or older)" },
+    { kind: "check", field: `${P2}c2_6[0]`, choice: "blindTaxpayer", equals: true, required: true, label: "12d: taxpayer is blind" },
+    { kind: "check", field: `${P2}c2_7[0]`, choice: "age65Spouse", equals: true, required: true, label: "12d: spouse was born before January 2, 1961 (65 or older)" },
+    { kind: "check", field: `${P2}c2_8[0]`, choice: "blindSpouse", equals: true, required: true, label: "12d: spouse is blind" },
   ],
   tables: [],
   header: [
@@ -126,20 +135,31 @@ export const f1040Map: FormMap = {
     ...blanks("signature_pin", ...ids(P2, "f2_39", "f2_41", "f2_43")),
     // Third-party designee and paid preparer block.
     ...blanks("preparer", `${P2}c2_17[0]`, `${P2}c2_17[1]`, ...ids(P2, "f2_37", "f2_38", "f2_46", "f2_47", "f2_48", "f2_49", "f2_50", "f2_51", "c2_18")),
-    // Not modeled by the engine or the answers: left for the CPA (see the header comment).
+    // Not modeled by the engine or the answers: left for the CPA (see the header comment). The boxes that carry
+    // a decision have a note, so the cover lists each one instead of only counting them.
     ...blanks(
       "not_modeled",
       // tax-year header (calendar-year filer), 301.9100-2, combat zone, deceased, other
       ...ids(P1, "f1_01", "f1_02", "f1_03", "c1_1", "c1_2", "f1_04", "c1_3", "f1_05", "f1_06", "f1_07", "f1_08", "f1_09", "f1_10", "c1_4", "f1_11", "f1_12", "f1_13"),
-      // main home in the U.S., Presidential Election Campaign (owners' choice), HOH/QSS child name,
-      // nonresident-spouse election, MFS/HOH lived-apart box
-      ...ids(P1, "c1_5", "c1_6", "c1_7", "f1_29", "c1_9", "f1_30", "c1_32"),
-      // 1h type, 3c / 4c / 5c / 6c / 6d / 7b check boxes and their "specify" texts
-      ...ids(P1, "f1_54", "c1_33", "c1_34", "c1_35", "c1_36", "c1_37", "f1_64", "c1_38", "c1_39", "c1_40", "f1_67", "c1_41", "c1_42", "c1_43", "c1_44"),
-      // 12a-12d (dependent / spouse itemizes / dual-status / 65+ / blind), 16 "check if" + specify,
-      // 27b-27c, 35a "Form 8888 attached"
-      ...ids(P2, "c2_1", "c2_2", "c2_3", "c2_4", "c2_5", "c2_6", "c2_7", "c2_8", "c2_9", "c2_10", "c2_11", "f2_07", "c2_12", "c2_13", "c2_15"),
-      `${P2}Line28_ReadOrder[0].c2_14[0]`,
+      // HOH/QSS qualifying child's name, 1h "type" text
+      ...ids(P1, "f1_29", "f1_54"),
     ),
+    ...notedBlanks("not_modeled", "main home (and spouse's) in the U.S. more than half of 2025 box, top of page 1", ...ids(P1, "c1_5")),
+    ...notedBlanks("not_modeled", "Presidential Election Campaign $3 boxes (the owners' choice; never presumed)", ...ids(P1, "c1_6", "c1_7")),
+    ...notedBlanks("not_modeled", "treating a nonresident or dual-status alien spouse as a U.S. resident (election box and name)", ...ids(P1, "c1_9", "f1_30")),
+    ...notedBlanks("not_modeled", "MFS/HOH 'lived apart from your spouse the last 6 months' / legally separated box", ...ids(P1, "c1_32")),
+    ...notedBlanks("not_modeled", "line 3c: child's dividends included on line 3a / 3b boxes", ...ids(P1, "c1_33", "c1_34")),
+    ...notedBlanks("not_modeled", "line 4c: IRA distribution boxes (rollover, QCD, other + specify)", ...ids(P1, "c1_35", "c1_36", "c1_37", "f1_64")),
+    ...notedBlanks("not_modeled", "line 5c: pension/annuity boxes (rollover, PSO, other + specify)", ...ids(P1, "c1_38", "c1_39", "c1_40", "f1_67")),
+    ...notedBlanks("not_modeled", "line 6c: lump-sum election method box (Social Security)", ...ids(P1, "c1_41")),
+    ...notedBlanks("not_modeled", "line 6d: MFS lived apart the entire year box (Social Security)", ...ids(P1, "c1_42")),
+    ...notedBlanks("not_modeled", "line 7b: 'Schedule D not required' and 'includes child's capital gain or (loss)' boxes", ...ids(P1, "c1_43", "c1_44")),
+    ...notedBlanks("not_modeled", "line 12a: someone can claim you or your spouse as a dependent boxes", ...ids(P2, "c2_1", "c2_2")),
+    ...notedBlanks("not_modeled", "line 12b: spouse itemizes on a separate return box", ...ids(P2, "c2_3")),
+    ...notedBlanks("not_modeled", "line 12c: you were a dual-status alien box", ...ids(P2, "c2_4")),
+    ...notedBlanks("not_modeled", "line 16: tax from Form 8814 / Form 4972 / other boxes (and 'specify')", ...ids(P2, "c2_9", "c2_10", "c2_11", "f2_07")),
+    ...notedBlanks("not_modeled", "line 27b: clergy filing Schedule SE box", ...ids(P2, "c2_12")),
+    ...notedBlanks("not_modeled", "line 27c: boxes to decline the EIC / additional child tax credit", ...ids(P2, "c2_13"), `${P2}Line28_ReadOrder[0].c2_14[0]`),
+    ...notedBlanks("not_modeled", "line 35a: Form 8888 attached (split refund) box", ...ids(P2, "c2_15")),
   ],
 };

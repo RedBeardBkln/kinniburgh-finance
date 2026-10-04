@@ -24,6 +24,8 @@ export interface CoverForm {
   /** Why it is included / omitted. */
   reason: string;
   blankByDesign: Partial<Record<BlankReason, number>>;
+  /** Boxes / entries the app does not decide (MapBlank.note), listed one per bullet under "Left blank by design". */
+  blankNotes?: string[];
   /** Extra note printed with the form (e.g. the CT-1040 flat-form note). */
   note?: string;
 }
@@ -236,6 +238,11 @@ export function buildCoverModel(input: CoverInput): CoverModel {
       .filter(([, n]) => n > 0)
       .map(([reason, n]) => `${BLANK_REASON_LABELS[reason]}: ${n}`);
     if (parts.length > 0) b.push({ kind: "bullet", text: `${f.title}: ${parts.join("; ")}` });
+  }
+  const noted = included.filter((f) => (f.blankNotes ?? []).length > 0);
+  if (noted.length > 0) {
+    b.push({ kind: "heading", text: "Boxes and entries the app does not decide (CPA to check)" });
+    for (const f of noted) for (const note of f.blankNotes ?? []) b.push({ kind: "bullet", text: `${f.title}: ${note}` });
   }
 
   // Citations.

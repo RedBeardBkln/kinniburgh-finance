@@ -18,6 +18,7 @@ const P2 = "topmostSubform[0].Page2[0].";
 
 export const sch1Map: FormMap = {
   formId: "f1040s1",
+  engineFormId: "sch1",
   lines: [
     // ── Part I: additional income ──
     money(`${P1}f1_04[0]`, "sch1.1"),

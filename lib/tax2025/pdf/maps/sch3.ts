@@ -14,6 +14,7 @@ const P1 = "topmostSubform[0].Page1[0].";
 
 export const sch3Map: FormMap = {
   formId: "f1040s3",
+  engineFormId: "sch3",
   lines: [
     // ── Part I: nonrefundable credits ──
     money(`${P1}f1_03[0]`, "sch3.1"),
