@@ -639,6 +639,8 @@ export function routeOpenItem(item: Pick<OpenItem, "id" | "action">): OpenItemRo
   const owner = (action: string): OpenItemRouting => ({ who: "owner", ownerAction: action });
   if (item.id.startsWith("decision:") || item.id.startsWith("info:")) return cpa;
   if (item.id === "assumptions-no-ct-sales-tax-or-other" || item.id === "filing-status-not-mfj") return cpa;
+  // A household member whose first name does not match exactly one user is an account/name fix the owner makes.
+  if (item.id.startsWith("rc-person-unmatched:")) return owner(item.action);
   if (item.id.startsWith("doc-unverified:") || item.id.startsWith("doc-legacy:") || item.id.startsWith("none:")) return owner(item.action);
   if (/^The CPA/i.test(item.action) || /^CPA to/i.test(item.action) || /^Tell the CPA/i.test(item.action)) return cpa;
   if (item.id.startsWith("rule:")) {
