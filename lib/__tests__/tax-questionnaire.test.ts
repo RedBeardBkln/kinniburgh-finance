@@ -437,9 +437,9 @@ describe("summary generation", () => {
       ["hs9", "No"],
     ]);
     expect(s.facts[0]!.prompt).toBe(
-      "Was either of you covered by a high-deductible health plan (HDHP) that qualifies for an HSA for any part of 2025?"
+      "Which of you was covered by a high-deductible health plan (HDHP) that can be paired with a Health Savings Account (HSA) for any part of 2025? (Your insurer or employer can tell you whether the plan is HSA-eligible.)"
     );
-    expect(s.facts[4]!.prompt).toBe("About how much did you deposit yourselves (not through payroll)?");
+    expect(s.facts[4]!.prompt).toBe("About how much did you deposit yourselves into an HSA for 2025 (not through payroll), in whole dollars?");
     expect(s.openQuestions).toEqual([]);
     expect(s.note).toBe("bring the W-2");
     expect(s.planningLinks).toEqual([{ key: "retirement_contributions", label: "Retirement contributions (Planning answer)" }]);
@@ -451,8 +451,8 @@ describe("summary generation", () => {
     expect(s.status.kind).toBe("in_progress");
     expect(s.outcomeText).toBeNull();
     expect(s.openQuestions).toEqual([
-      "What kind of HDHP coverage?",
-      "Were any contributions made to an HSA for 2025?",
+      "What kind of HDHP coverage was it in 2025 - self-only (covering just one person) or family?",
+      "Was money contributed to an HSA for 2025, whether by you, through payroll deduction at work, or by an employer?",
       "For any month of 2025, was either of you enrolled in Medicare or claimed as someone else's dependent?",
     ]);
     expect(s.note).toBeNull();
@@ -467,7 +467,7 @@ describe("summary generation", () => {
       "Owner reports one owner and no election; the IRS describes that as a disregarded entity - the CPA confirms."
     );
     expect(s.facts[0]).toMatchObject({
-      prompt: "How many owners does Sudden Valley Property Management, LLC have?",
+      prompt: "How many owners (members) does Sudden Valley Property Management, LLC have?",
       answerLabel: "One",
     });
     expect(s.facts.find((f) => f.nodeId === "ef6")).toMatchObject({ answerLabel: "During 2026" });

@@ -274,6 +274,57 @@ describe("citations and copy hygiene", () => {
   });
 });
 
+describe("plain-language copy", () => {
+  /** A prompt may carry one explanatory parenthetical after the question mark; ignore it when checking the ending. */
+  const questionPart = (prompt: string) => prompt.replace(/\s*\((?:[^()]|\([^()]*\))*\)$/, "").trim();
+
+  it("every prompt is phrased as a question (ends with a question mark)", () => {
+    for (const def of QUESTIONNAIRES) {
+      for (const n of def.nodes) expect(questionPart(n.prompt), `${def.id}.${n.id}: "${n.prompt}"`).toMatch(/\?$/);
+    }
+  });
+
+  it("the Form 2210 withholding question says it means ordinary paycheck withholding, not IRS collection", () => {
+    const ut1 = questionnaireById("form-2210")!.nodes.find((n) => n.id === "ut1")!;
+    expect(ut1.prompt).toMatch(/withhold federal income tax from your regular paychecks/);
+    expect(ut1.prompt).toMatch(/box 2 of your W-2/);
+    expect(ut1.prompt).toMatch(/not money collected by the IRS for back taxes/);
+  });
+
+  it("an acronym is spelled out the first time it appears in each questionnaire", () => {
+    const ACRONYMS: [string, RegExp][] = [
+      ["HSA", /Health Savings Account/i],
+      ["HDHP", /high.deductible health plan/i],
+      ["IRA", /Individual Retirement Account/i],
+      ["QBI", /qualified business income/i],
+      ["NIIT", /net investment income tax/i],
+      ["FLSA", /Fair Labor Standards Act/i],
+      ["SSN", /Social Security number/i],
+      ["ITIN", /Individual Taxpayer Identification Number/i],
+      ["ATIN", /Adoption Taxpayer Identification Number/i],
+      ["EIN", /employer identification number/i],
+      ["REIT", /real estate investment trust/i],
+      ["ABLE", /Achieving a Better Life Experience/i],
+      ["SEP", /Simplified Employee Pension/i],
+      ["MSA", /Medical Savings Account/i],
+    ];
+    for (const def of QUESTIONNAIRES) {
+      // Reading order: title, intro, then each question's prompt, option labels and help.
+      const texts: string[] = [def.title, def.intro];
+      for (const n of def.nodes) {
+        texts.push(n.prompt);
+        if (isChoice(n)) for (const o of n.options) texts.push(o.label, o.help ?? "");
+        texts.push(n.help ?? "");
+      }
+      for (const [acronym, expansion] of ACRONYMS) {
+        const word = new RegExp(`\\b${acronym}\\b`);
+        const first = texts.find((t) => word.test(t));
+        if (first !== undefined) expect(first, `${def.id}: first use of ${acronym}`).toMatch(expansion);
+      }
+    }
+  });
+});
+
 describe("binding integrity with the planning question bank", () => {
   const bound: { def: QuestionnaireDef; node: QNode }[] = [];
   for (const def of QUESTIONNAIRES) for (const node of def.nodes) if (node.binding) bound.push({ def, node });

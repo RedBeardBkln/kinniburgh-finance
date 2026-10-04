@@ -204,18 +204,18 @@ const FORM_8829: QuestionnaireDef = {
   nodes: [
     single(
       "ho1",
-      "Did you use part of your home for EK Consulting work in {year}?",
+      "Did Eric use part of your home (a room, or a separate building on the property) for EK Consulting work in {year}?",
       [
         o("yes_exclusive", "Yes - a space used regularly and only for EK Consulting"),
         o("yes_shared", "Yes - but the space is also used personally", {
           warning:
             "Also marks the home-office deduction 'ruled out' on the Planning screen and Forms page, as that answer does today; the CPA can still review it.",
         }),
-        o("no", "No home space used for the business"),
+        o("no", "No - no part of the home was used for the business"),
         UNSURE,
       ],
       {
-        help: "The IRS instructions generally allow a deduction only for a part of the home used exclusively and on a regular basis as your principal place of business, to meet clients, or as a separate structure not attached to the home.",
+        help: "The IRS instructions generally allow a deduction only for a part of the home used exclusively (only for business) and on a regular basis as your principal (main) place of business, to meet clients, or as a separate structure not attached to the home.",
         sources: ["8829"],
         binding: {
           mode: "shared_choice",
@@ -226,7 +226,7 @@ const FORM_8829: QuestionnaireDef = {
     ),
     single(
       "ho2",
-      "What kind of space is it?",
+      "What kind of space did Eric use for EK Consulting?",
       [
         o("room", "A room or area inside the home"),
         o("separate", "A separate structure not attached to the home (for example a barn or detached garage)", {
@@ -239,7 +239,7 @@ const FORM_8829: QuestionnaireDef = {
     ),
     multi(
       "ho3",
-      "What is the space used for?",
+      "What is the space used for in the EK Consulting business (pick all that apply)?",
       [
         o("admin", "Administrative or management work (billing, scheduling, bookkeeping)"),
         o("clients", "Meeting clients or customers in person"),
@@ -248,39 +248,39 @@ const FORM_8829: QuestionnaireDef = {
         UNSURE,
       ],
       {
-        help: "The IRS instructions list billing customers or clients as an example of administrative or management work, and treat storage of inventory or product samples as an exception to the exclusive-use rule.",
+        help: "The IRS instructions list billing customers or clients as an example of administrative or management work, and treat storage of inventory or product samples as an exception to the rule that the space be used only for the business.",
         sources: ["8829"],
         showWhen: HO_YES,
       }
     ),
-    single("ho4", "Is there another fixed place where you do substantial administrative or management work for this business?", YES_NO, {
+    single("ho4", "Is there any other fixed location, such as an outside office, where Eric does substantial administrative or management work (billing, scheduling, bookkeeping) for EK Consulting?", YES_NO, {
       help: "The IRS instructions say the home office qualifies as the principal place of business only if you have no other fixed location where you do substantial administrative or management activities.",
       sources: ["8829"],
       showWhen: inn("ho3", "admin"),
     }),
-    whole("ho5", "Approximate square footage of the space", 1, 99999, {
+    whole("ho5", "About how many square feet is the space used for EK Consulting (whole number)?", 1, 99999, {
       showWhen: HO_YES,
       binding: { mode: "shared_number", questionKey: "home_office_sqft", format: "whole_number" },
     }),
     single(
       "ho6",
-      "Was a home office deducted on a prior-year return?",
+      "On an earlier year's tax return, was a home office deduction claimed for this space?",
       [
-        o("simplified", "Yes - the simplified method"),
+        o("simplified", "Yes - using the simplified method"),
         o("actual", "Yes - actual expenses (Form 8829)"),
-        o("first_year", "No - this would be the first year"),
+        o("first_year", "No - this would be the first year it is claimed"),
         UNSURE,
       ],
       {
-        help: "The IRS instructions explain how switching between the simplified and actual-expense methods affects carryover amounts.",
+        help: "The IRS instructions explain how switching between the simplified and actual-expense methods affects carryover amounts (unused amounts carried to later years).",
         sources: ["8829"],
         showWhen: HO_YES,
       }
     ),
-    single("ho7", "Do you own or rent the home?", [o("own", "Own"), o("rent", "Rent"), UNSURE], { showWhen: HO_YES }),
+    single("ho7", "Do you own or rent the home or property where this space is?", [o("own", "Own"), o("rent", "Rent"), UNSURE], { showWhen: HO_YES }),
     single(
       "ho8",
-      "Was the space used for the business for the whole year?",
+      "Was the space used for EK Consulting for the whole of {year}?",
       [o("whole", "Yes - the whole year"), o("part", "Started or stopped during {year}"), UNSURE],
       { showWhen: HO_YES }
     ),
@@ -313,26 +313,26 @@ const FORM_4562: QuestionnaireDef = {
   nodes: [
     single(
       "da1",
-      "Did EK Consulting place any equipment or other depreciable assets in service in {year}, or still hold any the CPA should review?",
+      "In {year}, did EK Consulting start using any equipment or other long-lasting business assets (such as computers, furniture or a vehicle), or does it still own any that the CPA should review?",
       [
         o("none", "None"),
-        o("some", "Yes - I will record them in the fixed-asset register"),
+        o("some", "Yes - I will list them in the app's fixed-asset register"),
         UNSURE,
       ],
       {
-        help: "The IRS says Form 4562 is filed to claim depreciation for property placed in service during the tax year, a section 179 deduction, or depreciation on any vehicle or other listed property. The app only records inputs; it never computes depreciation.",
+        help: "The IRS says Form 4562 is filed to claim depreciation (deducting the cost of an asset over time) for property placed in service (first used for business) during the tax year, a section 179 deduction, or depreciation on any vehicle or other listed property. The app only records inputs; it never computes depreciation.",
         sources: ["4562"],
         context: "ekcActive",
         binding: { mode: "shared_choice", questionKey: "fixed_assets_ekc", bank: { none: "none", some: "some", unsure: null } },
       }
     ),
-    single("da2", "Did Sudden Valley own a building or other depreciable property in {year}?", [o("none", "None"), o("some", "Yes - I will record it in the fixed-asset register"), UNSURE], {
+    single("da2", "Did Sudden Valley own a building or other long-lasting property (such as furniture or appliances for the rental) in {year}?", [o("none", "None"), o("some", "Yes - I will list it in the app's fixed-asset register"), UNSURE], {
       context: "svActive",
       binding: { mode: "shared_choice", questionKey: "fixed_assets_sv", bank: { none: "none", some: "some", unsure: null } },
     }),
     multi(
       "da3",
-      "What kinds of assets?",
+      "What kinds of assets are they (pick all that apply)?",
       [
         o("computers", "Computers or office equipment"),
         o("furniture", "Furniture or appliances"),
@@ -345,7 +345,7 @@ const FORM_4562: QuestionnaireDef = {
       ],
       { showWhen: DA_SOME }
     ),
-    single("da4", "How is the vehicle used?", [o("business_only", "Only for business"), o("mixed", "Business and personal"), UNSURE], {
+    single("da4", "How is the business vehicle used (only for the business, or for both business and personal driving)?", [o("business_only", "Only for business"), o("mixed", "Business and personal"), UNSURE], {
       help: "The IRS lists depreciation on any vehicle or other listed property as a reason to file Form 4562, regardless of when it was placed in service.",
       sources: ["4562"],
       showWhen: inn("da3", "vehicle"),
@@ -356,17 +356,17 @@ const FORM_4562: QuestionnaireDef = {
       [o("before", "Before {year}"), o("during", "During {year}"), o("not_yet", "Not yet"), UNSURE],
       { showWhen: inn("da3", "building", "improvements") }
     ),
-    single("da6", "Were renovation costs paid before the property was first rented?", YES_NO, { showWhen: inn("da3", "improvements") }),
+    single("da6", "Were the renovation or improvement costs paid before the building was first rented?", YES_NO, { showWhen: inn("da3", "improvements") }),
     single(
       "da7",
-      "Do you have the purchase invoices or closing statement for these assets?",
+      "Do you have the purchase invoices (or, for a building, the closing statement from the purchase) for these assets?",
       [o("all", "Yes - for all of them"), o("some", "For some of them"), o("none", "No"), UNSURE],
       { showWhen: DA_SOME }
     ),
     single(
       "da8",
-      "Was depreciation claimed on any of these assets on an earlier return?",
-      [o("yes", "Yes - a prior Form 4562 exists"), o("no", "No"), UNSURE],
+      "On an earlier year's tax return, was depreciation (deducting the asset's cost over time) claimed on any of these assets?",
+      [o("yes", "Yes - an earlier year's Form 4562 exists"), o("no", "No"), UNSURE],
       { showWhen: DA_SOME }
     ),
   ],
@@ -394,7 +394,7 @@ const PA_HOURS: readonly QOption[] = [
   UNSURE,
 ];
 const PA_HOURS_HELP =
-  "The IRS material-participation tests include more than 100 hours and more than 500 hours, and say participation may be shown by any reasonable means such as calendars or narrative summaries. Whether a test is met is for the CPA.";
+  "The IRS material-participation tests (the tests for how involved you were in the activity) include more than 100 hours and more than 500 hours, and say participation may be shown by any reasonable means such as calendars or narrative summaries. Whether a test is met is for the CPA.";
 
 const FORM_8582: QuestionnaireDef = {
   id: "form-8582",
@@ -407,21 +407,21 @@ const FORM_8582: QuestionnaireDef = {
   nodes: [
     single(
       "pa1",
-      "On average, how long are guests' stays at the Sudden Valley rental?",
+      "In {year}, on average, how long did guests stay at the Sudden Valley rental?",
       [o("avg7", "7 days or less"), o("avg30", "8 to 30 days"), o("over30", "More than 30 days"), UNSURE],
       {
         help: "The IRS instructions say a rental is not treated as a 'rental activity' for these rules when the average period of customer use is 7 days or less, or 30 days or less with significant personal services. How the average is figured is for the CPA.",
         sources: ["8582"],
       }
     ),
-    single("pa2", "Are significant personal services provided to guests?", YES_NO, {
+    single("pa2", "In {year}, were significant personal services provided to guests at the rental (services that people perform for guests during their stay)?", YES_NO, {
       help: "The IRS says significant personal services include only services performed by individuals and depend on the facts and circumstances.",
       sources: ["8582"],
       showWhen: inn("pa1", "avg30"),
     }),
     single(
       "pa3",
-      "For {year}, did the rental have a net loss, a net profit, or neither (including no rental yet)?",
+      "For {year}, did the Sudden Valley rental have a net loss, a net profit, or neither (rental income minus rental expenses; choose neither if there was no rental yet)?",
       [o("loss", "A net loss"), o("profit", "A net profit"), o("neither", "Neither, or no rental yet"), UNSURE],
       {
         help: "The IRS instructions say Form 8582 is used to figure any passive activity loss, which occurs when losses from passive activities exceed income from them.",
@@ -430,33 +430,33 @@ const FORM_8582: QuestionnaireDef = {
     ),
     single(
       "pa4",
-      "Who does the day-to-day work (guest messaging, cleaning, repairs)?",
-      [o("us", "Mostly us"), o("shared", "Shared with a manager or cleaners"), o("others", "Mostly others"), UNSURE]
+      "Who does the day-to-day work at the rental (guest messaging, cleaning, repairs)?",
+      [o("us", "Mostly Eric and Eva"), o("shared", "Shared with a manager or cleaners"), o("others", "Mostly others"), UNSURE]
     ),
-    single("pa5", "About how many hours did Eric personally work on the rental in {year}?", PA_HOURS, {
+    single("pa5", "About how many hours did Eric personally work on the Sudden Valley rental in {year} (a best estimate is fine)?", PA_HOURS, {
       help: PA_HOURS_HELP,
       sources: ["8582"],
       showWhen: inn("pa1", "avg7", "avg30", "unsure"),
     }),
-    single("pa6", "About how many hours did Eva personally work on the rental in {year}?", PA_HOURS, {
+    single("pa6", "About how many hours did Eva personally work on the Sudden Valley rental in {year} (a best estimate is fine)?", PA_HOURS, {
       help: PA_HOURS_HELP,
       sources: ["8582"],
       showWhen: inn("pa1", "avg7", "avg30", "unsure"),
     }),
-    single("pa7", "Did you make management decisions for the rental (approving guests or tenants, setting rates, approving repairs)?", YES_NO, {
+    single("pa7", "In {year}, did Eric or Eva make management decisions for the rental (approving guests or tenants, setting rates, approving repairs)?", YES_NO, {
       help: "The IRS says active participation is a less stringent requirement than material participation.",
       sources: ["8582"],
       showWhen: inn("pa1", "avg30", "over30", "unsure"),
     }),
-    single("pa8", "Does either of you work in real estate as a main occupation?", YES_NO, {
+    single("pa8", "In {year}, did Eric or Eva work mainly in real estate (real estate is their main occupation, not just owning the rental)?", YES_NO, {
       help: "The IRS instructions treat rental real estate in which you materially participated as an exception only if you were a 'real estate professional'.",
       sources: ["8582"],
     }),
-    single("pa9", "Are there unused (suspended) passive losses from earlier years?", YES_NO, {
+    single("pa9", "Were any losses from the rental or other passive activities (activities you do not actively work in) left unused on earlier returns and carried forward?", YES_NO, {
       help: "The IRS instructions say Form 8582 also reports the use of prior-year unallowed passive losses.",
       sources: ["8582"],
     }),
-    single("pa10", "Does the household have other passive activities (for example a business or partnership you do not work in)?", YES_NO),
+    single("pa10", "In {year}, did you have any other passive activities (such as a business or partnership you do not work in), apart from the Sudden Valley rental?", YES_NO),
   ],
   outcomeRules: [
     { when: anyOf(inn("pa3", "loss"), inn("pa9", "yes"), inn("pa10", "yes")), outcome: "applies" },
@@ -490,20 +490,20 @@ const FORM_8880: QuestionnaireDef = {
   nodes: [
     single(
       "sv1",
-      "Who made retirement-account contributions for {year}?",
+      "Who made contributions for {year} to a retirement account, such as an Individual Retirement Account (IRA) or a 401(k) at work?",
       [o("eric", "Eric"), o("eva", "Eva"), o("both", "Both of us"), o("neither", "Neither of us"), UNSURE],
       {
-        help: "The IRS says the saver's credit is based on contributions to a traditional or Roth IRA, elective deferrals to a 401(k), 403(b), governmental 457(b), SARSEP or SIMPLE plan, voluntary after-tax employee contributions to a qualified plan or 403(b), a 501(c)(18)(D) plan, or an ABLE account you are the designated beneficiary of. HSA contributions are not on that list (see the Form 8889 questionnaire).",
+        help: "The IRS says the saver's credit is based on contributions to a traditional or Roth IRA, elective deferrals to a 401(k), 403(b), governmental 457(b), SARSEP or SIMPLE plan, voluntary after-tax employee contributions to a qualified plan or 403(b), a 501(c)(18)(D) plan, or an ABLE (Achieving a Better Life Experience) account you are the designated beneficiary of. Health Savings Account (HSA) contributions are not on that list (see the Form 8889 questionnaire).",
         sources: ["SAVER"],
       }
     ),
     multi(
       "sv2",
-      "What kinds of accounts?",
+      "What kinds of accounts did the contributions go into (pick all that apply)?",
       [
         o("ira_trad", "Traditional IRA"),
         o("ira_roth", "Roth IRA"),
-        o("deferral", "Salary deferral at work (401(k), 403(b), governmental 457(b), SIMPLE, SARSEP)"),
+        o("deferral", "Money taken from pay into a workplace plan (401(k), 403(b), governmental 457(b), SIMPLE, SARSEP)"),
         o("after_tax", "Voluntary after-tax contributions to a workplace plan"),
         o("able", "ABLE account"),
         o("other", "Something else"),
@@ -511,20 +511,20 @@ const FORM_8880: QuestionnaireDef = {
       ],
       { showWhen: SV_POSITIVE }
     ),
-    single("sv3", "Did either of you receive a distribution (withdrawal) from a retirement plan, IRA or ABLE account recently?", YES_NO, {
+    single("sv3", "In the last few years, did Eric or Eva receive a distribution (take money out) from a retirement plan, IRA or ABLE account, other than a rollover into another retirement account?", YES_NO, {
       help: "The IRS says eligible contributions may be reduced by recent distributions, and rollover contributions do not qualify.",
       sources: ["SAVER"],
       showWhen: SV_POSITIVE,
     }),
-    single("sv4", "In {year}, was either of you a full-time student for part of 5 calendar months, or claimed as someone else's dependent?", YES_NO, {
+    single("sv4", "In {year}, was Eric or Eva a full-time student during any part of 5 different months, or claimed as someone else's dependent (for example by a parent)?", YES_NO, {
       help: "The IRS says you must be 18 or older, not claimed as a dependent on another person's return, and not a student; a student is someone enrolled full time during any part of 5 calendar months of the year.",
       sources: ["SAVER"],
       showWhen: SV_POSITIVE,
     }),
-    dollars("sv5", "About how much was contributed in total to these accounts, not counting an HSA?", { showWhen: SV_POSITIVE }),
+    dollars("sv5", "About how much did Eric and Eva contribute in total to these accounts for {year}, not counting a Health Savings Account (HSA), in whole dollars?", { showWhen: SV_POSITIVE }),
     single(
       "sv6",
-      "Do you have statements showing each contribution?",
+      "Do you have account statements or other paperwork showing each contribution?",
       [o("all", "Yes - for all of them"), o("some", "For some of them"), o("none", "No"), UNSURE],
       { showWhen: SV_POSITIVE }
     ),
@@ -551,13 +551,13 @@ const FORM_8889: QuestionnaireDef = {
   title: "Health Savings Accounts",
   formLabel: "Form 8889",
   scope: "household",
-  intro: "Facts about health-plan coverage and HSA activity in {year}, for the CPA to review.",
+  intro: "Facts about health-plan coverage and Health Savings Account (HSA) activity in {year}, for the CPA to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   planningLinks: [{ key: "retirement_contributions", label: "Retirement contributions (Planning answer)" }],
   nodes: [
     single(
       "hs1",
-      "Was either of you covered by a high-deductible health plan (HDHP) that qualifies for an HSA for any part of {year}?",
+      "Which of you was covered by a high-deductible health plan (HDHP) that can be paired with a Health Savings Account (HSA) for any part of {year}? (Your insurer or employer can tell you whether the plan is HSA-eligible.)",
       [o("eric", "Eric"), o("eva", "Eva"), o("both", "Both of us"), o("neither", "Neither of us"), UNSURE],
       {
         help: "The IRS says to be eligible to have contributions made to an HSA you must be covered under a high deductible health plan and have no other health coverage except certain disregarded coverage.",
@@ -566,7 +566,7 @@ const FORM_8889: QuestionnaireDef = {
     ),
     single(
       "hs2",
-      "What kind of HDHP coverage?",
+      "What kind of HDHP coverage was it in {year} - self-only (covering just one person) or family?",
       [o("self_only", "Self-only"), o("family", "Family"), o("changed", "It changed during the year"), UNSURE],
       {
         help: "The IRS contribution limit depends on self-only versus family coverage; if both spouses are eligible and either has family coverage, both are treated as having family coverage.",
@@ -574,10 +574,10 @@ const FORM_8889: QuestionnaireDef = {
         showWhen: HS_POSITIVE,
       }
     ),
-    single("hs3", "Were any contributions made to an HSA for {year}?", YES_NO, { showWhen: HS_POSITIVE }),
+    single("hs3", "Was money contributed to an HSA for {year}, whether by you, through payroll deduction at work, or by an employer?", YES_NO, { showWhen: HS_POSITIVE }),
     multi(
       "hs4",
-      "How were they made?",
+      "How was the money put into the HSA (pick all that apply)?",
       [
         o("payroll", "Through payroll deduction at work"),
         o("employer", "The employer contributed on our behalf"),
@@ -585,19 +585,19 @@ const FORM_8889: QuestionnaireDef = {
         UNSURE,
       ],
       {
-        help: "The IRS says payroll contributions through a cafeteria plan are treated as employer contributions and are shown on the W-2 in box 12 with code W.",
+        help: "The IRS says payroll contributions through a cafeteria plan (an employer's pre-tax benefits plan) are treated as employer contributions and are shown on the W-2 in box 12 with code W.",
         sources: ["8889"],
         showWhen: inn("hs3", "yes"),
       }
     ),
-    dollars("hs5", "About how much did you deposit yourselves (not through payroll)?", { showWhen: inn("hs4", "direct") }),
-    single("hs6", "Do you have the {year} W-2 showing box 12 code W?", YES_NO, { showWhen: inn("hs4", "payroll", "employer") }),
-    single("hs7", "Did anyone take money out of an HSA in {year}?", YES_NO, {
+    dollars("hs5", "About how much did you deposit yourselves into an HSA for {year} (not through payroll), in whole dollars?", { showWhen: inn("hs4", "direct") }),
+    single("hs6", "Do you have the {year} W-2 from the employer showing an amount in box 12 with code W (HSA contributions through the employer or payroll)?", YES_NO, { showWhen: inn("hs4", "payroll", "employer") }),
+    single("hs7", "Did Eric or Eva take money out of an HSA in {year} (any withdrawals are shown on Form 1099-SA, box 1)?", YES_NO, {
       help: "The IRS says anyone who received HSA distributions must file Form 8889 even with no taxable income; distributions are shown on Form 1099-SA, box 1.",
       sources: ["8889"],
       showWhen: HS_POSITIVE,
     }),
-    single("hs8", "Was all of it spent on medical costs?", [o("all", "Yes - all of it"), o("part", "Only part of it"), o("none", "None of it"), UNSURE], {
+    single("hs8", "Was all of the money taken out of the HSA spent on medical costs?", [o("all", "Yes - all of it"), o("part", "Only part of it"), o("none", "None of it"), UNSURE], {
       showWhen: inn("hs7", "yes"),
     }),
     single("hs9", "For any month of {year}, was either of you enrolled in Medicare or claimed as someone else's dependent?", YES_NO, {
@@ -626,7 +626,7 @@ const FORM_2210: QuestionnaireDef = {
   title: "Underpayment of estimated tax",
   formLabel: "Form 2210",
   scope: "household",
-  intro: "Facts about withholding and estimated payments for {year}, for the CPA to review.",
+  intro: "Facts about tax withheld from pay and estimated tax payments for {year}, for the CPA to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   planningLinks: [{ key: "estimated_taxes_2025", label: "Estimated taxes paid (Planning answer)" }],
   nodes: [
@@ -637,33 +637,33 @@ const FORM_2210: QuestionnaireDef = {
     ),
     single(
       "ut2",
-      "Did you make federal estimated tax payments for {year}?",
-      [o("regular", "Yes - on a regular schedule"), o("some", "Yes - some payments"), o("none", "No"), UNSURE],
+      "Did you make federal estimated tax payments for {year} (payments you sent to the IRS yourselves during the year, not tax taken out of paychecks)?",
+      [o("regular", "Yes - on a regular schedule"), o("some", "Yes - some payments, but not on a regular schedule"), o("none", "No"), UNSURE],
       {
         help: "The IRS says Form 2210 is used to see if you owe a penalty for underpaying estimated tax. The IRS says it will generally figure the penalty for you, and that the form is only filed when a situation requires it, such as requesting a waiver.",
         sources: ["2210"],
       }
     ),
-    dollars("ut3", "Total estimated tax payments for {year}, federal and state combined (whole dollars)", {
+    dollars("ut3", "What was the total of your estimated tax payments for {year}, federal and Connecticut combined, in whole dollars?", {
       showWhen: inn("ut2", "regular", "some"),
       binding: { mode: "shared_number", questionKey: "estimated_tax_payments_amount", format: "whole_dollars" },
     }),
-    dollars("ut4", "Of that, about how much was federal?", { showWhen: inn("ut2", "regular", "some") }),
-    single("ut5", "Were all payments made on time?", YES_NO, { showWhen: inn("ut2", "regular", "some") }),
-    single("ut6", "Did most of the income arrive unevenly (for example mostly late in the year)?", YES_NO, {
+    dollars("ut4", "Of that total, about how much was federal (paid to the IRS rather than Connecticut), in whole dollars?", { showWhen: inn("ut2", "regular", "some") }),
+    single("ut5", "Were all of those estimated payments made by their due dates?", YES_NO, { showWhen: inn("ut2", "regular", "some") }),
+    single("ut6", "In {year}, did your income arrive unevenly during the year (for example, most of it late in the year)?", YES_NO, {
       help: "The IRS describes an annualized income installment method that may reduce the penalty when income is uneven.",
       sources: ["2210"],
     }),
-    single("ut7", "Did the {prevYear} return show no tax liability?", YES_NO, {
+    single("ut7", "Did your {prevYear} federal return show no tax liability (a total tax of zero for that year)?", YES_NO, {
       help: "The IRS says no penalty applies if you had no tax liability for the prior year, were a U.S. citizen or resident for the entire year, and the prior-year return covered a full 12 months.",
       sources: ["2210"],
     }),
-    single("ut8", "Was a retirement after age 62, a disability, a casualty, a disaster or another unusual circumstance behind a missed or short payment?", YES_NO, {
+    single("ut8", "Was a missed or too-small estimated payment caused by a retirement after age 62, a disability, a casualty (a sudden loss such as a fire), a disaster or another unusual circumstance?", YES_NO, {
       help: "The IRS may waive the penalty in those situations; a waiver is requested on Form 2210 with an explanation.",
       sources: ["2210"],
       showWhen: anyOf(inn("ut2", "some", "none"), inn("ut5", "no")),
     }),
-    single("ut9", "Did the IRS send a notice or bill about an estimated-tax penalty?", YES_NO, {
+    single("ut9", "Did the IRS send a notice or bill about a penalty for underpaying estimated tax for {year}?", YES_NO, {
       help: "The IRS says it will generally figure any penalty and send a bill.",
       sources: ["2210"],
     }),
@@ -696,10 +696,10 @@ const FORM_1040_ES: QuestionnaireDef = {
   nodes: [
     single(
       "es1",
-      "How is income tax being covered for {nextYear} so far?",
+      "How is {nextYear} income tax being paid so far (withholding from pay, estimated tax payments you send in yourselves, or both)?",
       [
         o("withholding", "Only through withholding from pay"),
-        o("estimates", "Through estimated tax payments"),
+        o("estimates", "Through estimated tax payments we send in ourselves"),
         o("both", "Both"),
         o("nothing", "Nothing set up yet"),
         UNSURE,
@@ -709,20 +709,20 @@ const FORM_1040_ES: QuestionnaireDef = {
         sources: ["EST"],
       }
     ),
-    single("es2", "Have {nextYear} estimated payments been made so far?", [o("none", "None yet"), o("some", "Some"), o("all_due", "All that have come due"), UNSURE], {
+    single("es2", "Have any {nextYear} estimated tax payments (federal or Connecticut) been made so far?", [o("none", "None yet"), o("some", "Some"), o("all_due", "All that have come due"), UNSURE], {
       showWhen: inn("es1", "estimates", "both"),
     }),
-    dollars("es3", "About how much has been paid so far (federal)?", { showWhen: inn("es2", "some", "all_due") }),
-    single("es4", "Was W-4 withholding changed for {nextYear}?", YES_NO, {
+    dollars("es3", "About how much has been paid so far toward {nextYear} federal estimated tax, in whole dollars?", { showWhen: inn("es2", "some", "all_due") }),
+    single("es4", "Did Eric or Eva change the tax withholding from their pay for {nextYear} (by giving the employer a new Form W-4)?", YES_NO, {
       help: "The IRS says an employee can ask the employer to withhold more tax by filing a new Form W-4.",
       sources: ["EST"],
       showWhen: inn("es1", "withholding", "both"),
     }),
-    single("es5", "Do you expect {nextYear} income to differ from {year}?", [o("higher", "Higher"), o("lower", "Lower"), o("same", "About the same"), UNSURE], {
+    single("es5", "Do you expect your household's income in {nextYear} to be higher, lower or about the same as in {year}?", [o("higher", "Higher"), o("lower", "Lower"), o("same", "About the same"), UNSURE], {
       help: "The IRS suggests using the prior year's return as a starting point when estimating.",
       sources: ["EST"],
     }),
-    single("es6", "Will there be new income sources in {nextYear} (for example rental income starting or ending)?", YES_NO),
+    single("es6", "Will your household have a new source of income, or lose one, in {nextYear} (for example rental income starting or ending)?", YES_NO),
   ],
   outcomeRules: [
     { when: inn("es1", "estimates", "both", "nothing"), outcome: "applies" },
@@ -746,18 +746,18 @@ const FORM_SCHEDULE_3: QuestionnaireDef = {
   intro: "Facts about extension payments and possible credits for {year}, for the CPA to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
-    single("s31", "Was a payment sent with an extension request (Form 4868) for {year}?", YES_NO, {
+    single("s31", "Did you send a payment to the IRS with a request for more time to file your {year} return (Form 4868)?", YES_NO, {
       help: "The IRS 1040 instructions list an amount paid with a request for an extension to file among the other payments reported in Schedule 3, Part II.",
       sources: ["1040GI"],
     }),
-    dollars("s32", "Amount paid with the extension request", { showWhen: inn("s31", "yes") }),
-    single("s33", "Did either of you have more than one employer in {year}?", YES_NO, {
+    dollars("s32", "How much did you pay with the extension request, in whole dollars?", { showWhen: inn("s31", "yes") }),
+    single("s33", "In {year}, did Eric or Eva have more than one employer (more than one W-2 for the same person)?", YES_NO, {
       help: "The IRS says that with more than one employer, too much social security tax may have been withheld, which can be taken as a credit; it is figured separately for each spouse.",
       sources: ["1040GI"],
     }),
     multi(
       "s34",
-      "Which of these might apply to your {year} return?",
+      "Which of these did Eric and Eva have or pay in {year} (pick all that apply)?",
       [
         o("foreign_tax", "Foreign income tax paid"),
         o("education", "Education costs (tuition or similar)"),
@@ -775,12 +775,12 @@ const FORM_SCHEDULE_3: QuestionnaireDef = {
     ),
     single(
       "s35",
-      "Was a home solar system placed in service in a year when the residential clean energy credit has not been claimed?",
+      "Do you have a home solar system, installed and ready to use (placed in service), for which the residential clean energy credit has not yet been claimed?",
       [
         o("yes_unclaimed", "Yes - installed and never claimed", {
           warning: "Also marks Form 5695 as required on the Forms page, as that answer does today.",
         }),
-        o("claimed", "Already claimed on a prior return", {
+        o("claimed", "Installed, and the credit was already claimed on a prior return", {
           warning: "Also marks Form 5695 'not applicable' on the Forms page, as that answer does today.",
         }),
         UNSURE,
@@ -793,8 +793,8 @@ const FORM_SCHEDULE_3: QuestionnaireDef = {
         },
       }
     ),
-    single("s36", "Do you have last year's Schedule 3 and Form 5695?", YES_NO, { showWhen: inn("s35", "claimed", "unsure") }),
-    single("s37", "Do you have the solar contract and the placed-in-service date?", YES_NO, { showWhen: inn("s35", "yes_unclaimed") }),
+    single("s36", "Do you have the Schedule 3 and Form 5695 from the earlier return that claimed the solar credit?", YES_NO, { showWhen: inn("s35", "claimed", "unsure") }),
+    single("s37", "Do you have the solar installation contract and the date the system was ready to use (the placed-in-service date)?", YES_NO, { showWhen: inn("s35", "yes_unclaimed") }),
   ],
   outcomeRules: [
     {
@@ -830,41 +830,41 @@ const FORM_QBI: QuestionnaireDef = {
   nodes: [
     multi(
       "qb1",
-      "Which of these had business income or loss in {year}?",
+      "Which of these had business income or a business loss in {year} (pick all that apply)?",
       [
         o("ekc", "EK Consulting (Schedule C)", { context: "ekcActive" }),
         o("sv", "Sudden Valley rental (Schedule E)", { context: "svActive" }),
-        o("k1", "Partnership or S-corporation income on a K-1"),
+        o("k1", "Income from a partnership or S corporation, shown on a Schedule K-1"),
         o("other", "Another business or self-employment"),
         o("none", "None", { exclusive: true }),
         UNSURE,
       ],
       {
-        help: "The IRS 1040 instructions say the QBI deduction is figured on Form 8995 or Form 8995-A. Performing services as an employee is never a qualified trade or business.",
+        help: "The IRS 1040 instructions say the qualified business income (QBI) deduction is figured on Form 8995 or Form 8995-A. Performing services as an employee is never a qualified trade or business.",
         sources: ["1040GI", "8995A"],
       }
     ),
     single(
       "qb2",
-      "Is EK Consulting's income from giving advice or counsel to clients?",
-      [o("all", "Essentially all of it"), o("some", "Some of it"), o("no", "No (products, software or other services)"), UNSURE],
+      "How much of EK Consulting's income comes from giving clients professional advice or counsel (consulting)?",
+      [o("all", "Essentially all of it"), o("some", "Some of it"), o("no", "None of it (it comes from products, software or other services)"), UNSURE],
       {
         help: "The Form 8995-A instructions list consulting - giving clients professional advice and counsel - among 'specified service trades or businesses'. Which category applies is for the CPA.",
         sources: ["8995A"],
         showWhen: inn("qb1", "ekc"),
       }
     ),
-    single("qb3", "Does EK Consulting pay W-2 wages to employees?", YES_NO, {
+    single("qb3", "Did EK Consulting pay wages to employees (reported on W-2 forms) in {year}?", YES_NO, {
       help: "The Form 8995-A instructions use W-2 wages paid by the business as one input to limit the deduction.",
       sources: ["8995A"],
       showWhen: inn("qb1", "ekc"),
     }),
-    single("qb4", "Is the rental run as a regular, ongoing activity (for example guests booked throughout the season, with active management)?", YES_NO, {
+    single("qb4", "Is the Sudden Valley rental run as a regular, ongoing business activity (for example guests booked throughout the season, with active management)?", YES_NO, {
       help: "The IRS says renting real property may be a trade or business for the QBI deduction if it meets the section 162 standard, and Rev. Proc. 2019-38 provides a safe harbor for a rental real estate enterprise.",
       sources: ["8995"],
       showWhen: inn("qb1", "sv"),
     }),
-    single("qb5", "Was there a net business loss from an earlier year carried into {year}?", YES_NO, {
+    single("qb5", "Was a net business loss from an earlier year carried forward into {year} (a loss left over from an earlier year's return)?", YES_NO, {
       help: "The IRS says a qualified business net loss is carried forward to the next year.",
       sources: ["8995"],
       showWhen: QB_BUSINESS,
@@ -900,19 +900,19 @@ const FORM_ADDL_MEDICARE: QuestionnaireDef = {
   intro: "Facts about wages and self-employment income in {year}, for the CPA to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
-    single("mt1", "Did either of you have a single W-2 with Medicare wages above $200,000?", WHO_NONE, {
+    single("mt1", "Who, if anyone, had a single W-2 with Medicare wages (box 5) above $200,000 in {year}?", WHO_NONE, {
       help: "The Form 8959 instructions say to file it if Medicare wages on any single W-2 (box 5) are greater than $200,000.",
       sources: ["8959"],
     }),
-    single("mt2", "Did combined wages plus self-employment income for {year} exceed the Form 8959 threshold for your filing status?", YES_NO, {
+    single("mt2", "Did your combined wages plus self-employment income for {year} exceed the Additional Medicare Tax threshold for your filing status (Form 8959 lists it)?", YES_NO, {
       help: "The IRS 1040 instructions give $250,000 if married filing jointly, $200,000 if single, head of household or qualifying surviving spouse, and $125,000 if married filing separately.",
       sources: ["1040GI"],
     }),
-    single("mt3", "Did an employer withhold Additional Medicare Tax from pay?", YES_NO, {
+    single("mt3", "Did an employer withhold Additional Medicare Tax (a separate extra Medicare tax, not the regular Medicare tax) from either of your paychecks in {year}?", YES_NO, {
       help: "The IRS says an employer may have withheld Additional Medicare Tax even if none is owed; withheld amounts are reported using Form 8959.",
       sources: ["1040GI"],
     }),
-    single("mt4", "Did either of you have self-employment income in {year}?", WHO_NONE, {
+    single("mt4", "Who had self-employment income (income from their own business or side work) in {year}?", WHO_NONE, {
       help: "The IRS says self-employment income from Schedule SE counts toward the Form 8959 threshold; negative amounts are not considered.",
       sources: ["8959"],
     }),
@@ -944,7 +944,7 @@ const FORM_CHILD_CREDITS: QuestionnaireDef = {
   nodes: [
     single(
       "cd1",
-      "Do you claim any dependents?",
+      "Do you claim, or plan to claim, any dependents (such as a child or a parent) on your {year} return?",
       [
         o("none", "No dependents", {
           warning:
@@ -962,15 +962,15 @@ const FORM_CHILD_CREDITS: QuestionnaireDef = {
         },
       }
     ),
-    whole("cd2", "How many dependents?", 1, 20, { showWhen: CD_ANY }),
-    single("cd3", "Were all the children under 17 at the end of {year}?", ALL_SOME_NONE, {
+    whole("cd2", "How many dependents do you claim for {year}?", 1, 20, { showWhen: CD_ANY }),
+    single("cd3", "Were all the children you claim under age 17 at the end of {year} (on December 31)?", ALL_SOME_NONE, {
       help: "The IRS 1040 instructions use age under 17 at the end of the year as one test for the child tax credit.",
       sources: ["1040GI"],
       showWhen: inn("cd1", "children"),
     }),
     single(
       "cd4",
-      "Did each dependent have an SSN, ITIN or ATIN issued on or before the return's due date, including extensions (or an application filed by then)?",
+      "Did each dependent have a Social Security number (SSN), an Individual Taxpayer Identification Number (ITIN) or an Adoption Taxpayer Identification Number (ATIN) issued on or before the return's due date, including extensions (or an application filed by then)?",
       ALL_SOME_NONE,
       {
         help: "The IRS instructions apply this taxpayer-identification test to the child tax credit and the credit for other dependents.",
@@ -978,7 +978,7 @@ const FORM_CHILD_CREDITS: QuestionnaireDef = {
         showWhen: CD_ANY,
       }
     ),
-    single("cd5", "Does each child have a valid Social Security number?", ALL_SOME_NONE, {
+    single("cd5", "Does each child you claim have a valid Social Security number (SSN)?", ALL_SOME_NONE, {
       help: "The IRS says a qualifying child without a valid SSN cannot be used to claim the child tax credit; another taxpayer ID may still support the credit for other dependents.",
       sources: ["8812"],
       showWhen: inn("cd1", "children"),
@@ -988,15 +988,15 @@ const FORM_CHILD_CREDITS: QuestionnaireDef = {
       sources: ["1040GI"],
       showWhen: CD_ANY,
     }),
-    single("cd7", "Could anyone else (such as the other parent or a grandparent) also claim any of them?", YES_NO, { showWhen: CD_ANY }),
-    single("cd8", "Were child or dependent care costs paid in {year}?", YES_NO, {
+    single("cd7", "Could anyone else (such as the other parent or a grandparent) also claim any of these dependents on their own {year} return?", YES_NO, { showWhen: CD_ANY }),
+    single("cd8", "Did you pay for child or dependent care in {year} (dependent care benefits from an employer show in box 10 of the W-2)?", YES_NO, {
       help: "The IRS says dependent care benefits are shown in box 10 of the W-2 and to complete Form 2441 to see how much can be excluded.",
       sources: ["1040GI"],
       showWhen: CD_ANY,
     }),
     single(
       "cd9",
-      "Who is the dependent?",
+      "Which best describes the other dependent you claim (the one who is not a child)?",
       [o("parent", "A parent"), o("other_relative", "Another relative"), o("other_person", "Someone else"), UNSURE],
       { showWhen: inn("cd1", "other") }
     ),
@@ -1027,7 +1027,7 @@ const FORM_CLEAN_VEHICLE: QuestionnaireDef = {
   nodes: [
     single(
       "ev1",
-      "Did you acquire a plug-in electric or fuel-cell vehicle in {year}?",
+      "Did you buy or otherwise acquire a plug-in electric or fuel-cell vehicle in {year}?",
       [
         o("yes_new", "Yes - a new vehicle"),
         o("yes_used", "Yes - a previously owned vehicle"),
@@ -1047,22 +1047,22 @@ const FORM_CLEAN_VEHICLE: QuestionnaireDef = {
         },
       }
     ),
-    single("ev2", "When was it acquired?", [o("before", "On or before September 30, 2025"), o("after", "After September 30, 2025"), UNSURE], {
+    single("ev2", "When did you acquire it (the date you signed the purchase contract and made a payment, even a small down payment)?", [o("before", "On or before September 30, 2025"), o("after", "After September 30, 2025"), UNSURE], {
       help: "The IRS says clean vehicle credits cannot be claimed for vehicles acquired after September 30, 2025, and a vehicle is 'acquired' when a written binding contract is entered into and a payment (including a nominal down payment or a trade-in) has been made.",
       sources: ["8936"],
       showWhen: EV_YES,
     }),
-    single("ev3", "How is the vehicle used?", [o("personal", "Personal use"), o("business", "Used in a business"), o("both", "Both"), UNSURE], {
+    single("ev3", "How is the vehicle used - for personal use, in a business, or both?", [o("personal", "Personal use"), o("business", "Used in a business"), o("both", "Both"), UNSURE], {
       help: "The IRS says the vehicle must be acquired for use, not for resale, and a separate credit exists for qualified commercial clean vehicles.",
       sources: ["8936"],
       showWhen: EV_YES,
     }),
-    single("ev4", "Was the credit transferred to the dealer at the sale (a lower price at purchase)?", YES_NO, {
+    single("ev4", "Did you transfer the credit to the dealer at the time of sale (so that you paid a lower price at purchase)?", YES_NO, {
       help: "The IRS says a credit transferred to a registered dealer at the time of sale is reported using Form 8936 and Schedule A (Form 8936).",
       sources: ["1040GI"],
       showWhen: EV_YES,
     }),
-    single("ev5", "Was the vehicle placed in service (first used) in {year}?", YES_NO, {
+    single("ev5", "Did you start using the vehicle (place it in service) in {year}?", YES_NO, {
       help: "The IRS says the credits are for clean vehicles placed in service during your tax year.",
       sources: ["8936"],
       showWhen: EV_YES,
@@ -1094,7 +1094,7 @@ const FORM_K1: QuestionnaireDef = {
   nodes: [
     single(
       "kh1",
-      "What kind of entity issued the K-1?",
+      "What kind of business or entity sent you the Schedule K-1?",
       [
         o("partnership", "A partnership or multi-member LLC"),
         o("s_corp", "An S corporation"),
@@ -1106,16 +1106,16 @@ const FORM_K1: QuestionnaireDef = {
         sources: ["1065", "1120S"],
       }
     ),
-    single("kh2", "Whose K-1 is it?", [o("eric", "Eric"), o("eva", "Eva"), o("both", "Both of us"), UNSURE]),
-    single("kh3", "Do you work in the business, or only hold an investment?", [o("works", "I work in the business"), o("invests", "Only an investment"), UNSURE]),
-    single("kh4", "Does the K-1 show income, a loss, or both?", [o("income", "Income"), o("loss", "A loss"), o("both", "Both"), UNSURE]),
-    single("kh5", "Did you receive cash from the entity in {year}?", YES_NO),
-    single("kh6", "Does the K-1 show guaranteed payments?", YES_NO, {
+    single("kh2", "Whose name is the K-1 issued to?", [o("eric", "Eric"), o("eva", "Eva"), o("both", "Both of us"), UNSURE]),
+    single("kh3", "Does the person named on the K-1 work in the business, or only hold an investment in it?", [o("works", "I work in the business"), o("invests", "Only an investment"), UNSURE]),
+    single("kh4", "Does the {year} K-1 show income, a loss, or both?", [o("income", "Income"), o("loss", "A loss"), o("both", "Both"), UNSURE]),
+    single("kh5", "Did you receive cash (a distribution) from the entity in {year}?", YES_NO),
+    single("kh6", "Does the K-1 show guaranteed payments (payments to a partner for work or capital, set regardless of the partnership's profit)?", YES_NO, {
       help: "The IRS says you must also pay self-employment tax on your share of certain partnership income and on guaranteed payments.",
       sources: ["SE"],
       showWhen: inn("kh1", "partnership"),
     }),
-    single("kh7", "Was Connecticut pass-through entity tax paid by the entity on your behalf?", YES_NO, {
+    single("kh7", "Did the entity pay Connecticut pass-through entity tax (an optional Connecticut tax the entity can choose to pay) on your behalf?", YES_NO, {
       help: "Connecticut says the pass-through entity tax is optional and is elected by the entity.",
       sources: ["CTPET"],
       showWhen: inn("kh1", "partnership", "s_corp"),
@@ -1145,21 +1145,21 @@ const FORM_SCHEDULE_SE: QuestionnaireDef = {
   nodes: [
     single(
       "se1",
-      "For {year}, did EK Consulting have a net profit, a net loss, or neither?",
+      "For {year}, did EK Consulting have a net profit, a net loss, or neither (business income minus business expenses)?",
       [o("profit", "A net profit"), o("loss", "A net loss"), o("neither", "Neither"), UNSURE],
       {
         help: "The IRS says Schedule SE is required when line 4c of the schedule is $400 or more, and that even with a loss or small amount it may be to your benefit to file and use an optional method. The CPA works this out.",
         sources: ["SE"],
       }
     ),
-    single("se2", "Any other self-employment income in {year} (side work, 1099 income, partnership guaranteed payments)?", YES_NO, {
+    single("se2", "Did Eric or Eva have any other self-employment income in {year}, such as side work, 1099 income or partnership guaranteed payments?", YES_NO, {
       help: "The IRS says you must also pay self-employment tax on certain partnership income and guaranteed payments.",
       sources: ["SE"],
     }),
-    single("se3", "Whose other self-employment income?", [o("eric", "Eric"), o("eva", "Eva"), o("both", "Both of us"), UNSURE], {
+    single("se3", "Whose other self-employment income was it?", [o("eric", "Eric"), o("eva", "Eva"), o("both", "Both of us"), UNSURE], {
       showWhen: inn("se2", "yes"),
     }),
-    single("se4", "Were estimated payments made toward self-employment tax?", YES_NO),
+    single("se4", "Were estimated tax payments made during {year} to cover self-employment tax?", YES_NO),
   ],
   outcomeRules: [
     { when: anyOf(inn("se1", "profit"), inn("se2", "yes")), outcome: "applies" },
@@ -1184,16 +1184,16 @@ const FORM_ENTITY_FEDERAL: QuestionnaireDef = {
   intro: "Facts about how {entity} is owned and classified, for the CPA to review.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   nodes: [
-    single("ef1", "How many owners does {entity} have?", [o("one", "One"), o("multiple", "Two or more"), UNSURE], {
+    single("ef1", "How many owners (members) does {entity} have?", [o("one", "One"), o("multiple", "Two or more"), UNSURE], {
       help: "The IRS says an LLC with only one member is treated as disregarded as separate from its owner for income tax unless it files Form 8832 to be treated as a corporation, and a domestic LLC with at least two members is classified as a partnership unless it elects otherwise.",
       sources: ["LLC"],
     }),
-    single("ef2", "Who are the owners?", [o("us_only", "Eric and Eva only"), o("others", "Includes someone else"), UNSURE], {
+    single("ef2", "Who are the owners of {entity}?", [o("us_only", "Eric and Eva only"), o("others", "Includes someone else"), UNSURE], {
       showWhen: inn("ef1", "multiple"),
     }),
     single(
       "ef3",
-      "Has {entity} filed an election to be taxed as a corporation (Form 8832) or as an S corporation (Form 2553)?",
+      "Has {entity} ever filed a form with the IRS to choose to be taxed as a corporation (Form 8832) or as an S corporation (Form 2553)?",
       [
         o("none", "No election"),
         o("corp", "Corporation election (Form 8832)"),
@@ -1204,7 +1204,7 @@ const FORM_ENTITY_FEDERAL: QuestionnaireDef = {
     ),
     single(
       "ef4",
-      "Did {entity} file a separate federal return for a prior year?",
+      "For an earlier year, did {entity} file its own federal tax return (separate from your personal return)?",
       [
         o("no", "No"),
         o("partnership", "Yes - Form 1065"),
@@ -1216,7 +1216,7 @@ const FORM_ENTITY_FEDERAL: QuestionnaireDef = {
     ),
     single(
       "ef5",
-      "Does {entity} have employees or its own EIN?",
+      "Does {entity} have employees, or its own employer identification number (EIN)?",
       [o("employees", "It has employees"), o("ein_only", "It has an EIN but no employees"), o("neither", "Neither"), UNSURE],
       {
         help: "The IRS says a single-member LLC that is disregarded for income tax is still a separate entity for employment tax and certain excise taxes, and needs an EIN if it has employees.",
@@ -1230,7 +1230,7 @@ const FORM_ENTITY_FEDERAL: QuestionnaireDef = {
     ),
     single(
       "ef7",
-      "Where has the entity's income been reported so far?",
+      "On which tax return has {entity}'s income been reported so far?",
       [
         o("personal", "On our personal return (Schedule C or E)"),
         o("separate", "On a separate entity return"),
@@ -1263,7 +1263,7 @@ const FORM_ENTITY_CT: QuestionnaireDef = {
   nodes: [
     single(
       "cf1",
-      "How does {entity} report to the IRS?",
+      "How does {entity} report its income to the IRS (on your personal return, or on its own return)?",
       [
         o("household", "On our personal return (disregarded)"),
         o("partnership", "As a partnership (Form 1065)"),
@@ -1272,7 +1272,7 @@ const FORM_ENTITY_CT: QuestionnaireDef = {
         UNSURE,
       ]
     ),
-    single("cf2", "Is the entity considering the optional Connecticut pass-through entity tax?", YES_NO, {
+    single("cf2", "Is {entity} considering the optional Connecticut pass-through entity tax (a tax the entity can choose to pay)?", YES_NO, {
       help: "Connecticut says the pass-through entity tax is optional; the election is made each year by checking a box on a timely filed Form CT-1065/CT-1120SI, and the entity must first complete the federal Form 1065 or 1120-S.",
       sources: ["CTPET"],
       showWhen: inn("cf1", "partnership", "s_corp"),
@@ -1282,10 +1282,10 @@ const FORM_ENTITY_CT: QuestionnaireDef = {
       sources: ["CTPET"],
     }),
     single("cf4", "Did {entity} pay wages to employees in {year}?", YES_NO),
-    single("cf5", "Did {entity} collect or pay any other Connecticut state taxes itself (not income tax)?", YES_NO),
+    single("cf5", "Did {entity} itself collect or pay any other Connecticut taxes besides income tax in {year} (for example sales tax)?", YES_NO),
     single(
       "cf6",
-      "Do you have copies of Connecticut filings the entity made last year?",
+      "Do you have copies of the Connecticut tax filings {entity} made for the previous year?",
       [o("have", "Yes"), o("none_filed", "None were filed"), o("dont_have", "Filed but I do not have copies"), UNSURE]
     ),
   ],
@@ -1332,27 +1332,45 @@ export const RC_PAYMENT_WINDOWS = [
 /** Group id -> the question text for the "stated none" statements (every NoneGroupId has one; a test pins that). */
 const RC_GROUP_PROMPTS: Readonly<Record<NoneGroupId, string>> = {
   other_earned_income:
-    "household employee wages not reported on a W-2, tips you did not report to your employer, Medicaid waiver payments, taxable dependent care or adoption benefits, Form 8919 wages, or other earned income",
-  retirement_ss_income: "IRA distributions, pensions or annuities, or Social Security benefits",
+    "wages as a household employee (for example a nanny or housekeeper) that were not on a W-2, tips you did not report to your employer, Medicaid waiver payments, taxable dependent care or adoption benefits from an employer, wages reported on Form 8919, or other earned income",
+  retirement_ss_income: "withdrawals (distributions) from an Individual Retirement Account (IRA), pension or annuity payments, or Social Security benefits",
   other_income:
-    "income other than W-2 wages, interest, dividends and EK Consulting business income - for example state tax refunds, alimony, rental or partnership income, farm income, unemployment compensation, gambling winnings, canceled debt, jury duty pay, prizes or digital-asset income",
+    "income other than W-2 wages, interest, dividends and EK Consulting business income - for example state income tax refunds, alimony, rental or partnership income, farm income, unemployment compensation, gambling winnings, debt that was canceled or forgiven, jury duty pay, prizes or income from digital assets such as cryptocurrency",
   other_adjustments:
-    "adjustments to income other than the HSA, half of self-employment tax, self-employed retirement, self-employed health insurance and IRA deductions - for example educator expenses, a penalty on early withdrawal of savings, alimony paid, student loan interest or an Archer MSA deduction",
+    "deductions that reduce your income before the standard or itemized deduction (called adjustments to income), other than the Health Savings Account (HSA), half of self-employment tax, self-employed retirement, self-employed health insurance and Individual Retirement Account (IRA) deductions - for example educator expenses, a penalty on early withdrawal of savings, alimony paid, student loan interest or an Archer Medical Savings Account (MSA) deduction",
   other_taxes:
-    "additional taxes beyond self-employment tax, Additional Medicare Tax and net investment income tax - for example household employment taxes, additional tax on early retirement distributions, or repaying a premium tax credit",
+    "additional taxes beyond self-employment tax, Additional Medicare Tax and net investment income tax - for example household employment taxes (taxes for paying a nanny or housekeeper), an additional tax for taking money out of a retirement account early, or repaying a premium tax credit (a health insurance marketplace subsidy)",
   other_nonrefundable_credits:
-    "credits such as child and dependent care, education credits, the energy efficient home improvement credit, general business, adoption, or the credit for the elderly or disabled (not the solar credit, asked next)",
-  solar_credit: "a residential clean energy (solar, wind, geothermal or battery) credit claimed for 2025 (Form 5695 line 15)",
+    "credits such as the child and dependent care credit, education credits, the energy efficient home improvement credit, general business credits, the adoption credit, or the credit for the elderly or disabled (not the solar credit, which is asked next)",
+  solar_credit: "a residential clean energy credit (for solar, wind, geothermal or battery systems) that is being claimed on the 2025 return (Form 5695 line 15)",
   other_refundable_credits:
-    "a premium tax credit, credit for federal tax on fuels, earned income credit, additional child tax credit, American opportunity credit, refundable adoption credit or other refundable credit",
-  medical_expenses: "medical or dental expenses you paid in 2025 and were not reimbursed for (Schedule A lines 1-4)",
+    "a refundable credit (one that can be paid out even if no tax is owed), such as a premium tax credit, the credit for federal tax on fuels, the earned income credit, the additional child tax credit, the American opportunity credit, the refundable adoption credit or another refundable credit",
+  medical_expenses: "medical or dental expenses you paid in 2025 that insurance or anyone else did not pay back (Schedule A lines 1-4)",
   sch_a_other:
-    "other itemized-deduction items: other taxes, mortgage interest or points not shown on Form 1098, investment interest, a charitable carryover, casualty or theft losses, or other itemized deductions",
-  savings_bond_exclusion: "interest on series EE or I savings bonds that you want to exclude (Form 8815)",
-  sch_c_other_lines: "depletion or an energy efficient commercial buildings deduction on EK Consulting's Schedule C",
+    "other itemized-deduction items (Schedule A): other taxes, mortgage interest or points not shown on Form 1098, investment interest, a charitable carryover (donations left over from an earlier year), casualty or theft losses, or other itemized deductions",
+  savings_bond_exclusion: "interest on series EE or I U.S. savings bonds that you want to leave out of your taxable income (Form 8815)",
+  sch_c_other_lines: "depletion (a deduction for using up natural resources) or an energy efficient commercial buildings deduction on EK Consulting's Schedule C (business profit or loss)",
   se_other:
-    "farm income, church employee income, unreported tips (Form 4137), Form 8919 wages, railroad retirement compensation, or optional self-employment tax methods",
-  qbi_carryforwards: "a qualified business loss or a REIT / publicly traded partnership loss carried forward from a prior year (Form 8995)",
+    "farm income, income as a church employee, tips you did not report to your employer (Form 4137), wages reported on Form 8919, railroad retirement compensation, or the optional methods for figuring self-employment tax",
+  qbi_carryforwards: "a qualified business loss, or a loss from a real estate investment trust (REIT) or a publicly traded partnership, carried forward from an earlier year (Form 8995)",
+};
+
+/** Group id -> a short plain-language name used in the follow-up amount question. */
+const RC_GROUP_LABELS: Readonly<Record<NoneGroupId, string>> = {
+  other_earned_income: "other earned income",
+  retirement_ss_income: "retirement and Social Security income",
+  other_income: "other income",
+  other_adjustments: "other adjustments to income",
+  other_taxes: "other taxes",
+  other_nonrefundable_credits: "other credits",
+  solar_credit: "the residential clean energy credit",
+  other_refundable_credits: "refundable credits",
+  medical_expenses: "unreimbursed medical and dental expenses",
+  sch_a_other: "other itemized deductions",
+  savings_bond_exclusion: "savings bond interest",
+  sch_c_other_lines: "other EK Consulting Schedule C items",
+  se_other: "other self-employment tax items",
+  qbi_carryforwards: "qualified business income carryforwards",
 };
 
 const SOME_NONE: readonly QOption[] = [o("some", "Yes"), o("none", "No"), UNSURE];
@@ -1363,7 +1381,7 @@ function rcPersonNodes(): QNode[] {
   // A. born before January 2, 1961
   for (const P of RC_PERSONS) {
     out.push(
-      single(`age_${P.key}`, `Was ${P.name} born before January 2, 1961?`, YES_NO, {
+      single(`age_${P.key}`, `Was ${P.name} born before January 2, 1961 (the cutoff for the extra senior deductions)?`, YES_NO, {
         help: "The IRS enhanced deduction for seniors on Schedule 1-A is for a person born before January 2, 1961 who has a Social Security number valid for employment. The same date decides the additional standard deduction (Form 1040 line 12d).",
         sources: ["SCH1A", "1040GI"],
       })
@@ -1371,7 +1389,7 @@ function rcPersonNodes(): QNode[] {
   }
   for (const P of RC_PERSONS) {
     out.push(
-      single(`blind_${P.key}`, `Was ${P.name} blind at the end of 2025?`, YES_NO, {
+      single(`blind_${P.key}`, `Was ${P.name} blind at the end of 2025 (totally blind, or with an eye doctor's statement of blindness)?`, YES_NO, {
         help: "The IRS adds to the standard deduction for each spouse who was blind at the end of the year. A person who is not totally blind needs a statement from an eye doctor that they cannot see better than 20/200 in the better eye with glasses or contact lenses, or that their field of vision is 20 degrees or less.",
         sources: ["1040GI"],
       })
@@ -1381,21 +1399,21 @@ function rcPersonNodes(): QNode[] {
   for (const P of RC_PERSONS) {
     const k = P.key;
     out.push(
-      single(`plan_${k}`, `Was ${P.name} covered by a retirement plan at work for 2025?`, YES_NO, {
-        help: "The IRS says the 'Retirement plan' box in box 13 of Form W-2 should be checked if you were covered by a plan at work, even if you were not vested, and that a self-employed person with a SEP, SIMPLE or qualified retirement plan is also covered.",
+      single(`plan_${k}`, `Was ${P.name} covered by a retirement plan at work for 2025 (the 'Retirement plan' box in box 13 of the W-2 is checked if so)?`, YES_NO, {
+        help: "The IRS says the 'Retirement plan' box in box 13 of Form W-2 should be checked if you were covered by a plan at work, even if you were not vested, and that a self-employed person with a Simplified Employee Pension (SEP), SIMPLE or qualified retirement plan is also covered.",
         sources: ["1040GI"],
       }),
-      single(`def_${k}`, `Did ${P.name} make elective deferrals to a 401(k), 403(b), governmental 457(b), SIMPLE, SEP or the federal Thrift Savings Plan in 2025?`, SOME_NONE, {
+      single(`def_${k}`, `Did ${P.name} make elective deferrals in 2025 (retirement contributions chosen by the employee) to a 401(k), 403(b), governmental 457(b), SIMPLE, Simplified Employee Pension (SEP) or the federal Thrift Savings Plan? (Box 12 of the W-2 may show them.)`, SOME_NONE, {
         help: "The IRS counts designated Roth contributions as elective deferrals; these amounts may be shown in box 12 of the Form W-2.",
         sources: ["8880F"],
       }),
-      dollars(`defamt_${k}`, `Total elective deferrals for ${P.name} in 2025 (whole dollars)`, { showWhen: inn(`def_${k}`, "some"), sources: ["8880F"] }),
-      single(`ira_${k}`, `Did ${P.name} contribute to a traditional or Roth IRA for 2025, including contributions made by April 15, 2026 that are for 2025?`, SOME_NONE, {
+      dollars(`defamt_${k}`, `What was the total of ${P.name}'s elective deferrals in 2025, in whole dollars (add up all plans)?`, { showWhen: inn(`def_${k}`, "some"), sources: ["8880F"] }),
+      single(`ira_${k}`, `Did ${P.name} contribute to a traditional or Roth IRA for 2025, including contributions made by April 15, 2026 that are designated for 2025?`, SOME_NONE, {
         help: "The IRS 1040 instructions count traditional IRA contributions made, or to be made, by the due date of the 2025 return not counting extensions (April 15, 2026 for most people).",
         sources: ["1040GI"],
       }),
-      dollars(`tira_${k}`, `Traditional IRA contributions for ${P.name} for 2025 (whole dollars; 0 if only Roth)`, { showWhen: inn(`ira_${k}`, "some") }),
-      dollars(`roth_${k}`, `Roth IRA contributions for ${P.name} for 2025 (whole dollars; 0 if none)`, { showWhen: inn(`ira_${k}`, "some") }),
+      dollars(`tira_${k}`, `How much did ${P.name} contribute to a traditional IRA for 2025, in whole dollars (enter 0 if only Roth)?`, { showWhen: inn(`ira_${k}`, "some") }),
+      dollars(`roth_${k}`, `How much did ${P.name} contribute to a Roth IRA for 2025, in whole dollars (enter 0 if none)?`, { showWhen: inn(`ira_${k}`, "some") }),
       single(`ira50_${k}`, `Was ${P.name} age 50 or older at the end of 2025?`, YES_NO, {
         help: "The IRS says the IRA contribution limit and the percentage used to reduce the IRA deduction are higher for a person age 50 or older at the end of 2025.",
         sources: ["590A"],
@@ -1405,12 +1423,12 @@ function rcPersonNodes(): QNode[] {
   }
   const CONTRIBUTES = anyOf(...RC_PERSONS.flatMap((P) => [inn(`def_${P.key}`, "some"), inn(`ira_${P.key}`, "some")]));
   out.push(
-    single("rdist", "Since January 1, 2023, did either of you receive a distribution from a retirement plan, IRA or ABLE account (other than a rollover)?", YES_NO, {
+    single("rdist", "Since January 1, 2023, did Eric or Eva take money out (a distribution) from a retirement plan, IRA or ABLE (Achieving a Better Life Experience) account, other than a rollover into another retirement account?", YES_NO, {
       help: "The IRS saver's credit form says certain distributions received after 2022 and before the return due date reduce the contributions that count.",
       sources: ["8880F"],
       showWhen: CONTRIBUTES,
     }),
-    single("student", "For 2025, was either of you a full-time student for part of 5 calendar months, or claimed as someone else's dependent?", YES_NO, {
+    single("student", "For 2025, was Eric or Eva a full-time student during any part of 5 different months, or claimed as someone else's dependent (for example by a parent)?", YES_NO, {
       help: "The IRS saver's credit is not available to a person who was a full-time student for part of 5 calendar months of the year or who is claimed as a dependent on someone else's return.",
       sources: ["8880F"],
       showWhen: CONTRIBUTES,
@@ -1423,14 +1441,14 @@ function rcPersonNodes(): QNode[] {
     out.push(
       single(
         `hsa_${k}`,
-        `Was ${P.name} covered by an HSA-eligible high-deductible health plan (HDHP) for any part of 2025?`,
-        [o("self_only", "Yes - self-only coverage all the months covered"), o("family", "Yes - family coverage all the months covered"), o("changed", "Yes - it changed between self-only and family"), o("none", "No"), UNSURE],
+        `Was ${P.name} covered by a high-deductible health plan (HDHP) that can be paired with a Health Savings Account (HSA) for any part of 2025?`,
+        [o("self_only", "Yes - self-only coverage (just that person) for all the months covered"), o("family", "Yes - family coverage for all the months covered"), o("changed", "Yes - it changed between self-only and family"), o("none", "No"), UNSURE],
         {
           help: "The IRS says to have contributions made to an HSA you must be covered by an HDHP and have no other health coverage except certain disregarded coverage; the contribution limit depends on self-only versus family coverage.",
           sources: ["8889"],
         }
       ),
-      whole(`hsam_${k}`, `In how many months of 2025 was ${P.name} covered by the HDHP on the first day of the month? (0 to 12)`, 0, 12, {
+      whole(`hsam_${k}`, `In how many months of 2025 was ${P.name} covered by the HDHP on the first day of the month (a number from 0 to 12)?`, 0, 12, {
         help: "The IRS contribution limit is figured month by month: a month counts if you were an eligible individual with that coverage on the first day of the month.",
         sources: ["8889"],
         showWhen: COVERED,
@@ -1450,12 +1468,12 @@ function rcPersonNodes(): QNode[] {
         sources: ["8889"],
         showWhen: COVERED,
       }),
-      dollars(`hsadir_${k}`, `HSA contributions ${P.name} made directly for 2025, not through payroll (whole dollars; 0 if none)`, {
-        help: "The IRS counts contributions made for 2025 up to April 15, 2026; payroll contributions through a cafeteria plan are treated as employer contributions (W-2 box 12 code W) and are read from the W-2.",
+      dollars(`hsadir_${k}`, `How much did ${P.name} deposit directly into an HSA for 2025, not through payroll, in whole dollars (enter 0 if none; deposits made by April 15, 2026 count for 2025)?`, {
+        help: "The IRS counts contributions made for 2025 up to April 15, 2026; payroll contributions through a cafeteria plan (an employer's pre-tax benefits plan) are treated as employer contributions (W-2 box 12 code W) and are read from the W-2.",
         sources: ["8889"],
         showWhen: COVERED,
       }),
-      single(`hsaemp_${k}`, `Do ${P.name}'s employer HSA contributions include money for a different year (2024 contributions made in 2025, or 2025 contributions made in 2026)?`, YES_NO, {
+      single(`hsaemp_${k}`, `Do the HSA contributions ${P.name}'s employer made (W-2 box 12, code W) include money that belongs to a different year (2024 contributions made in 2025, or 2025 contributions made in 2026)?`, YES_NO, {
         help: "The IRS Employer Contribution Worksheet adjusts the W-2 box 12 code W amount for contributions that belong to another year.",
         sources: ["8889"],
         showWhen: COVERED,
@@ -1464,7 +1482,7 @@ function rcPersonNodes(): QNode[] {
   }
   for (const P of RC_PERSONS) {
     out.push(
-      single(`hsadist_${P.key}`, `Did ${P.name} take money out of an HSA in 2025?`, SOME_NONE, {
+      single(`hsadist_${P.key}`, `Did ${P.name} take money out of an HSA in 2025 (Form 1099-SA, box 1, shows any withdrawals)?`, SOME_NONE, {
         help: "The IRS says HSA distributions are shown on Form 1099-SA, box 1, and are reported on Form 8889 Part II even when nothing is taxable.",
         sources: ["8889"],
       })
@@ -1476,21 +1494,21 @@ function rcPersonNodes(): QNode[] {
     out.push(
       single(
         `tips_${k}`,
-        `Did ${P.name} receive tips as an employee in 2025 in an occupation that customarily received tips?`,
+        `Did ${P.name} receive tips as an employee in 2025 in an occupation that customarily received tips (the IRS keeps a list of these occupations)?`,
         [o("some", "Yes - I know the amount"), o("ask_employer", "Yes - I do not know the amount yet, I will ask the employer"), o("none", "No tips"), UNSURE],
         {
           help: "The IRS says qualified tips are cash tips paid voluntarily, not negotiated, determined by the customer, in an occupation that customarily received tips on or before December 31, 2024 (the list is at IRS.gov/TippedOccupations); automatic gratuities and mandatory service charges are not qualified tips. The 2025 Form W-2 does not separately show them: the amount in box 7 or the tips reported to the employer can be used. Tips from your own business need the CPA - answer 'Not sure'.",
           sources: ["SCH1A", "1040GI"],
         }
       ),
-      dollars(`tipsamt_${k}`, `${P.name}'s qualified tips in 2025, all employers together (whole dollars)`, {
+      dollars(`tipsamt_${k}`, `How much did ${P.name} receive in qualified tips (the cash tips the IRS counts for this deduction) in 2025 from all employers together, in whole dollars?`, {
         help: "The IRS worksheet for more than one employer uses, for each employer, the larger of the tips on the W-2 or reported to the employer; enter the total of those.",
         sources: ["1040GI"],
         showWhen: inn(`tips_${k}`, "some"),
       }),
       single(
         `ot_${k}`,
-        `Did ${P.name} receive overtime pay in 2025 that the federal overtime law (FLSA) required?`,
+        `Did ${P.name} receive overtime pay in 2025 that the federal Fair Labor Standards Act (FLSA) required (employers may show it in box 14 of the W-2)?`,
         [
           o("premium", "Yes - I know the overtime premium (the 'half' of time-and-a-half)"),
           o("total", "Yes - I know the total pay for the overtime hours (premium plus regular wages)"),
@@ -1503,7 +1521,7 @@ function rcPersonNodes(): QNode[] {
           sources: ["1040GI"],
         }
       ),
-      dollars(`otamt_${k}`, `${P.name}'s overtime amount in 2025, all employers together (whole dollars; the total pay if you chose that answer)`, { showWhen: inn(`ot_${k}`, "premium", "total") }),
+      dollars(`otamt_${k}`, `How much was ${P.name}'s overtime amount in 2025 from all employers together, in whole dollars (the total pay for the overtime hours if you chose that answer)?`, { showWhen: inn(`ot_${k}`, "premium", "total") }),
       single(`ssn_${k}`, `Does ${P.name} have a Social Security number that is valid for employment, issued before the due date of the 2025 return?`, YES_NO, {
         help: "The IRS requires a valid Social Security number for the person who received the qualified tips or overtime, or who claims the enhanced deduction for seniors; this app never stores a Social Security number.",
         sources: ["1040GI"],
@@ -1512,17 +1530,17 @@ function rcPersonNodes(): QNode[] {
     );
   }
   out.push(
-    single("car", "Did either of you buy a new vehicle in 2025 with a loan that started after December 31, 2024?", SOME_NONE, {
+    single("car", "Did Eric or Eva buy a new vehicle in 2025 with a loan that started after December 31, 2024?", SOME_NONE, {
       help: "The IRS car-loan interest deduction (Schedule 1-A Part IV) is for interest on a loan originated after December 31, 2024 to buy an applicable passenger vehicle.",
       sources: ["1040GI"],
     }),
-    single("carq", "Does the vehicle and loan meet every one of these: the vehicle's original use starts with you (not a used vehicle), final assembly in the United States, personal use (more than 50%), the loan is secured by a first lien on the vehicle, and you are the borrower?", YES_NO, {
+    single("carq", "Does the vehicle and loan meet ALL of these: the vehicle's original use starts with you (it was bought new, not used), final assembly was in the United States, it is used for personal use (more than 50%), the loan is secured by a first lien on the vehicle (the lender has first claim on it), and you are the borrower?", YES_NO, {
       help: "The IRS lists these conditions (and that the vehicle is a car, minivan, van, SUV, pickup truck or motorcycle under 14,000 pounds gross weight rating). Lease payments do not qualify. The vehicle identification number is required on the return; the app does not store it.",
       sources: ["1040GI"],
       showWhen: inn("car", "some"),
     }),
-    dollars("carint", "Interest paid or accrued on the car loan(s) in 2025 (whole dollars)", { showWhen: inn("car", "some") }),
-    dollars("carelse", "Of that interest, how much was deducted somewhere else on the return, such as Schedule C for business use? (whole dollars; 0 if none)", {
+    dollars("carint", "How much interest was paid or accrued (charged, even if not yet paid) on the car loan(s) in 2025, in whole dollars?", { showWhen: inn("car", "some") }),
+    dollars("carelse", "Of that interest, how much was deducted somewhere else on the return, such as on Schedule C (business profit or loss) for business use, in whole dollars (enter 0 if none)?", {
       help: "The IRS says the same interest cannot be deducted twice: interest deducted on Schedule C, E or F is not also deducted on Schedule 1-A.",
       sources: ["1040GI"],
       showWhen: inn("car", "some"),
@@ -1533,7 +1551,7 @@ function rcPersonNodes(): QNode[] {
     inn("car", "some")
   );
   out.push(
-    single("pr", "Did either of you exclude income earned in Puerto Rico, or file Form 2555 or Form 4563, for 2025?", YES_NO, {
+    single("pr", "For 2025, did Eric or Eva leave out (exclude) income earned in Puerto Rico, or file Form 2555 (foreign earned income) or Form 4563 (income from American Samoa)?", YES_NO, {
       help: "The IRS adds excluded Puerto Rico income and the Form 2555 / Form 4563 amounts to the income figure used for the Schedule 1-A phase-outs.",
       sources: ["1040GI"],
       showWhen: SCH1A_CANDIDATE,
@@ -1545,21 +1563,21 @@ function rcPersonNodes(): QNode[] {
     { id: "ce", who: "Connecticut", name: "Connecticut" },
   ] as const) {
     out.push(
-      single(`${J.id}`, `Did you make ${J.who} estimated income tax payments for 2025? (Not withholding from pay, a payment sent with an extension request, or a 2024 overpayment applied to 2025: those are asked separately.)`, SOME_NONE)
+      single(`${J.id}`, `Did you make ${J.who} estimated income tax payments for 2025 (payments you sent in yourselves during the year, not tax withheld from pay, a payment with an extension request, or a 2024 overpayment applied to 2025 - those are asked separately)?`, SOME_NONE)
     );
     for (const W of RC_PAYMENT_WINDOWS) {
-      out.push(dollars(`${J.id}${W.n}`, `${J.name} estimated tax ${W.label} (whole dollars; 0 if none)`, { showWhen: inn(J.id, "some") }));
+      out.push(dollars(`${J.id}${W.n}`, `In total, how much ${J.who} estimated tax was ${W.label}, in whole dollars (enter 0 if none)?`, { showWhen: inn(J.id, "some") }));
     }
   }
   for (const E of [
-    { id: "fext", prompt: "Did you send a payment with a federal extension request (Form 4868) for 2025?", amt: "Amount paid with the federal extension request (whole dollars)", sources: ["1040GI"] },
-    { id: "cext", prompt: "Did you send a payment with a Connecticut extension request (Form CT-1040 EXT) for 2025?", amt: "Amount paid with the Connecticut extension request (whole dollars)", sources: [] },
-    { id: "fov", prompt: "Did you apply an overpayment from your 2024 federal return to your 2025 estimated tax?", amt: "Overpayment from 2024 applied to 2025 federal estimated tax (whole dollars)", sources: ["2210F"] },
-    { id: "cov", prompt: "Did you apply an overpayment from your 2024 Connecticut return to your 2025 estimated tax?", amt: "Overpayment from 2024 applied to 2025 Connecticut estimated tax (whole dollars)", sources: [] },
+    { id: "fext", prompt: "Did you send a payment to the IRS with a request for more time to file (a federal extension, Form 4868) for 2025?", amt: "How much did you pay with the federal extension request, in whole dollars?", sources: ["1040GI"] },
+    { id: "cext", prompt: "Did you send a payment to Connecticut with a request for more time to file (a Connecticut extension, Form CT-1040 EXT) for 2025?", amt: "How much did you pay with the Connecticut extension request, in whole dollars?", sources: [] },
+    { id: "fov", prompt: "On your 2024 federal return, did you choose to apply an overpayment (instead of getting it refunded) to your 2025 estimated tax?", amt: "How much of your 2024 federal overpayment was applied to your 2025 federal estimated tax, in whole dollars?", sources: ["2210F"] },
+    { id: "cov", prompt: "On your 2024 Connecticut return, did you choose to apply an overpayment (instead of getting it refunded) to your 2025 estimated tax?", amt: "How much of your 2024 Connecticut overpayment was applied to your 2025 Connecticut estimated tax, in whole dollars?", sources: [] },
     {
       id: "cpy",
       prompt: "During 2025, did you pay Connecticut income tax for tax year 2024 - a balance due on the 2024 return, or the January 2025 estimated installment for 2024?",
-      amt: "Connecticut income tax paid in 2025 for tax year 2024 (whole dollars)",
+      amt: "How much Connecticut income tax did you pay in 2025 for tax year 2024, in whole dollars?",
       sources: [],
     },
   ] as const) {
@@ -1568,24 +1586,24 @@ function rcPersonNodes(): QNode[] {
   }
   // F. Use tax
   out.push(
-    single("ut", "In 2025, did you buy anything from an out-of-state seller (online, catalog or out-of-state store) without paying Connecticut sales tax, for use in Connecticut?", SOME_NONE, {
+    single("ut", "In 2025, did you buy anything from an out-of-state seller (online, catalog or out-of-state store) without paying Connecticut sales tax, for use in Connecticut (the Connecticut tax owed on these purchases is called use tax)?", SOME_NONE, {
       help: "Connecticut says use tax is due on goods or taxable services bought out of state for use in Connecticut when no Connecticut sales tax was paid, and that CT-1040 line 15 must show 0 if none is due.",
       sources: ["CT1040I"],
     }),
-    dollars("utbuy", "Total purchase price of those items on which you paid sales or use tax to another state (whole dollars; 0 if none)", {
+    dollars("utbuy", "What was the total purchase price of those items on which you paid sales or use tax to another state, in whole dollars (enter 0 if none)?", {
       help: "Connecticut says the CT-1040 use tax worksheet applies the general rate of 6.35% to the purchase price and subtracts tax already paid on the purchase.",
       sources: ["CT1040I"],
       showWhen: inn("ut", "some"),
     }),
-    dollars("utbuy2", "Total purchase price of those items on which NO sales or use tax was paid anywhere (whole dollars; 0 if none)", {
+    dollars("utbuy2", "What was the total purchase price of those items on which NO sales or use tax was paid anywhere, in whole dollars (enter 0 if none)?", {
       showWhen: inn("ut", "some"),
     }),
-    single("utother", "Were any of them luxury items (most expensive vehicles, jewelry, clothing, footwear, handbags, luggage, umbrellas, wallets or watches above the prices in the CT-1040 instructions), computer or data processing services, or a vessel?", YES_NO, {
+    single("utother", "Were any of those purchases luxury items (most expensive vehicles, jewelry, clothing, footwear, handbags, luggage, umbrellas, wallets or watches above the prices in the Connecticut CT-1040 instructions), computer or data processing services, or a vessel (boat)?", YES_NO, {
       help: "Connecticut says these have a different use tax rate (7.75%, 1% and 2.99%); the app does not compute them.",
       sources: ["CT1040I"],
       showWhen: inn("ut", "some"),
     }),
-    dollars("uttax", "Sales or use tax paid to another state on the items in the first amount above (whole dollars; 0 if none)", {
+    dollars("uttax", "How much sales or use tax did you pay to another state on the items in the first amount above, in whole dollars (enter 0 if none)?", {
       help: "Connecticut says the CT-1040 use tax worksheet subtracts tax already paid on the purchase (column 6).",
       sources: ["CT1040I"],
       showWhen: inn("ut", "some"),
@@ -1593,22 +1611,22 @@ function rcPersonNodes(): QNode[] {
   );
   // G. The 2024 return
   out.push(
-    single("pyjoint", "Was your 2024 federal return a joint return?", YES_NO, {
+    single("pyjoint", "Was your 2024 federal return a joint return (one return filed for both spouses together)?", YES_NO, {
       help: "The IRS says the prior-year tax used for the estimated tax penalty safe harbor is the sum of both spouses' 2024 tax if you file jointly for 2025 but did not file jointly for 2024.",
       sources: ["2210"],
     }),
-    single("pyextra", "Did your 2024 federal return show any refundable credit (earned income, additional child tax, American opportunity, premium tax credit, fuel credit) or a Schedule 2 tax for unreported tips (lines 5 to 7 or 13)?", YES_NO, {
+    single("pyextra", "Did your 2024 federal return show either of these: a refundable credit (earned income, additional child tax, American opportunity, premium tax credit or fuel credit), or a Schedule 2 tax for unreported tips (lines 5 to 7 or 13)?", YES_NO, {
       help: "The IRS says the 2024 tax used for the estimated tax penalty safe harbor includes Additional Medicare Tax and net investment income tax, leaves out some Schedule 2 lines (for example 5 to 7 and 13), and is reduced by refundable credits.",
       sources: ["2210"],
     })
   );
   // H. Header attestations
   out.push(
-    single("digital", "At any time in 2025, did you receive digital assets (as a reward, award or payment for property or services) or sell, exchange or otherwise dispose of a digital asset or any financial interest in one?", YES_NO, {
+    single("digital", "At any time in 2025, did either of you receive digital assets such as cryptocurrency (as a reward, award or payment for property or services) or sell, exchange or otherwise dispose of a digital asset or any financial interest in one?", YES_NO, {
       help: "The IRS says to check Yes on the Form 1040 digital assets question for these, but holding a digital asset, moving it between your own wallets, or buying it with regular currency alone does not require Yes.",
       sources: ["1040GI"],
     }),
-    single("foreign", "In 2025, did either of you have a foreign financial account, or receive a distribution from or create (or transfer to) a foreign trust?", YES_NO, {
+    single("foreign", "In 2025, did either of you have a financial account outside the United States, or receive a distribution from or create (or transfer to) a foreign trust?", YES_NO, {
       help: "The IRS says Schedule B Part III must be completed if you had a foreign account or received a distribution from, or were a grantor of or transferor to, a foreign trust.",
       sources: ["1040GI"],
     })
@@ -1616,8 +1634,8 @@ function rcPersonNodes(): QNode[] {
   // I. "none" statements for the rare lines
   for (const id of NONE_GROUP_IDS) {
     out.push(
-      single(`g_${id}`, `Did either of you have any of these in 2025: ${RC_GROUP_PROMPTS[id]}? (Answer No only if none of it applies; the app does not compute these items, so a Yes hands the line to the CPA.)`, [o("some", "Yes - at least one"), o("none", "No - none of these"), UNSURE]),
-      dollars(`ga_${id}`, `About how much in total for the item above (${id.replace(/_/g, " ")})? Whole dollars; an estimate is fine and only the CPA sees it.`, {
+      single(`g_${id}`, `In 2025, did Eric or Eva have any of these: ${RC_GROUP_PROMPTS[id]}? (Answer No only if none of them applies. The app does not calculate these items, so a Yes passes them to the CPA.)`, [o("some", "Yes - at least one"), o("none", "No - none of these"), UNSURE]),
+      dollars(`ga_${id}`, `In 2025, about how much was the total for ${RC_GROUP_LABELS[id]}, in whole dollars (an estimate is fine and only the CPA sees it)?`, {
         showWhen: inn(`g_${id}`, "some"),
       })
     );
@@ -1634,7 +1652,7 @@ const FORM_RETURN_COMPLETENESS: QuestionnaireDef = {
   formLabel: "Form 1040 and Connecticut CT-1040",
   scope: "household",
   intro:
-    "One short flow for {year}: say 'none' or 'some' for each item the return still needs, and give amounts only after 'some'. The app computes the Schedule 1-A deductions, HSA and IRA deductions, saver's credit, payments and a Form 2210 estimate from these answers, and marks anything it cannot compute for the CPA.",
+    "One short flow for {year}: answer Yes or No for each item the return still needs, and give amounts only after a Yes. The app computes the Schedule 1-A deductions (tips, overtime, car-loan interest and the senior deduction), the Health Savings Account (HSA) and Individual Retirement Account (IRA) deductions, the saver's credit, payments and a Form 2210 estimate from these answers, and marks anything it cannot compute for the CPA.",
   sourcesTaxYear: SOURCES_TAX_YEAR,
   planningLinks: [
     { key: "retirement_contributions", label: "Retirement contributions (Planning answer)" },
