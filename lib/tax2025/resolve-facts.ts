@@ -1114,6 +1114,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       noInterestConfirmed: answered(answers.noInterestConfirmed, "No interest income", "no_interest"),
       dividends,
       noDividendsConfirmed: answered(answers.noDividendsConfirmed, "No dividend income", "no_dividends"),
+      dividendBoxes2b2dConfirmedZero: answers.dividendBoxes2b2dConfirmedZero === true,
       otherIncomeBoxes,
       brokerSales,
       scheduleC: {

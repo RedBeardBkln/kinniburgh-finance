@@ -450,6 +450,8 @@ export const ty2025FactsSchema = z.object({
     noInterestConfirmed: sourcedSchema(z.boolean()),
     dividends: z.array(dividendFactSchema),
     noDividendsConfirmed: sourcedSchema(z.boolean()),
+    /** The owner confirmed 1099-DIV boxes 2b, 2c and 2d are all zero (1040 line 7a Exception 1 needs it for the "Schedule D not required" box). Absent / false = not confirmed. */
+    dividendBoxes2b2dConfirmedZero: z.boolean().optional(),
     otherIncomeBoxes: z.array(otherIncomeBoxSchema),
     /** Sales summaries (Form 1099-B / 1099-DA category totals) per 1099 document. Empty = no 1099 mentions sales. */
     brokerSales: z.array(brokerSaleFactSchema),

@@ -99,6 +99,8 @@ export interface ScheduleDInput {
    */
   unreadIsLegacy?: boolean;
   section1256: { present: boolean; aggregate: Decimal | null; refs: Ref[] };
+  /** Every 1099-DIV box 2b / 2c / 2d is confirmed zero, or there is no 1099-DIV (1040 line 7a Exception 1 needs it for the 7b box). */
+  dividendBoxes2b2dZero: boolean;
   /** A Form 1099-DA (digital assets) is present, whether or not rows were read from it. */
   digitalAssetsPresent: boolean;
   /** 1099-DIV box 2a total, dollars; null = not known (no 1099-DIV and none confirmed, or a legacy document). */
@@ -338,8 +340,9 @@ export function computeScheduleD(input: ScheduleDInput): ScheduleDOutput {
 
   // A category row with every figure zero is ignored (it must not route anything to Form 8949); a row whose form or box was not read
   // cannot be routed and is set aside (it blocks Schedule D below).
+  // (only when all five figures are KNOWN zeros: an unread cost / wash sale / discount is unknown, never zero)
   const isZeroRow = (r: BrokerRowInput): boolean =>
-    r.proceeds !== null && r.proceeds.isZero() && [r.cost, r.accruedMarketDiscount, r.washSale, r.brokerGain].every((v) => v === null || v.isZero());
+    [r.proceeds, r.cost, r.accruedMarketDiscount, r.washSale, r.brokerGain].every((v) => v !== null && v.isZero());
   const keptRows = input.rows.filter((r) => !isZeroRow(r));
   const incompleteRows = keptRows.filter((r) => r.form === null || r.box === null);
   const rows: RoutableRow[] = keptRows.filter((r): r is RoutableRow => r.form !== null && r.box !== null);
@@ -365,7 +368,8 @@ export function computeScheduleD(input: ScheduleDInput): ScheduleDOutput {
 
   const emptyDetail: ScheduleDDetail = {
     required,
-    exception1: required === false,
+    exception1: required === false && input.dividendBoxes2b2dZero,
+    boxes2b2dUnconfirmed: required === false && !input.dividendBoxes2b2dZero,
     form8949Required: false,
     categories: [],
     line17: null,
@@ -378,7 +382,7 @@ export function computeScheduleD(input: ScheduleDInput): ScheduleDOutput {
   // ── Exception 1: no Schedule D ─────────────────────────────────────────────
   if (required === false) {
     const why =
-      "Schedule D is not required (Form 1040 line 7a, Exception 1): no capital transactions are on file, no capital loss carryover is stated and no other capital item is indicated, so the only capital gains are capital gain distributions (Form 1099-DIV box 2a), which go straight on line 7a, and the line 7b \"Schedule D not required\" box applies. A 2024 capital loss carryover would change this: it is not asked of the owner unless stated.";
+      "Schedule D is not required (Form 1040 line 7a, Exception 1): no capital transactions are on file, no capital loss carryover is stated and no other capital item is indicated, so the only capital gains are capital gain distributions (Form 1099-DIV box 2a), which go straight on line 7a, and the line 7b \"Schedule D not required\" box applies. The owner is asked about a 2024 capital loss carryover (Return completeness question cgco); an unanswered question does not block a household with no sales, so the CPA should glance at the 2024 Schedule D line 21 for such a household. The line 7b box needs every 1099-DIV box 2b, 2c and 2d to be zero (see the open item on those boxes).";
     const na = (key: LineKey): void => emit(key, known(ZERO, [], true), why);
     for (const l of [...PART_I_LINES, ...PART_II_LINES]) {
       na(cellKey(l, "d"));
@@ -472,7 +476,7 @@ export function computeScheduleD(input: ScheduleDInput): ScheduleDOutput {
     emit("qdcg.3", blockedAmt(gate.status, gate.reason));
     return {
       result: { ruleId: "schedule-d", form: "Schedule D", status: aggregateStatus(lines), lines, reasons: [gate.reason], citations: CITATIONS, inputsUsed: [], inputsMissing: [] },
-      detail: { ...emptyDetail, required: "blocking", exception1: false, form8949Required: "blocking" },
+      detail: { ...emptyDetail, required: "blocking", exception1: false, boxes2b2dUnconfirmed: false, form8949Required: "blocking" },
       openItems: [],
       assumptions,
       taxBlock: null,
@@ -839,6 +843,15 @@ export function computeScheduleD(input: ScheduleDInput): ScheduleDOutput {
     });
   }
   if (required === true && r16 !== null) {
+    items.push({
+      id: "schd-rounding",
+      severity: "advisory",
+      message:
+        "A printed Schedule D line can differ by $1 from the sum of the printed cells above it (for example a Form 8949 summary row where column (d) minus (e) plus (g) is one dollar off column (h)). Every (h) cell and lines 7, 15 and 16 are figured from the cents and rounded once, as the Schedule D instructions say (\"include cents when adding the amounts and round off only the total\").",
+      action: "No action: the CPA can see the cent-accurate amounts on each line's reason.",
+      lineKeys: ["schd.7", "schd.15", "schd.16"],
+      refs: [],
+    });
     items.push({
       id: "schd-ct-capital-gains",
       severity: "advisory",

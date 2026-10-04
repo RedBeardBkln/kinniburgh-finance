@@ -192,6 +192,7 @@ export function scheduleDInput(facts: Ty2025Facts, inv: InvestmentAggregates, fi
       aggregate: aggregate1256,
       refs: sales.filter((d) => d.sec1256AggregateCents !== null).flatMap((d) => d.refs),
     },
+    dividendBoxes2b2dZero: facts.income.dividends.length === 0 || facts.income.dividendBoxes2b2dConfirmedZero === true,
     digitalAssetsPresent: sales.some((d) => d.forms1099DaPresent) || rows.some((r) => r.form === "1099-DA"),
     capGainDistributions: inv.capitalGainDistributions,
     capGainDistributionRefs: dividendRefs,
