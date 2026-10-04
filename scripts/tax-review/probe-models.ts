@@ -10,6 +10,11 @@
  */
 import { readFileSync } from "node:fs";
 import Anthropic from "@anthropic-ai/sdk";
+import type { z } from "zod";
+import { createAnthropicTransport } from "@/lib/tax-review-anthropic";
+import { runStructured } from "@/lib/tax-review/llm/client";
+import { adversarialOutputSchema, findingsOutputSchema, registerOutputSchema } from "@/lib/tax-review/llm/schemas";
+import { jsonSchemaFor, TASKS } from "@/lib/tax-review/llm/tasks";
 
 const DEFAULT_CANDIDATES = ["claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-mythos-5-1", "claude-sonnet-5-5", "claude-opus-4-8"];
 
@@ -80,6 +85,42 @@ async function main(): Promise<void> {
   }
 }
 
+/**
+ * --smoke <model>: one tiny call through the REAL production transport and wrapper (streaming, output_config.format with the real findings
+ * schema, effort "high") with a prompt that contains no tax data. Proves the wrapper, the transport and the schema work together.
+ */
+async function smoke(model: string, apiKey: string): Promise<void> {
+  // one task of each output shape: findings (a1), adversarial (f1: findings + challenges), register narration (e2)
+  for (const id of ["a1", "f1", "e2"] as const) {
+    const task = TASKS.find((t) => t.id === id);
+    if (task === undefined) throw new Error("no task");
+    const schema: z.ZodType<unknown> = task.kind === "register" ? registerOutputSchema : task.kind === "adversarial" ? adversarialOutputSchema : findingsOutputSchema;
+    const empty = task.kind === "register" ? "an empty entries list" : task.kind === "adversarial" ? "an empty findings list and an empty challenges list" : "an empty findings list";
+    const r = await runStructured({
+      transport: createAnthropicTransport(apiKey),
+      request: { model, system: "You return JSON only.", user: `This is a connectivity test and there is no data. Return ${empty}.`, maxTokens: 300, jsonSchema: jsonSchemaFor(task), effort: "high" },
+      schema,
+      maxAttempts: 2,
+      timeoutMs: 120_000,
+    });
+    if (r.ok) console.log(`${model} ${id}: smoke OK (streaming + structured output + effort high), in ${r.usage.inputTokens}, out ${r.usage.outputTokens}, stop ${String(r.stopReason)}`);
+    else console.log(`${model} ${id}: smoke FAILED kind=${r.kind} detail=${r.detail} attempts=${r.attempts}`);
+  }
+}
+
+if (process.argv.includes("--smoke")) {
+  const model = argValue("--smoke") ?? "claude-opus-5-5";
+  const envPath = argValue("--env");
+  const key = process.env.ANTHROPIC_API_KEY ?? (envPath !== undefined ? loadKeyFromEnvFile(envPath) : undefined);
+  if (key === undefined || key === "") {
+    console.error("No ANTHROPIC_API_KEY.");
+    process.exit(1);
+  }
+  smoke(model, key).catch((err: unknown) => {
+    console.error("smoke failed:", describeError(err));
+    process.exit(1);
+  });
+} else
 main().catch((err: unknown) => {
   console.error("probe failed:", describeError(err));
   process.exit(1);

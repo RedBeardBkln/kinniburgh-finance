@@ -71,6 +71,16 @@ export function FindingDetail({
         <p className="text-xs">{finding.recommendedAction}</p>
       </div>
 
+      {finding.challenge !== undefined && finding.challenge !== null ? (
+        <div className="rounded-md border border-slate-300 bg-slate-50 p-2 text-xs" data-testid="finding-challenge">
+          <p className="font-medium">A second AI pass questions this finding</p>
+          <p className="mt-0.5">{finding.challenge}</p>
+          <p className="mt-0.5 text-muted-foreground">This note is only a note: it does not close, accept or change the finding. You decide.</p>
+        </div>
+      ) : null}
+
+      {finding.layer === "L3" ? <p className="text-xs text-muted-foreground">Raised by the AI review. It can be wrong; check it against your documents and the source before you act or accept.</p> : null}
+
       {finding.status === "accepted" ? (
         <div className="rounded-md border border-green-300 bg-green-50 p-2 text-xs text-green-950" data-testid="finding-accepted">
           <p className="font-medium">

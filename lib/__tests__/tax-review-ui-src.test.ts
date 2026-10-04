@@ -11,8 +11,8 @@ const read = (p: string): string => readFileSync(resolve(ROOT, p), "utf8").repla
 const code = (p: string): string => read(p).replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
 
 const DIR = "components/tax/review";
-const CLIENT = ["run-controls.tsx", "findings-table.tsx", "finding-detail.tsx", "disposition-dialog.tsx", "approval-card.tsx", "run-history.tsx"].map((f) => `${DIR}/${f}`);
-const SERVER = ["review-status.tsx", "honesty-panel.tsx", "by-hand-checklist.tsx"].map((f) => `${DIR}/${f}`);
+const CLIENT = ["run-controls.tsx", "ai-review-panel.tsx", "findings-table.tsx", "finding-detail.tsx", "disposition-dialog.tsx", "approval-card.tsx", "run-history.tsx"].map((f) => `${DIR}/${f}`);
+const SERVER = ["review-status.tsx", "honesty-panel.tsx", "by-hand-checklist.tsx", "register-table.tsx", "info-cards.tsx"].map((f) => `${DIR}/${f}`);
 const PAGE = "app/tax/forms/[year]/final-review/page.tsx";
 
 describe("component inventory", () => {
@@ -121,7 +121,7 @@ describe("the page", () => {
     expect(src.indexOf("await auth()")).toBeGreaterThan(-1);
     expect(src.indexOf("await auth()")).toBeLessThan(src.indexOf("loadReviewState("));
     expect(src).toContain('redirect("/login")');
-    expect(src).toContain("export const maxDuration = 60");
+    expect(src).toContain("export const maxDuration = 300");
   });
   it("only 2025 is reviewed", () => {
     expect(src).toContain("year === 2025");
