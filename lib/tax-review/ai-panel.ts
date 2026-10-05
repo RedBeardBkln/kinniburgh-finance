@@ -68,6 +68,20 @@ export function nextLoopAction(step: string): "continue" | "wait" | "stop" {
   }
 }
 
+const TERMINAL: readonly AiReviewDto["status"][] = ["completed", "failed", "cancelled", "stale"];
+
+/**
+ * The progress to show when the page has a server-rendered copy (`server`, refreshed with the page) and this tab has its own, newer one
+ * (`local`, from the last action result): whichever is further along. The server copy wins when the page was refreshed after the action.
+ */
+export function newerProgress(server: AiReviewDto, local: AiReviewDto | null): AiReviewDto {
+  if (local === null) return server;
+  if (local.completedCount !== server.completedCount) return local.completedCount > server.completedCount ? local : server;
+  if (server.status === "not_run" && local.status !== "not_run") return local;
+  if (local.status !== server.status && TERMINAL.includes(local.status) && !TERMINAL.includes(server.status)) return local;
+  return local.inputTokens + local.outputTokens > server.inputTokens + server.outputTokens ? local : server;
+}
+
 /** The run is worth resuming from this tab: started, not finished, not stopped. */
 export function canResume(ai: AiReviewDto): boolean {
   return ai.status === "running";

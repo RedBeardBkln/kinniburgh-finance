@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { cancelAiReview, estimateAiReview, runNextAiTask, startAiReview } from "@/actions/tax-review";
 import { BUTTON_PLAIN, BUTTON_PRIMARY } from "@/components/tax/forms/override-parts";
-import { canResume, checkStart, costLine, ERROR_KIND_LABEL, nextLoopAction, priceBasisText, progressLabel, SEND_NOTICE, TASK_STATE_LABEL } from "@/lib/tax-review/ai-panel";
+import { canResume, checkStart, costLine, ERROR_KIND_LABEL, newerProgress, nextLoopAction, priceBasisText, progressLabel, SEND_NOTICE, TASK_STATE_LABEL } from "@/lib/tax-review/ai-panel";
 import { formatUsd } from "@/lib/tax-review/llm/model";
 import type { AiEstimateDto, AiReviewDto } from "@/lib/tax-review/state";
 
@@ -21,7 +21,9 @@ export function AiReviewPanel({ year, hasCurrentRun, runId, ai, whyNot }: { year
   const router = useRouter();
   const [, startTransition] = useTransition();
   const resultId = useId();
-  const [progress, setProgress] = useState<AiReviewDto>(ai);
+  // the page's server-rendered copy (refreshed with the page) or this tab's newer one from the last action result, whichever is further along
+  const [local, setProgress] = useState<AiReviewDto | null>(null);
+  const progress = newerProgress(ai, local);
   const [estimate, setEstimate] = useState<AiEstimateDto | null>(null);
   const [understood, setUnderstood] = useState(false);
   const [acceptHighCost, setAcceptHighCost] = useState(false);
@@ -32,8 +34,6 @@ export function AiReviewPanel({ year, hasCurrentRun, runId, ai, whyNot }: { year
   const [knownRunId, setKnownRunId] = useState<string | null>(null);
   const activeRunId = knownRunId ?? estimate?.runId ?? runId;
 
-  // keep the server-rendered state when the page is refreshed
-  useEffect(() => setProgress(ai), [ai]);
   // leaving the page stops the loop (the review can be resumed later)
   useEffect(
     () => () => {

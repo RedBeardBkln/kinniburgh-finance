@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { canResume, checkStart, costLine, ERROR_KIND_LABEL, nextLoopAction, priceBasisText, progressLabel, SEND_NOTICE, TASK_STATE_LABEL } from "@/lib/tax-review/ai-panel";
+import { canResume, checkStart, costLine, ERROR_KIND_LABEL, newerProgress, nextLoopAction, priceBasisText, progressLabel, SEND_NOTICE, TASK_STATE_LABEL } from "@/lib/tax-review/ai-panel";
 import { toAiDto, type AiEstimateDto } from "@/lib/tax-review/state";
 import { emptyProgress, foldProgress, type RunEvent } from "@/lib/tax-review/llm/progress";
 import { findFinalPackageBannedWording, findOwnerBannedWording } from "@/lib/tax-wording";
@@ -64,6 +64,22 @@ describe("progress text", () => {
     expect(nextLoopAction("task_failed")).toBe("continue");
     expect(nextLoopAction("busy")).toBe("wait");
     for (const s of ["done", "stale", "cancelled", "failed", "not_started", "something else"]) expect(nextLoopAction(s)).toBe("stop");
+  });
+  it("shows whichever copy is further along: this tab's last action result or the refreshed page", () => {
+    const dto = (events: RunEvent[], now = 100) => toAiDto(foldProgress(events, now));
+    const done = (t: string, at: number) => [ev(`start:${t}:1`, "task_started", t, {}, at), ev(`done:${t}`, "task_completed", t, { findingCount: 0, usage: { inputTokens: 5, outputTokens: 1 } }, at + 1)];
+    const none = dto([]);
+    const justStarted = dto([started]);
+    const one = dto([started, ...done("a1", 5)]);
+    const two = dto([started, ...done("a1", 5), ...done("a2", 8)]);
+    expect(newerProgress(none, null)).toBe(none);
+    expect(newerProgress(none, justStarted)).toBe(justStarted);
+    expect(newerProgress(one, two)).toBe(two);
+    expect(newerProgress(two, one)).toBe(two);
+    const stale = dto([started, ...done("a1", 5), ev("stale", "stale", null, {}, 20)]);
+    expect(newerProgress(one, stale)).toBe(stale);
+    expect(newerProgress(stale, one)).toBe(stale);
+    expect(newerProgress(one, one)).toBe(one);
   });
   it("labels exist for every task state and every failure kind", () => {
     expect(Object.keys(TASK_STATE_LABEL).sort()).toEqual(["completed", "failed", "pending", "running"]);
