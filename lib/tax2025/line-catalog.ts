@@ -17,18 +17,22 @@
 // a line, the assembler marks it `not_yet_computed` (never 0) unless the owner or
 // CPA has stated "none" for the whole group (facts.statedNone), which makes the
 // lines `not_applicable` zeros carrying that statement as provenance.
+// Two catalog lines are in NO group: Schedule 1 line 24z and Schedule 3 line 6z. The 2025 instructions say "Leave line 24z blank" /
+// "Leave line 6z blank", so return.ts emits them as fixed not_applicable zeros whatever the owner says (specs/09, "Lines the IRS
+// says to leave blank").
 // The six `ct_*` groups are different: they gate CT-1040 Schedule 1 detail lines (`ct1040.s1.*`) that the
 // CT Schedule 1 rule (rules/ct-schedule1.ts) emits itself, so no catalog line names them as its `group`.
 
 export const NONE_GROUP_TEXT = {
   other_earned_income:
-    "No household employee wages, unreported tip income, Medicaid waiver payments, dependent care or adoption benefits, Form 8919 wages or other earned income (1040 lines 1b-1i).",
+    "No household employee wages, unreported tip income, Medicaid waiver payments, dependent care or adoption benefits, Form 8919 wages, excess retirement plan deferrals above the yearly limit, strike or lockout benefits or other earned income (1040 lines 1b-1i).",
   retirement_ss_income: "No IRA distributions, pensions or annuities, or Social Security benefits (1040 lines 4a-6b).",
   other_income:
-    "No Schedule 1 Part I income other than Schedule C business income: no state tax refunds, alimony, other gains, rental or partnership income, farm income, unemployment compensation, or any line 8 item.",
+    "No Schedule 1 Part I income other than Schedule C business income: no state tax refunds, alimony, other gains, rental or partnership income, farm income, unemployment compensation, Form 1099-K amounts that were included in error or were personal items sold at a loss, or any line 8 item.",
   other_adjustments:
     "No Schedule 1 Part II adjustments other than HSA, half of SE tax, SE retirement, SE health insurance and IRA: no educator expenses, penalty on early withdrawal, alimony paid, student loan interest or line 24 items.",
-  other_taxes: "No Schedule 2 additional taxes beyond AMT, self-employment tax, Additional Medicare Tax and net investment income tax.",
+  other_taxes:
+    "No Schedule 2 additional taxes beyond AMT, self-employment tax, Additional Medicare Tax and net investment income tax, and no other tax included on Form 1040 line 16 (recapture of an education credit, tax from a section 962 election, a foreign mutual fund (Form 8621) or a partnership audit (Form 8978)).",
   other_nonrefundable_credits:
     "No other nonrefundable credits: child and dependent care, education, Form 5695 line 32 energy improvements, general business, adoption and the other Schedule 3 line 6 credits.",
   solar_credit: "No 2025 residential clean energy credit (Form 5695 line 15).",
@@ -40,7 +44,7 @@ export const NONE_GROUP_TEXT = {
   savings_bond_exclusion: "No excludable interest on series EE or I savings bonds (Form 8815).",
   sch_c_other_lines: "No depletion and no energy efficient commercial buildings deduction on Schedule C.",
   se_other:
-    "No farm income, church employee income, unreported tips (Form 4137), Form 8919 wages, railroad (RRTA) compensation or optional SE methods.",
+    "No farm income, church employee income, unreported tips (Form 4137), Form 8919 wages, railroad (RRTA) compensation or optional SE methods, and no exemption from self-employment tax (an exemption the IRS granted on Form 4361 or Form 4029, a foreign social security certificate, community income of a business your spouse runs, or fees as a notary public).",
   qbi_carryforwards: "No prior-year qualified business loss or REIT / PTP loss carryforwards (Form 8995).",
   capital_gain_other:
     "No installment sale (Form 6252), casualty or theft loss (Form 4684), Section 1256 contract (Form 6781), like-kind exchange (Form 8824), Form 2439 undistributed capital gain, or capital gain or loss on a Schedule K-1 (partnership, S corporation, estate or trust): Schedule D lines 4, 5, 11 and 12.",
@@ -194,7 +198,7 @@ const SCH1 = [
   ["24i", "Attorney fees and court costs for an IRS whistleblower award", "other_adjustments"],
   ["24j", "Housing deduction from Form 2555", "other_adjustments"],
   ["24k", "Excess deductions of section 67(e) expenses from Schedule K-1 (Form 1041)", "other_adjustments"],
-  ["24z", "Other adjustments", "other_adjustments"],
+  ["24z", "Other adjustments"],
   ["25", "Total other adjustments (lines 24a through 24z)"],
   ["26", "Adjustments to income (to Form 1040 line 10)"],
 ] as const satisfies readonly Row[];
@@ -269,7 +273,7 @@ const SCH3 = [
   ["6k", "Credit to holders of tax credit bonds (Form 8912)", "other_nonrefundable_credits"],
   ["6l", "Amount on Form 8978, line 14", "other_nonrefundable_credits"],
   ["6m", "Credit for previously owned clean vehicles (Form 8936)", "other_nonrefundable_credits"],
-  ["6z", "Other nonrefundable credits", "other_nonrefundable_credits"],
+  ["6z", "Other nonrefundable credits"],
   ["7", "Total other nonrefundable credits (lines 6a through 6z)"],
   ["8", "Total nonrefundable credits (to Form 1040 line 20)"],
   ["9", "Net premium tax credit (Form 8962)", "other_refundable_credits"],

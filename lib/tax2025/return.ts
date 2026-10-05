@@ -98,7 +98,7 @@ import {
 } from "@/lib/tax2025/types";
 
 /** Bumped whenever a rule, the constants or the line catalog changes (stale-output detection for stored overrides / PDFs). */
-export const TY2025_ENGINE_VERSION = "ty2025-1b.6";
+export const TY2025_ENGINE_VERSION = "ty2025-1b.7";
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
 
@@ -120,6 +120,9 @@ const GATES: Readonly<Record<string, readonly Gate[]>> = {
   "qbi-8995": [{ groups: ["qbi_carryforwards"], lines: "all" }],
   "schedule-c": [{ groups: ["sch_c_other_lines"], lines: ["schc.28", "schc.29", "schc.31"] }],
   "payments-federal": [{ groups: ["other_refundable_credits"], lines: ["sch3.15", "f1040.31", "f1040.33"] }],
+  // Form 1040 line 16 also holds the tax on a section 962 election, the recapture of an education credit, a Form 8621 section 1291 fund
+  // and a Form 8978 amount (2025 Form 1040 instructions, "Line 16"): the same statement that clears Schedule 2 Part I covers them.
+  "tax-calc": [{ groups: ["other_taxes"], lines: ["f1040.16"] }],
 };
 
 const NO_AMOUNT_ZERO_REASON = "Assumed $0 in the provisional estimate.";
@@ -464,6 +467,10 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
       A.blocked(meta.key, "not_yet_computed", `Needs an owner/CPA statement: ${NONE_GROUP_TEXT[meta.group]}`, "none-group");
     }
   }
+
+  // Two lines the 2025 instructions say to leave blank ("Leave line 24z blank", "Leave line 6z blank"): zero whatever the owner states.
+  A.fixed("sch1.24z", ZERO, "not_applicable", "The 2025 instructions say to leave Schedule 1 line 24z blank.", "irs-leave-blank");
+  A.fixed("sch3.6z", ZERO, "not_applicable", "The 2025 instructions say to leave Schedule 3 line 6z blank.", "irs-leave-blank");
 
   // 1. Schedule C
   const noMileage = sc.mileageNoneConfirmed.value;

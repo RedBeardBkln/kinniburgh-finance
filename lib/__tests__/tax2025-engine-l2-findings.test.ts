@@ -1,4 +1,4 @@
-// Engine ty2025-1b.6: the findings of the independent L2 recalculation, each fixed with a citation (specs/09):
+// Engine ty2025-1b.7: the findings of the independent L2 recalculation, each fixed with a citation (specs/09):
 //   1. Form 8995 lines 16 / 17 (the qualified business loss carryforward), lines 3 / 4 / 7 / 8 as printed, Form 8995 filed for a loss year;
 //   2. Form 6251 lines 1a / 1b / 2a (the Schedule 1-A senior deduction add-back, a negative line 1b, Schedule A line 7), label of the
 //      tentative minimum tax (line 9);
@@ -37,12 +37,12 @@ function lossFacts(): Ty2025Facts {
 }
 
 describe("engine version", () => {
-  it("is ty2025-1b.6", () => {
-    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.6");
+  it("is ty2025-1b.7", () => {
+    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.7");
   });
 });
 
-describe("line catalog (engine ty2025-1b.6)", () => {
+describe("line catalog (engine ty2025-1b.7)", () => {
   it("Form 8995 lines 16 and 17 are computed lines (no longer a 'none' statement group); lines 3 and 7 still are", () => {
     expect(lineMeta("f8995.16").group).toBeUndefined();
     expect(lineMeta("f8995.17").group).toBeUndefined();

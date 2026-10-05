@@ -310,7 +310,11 @@ export function computeFederal(inp: OracleInputs): Ledger {
   stateOrEngine("sch1.17", adj.seHealthInsurance);
   stateOrEngine("sch1.20", adj.ira);
   for (const id of SCH1_OTHER_ADJ) rare(`sch1.${id}`);
-  for (const id of SCH1_LINE24) rare(`sch1.${id}`);
+  for (const id of SCH1_LINE24) {
+    // 24z: "Leave line 24z blank" (2025 Form 1040 instructions): zero by the instruction, not by the owner's statement
+    if (id === "24z") L.put("sch1.24z", 0, [], "IRS 2025 instructions: leave the line blank");
+    else rare(`sch1.${id}`);
+  }
   L.put("sch1.25", sumKeys(SCH1_LINE24.map((id) => `sch1.${id}`)), SCH1_LINE24.map((id) => `sch1.${id}`));
   const adjKeys = ["sch1.11", "sch1.12", "sch1.13", "sch1.14", "sch1.15", "sch1.16", "sch1.17", "sch1.18", "sch1.19a", "sch1.20", "sch1.21", "sch1.23", "sch1.25"];
   L.put("sch1.26", sumKeys(adjKeys), adjKeys);
@@ -826,7 +830,11 @@ export function computeFederal(inp: OracleInputs): Ledger {
   rare("sch3.3");
   rare("sch3.5a");
   rare("sch3.5b");
-  for (const id of SCH3_LINE6) rare(`sch3.${id}`);
+  for (const id of SCH3_LINE6) {
+    // 6z: "Leave line 6z blank" (2025 Form 1040 instructions): zero by the instruction, not by the owner's statement
+    if (id === "6z") L.put("sch3.6z", 0, [], "IRS 2025 instructions: leave the line blank");
+    else rare(`sch3.${id}`);
+  }
   L.put("sch3.7", sumKeys(SCH3_LINE6.map((id) => `sch3.${id}`)), SCH3_LINE6.map((id) => `sch3.${id}`));
   const s38 = ["sch3.1", "sch3.2", "sch3.3", "sch3.4", "sch3.5a", "sch3.5b", "sch3.7"];
   L.put("sch3.8", sumKeys(s38), s38);
