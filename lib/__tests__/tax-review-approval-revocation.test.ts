@@ -84,6 +84,14 @@ describe("approvalRevocationReasons", () => {
   });
 });
 
+describe("a read failure revokes (fail closed)", () => {
+  it("facts that say the approved run could not be read revoke the approval, whatever else they hold", () => {
+    const failed = facts({ readFailure: "the review run this approval was recorded against could not be read" });
+    expect(approvalRevocationReasons(A, failed).join(" ")).toMatch(/could not be read/);
+    expect(currentApproval([A], FP, failed)).toBeNull();
+  });
+});
+
 describe("currentApproval with revocation facts", () => {
   const W = { kind: "withdrawn" as const, fingerprint: FP, at: LATER };
   it("still needs the fingerprint and the latest word to be an approval", () => {

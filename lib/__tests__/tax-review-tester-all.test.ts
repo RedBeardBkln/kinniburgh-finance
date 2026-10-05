@@ -673,6 +673,29 @@ describe("approval revocation after the approval (reopened finding, new blocking
     expect((s.approval.revokedReasons ?? []).join(" ")).toMatch(/AI review was cancelled after the approval/);
   });
 
+  it("the runs of the approved fingerprint are read WITHOUT a window: 26+ newer runs of other return states do not hide a reopened finding", async () => {
+    const { blockers } = await approvedWithAcceptedBlockers();
+    const addOtherRuns = (n: number, from: number): void => {
+      for (let i = 0; i < n; i += 1) fake.tables.run.push({ id: `other-${from + i}`, taxYear: 2025, entityId: ENTITY, fingerprint: "d".repeat(62) + (from + i).toString(16).padStart(2, "0"), startedAt: new Date(Date.UTC(2027, 0, 1, 0, from + i)), engineVersion: "x", l1Summary: {}, l2Summary: {}, config: {} });
+    };
+    const first = blockers[0]!;
+    expect((await reopenFinding({ taxYear: 2025, findingKey: first.key, evidenceHash: first.evidenceHash })).ok).toBe(true);
+    addOtherRuns(60, 0); // the approved return state's run is now older than 60 runs of other states (the old 25-run window lost it)
+    expect(await lookup().currentApproval(FP)).toBe(false);
+    expect((await state()).approval.current).toBe(false);
+  });
+
+  it("an approval whose own run cannot be read fails closed: a revoking fact, never an empty set", async () => {
+    await approvedWithAcceptedBlockers();
+    fake.tables.run.length = 0; // runs are never deleted in production: this is the anomaly (or a read that lost the row)
+    expect(await lookup().currentApproval(FP)).toBe(false);
+    expect((await lookup().approvedAt?.(FP)) ?? null).toBeNull();
+    const s = await state();
+    expect(s.approval.inForce).toBe(true);
+    expect(s.approval.current).toBe(false);
+    expect((s.approval.revokedReasons ?? []).join(" ")).toMatch(/could not be read/);
+  });
+
   it("the lookup fails closed when the facts cannot be read (a rejection, not 'approved')", async () => {
     await approvedWithAcceptedBlockers();
     const broken = makeApprovalLookup({

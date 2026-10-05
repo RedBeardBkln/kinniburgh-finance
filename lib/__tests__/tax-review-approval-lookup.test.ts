@@ -67,8 +67,12 @@ function fakeStore(rows: ApprovalDbRow[], reads: { n: number }, fail = false): R
         throw new Error("the lookup never writes");
       },
     },
-    // no review run, finding or disposition exists in these cases: nothing can revoke the approval (revocation: tax-review-approval-revocation.test.ts)
-    taxReviewRun: { findMany: async () => [] },
+    // an approval is always recorded against a run of its own fingerprint: one run with no findings and no disposition exists, so nothing can revoke the
+    // approval (revocation: tax-review-approval-revocation.test.ts; an approval whose run cannot be read fails closed: tax-review-tester-all.test.ts)
+    taxReviewRun: {
+      findMany: async (args: { where: { fingerprint?: string } }) => [{ id: "run-1", fingerprint: args.where.fingerprint ?? "", startedAt: new Date(Date.UTC(2026, 9, 9, 11, 0)) }],
+      findFirst: async () => ({ id: "run-1", fingerprint: FP, startedAt: new Date(Date.UTC(2026, 9, 9, 11, 0)) }),
+    },
     taxReviewFinding: { findMany: async () => [] },
     taxReviewFindingDisposition: { findMany: async () => [] },
   } as unknown as ReviewStoreDb;
@@ -77,7 +81,7 @@ function fakeStore(rows: ApprovalDbRow[], reads: { n: number }, fail = false): R
 function harness(view: PdfReturnView, rows: ApprovalDbRow[], opts: { fail?: boolean } = {}) {
   const reads = { n: 0 };
   const audits: PacketExportAudit[] = [];
-  const lookup = makeApprovalLookup({ resolveEntityId: async () => ENTITY, store: fakeStore(rows, reads, opts.fail === true) });
+  const lookup = makeApprovalLookup({ resolveEntityId: async () => ENTITY, store: fakeStore(rows, reads, opts.fail === true), listEvents: async () => [] });
   const asked: string[] = [];
   const spied = {
     currentApproval: (fp: string) => {
@@ -119,7 +123,7 @@ describe("approval store -> clean-copy routes", () => {
     expect(h.asked).toEqual([FP]);
     expect(h.audits.map((a) => [a.kind, a.fingerprint])).toEqual([["final", FP]]);
     // the date comes from the stored approval row, through the same lookup
-    const lookup = makeApprovalLookup({ resolveEntityId: async () => ENTITY, store: fakeStore(rows, { n: 0 }) });
+    const lookup = makeApprovalLookup({ resolveEntityId: async () => ENTITY, store: fakeStore(rows, { n: 0 }), listEvents: async () => [] });
     expect(await lookup.approvedAt?.(FP)).toBe("2026-10-09T12:05:00.000Z");
     expect(await lookup.approvedAt?.(OTHER_FP)).toBeNull();
     // and the single form

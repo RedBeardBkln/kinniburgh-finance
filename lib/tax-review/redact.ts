@@ -56,7 +56,10 @@ const INVISIBLE = /[\p{Cf}­͏؜ᅟᅠ឴឵᠎ㅤﾠ]/gu;
 export function invisibleTolerant(phrase: string): string {
   const gap = `${INVISIBLE.source}*`;
   const words = phrase.trim().split(/\s+/).map((word) => [...word].map(escapeRegExp).join(gap));
-  return words.join(`(?:\\s|${INVISIBLE.source})+`);
+  // ONE character class for the word gap, never an alternation of whitespace and the invisible class: U+FEFF is in both, and a run of it followed by a
+  // mismatch would be tried 2^N ways (N = 16 took about 80 s). A single class is linear.
+  const wordGap = `[\\s${INVISIBLE.source.slice(1, -1)}]+`;
+  return words.join(wordGap);
 }
 
 /** Text as it is scanned: NFKC, invisible characters removed, every Unicode decimal numeral read as a numeral (ASCII ones keep their value). */

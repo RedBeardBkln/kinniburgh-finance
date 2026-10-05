@@ -311,6 +311,8 @@ export interface ApprovalRevocationFacts {
   dispositions: readonly DispositionRow[];
   /** When an AI review of a run bound to the approved fingerprint was cancelled (one entry per cancelled event). */
   aiCancelledAt: readonly (Date | string)[];
+  /** Set when the run behind the approval could not be read: the facts above are then not trustworthy and the approval does not count (fail closed). */
+  readFailure?: string;
 }
 
 /** No run, no disposition and no cancellation: for callers with nothing more to look at (tests, a return that has no run yet). */
@@ -328,6 +330,7 @@ export const NO_REVOCATION_FACTS: ApprovalRevocationFacts = { findings: [], disp
  */
 export function approvalRevocationReasons(approval: Pick<ApprovalRow, "at">, facts: ApprovalRevocationFacts): string[] {
   const reasons: string[] = [];
+  if (facts.readFailure !== undefined) reasons.push(facts.readFailure);
   const blocking = (f: Finding): boolean => isGatingFinding(f) || !f.acceptable;
   const open = facts.findings.filter((f) => findingStatus(f, facts.dispositions) === "open" && blocking(f));
   if (open.length > 0) reasons.push(`${open.length} finding${open.length === 1 ? "" : "s"} that ${open.length === 1 ? "blocks" : "block"} approval ${open.length === 1 ? "is" : "are"} open again (reopened or newly found since the approval)`);

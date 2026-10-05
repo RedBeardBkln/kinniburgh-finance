@@ -1,6 +1,6 @@
 import { dbAiRunStore } from "@/lib/tax-review-l3-store";
 import type { L3StoreDb } from "@/lib/tax-review-l3-store";
-import { getRunWithFindings, listApprovals, listDispositionDetails, listRuns, type ReviewStoreDb } from "@/lib/tax-review-store";
+import { getRunWithFindings, listApprovals, listDispositionDetails, listRunsForFingerprint, type ReviewStoreDb } from "@/lib/tax-review-store";
 import { currentApproval, NO_REVOCATION_FACTS, type ApprovalRevocationFacts, type ApprovalRow } from "@/lib/tax-review/gate";
 import type { RunEvent } from "@/lib/tax-review/llm/progress";
 
@@ -19,7 +19,8 @@ export interface RevocationFactsDeps {
 }
 
 export async function readRevocationFacts(taxYear: number, entityId: string, fingerprint: string, deps: RevocationFactsDeps = {}): Promise<ApprovalRevocationFacts> {
-  const runs = (await listRuns(taxYear, entityId, 25, deps.store)).filter((r) => r.fingerprint === fingerprint);
+  // every run of this fingerprint, however many runs of other states came after (no window)
+  const runs = await listRunsForFingerprint(taxYear, entityId, fingerprint, deps.store);
   const newest = runs[0]; // newest first
   const stored = newest === undefined ? null : await getRunWithFindings(newest.id, entityId, deps.store);
   const dispositions = await listDispositionDetails(taxYear, entityId, deps.store);
@@ -28,7 +29,10 @@ export async function readRevocationFacts(taxYear: number, entityId: string, fin
   for (const run of runs) {
     for (const e of await listEvents(run.id)) if (e.kind === "cancelled") aiCancelledAt.push(e.createdAt);
   }
-  return { findings: stored?.findings ?? [], dispositions, aiCancelledAt };
+  // An approval is only ever recorded against a run of its own fingerprint, and runs are never deleted: when none (or none whose findings can be
+  // read) is found for it, the facts cannot be trusted, and an empty set would let a reopened finding pass unseen. Fail closed with a revoking fact.
+  const readFailure = stored === null ? "the review run this approval was recorded against could not be read" : undefined;
+  return { findings: stored?.findings ?? [], dispositions, aiCancelledAt, ...(readFailure !== undefined ? { readFailure } : {}) };
 }
 
 /** The approval in force for exactly this fingerprint that nothing recorded since has revoked, or null. The clean-copy routes call this. */

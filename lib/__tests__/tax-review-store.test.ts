@@ -213,6 +213,7 @@ describe("approvals", () => {
   });
   it("an approval is current only for its own fingerprint and until it is withdrawn", async () => {
     const f = fakeDb();
+    await insertReviewRun({ ...runInput([]), fingerprint: FP }, f.store); // an approval is recorded against a run of its own fingerprint
     await insertApproval(approved(FP), f.store);
     expect((await findCurrent(2025, ENTITY, FP, { store: f.store, listEvents: async () => [] }))?.kind).toBe("approved");
     expect(await findCurrent(2025, ENTITY, FP2, { store: f.store, listEvents: async () => [] })).toBeNull();

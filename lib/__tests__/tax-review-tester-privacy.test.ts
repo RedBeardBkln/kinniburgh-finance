@@ -236,6 +236,37 @@ describe("tester: zero-width characters inside names and streets no longer hide 
   });
 });
 
+describe("final tester D2: long runs of invisible characters never make the scrubbers slow (linear, no 2^N backtracking)", () => {
+  // U+FEFF belongs to both \s-like and invisible sets in some engines' eyes: the word gap is ONE character class, so a run followed by a mismatch is linear
+  const RUNS = ["﻿", "​", "‍", "­", "⁠", "‎", " ﻿", "​﻿ ‍"];
+  const names = (z: string) => [`Eric${z}Kinniburgh${z}Consulti`, `Eva-Laura${z}Ramirez-Wisiackas${z}Xx`, `Kinniburgh${z}Eric${z}`];
+  const streets = (z: string) => [`56${z}Arbor${z}Rx`, `27${z}Old${z}Barry${z}Rx`, `56${z}Arbor${z}Rd,${z}Mystic,${z}CT${z}0635`];
+  const entities = (z: string) => [`Eric${z}Kinniburgh${z}Consulting,${z}LL`, `Sudden${z}Valley${z}Property${z}Management${z}LL`, `EK${z}Consulting${z}x`];
+  for (const run of RUNS) {
+    it(`40 repeats of ${JSON.stringify(run)} before and after every word: each scrub under 100 ms`, () => {
+      const z = run.repeat(40);
+      const t = Date.now();
+      for (const s of [...names(z), ...streets(z), ...entities(z)]) {
+        SCRUB(s);
+        scrubPeople(s, PEOPLE, labelHouseholdMembers(PEOPLE));
+      }
+      expect(Date.now() - t).toBeLessThan(100 * 3 * 9 * 2); // generous total: each of the 18 calls far under 100 ms; the old pattern needed minutes for N = 16
+    });
+  }
+  it("a single call with 40 U+FEFF around a street, a name and an entity is well under 100 ms", () => {
+    const z = "﻿".repeat(40);
+    for (const s of [`56${z}Arbor${z}Rx`, `Eric${z}Kinniburgh${z}Consulti`, `Eric${z}Kinniburgh${z}Consulting,${z}LL`]) {
+      const t = Date.now();
+      SCRUB(s);
+      expect(Date.now() - t, s.slice(0, 12)).toBeLessThan(100);
+    }
+  });
+  it("matching still works through the same characters (the fix did not weaken it)", () => {
+    const z = "﻿​";
+    expect(leaks(full(`56${z}Arbor${z}Rd and Eric${z}Kinniburgh${z}Consulting,${z}LLC`))).toEqual([]);
+  });
+});
+
 describe("tester: scrubber GAPS (asserted as they behave today)", () => {
   for (const [name, text, mustLeak] of SCRUB_GAPS) {
     it(`not scrubbed today: ${name}`, () => {

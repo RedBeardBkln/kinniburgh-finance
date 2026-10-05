@@ -111,7 +111,7 @@ export interface ReviewStoreTx {
 
 export interface ReviewStoreDb extends ReviewStoreTx {
   taxReviewRun: ReviewStoreTx["taxReviewRun"] & {
-    findMany(args: { where: { taxYear: number; entityId: string }; orderBy: { startedAt: "desc" }; take?: number }): Promise<RunRow[]>;
+    findMany(args: { where: { taxYear: number; entityId: string; fingerprint?: string }; orderBy: { startedAt: "desc" }; take?: number }): Promise<RunRow[]>;
     findFirst(args: { where: { id: string; entityId?: string } }): Promise<RunRow | null>;
   };
   taxReviewFinding: ReviewStoreTx["taxReviewFinding"] & {
@@ -272,6 +272,15 @@ export async function getRunWithFindings(runId: string, entityId?: string, store
 /** Newest first. */
 export async function listRuns(taxYear: number, entityId: string, limit = 20, store: ReviewStoreDb = defaultDb()): Promise<RunRow[]> {
   return store.taxReviewRun.findMany({ where: { taxYear, entityId }, orderBy: { startedAt: "desc" }, take: limit });
+}
+
+/**
+ * EVERY run of this return state (this fingerprint), newest first, with no cap: the revocation facts of an approval must see all of them, however
+ * many runs of other states came after (a window of the newest N runs of the year let an approval survive a reopened finding).
+ */
+export async function listRunsForFingerprint(taxYear: number, entityId: string, fingerprint: string, store: ReviewStoreDb = defaultDb()): Promise<RunRow[]> {
+  const rows = await store.taxReviewRun.findMany({ where: { taxYear, entityId, fingerprint }, orderBy: { startedAt: "desc" } });
+  return rows.filter((r) => r.fingerprint === fingerprint);
 }
 
 export async function latestRun(taxYear: number, entityId: string, store: ReviewStoreDb = defaultDb()): Promise<RunRow | null> {
