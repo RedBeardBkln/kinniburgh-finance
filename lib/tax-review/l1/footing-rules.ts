@@ -36,6 +36,8 @@ export interface FootingRule {
   parts: readonly Term[];
   /** The form says "if zero or less, enter 0": total = max(0, sum). */
   floor0?: boolean;
+  /** The form says "if greater than zero, enter 0" (a loss line): total = min(0, sum). Losses are held as negative amounts (Form 8995 lines 16 and 17). */
+  cap0?: boolean;
   /** "sum" (default): total = signed sum of the parts. "min": the form says "enter the smaller of line A or line B" (parts are A and B). */
   combine?: "sum" | "min";
   /**
@@ -72,7 +74,7 @@ function sum(
   parts: readonly Term[],
   quote: string,
   area: FindingArea,
-  over: Partial<Pick<FootingRule, "floor0" | "tolerance" | "toleranceReason" | "category" | "combine" | "skipWhenNotApplicable" | "skipIfBlank">> = {}
+  over: Partial<Pick<FootingRule, "floor0" | "cap0" | "tolerance" | "toleranceReason" | "category" | "combine" | "skipWhenNotApplicable" | "skipIfBlank">> = {}
 ): FootingRule {
   return { id, category: "footing", form, engineForm, total, parts, quote, sourceId: `${form}:${total.split(".").slice(1).join(".")}`, area, ...over };
 }
@@ -304,6 +306,8 @@ const F8995: FootingRule[] = [
   link("f8995.2", "f8995", "f8995", "f8995.2", "f8995.1i", "2. Total qualified business income or (loss). Combine lines 1 i through 1 v, column (c).", "deductions"),
   sum("f8995.4", "f8995", "f8995", "f8995.4", p("f8995.2", "f8995.3"), "4. Total qualified business income. Combine lines 2 and 3. If zero or less, enter 0.", "deductions", { floor0: true }),
   sum("f8995.8", "f8995", "f8995", "f8995.8", p("f8995.6", "f8995.7"), "8. Total qualified R E I T dividends and P T P income. Combine lines 6 and 7. If zero or less, enter 0.", "deductions", { floor0: true }),
+  sum("f8995.16", "f8995", "f8995", "f8995.16", p("f8995.2", "f8995.3"), "Total qualified business (loss) carryforward. Combine lines 2 and 3. If greater than zero, enter 0.", "deductions", { cap0: true }),
+  sum("f8995.17", "f8995", "f8995", "f8995.17", p("f8995.6", "f8995.7"), "Total qualified R E I T dividends and P T P (loss) carryforward. Combine lines 6 and 7. If greater than zero, enter 0.", "deductions", { cap0: true }),
   sum("f8995.10", "f8995", "f8995", "f8995.10", p("f8995.5", "f8995.9"), "10. Qualified business income deduction before the income limitation. Add lines 5 and 9.", "deductions"),
   sum("f8995.13", "f8995", "f8995", "f8995.13", [{ key: "f8995.11" }, { key: "f8995.12", sign: -1 }], "13. Subtract line 12 from line 11. If zero or less, enter 0.", "deductions", { floor0: true }),
   link("f1040.13a", "f1040", "f8995", "f1040.13a", "f8995.15", "15. Qualified business income deduction. Enter the smaller of line 10 or line 14. Also enter this amount on the applicable line of your return", "deductions", { quoteForm: "f8995" }),

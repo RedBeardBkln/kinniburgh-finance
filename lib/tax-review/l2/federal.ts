@@ -734,6 +734,13 @@ export function computeFederal(inp: OracleInputs): Ledger {
     const l5a = L.put("f8960.5a", gain + nz(v("sch1.4")), ["f1040.7a", "sch1.4"]) as number;
     L.put("f8960.5d", l5a, ["f8960.5a"]);
     const l8 = L.put("f8960.8", l1 + l2 + nz(v("f8960.3")) + 0 + l5a, ["f8960.1", "f8960.2", "f8960.3", "f8960.5d"]) as number;
+    // Whether the return itemizes decides lines 9a / 9b. When Schedule A could not be recomputed (for example the gifts exceed the lowest AGI limit, which
+    // also happens on a zero or negative AGI) that is NOT the same as "does not itemize": lines 9-17 are not recomputed. (Integration tester D3: on a
+    // return with negative AGI that itemizes, the engine's line 12 was blocked and printed not_applicable 0 while the oracle had assumed the standard deduction.)
+    if (itemized === null || stdTotal === null) {
+      L.abstain("Form 8960 lines 9-17", "whether the return itemizes is not known to the recalculation (Schedule A was not recomputed), so lines 9a, 9b and everything after them are not recomputed");
+      return;
+    }
     // line 9b: the state income tax deducted on Schedule A (line 5a), allocated to investment income by line 8 over AGI, when itemizing
     let l9b = 0;
     if (itemizes) {

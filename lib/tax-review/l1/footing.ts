@@ -46,7 +46,7 @@ export function evaluateRule(ctx: L1Context, rule: FootingRule): RuleOutcome {
   const skippedByForm = rule.skipWhenNotApplicable === true && total.status === "not_applicable";
   if (unknown.length > 0) return skippedByForm ? { status: "skipped", why: "the form says to skip this line" } : { status: "unproven", unknown };
   const raw = rule.combine === "min" && parts.length > 0 ? Math.min(...parts.map((p) => p.sign * p.amount)) : parts.reduce((acc, p) => acc + p.sign * p.amount, 0);
-  const expected = rule.floor0 === true ? Math.max(0, raw) : raw;
+  const expected = rule.floor0 === true ? Math.max(0, raw) : rule.cap0 === true ? Math.min(0, raw) : raw;
   // The form says to skip a line (print it blank) only when its own test says "zero or less". A line the engine skipped while
   // the parts make a positive amount is a real mismatch (expected N, printed none), not a skip.
   if (skippedByForm && expected <= 0) return { status: "skipped", why: "the form says to skip this line" };

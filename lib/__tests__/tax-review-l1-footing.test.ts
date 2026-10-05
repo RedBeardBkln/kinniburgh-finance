@@ -168,6 +168,36 @@ describe("F1 / F2 on real engine output", () => {
     expect(f?.citation.sources[0]?.kind).toBe("form_text");
     expect(f?.evidence[0]?.ref).toBe("f1040.9");
   });
+  it("Form 8995 lines 16 and 17: min(0, line 2 + line 3) and min(0, line 6 + line 7); a loss is negative, a positive sum prints 0", () => {
+    const r16 = FOOTING_RULES.find((r) => r.id === "f8995.16");
+    const r17 = FOOTING_RULES.find((r) => r.id === "f8995.17");
+    if (!r16 || !r17) throw new Error("rules missing");
+    expect(r16.cap0).toBe(true);
+    expect(r17.cap0).toBe(true);
+    expect(r16.parts.map((t) => t.key)).toEqual(["f8995.2", "f8995.3"]);
+    expect(r17.parts.map((t) => t.key)).toEqual(["f8995.6", "f8995.7"]);
+    // the form is "filed" (the engine says it is required) and its lines carry the given whole-dollar amounts
+    const scenario = (amounts: Record<string, number>): L1Context => {
+      const ctx = withLines(rich, (lines) => {
+        for (const [key, amount] of Object.entries(amounts)) lines[key] = { key: key as LineKey, status: "computed", amount, reason: null, formLabel: "Form 8995", formLine: key.split(".")[1] ?? "", label: key } as PdfLine;
+      });
+      return { ...ctx, view: { ...ctx.view, formsRequired: { ...ctx.view.formsRequired, f8995: { required: true, reason: "test" } } } };
+    };
+    const status = (amounts: Record<string, number>, rule: typeof r16): string => evaluateRule(scenario(amounts), rule).status;
+    // loss-only year, no carry-in: line 16 is the loss itself; a carry-in is added to it
+    expect(status({ "f8995.2": -9_010, "f8995.3": 0, "f8995.16": -9_010 }, r16)).toBe("ok");
+    expect(status({ "f8995.2": -9_010, "f8995.3": -1_000, "f8995.16": -10_010 }, r16)).toBe("ok");
+    // a positive sum prints 0 ("if greater than zero, enter 0"): the sum itself is a mismatch
+    expect(status({ "f8995.2": 5_000, "f8995.3": 0, "f8995.16": 0 }, r16)).toBe("ok");
+    expect(status({ "f8995.2": 5_000, "f8995.3": 0, "f8995.16": 5_000 }, r16)).toBe("mismatch");
+    // the earlier engine behaviour (0 printed on a loss year) and a sign flip are both caught
+    expect(status({ "f8995.2": -9_010, "f8995.3": 0, "f8995.16": 0 }, r16)).toBe("mismatch");
+    expect(status({ "f8995.2": -9_010, "f8995.3": 0, "f8995.16": 9_010 }, r16)).toBe("mismatch");
+    // line 17 the same way, with lines 6 and 7
+    expect(status({ "f8995.6": -300, "f8995.7": 0, "f8995.17": -300 }, r17)).toBe("ok");
+    expect(status({ "f8995.6": -300, "f8995.7": 0, "f8995.17": 0 }, r17)).toBe("mismatch");
+    expect(status({ "f8995.6": 700, "f8995.7": -200, "f8995.17": 0 }, r17)).toBe("ok");
+  });
   it("Schedule D lines may differ by $1 (rounded once from cents) but not by $2", () => {
     const rule = FOOTING_RULES.find((r) => r.id === "schd.16");
     if (!rule) throw new Error("rule missing");

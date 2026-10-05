@@ -2,22 +2,14 @@
 // fuzz set is known to exercise each branch of the 2025 rules.
 //
 // What this pins, precisely:
-//  - On every COMPLETE random return the recalculation agrees with the engine on every line it recomputes, except the three documented
-//    differences below. Each documented difference is asserted to be EXACTLY what it is claimed to be, so an engine fix (or a new
-//    discrepancy) fails this test loudly instead of being absorbed by an allow-list.
+//  - On every COMPLETE random return the recalculation agrees with the engine on every line it recomputes and on which forms are required:
+//    NO difference at all (engine ty2025-1b.6 and later). The four differences this fuzz found in engine ty2025-1b.5 are closed in the engine
+//    (Form 6251 line 1a / 1b / 2a with Schedule 1-A line 37 and a negative line 1b; Form 8995 lines 16 / 17; Schedule A line 14 = the printed
+//    lines 11 + 12 + 13) and their pins are removed, so any difference now fails this test loudly instead of being absorbed by an allow-list.
 //  - The set contains at least 500 complete returns and each branch listed in GUARDS is hit often enough.
-//
-// DOCUMENTED DIFFERENCES (found by this fuzz; the engine rules were not edited):
-//  1. Form 6251 line 4 (f6251.amti): the engine's AMT screen leaves out the enhanced deduction for seniors. The 2025 Form 6251 line 1a is
-//     "Form 1040 line 14 minus Schedule 1-A line 37" and the 2025 Instructions for Form 6251 say the deduction "is treated as a personal
-//     exemption that is added back to alternative minimum taxable income". So the engine's AMTI is smaller by exactly Schedule 1-A line 37.
-//  2. Form 8995 lines 16 / 17 (f8995.16 / .17): the engine prints 0 (status not applicable: no earlier carryforward) when the year has a
-//     qualified business LOSS; line 16 is the loss carried to 2026 (the form: "Combine lines 2 and 3. If greater than zero, enter -0-").
-//     No 2025 tax effect; reported as a medium finding, never a blocker.
-//  4. Form 6251 line 1b may be negative (when the deductions on Form 1040 line 14 exceed AGI); the engine floors taxable income at zero. The
-//     engine's AMTI is then larger, which can only make the screen more cautious (never hide an AMT).
-//  3. Schedule A line 14 (scha.14): the engine adds the cents of lines 11 and 12 and rounds the total once, so the printed line 14 can be
-//     $1 away from the sum of the printed lines 11 + 12 + 13 (the form says "add lines 11 through 13"). One-dollar rounding difference (low).
+//  - SEED RANGE: the default bases are 1 and 20000 (800 seeds each). Set L2_FUZZ_BASE to sweep another range (the integration tester swept 20000, 50000, 90000,
+//    120000, 300000 and 400000; two of them found the oracle treating "Schedule A not recomputed" as "does not itemize" on Form 8960, fixed in
+//    lib/tax-review/l2/federal.ts). A coverage guard that is under its minimum on an unusual range is reported as a guard failure, not a difference.
 
 import { vi } from "vitest";
 vi.setConfig({ testTimeout: 240000 });
@@ -30,6 +22,8 @@ import type { Finding } from "@/lib/tax-review/types";
 import { randomHousehold } from "./tax-review-l2-gen";
 
 const SEEDS = 800;
+// Seed bases swept by default (800 seeds each); L2_FUZZ_BASE=<n> runs one other range.
+const BASES: number[] = process.env["L2_FUZZ_BASE"] !== undefined ? [Number(process.env["L2_FUZZ_BASE"])] : [1, 20000];
 
 const GUARDS: Record<string, (L: Ledger) => boolean> = {
   itemizes: (L) => (L.get("scha.17") ?? 0) > (L.get("std.total") ?? Infinity),
@@ -98,14 +92,12 @@ interface Outcome {
   seed: number;
   findings: Finding[];
   ledger: Ledger;
-  engineAmti: number | null;
-  sch1a37: number;
 }
 
-function sweep(): { ran: Outcome[]; incomplete: number } {
+function sweep(BASE: number): { ran: Outcome[]; incomplete: number } {
   const ran: Outcome[] = [];
   let incomplete = 0;
-  for (let seed = 1; seed <= SEEDS; seed++) {
+  for (let seed = BASE; seed < BASE + SEEDS; seed++) {
     const g = randomHousehold(seed);
     const ret = computeTy2025Return(g.facts, g.decisions);
     if (!ret.headline.complete) {
@@ -116,13 +108,13 @@ function sweep(): { ran: Outcome[]; incomplete: number } {
     const result = runL2({ ret, effective, facts: g.facts });
     expect(result.status, `seed ${seed}: ${result.reason ?? ""}`).toBe("ran");
     const ledger = oracleLedger({ ret, effective, facts: g.facts });
-    ran.push({ seed, findings: result.findings.filter((f) => f.check !== "L2.coverage"), ledger, engineAmti: ret.lines["f6251.amti"]?.amount ?? null, sch1a37: ledger.get("sch1a.37") ?? 0 });
+    ran.push({ seed, findings: result.findings.filter((f) => f.check !== "L2.coverage"), ledger });
   }
   return { ran, incomplete };
 }
 
-describe("L2 oracle vs engine on random households", () => {
-  const { ran, incomplete } = sweep();
+describe.each(BASES)("L2 oracle vs engine on random households (seeds from %i)", (base) => {
+  const { ran, incomplete } = sweep(base);
 
   it("exercises at least 500 complete returns (the others are blocked by the engine and are not recomputed)", () => {
     expect(ran.length).toBeGreaterThanOrEqual(500);
@@ -132,47 +124,55 @@ describe("L2 oracle vs engine on random households", () => {
   it("every branch in GUARDS is hit often enough", () => {
     const hits: Record<string, number> = {};
     for (const [name, pred] of Object.entries(GUARDS)) hits[name] = ran.filter((o) => pred(o.ledger)).length;
-    const short = Object.entries(hits).filter(([name, n]) => n < (MIN_HITS[name] ?? 25));
+    // The per-branch minimums are tuned for the default bases; an explicitly chosen range only has to touch every branch at least once
+    // (a rare branch such as the Form 2210 stop rule or the Social Security wage base can fall to 1 to 8 hits on an unlucky range: that is coverage, not a difference).
+    const floor = (name: string): number => (process.env["L2_FUZZ_BASE"] !== undefined ? Math.min(1, MIN_HITS[name] ?? 25) : (MIN_HITS[name] ?? 25));
+    const short = Object.entries(hits).filter(([name, n]) => n < floor(name));
     expect(short, `branches under-exercised: ${JSON.stringify(Object.fromEntries(short))}; all: ${JSON.stringify(hits)}`).toEqual([]);
   });
 
-  it("no unexplained difference: only the four documented ones, each exactly as described", () => {
-    const unexplained: string[] = [];
-    for (const o of ran) {
-      const checks = new Set(o.findings.map((f) => f.check));
-      for (const f of o.findings) {
-        const line = f.check.replace("L2.diff.", "");
-        if (line === "f6251.amti") {
-          // documented difference 1: AMTI is smaller by exactly the enhanced deduction for seniors
-          // (and, when deductions exceed AGI, the form's line 1b is NEGATIVE ("if less than zero, enter as a negative amount") where the engine
-          // starts from taxable income floored at zero: documented difference 4, which only ever lowers AMTI and so cannot create an AMT)
-          const mine = o.ledger.get("f6251.amti");
-          const shortfall = Math.min(0, (o.ledger.get("f1040.11b") ?? 0) - (o.ledger.get("f1040.14") ?? 0));
-          const slack = checks.has("L2.diff.scha.14") ? 1 : 0; // the one-dollar charity rounding (difference 3) moves taxable income by $1
-          if (o.engineAmti !== null && mine !== null && (o.sch1a37 > 0 || shortfall < 0) && Math.abs(mine - o.engineAmti - (o.sch1a37 + shortfall)) <= slack) continue;
-        } else if (line === "f6251.tmt") {
-          if (checks.has("L2.diff.f6251.amti") && o.sch1a37 > 0) continue;
-        } else if (line === "f8995.16" || line === "f8995.17") {
-          if (f.severity === "medium" && (o.ledger.get(line) ?? 0) < 0) continue;
-        } else if (line === "scha.14") {
-          if (f.severity === "low") continue;
-        }
-        unexplained.push(`seed ${o.seed}: ${f.severity} ${f.check}: ${f.message.slice(0, 200)}`);
-      }
-    }
-    expect(unexplained.slice(0, 10)).toEqual([]);
+  it("no difference at all: every recomputed line and every form-required prediction agrees with the engine", () => {
+    const differences: string[] = [];
+    for (const o of ran) for (const f of o.findings) differences.push(`seed ${o.seed}: ${f.severity} ${f.check}: ${f.message.slice(0, 200)}`);
+    expect(differences.slice(0, 10)).toEqual([]);
   });
 
-  it("documented difference 1 occurs and is exactly the seniors deduction; difference 3 is a one-dollar rounding", () => {
-    expect(ran.filter((o) => o.findings.some((f) => f.check === "L2.diff.f6251.amti")).length).toBeGreaterThan(20);
-    const rounding = ran.filter((o) => o.findings.some((f) => f.check === "L2.diff.scha.14"));
-    expect(rounding.length).toBeGreaterThan(5);
-    for (const o of rounding) expect(o.findings.filter((f) => f.severity === "blocker" || f.severity === "high").every((f) => f.check.startsWith("L2.diff.f6251"))).toBe(true);
+  it("a household with a Schedule C loss is predicted to need Form 8995 (lines 16 / 17 record the carryforward) and the engine agrees", () => {
+    const lossYears = ran.filter((o) => (o.ledger.get("f8995.16") ?? 0) < 0);
+    expect(lossYears.length).toBeGreaterThanOrEqual(5);
+    for (const o of lossYears) expect(o.findings.filter((f) => f.check === "L2.forms.f8995" || f.check.startsWith("L2.diff.f8995")), `seed ${o.seed}`).toEqual([]);
   });
 
   it("the recalculation compares more than 300 lines of a typical return and none is a silent zero (every compared line has an engine amount or is an explicit blank)", () => {
     const sizes = ran.map((o) => [...o.ledger.lines.values()].filter((l) => l.source === "oracle" && l.value !== null).length);
     expect(Math.min(...sizes)).toBeGreaterThan(200);
     expect(Math.max(...sizes)).toBeGreaterThan(330);
+  });
+});
+
+// Seeds that once showed a disagreement, pinned whatever the sweep ranges are.
+describe("regression seeds", () => {
+  const cases: Array<{ seed: number; why: string }> = [
+    { seed: 50787, why: "itemizing return with a negative AGI: Schedule A was not recomputed (gifts over the lowest AGI limit), so Form 8960 lines 9-17 are unknown, not 'standard deduction'" },
+    { seed: 90584, why: "the same shape with AGI near zero" },
+    { seed: 120076, why: "a $1 Schedule A line 14 rounding that crossed a Tax Table row (engine 1b.5)" },
+    { seed: 300556, why: "the same Schedule A line 14 rounding (engine 1b.5)" },
+  ];
+  for (const c of cases) {
+    it(`seed ${c.seed}: no difference (${c.why})`, () => {
+      const g = randomHousehold(c.seed);
+      const ret = computeTy2025Return(g.facts, g.decisions);
+      expect(ret.headline.complete).toBe(true);
+      const result = runL2({ ret, effective: applyOverrides(ret, []), facts: g.facts });
+      expect(result.status).toBe("ran");
+      expect(result.findings.filter((f) => f.check !== "L2.coverage").map((f) => `${f.severity} ${f.check}`)).toEqual([]);
+    });
+  }
+  it("seed 50787: the oracle says Form 8960 lines 9-17 are not recomputed instead of printing a line 12 of its own", () => {
+    const g = randomHousehold(50787);
+    const ret = computeTy2025Return(g.facts, g.decisions);
+    const ledger = oracleLedger({ ret, effective: applyOverrides(ret, []), facts: g.facts });
+    expect(ledger.lines.has("f8960.nii")).toBe(false);
+    expect(ledger.abstentions.some((a) => a.area === "Form 8960 lines 9-17")).toBe(true);
   });
 });

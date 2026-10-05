@@ -46,7 +46,11 @@ export function predictForms(L: Ledger): FormPrediction[] {
   const amt = v("f6251.amt");
   add("f6251", "Form 6251", amt === null ? null : amt > 0, "alternative minimum tax is owed");
   const qbi = v("f1040.13a");
-  add("f8995", "Form 8995", qbi === null ? null : qbi > 0, "a qualified business income deduction is claimed");
+  // Form 8995 is also where a qualified business loss is carried to the next year (lines 16 and 17: "Combine lines 2 and 3 ... if greater than zero, enter 0")
+  // and where a loss carried in is used (lines 3 and 7), so a loss-only year or a non-zero carry-in needs the form without any deduction (Instructions for Form 8995).
+  const lossOut = (v("f8995.16") ?? 0) < 0 || (v("f8995.17") ?? 0) < 0;
+  const lossIn = (v("f8995.3") ?? 0) !== 0 || (v("f8995.7") ?? 0) !== 0;
+  add("f8995", "Form 8995", qbi === null ? null : qbi > 0 || lossOut || lossIn, "a qualified business income deduction is claimed, or a qualified business loss is carried to 2026 (lines 16 / 17) or was carried in (lines 3 / 7)");
   return out;
 }
 

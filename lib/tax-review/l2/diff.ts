@@ -16,9 +16,6 @@ import { makeFinding, type EvidenceItem, type Finding, type FindingArea, type Se
 
 export const ROUNDING_TOLERANCE_DOLLARS = 1;
 
-/** Form 8995 lines 16 and 17: the qualified business / REIT-PTP loss carried forward to the next year. */
-const CARRYFORWARD_OUT_LINES: ReadonlySet<string> = new Set(["f8995.16", "f8995.17"]);
-
 export type ComparisonKind = "match" | "rounding" | "mismatch" | "engine_blank";
 
 export interface LineComparison {
@@ -198,9 +195,9 @@ export function findingsOfDiff(diff: DiffResult): Finding[] {
     if (c.kind === "match") continue;
     // a one-dollar difference that follows from a one-dollar difference upstream is the same rounding, not a new finding
     if (c.kind === "rounding" && c.upstream.length > 0) continue;
-    // Form 8995 lines 16 / 17 are the loss carried to 2026: the return shows them as "not applicable" (no earlier carryforward stated); it has no 2025 tax effect
-    const carryOut = CARRYFORWARD_OUT_LINES.has(c.key) && c.engineStatus === "not_applicable" && c.kind === "mismatch";
-    const severity: Severity = carryOut ? "medium" : c.kind === "mismatch" ? "blocker" : c.kind === "rounding" ? "low" : "medium";
+    // (Form 8995 lines 16 / 17, the loss carried to 2026, used to be a medium special case while the engine printed 0 there; since engine ty2025-1b.6 they are
+    // computed like any other line, so a difference is a blocker.)
+    const severity: Severity = c.kind === "mismatch" ? "blocker" : c.kind === "rounding" ? "low" : "medium";
     const downstream = c.upstream.length > 0 ? ` It follows from ${c.upstream.length === 1 ? "an upstream difference" : "upstream differences"} (${c.upstream.slice(0, 4).join(", ")}): look at the earliest line first.` : "";
     const override = c.overridden ? " This line is pinned by a recorded owner override, so the difference may be intended." : "";
     const message =
