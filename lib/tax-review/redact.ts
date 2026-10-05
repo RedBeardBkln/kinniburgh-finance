@@ -56,9 +56,12 @@ function normalise(text: string): string {
 export function findRedactionIssues(text: string): RedactionIssue[] {
   const t = scanText(text);
   const issues: RedactionIssue[] = [];
-  if (containsSsnLikeText(t) || GROUPED_ID.test(t)) issues.push("ssn_like");
-  if (EIN_LIKE.test(t)) issues.push("ein_like");
+  // Digests and UUIDs are taken out BEFORE every shape test, not only before the digit-run test: a random 64-hex fingerprint part holds
+  // a 9-digit run by chance (about 4 in 10), and the grouped-identifier test has no word boundary, so on the raw text it refused the
+  // run's own stored config (found by the live read-only run of reviewer-all).
   const withoutDigests = t.replace(UUID_TOKEN, " ").replace(HEX_TOKEN, (m) => (exemptHex(m) ? " " : m));
+  if (containsSsnLikeText(withoutDigests) || GROUPED_ID.test(withoutDigests)) issues.push("ssn_like");
+  if (EIN_LIKE.test(withoutDigests)) issues.push("ein_like");
   for (const m of withoutDigests.matchAll(/\d{9,}/g)) {
     issues.push(m[0].length === 9 ? "nine_digit_run" : "long_digit_run");
     break;
@@ -179,6 +182,15 @@ export function scrubPeople(text: string, people: readonly HouseholdPerson[], la
 }
 
 /**
+ * The value of a JSON field named key / findingKey / evidenceHash that is exactly 16 hex characters: a finding's key or evidence hash,
+ * a digest the reviewer itself generates (lib/tax-review/types.ts) and the model needs to refer to a finding. About one in ten of them
+ * holds a 9-digit run by chance and a 16-character token cannot be told from a number by its shape (see exemptHex), so these are
+ * excluded from the CHECK, by field name and exact shape only (the stored finding row excludes them for the same reason). The same
+ * 16 hex characters anywhere else in the text, or under another field name, are still refused when they hold a 9-digit run.
+ */
+const OWN_KEY_FIELD = /("(?:key|findingKey|evidenceHash)"\s*:\s*")[0-9a-f]{16}(")/g;
+
+/**
  * The only way a payload becomes outgoing text: serialise, scrub the household names, mask EINs, then refuse the whole
  * payload if anything identifier-shaped is still there. Returns the exact string that may be sent.
  */
@@ -186,6 +198,8 @@ export function buildOutgoingJson(value: unknown, people: readonly HouseholdPers
   const labels = labelHouseholdMembers(people);
   if (labels.unmapped.length > 0) throw new RedactionError(`${where} (unlabelled household member)`, []);
   const scrubbed = maskEin(scrubPeople(JSON.stringify(value), people, labels));
-  assertSafeOutgoing(scrubbed, where);
+  // what is SENT is `scrubbed`; what is CHECKED has our own finding keys taken out (see OWN_KEY_FIELD)
+  assertSafeOutgoing(scrubbed.replace(OWN_KEY_FIELD, "$1$2"), where);
   return scrubbed;
 }
+

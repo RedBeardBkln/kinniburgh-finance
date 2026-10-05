@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -117,6 +118,8 @@ import { runL1, type L1Result } from "@/lib/tax-review/l1/run-l1";
 import { bindFiles, readPacketFiles } from "@/lib/tax-review/l1/pdf-read";
 import { l2SummaryOf, L2_VERSION, runL2, type L2Result } from "@/lib/tax-review/l2";
 import { LlmTransportError } from "@/lib/tax-review/llm/client";
+import { buildOutgoingJson, isSafeOutgoing } from "@/lib/tax-review/redact";
+import { insertReviewRun } from "@/lib/tax-review-store";
 import { priceFromEnv } from "@/lib/tax-review/llm/model";
 import { buildReviewPayload, serializePayload } from "@/lib/tax-review/llm/payload";
 import { buildRegister } from "@/lib/tax-review/llm/register";
@@ -621,5 +624,48 @@ describe("owner only: the AI review spends the owner's API credit", () => {
     expect(panel).toMatch(/data-testid="ai-start-button"/);
     const page = read("app/tax/forms/[year]/final-review/page.tsx");
     expect(page).toMatch(/whyNot=\{state\.approver\.allowed \? null : state\.approver\.reason\}/);
+  });
+});
+
+// ── what the run stores about itself: real digests ────────────────────────────────────────────────────────
+
+describe("the run's own stored text holds real digests", () => {
+  /** A genuine sha-256 hex digest that happens to contain a 9-digit run (about 4 in 10 do): found by the live read-only run, which a fixture of "aaaa..." never showed. */
+  function digestWithNineDigits(seed: string): string {
+    for (let i = 0; ; i += 1) {
+      const h = createHash("sha256").update(`${seed}-${i}`).digest("hex");
+      if (/\d{9}/.test(h)) return h;
+    }
+  }
+
+  it("a 64-hex digest is not an identifier even when it holds a 9-digit run; an SSN-shaped text next to it is still refused", () => {
+    const d = digestWithNineDigits("fp");
+    expect(isSafeOutgoing(d)).toBe(true);
+    expect(isSafeOutgoing(JSON.stringify({ a: d, b: digestWithNineDigits("fp2") }))).toBe(true);
+    expect(isSafeOutgoing(`${d} and 123-45-6789`)).toBe(false);
+    expect(isSafeOutgoing(`${d} and 123456789`)).toBe(false);
+    expect(isSafeOutgoing("123456789abc")).toBe(false); // a number glued to hex letters is still a number
+  });
+
+  it("a finding key (16 hex) that holds a 9-digit run can be sent as the value of a key field of the payload, and only there", () => {
+    let key = "";
+    for (let i = 0; key === ""; i += 1) {
+      const h = createHash("sha256").update(`key-${i}`).digest("hex").slice(0, 16);
+      if (/\d{9}/.test(h) && /[a-f]/.test(h)) key = h;
+    }
+    const people = [{ userId: "u1", name: "Eric Sample" }];
+    const out = buildOutgoingJson({ l1: { findings: [{ key, check: "L1.X", severity: "medium", message: "A thing." }] } }, people, "test payload");
+    expect(out).toContain(key); // what is sent is the real key: the model refers to a finding by it
+    expect(() => buildOutgoingJson({ note: key }, people, "test payload")).toThrow(/refused/);
+    expect(() => buildOutgoingJson({ message: `see ${key}` }, people, "test payload")).toThrow(/refused/);
+    expect(() => buildOutgoingJson({ key: `${key}0` }, people, "test payload")).toThrow(/refused/);
+    expect(() => buildOutgoingJson({ key: "123456789" }, people, "test payload")).toThrow(/refused/);
+  });
+
+  it("the run row accepts a config whose fingerprint parts are such digests (it would otherwise refuse every real run)", async () => {
+    const parts: Record<string, string> = {};
+    for (const k of ["engine", "view", "answers", "header", "facts", "documents", "questionnaires", "overrides", "decisions"]) parts[k] = digestWithNineDigits(k);
+    const stored = await insertReviewRun({ taxYear: 2025, entityId: ENTITY, fingerprint: digestWithNineDigits("whole"), engineVersion: "ty-integration", startedById: null, startedByName: "Eric Sample", config: { fingerprintVersion: 2, fingerprintParts: parts, mode: "draft" }, l1Summary: { status: "completed" }, l2Summary: { status: "completed", coverage: [] }, findings: [] });
+    expect(stored.findingCount).toBe(0);
   });
 });
