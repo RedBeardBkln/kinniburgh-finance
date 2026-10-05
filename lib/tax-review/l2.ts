@@ -1,24 +1,10 @@
-// L2: independent recomputation (plan sections 5.4 and 8.3). PHASE C builds the real oracle (lib/tax-review/oracle/**). Until
-// then this stub keeps the contract: the gate sees L2 as "not_run", which keeps it RED (owner decision D8: no waiver, approval
-// waits until L2 has run for the current fingerprint). It never returns a finding, so it can never look like a pass.
+// L2: independent recomputation (plan sections 5.4 and 8.3). The oracle itself lives in lib/tax-review/l2/** (a second, separately
+// written calculator). This module is the stable entry point the review runner imports.
+//
+//   runL2(input)    pure; { status: "ran" | "not_run", reason, findings, coverage, summary }; fails closed ("not_run", never a pass)
+//   l2SummaryOf(r)  the small JSON the run stores for the gate: { status: "completed" | "not_run", mismatchCount, coverage, counts }
+//
+// Called without an input (the Phase A call shape) it returns "not_run", so the gate stays red exactly as before.
 
-import type { Finding } from "@/lib/tax-review/types";
-
-export interface L2Coverage {
-  /** A form / line group the recomputation compared. */
-  area: string;
-  compared: boolean;
-  note: string;
-}
-
-export interface L2Result {
-  status: "not_run" | "completed" | "failed";
-  findings: Finding[];
-  /** What was recomputed and what was not (empty until the oracle exists). */
-  coverage: L2Coverage[];
-}
-
-/** Stub: the independent recomputation has not been built yet. */
-export function runL2(): L2Result {
-  return { status: "not_run", findings: [], coverage: [] };
-}
+export { L2_VERSION, l2SummaryOf, oracleLedger, runL2, type L2Input, type L2Result, type L2Summary } from "@/lib/tax-review/l2/run";
+export type { L2Coverage } from "@/lib/tax-review/l2/coverage";

@@ -85,11 +85,13 @@ describe("loadReviewInputs", () => {
 });
 
 describe("runReviewForYear", () => {
-  it("runs L1 over the draft packet and returns the stub L2 as not run, with counts-only summaries and the gate's engine state", async () => {
+  it("runs L1 over the draft packet and returns the L2 recalculation as not run for an incomplete return, with counts-only summaries and the gate's engine state", async () => {
     const r = await runReviewForYear(2025, "Tester", "draft", deps());
     if ("error" in r) throw new Error(r.error);
     expect(r.l1.status).toBe("completed");
-    expect(r.l2).toEqual({ status: "not_run", findings: [], coverage: [] });
+    expect(r.l2).toMatchObject({ status: "not_run", findings: [], coverage: [] });
+    expect(r.l2.reason).toMatch(/not complete/);
+    expect(r.l2Summary).toMatchObject({ status: "not_run", mismatchCount: 0 });
     expect(r.engine).toEqual({ complete: false, blockingItemCount: expect.any(Number), lineOverrideCount: 0, staleOverrideCount: 0 });
     expect(r.config).toMatchObject({ fingerprintVersion: 2, l1Version: 1, mode: "draft" });
     expect(JSON.stringify(r.l1Summary)).not.toMatch(/Sample|Alpine/);
@@ -107,7 +109,7 @@ describe("runReviewForYear", () => {
       findings: r.l1.findings,
       dispositions: [],
       l1: { status: r.l1.status },
-      l2: { status: r.l2.status, coverageListed: false },
+      l2: { status: r.l2.status === "ran" ? "completed" : "not_run", coverageListed: false },
       l3: { status: "not_run", adversarialCompleted: false },
     });
     expect(gate.verdict).toBe("flagged");
