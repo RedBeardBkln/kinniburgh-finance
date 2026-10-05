@@ -4,8 +4,15 @@
 import { formatUsd } from "@/lib/tax-review/llm/model";
 import type { AiEstimateDto, AiReviewDto } from "@/lib/tax-review/state";
 
+// What the owner ticks "I understand what is sent" against. It must match lib/tax-review/llm/payload.ts: the names of the payers read from the
+// documents (employers, payroll companies, banks, lenders, brokerages) are sent as printed unless the server setting TAX_REVIEW_PAYER_NAMES is
+// "generic"; everything else listed as removed is removed by scrub.ts / redact.ts. A test builds the real payload and compares (tax-review-send-notice.test.ts).
 export const SEND_NOTICE =
-  "This sends a redacted summary of the return to Anthropic's API and uses your API credit. The household appears only as \"Taxpayer M\" and \"Taxpayer F\"; names, street addresses, business names, employer ids and account numbers are removed before anything leaves the app. Nothing is sent until you start.";
+  "This sends a redacted summary of the return to Anthropic's API and uses your API credit. "
+  + "The names of the payers on your tax documents (employers, payroll companies, banks, lenders and brokerages) ARE sent as they are printed on the document, because they help the review recognise each form. "
+  + "The server setting TAX_REVIEW_PAYER_NAMES=generic sends \"Employer A\" and \"Payer B\" instead. "
+  + "The household appears only as \"Taxpayer M\" and \"Taxpayer F\". Household names, street addresses, the names of your own business entities, Social Security numbers and account numbers are removed, and employer identification numbers are cut to their last four digits, before anything leaves the app. "
+  + "Nothing is sent until you start.";
 
 export interface StartCheck {
   canStart: boolean;

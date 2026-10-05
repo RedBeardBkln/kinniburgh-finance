@@ -96,7 +96,7 @@ describe("wording of the new surfaces", () => {
   it("the notice says what is removed before anything is sent and that nothing is sent until the owner starts", () => {
     expect(SEND_NOTICE).toMatch(/Taxpayer M/);
     expect(SEND_NOTICE).toMatch(/Taxpayer F/);
-    expect(SEND_NOTICE).toMatch(/names, street addresses, business names, employer ids and account numbers are removed/);
+    expect(SEND_NOTICE).toMatch(/Household names, street addresses, the names of your own business entities, Social Security numbers and account numbers are removed/); // payer names are covered by tax-review-send-notice.test.ts
     expect(SEND_NOTICE).toMatch(/Nothing is sent until you start/);
   });
 });
