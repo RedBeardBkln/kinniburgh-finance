@@ -97,6 +97,24 @@ describe("dbAiRunStore", () => {
     await store.append("r1", [ev("done:a2")], [l3Finding(), l3Finding({ check: "L3.income.wrong_amount" })]);
     expect(f.findings).toHaveLength(2);
   });
+  it("two findings with one key: the more serious one is stored (insert-only, both rows kept) and every reader sees it; the same or a lesser severity is skipped", async () => {
+    const f = fakeDb();
+    const store = dbAiRunStore(f.db);
+    await store.append("r1", [ev("done:a1")], [l3Finding({ severity: "low", message: "A minor note about this line." })]);
+    await store.append("r1", [ev("done:a2")], [l3Finding({ severity: "high", message: "A serious problem with this line." })]);
+    expect(f.findings).toHaveLength(2); // insert-only: the earlier row stays
+    const back = await store.listL3Findings("r1");
+    expect(back).toHaveLength(1);
+    expect(back[0]?.severity).toBe("high");
+    expect(back[0]?.message).toMatch(/serious/);
+    // a later medium (less serious than the stored high) and a repeat of the high add nothing
+    await store.append("r1", [ev("done:a3")], [l3Finding({ severity: "medium", message: "A middle note about this line." }), l3Finding({ severity: "high", message: "The same serious problem again." })]);
+    expect(f.findings).toHaveLength(2);
+    // inside one batch the more serious of two is the one written
+    const g = fakeDb();
+    await dbAiRunStore(g.db).append("r1", [ev("done:a1")], [l3Finding({ severity: "low", message: "A minor note about this line." }), l3Finding({ severity: "blocker", message: "A blocking problem with this line." })]);
+    expect(g.findings.map((r) => r["severity"])).toEqual(["blocker"]);
+  });
   it("only valid L3 findings are stored: an L1 finding or an invalid one aborts the whole append", async () => {
     const f = fakeDb();
     const store = dbAiRunStore(f.db);

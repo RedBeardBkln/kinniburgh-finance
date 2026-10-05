@@ -7,7 +7,7 @@ import {
   type DispositionRow,
 } from "@/lib/tax-review/gate";
 import { findRedactionIssues } from "@/lib/tax-review/redact";
-import { evidenceHashOf, findingKey, findingSchema, type Finding } from "@/lib/tax-review/types";
+import { dedupeFindings, evidenceHashOf, findingKey, findingSchema, type Finding } from "@/lib/tax-review/types";
 
 // ── DB access for the AI Return Reviewer (plan section 5.8) ─────────────────────
 // INSERT-ONLY, by design and by test: this file contains reads (findMany / findFirst) and creates (create /
@@ -266,7 +266,8 @@ export async function getRunWithFindings(runId: string, entityId?: string, store
   const run = await store.taxReviewRun.findFirst({ where: { id: runId, ...(entityId !== undefined ? { entityId } : {}) } });
   if (run === null) return null;
   const rows = await store.taxReviewFinding.findMany({ where: { runId: run.id }, orderBy: { createdAt: "asc" } });
-  return { run, findings: rows.map(rowToFinding) };
+  // an AI review can store two rows with one key (the later one more serious): the page, the gate and the register see the more severe one
+  return { run, findings: dedupeFindings(rows.map(rowToFinding)) };
 }
 
 /** Newest first. */

@@ -141,6 +141,16 @@ describe("insertReviewRun", () => {
     expect(loaded?.findings.map((x) => x.check).sort()).toEqual(["L1.F1.a", "L1.F1.b"]);
     expect((await latestRun(2025, ENTITY, f.store))?.id).toBe(res.runId);
   });
+  it("a run holding two rows with one key (an AI review stored a later, more serious one) is read back with the more severe one only", async () => {
+    const f = fakeDb();
+    const res = await insertReviewRun(runInput([finding("L1.F1.a")]), f.store);
+    const low = finding("L1.F1.a", { severity: "low", message: "A minor note about this line." });
+    const high = finding("L1.F1.a", { severity: "high", message: "A serious problem with this line." });
+    f.findings.splice(0, f.findings.length, { ...f.findings[0]!, ...{ severity: low.severity, message: low.message } }, { ...f.findings[0]!, id: "later", severity: high.severity, message: high.message });
+    const loaded = await getRunWithFindings(res.runId, ENTITY, f.store);
+    expect(loaded?.findings).toHaveLength(1);
+    expect(loaded?.findings[0]?.severity).toBe("high");
+  });
   it("refuses a fingerprint that is not 64 hex and a duplicate key", async () => {
     const f = fakeDb();
     await expect(insertReviewRun({ ...runInput([]), fingerprint: "abc" }, f.store)).rejects.toThrow(ReviewStoreError);

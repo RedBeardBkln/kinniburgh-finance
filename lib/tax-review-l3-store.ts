@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { DuplicateEventError, type AiRunStore, type NewRunEvent } from "@/lib/tax-review/llm/run";
 import type { RunEvent } from "@/lib/tax-review/llm/progress";
-import { findingSchema, type Finding } from "@/lib/tax-review/types";
+import { dedupeFindings, findingSchema, SEVERITIES, severityRank, type Finding, type Severity } from "@/lib/tax-review/types";
 import { rowToFinding, type FindingRow } from "@/lib/tax-review-store";
 
 // ── DB access for the AI review passes (ai-return-reviewer, Phase B) ────────────────────────────────────────
@@ -34,8 +34,7 @@ type NewFindingRow = Omit<FindingRow, "id">;
 export interface L3StoreTx {
   taxReviewRunEvent: { createMany(args: { data: NewEventRow[] }): Promise<{ count: number }> };
   taxReviewFinding: {
-    /** With `select: { key: true }` only the key column comes back; otherwise whole rows. */
-    findMany(args: { where: { runId: string; layer?: string }; select?: { key: true }; orderBy?: { createdAt: "asc" } }): Promise<Array<{ key: string } & Partial<FindingRow>>>;
+    findMany(args: { where: { runId: string; layer?: string }; orderBy?: { createdAt: "asc" } }): Promise<Array<{ key: string } & Partial<FindingRow>>>;
     createMany(args: { data: NewFindingRow[] }): Promise<{ count: number }>;
   };
 }
@@ -97,7 +96,9 @@ export function dbAiRunStore(store: L3StoreDb = defaultDb()): AiRunStore {
     },
     async listL3Findings(runId: string): Promise<Finding[]> {
       const rows = (await store.taxReviewFinding.findMany({ where: { runId, layer: "L3" }, orderBy: { createdAt: "asc" } })) as unknown as FindingRow[];
-      return rows.map(rowToFinding);
+      // Two tasks of one pass can emit the same finding key (same pass, category, line and rule) with different severities: both rows are kept
+      // (the table is insert-only), and every reader sees the MORE SEVERE one (dedupeFindings keeps the most serious, the first on a tie).
+      return dedupeFindings(rows.map(rowToFinding));
     },
     async append(runId: string, events: readonly NewRunEvent[], findings: readonly Finding[]): Promise<void> {
       const eventRows: NewEventRow[] = events.map((e) => ({ runId, eventKey: e.eventKey, kind: e.kind, taskId: e.taskId, attempt: e.attempt, data: e.data }));
@@ -106,8 +107,18 @@ export function dbAiRunStore(store: L3StoreDb = defaultDb()): AiRunStore {
           // the events first: a duplicate key aborts the whole transaction, so a task can never be recorded twice
           await tx.taxReviewRunEvent.createMany({ data: eventRows });
           if (findings.length > 0) {
-            const have = new Set((await tx.taxReviewFinding.findMany({ where: { runId }, select: { key: true } })).map((r) => r.key));
-            const fresh = findings.filter((f) => !have.has(f.key));
+            // a finding whose key the run already holds is stored again ONLY when it is strictly more serious than every stored one (insert-only: the
+            // earlier row stays, readers keep the more severe); a repeat of the same or a lesser severity is skipped
+            const stored = await tx.taxReviewFinding.findMany({ where: { runId } });
+            const best = new Map<string, number>();
+            for (const r of stored) {
+              const rank = SEVERITIES.includes(r.severity as Severity) ? severityRank(r.severity as Severity) : SEVERITIES.length;
+              best.set(r.key, Math.min(best.get(r.key) ?? SEVERITIES.length, rank));
+            }
+            const fresh = dedupeFindings(findings).filter((f) => {
+              const have = best.get(f.key);
+              return have === undefined || severityRank(f.severity) < have;
+            });
             if (fresh.length > 0) await tx.taxReviewFinding.createMany({ data: fresh.map((f) => toFindingRow(runId, f)) });
           }
         });

@@ -86,7 +86,7 @@ import { MemoryRunStore } from "@/lib/tax-review/llm/run";
 import { makeFinding } from "@/lib/tax-review/types";
 
 describe("tester: two L3 findings with the same key (same pass, category and line) in one run", () => {
-  it("OBSERVATION: the first one stored wins; a later, more serious one with the same key is silently skipped", async () => {
+  it("the MORE SEVERE one wins: a later, more serious finding with the same key reaches the gate (was: first stored wins)", async () => {
     const base = { layer: "L3" as const, check: "L3.income.other", area: "income" as const, lineKey: "f1040.9" as const, ruleTag: "f1040.9", evidence: [], citation: { sources: [], sourceStatus: "not_applicable" as const }, recommendedAction: "Look at it.", acceptable: true, origin: "llm" as const, pass: "income" as const };
     const low = makeFinding({ ...base, severity: "low", message: "A minor note about the wages line." });
     const high = makeFinding({ ...base, severity: "high", message: "Something serious about the wages line." });
@@ -96,6 +96,13 @@ describe("tester: two L3 findings with the same key (same pass, category and lin
     await store.append("r", [{ runId: "r", eventKey: "done:a2", kind: "task_completed", taskId: "a2", attempt: 1, data: {} }], [high]);
     const kept = await store.listL3Findings();
     expect(kept).toHaveLength(1);
-    expect(kept[0]?.severity).toBe("low"); // the more serious finding of the second task never reaches the gate
+    expect(kept[0]?.severity).toBe("high"); // the more serious finding of the second task reaches the gate
+    expect(kept[0]?.message).toMatch(/serious/);
+    // the reverse order (serious first, minor later) keeps the serious one, and a repeat of the same severity does not add a row
+    const store2 = new MemoryRunStore(() => 0);
+    await store2.append("r", [{ runId: "r", eventKey: "done:a1", kind: "task_completed", taskId: "a1", attempt: 1, data: {} }], [high]);
+    await store2.append("r", [{ runId: "r", eventKey: "done:a2", kind: "task_completed", taskId: "a2", attempt: 1, data: {} }], [low, high]);
+    expect((await store2.listL3Findings()).map((f) => f.severity)).toEqual(["high"]);
+    expect(store2.findings).toHaveLength(1);
   });
 });

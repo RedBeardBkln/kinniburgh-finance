@@ -27,7 +27,7 @@ import { adversarialOutputSchema, findingsOutputSchema, registerOutputSchema } f
 import { excerptForTopics, sourcePackDigestInput, topicsForTask, type SourcePack } from "@/lib/tax-review/llm/sources";
 import { jsonSchemaFor, promptHash, PROMPT_VERSION, SYSTEM_PROMPT, taskById, TASKS, userPrompt, type TaskDef, type TaskId } from "@/lib/tax-review/llm/tasks";
 import { applyNarrations, numbersIn, validateChallenges, validateFindings, type Challenge } from "@/lib/tax-review/llm/validate";
-import { sha256Hex, type Finding } from "@/lib/tax-review/types";
+import { dedupeFindings, severityRank, sha256Hex, type Finding } from "@/lib/tax-review/types";
 import type { Ty2025Facts } from "@/lib/tax2025/facts";
 import type { Ty2025Return } from "@/lib/tax2025/types";
 
@@ -68,7 +68,8 @@ export class MemoryRunStore implements AiRunStore {
     return this.events.filter((e) => e.runId === runId).map((e) => ({ ...e }));
   }
   async listL3Findings(): Promise<Finding[]> {
-    return this.findings.filter((f) => f.layer === "L3");
+    // the more severe of two findings with one key (see dbAiRunStore)
+    return dedupeFindings(this.findings.filter((f) => f.layer === "L3"));
   }
   async append(runId: string, events: readonly NewRunEvent[], findings: readonly Finding[]): Promise<void> {
     for (const e of events) if (this.events.some((x) => x.runId === runId && x.eventKey === e.eventKey)) throw new DuplicateEventError();
@@ -76,11 +77,14 @@ export class MemoryRunStore implements AiRunStore {
       this.tick += 1;
       this.events.push({ ...e, createdAt: new Date(this.clock() + this.tick) });
     }
-    const have = new Set(this.findings.map((f) => f.key));
-    for (const f of findings) {
-      if (!have.has(f.key)) {
+    // same rule as dbAiRunStore: a key already held is stored again only when strictly more serious
+    const best = new Map<string, number>();
+    for (const f of this.findings) best.set(f.key, Math.min(best.get(f.key) ?? Infinity, severityRank(f.severity)));
+    for (const f of dedupeFindings(findings)) {
+      const have = best.get(f.key);
+      if (have === undefined || severityRank(f.severity) < have) {
         this.findings.push(f);
-        have.add(f.key);
+        best.set(f.key, severityRank(f.severity));
       }
     }
   }
