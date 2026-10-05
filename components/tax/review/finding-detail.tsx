@@ -1,5 +1,7 @@
 "use client";
 
+import { LinkList } from "@/components/tax/review/finding-links";
+import type { FindingLink } from "@/lib/tax-review/links";
 import type { FindingDto } from "@/lib/tax-review/state";
 import { formatNewYork, SEVERITY_LABELS } from "@/lib/tax-review/ui";
 import { BUTTON_PLAIN, BUTTON_PRIMARY } from "@/components/tax/forms/override-parts";
@@ -18,12 +20,15 @@ const SOURCE_LABELS: Record<string, string> = {
 
 export function FindingDetail({
   finding,
+  links,
   canDecide,
   whyNotDecide,
   onAccept,
   onReopen,
 }: {
   finding: FindingDto;
+  /** Where to go to see or fix what this finding is about (lib/tax-review/links.ts findingLinks). */
+  links: readonly FindingLink[];
   canDecide: boolean;
   /** Plain reason the Accept / Reopen buttons are not offered (stale checks, not the owner's account). */
   whyNotDecide: string | null;
@@ -34,6 +39,13 @@ export function FindingDetail({
   return (
     <div className="space-y-3 rounded-md border bg-muted/30 p-3 text-sm" data-testid="finding-detail" data-finding={finding.key}>
       <p className="font-medium">{finding.message}</p>
+
+      {links.length > 0 ? (
+        <div data-testid="finding-links">
+          <p className="text-xs font-semibold">Go to it</p>
+          <LinkList links={links} />
+        </div>
+      ) : null}
 
       {finding.evidence.length > 0 ? (
         <div>

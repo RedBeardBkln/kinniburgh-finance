@@ -3,13 +3,14 @@
 import { useState } from "react";
 import { getReviewRun } from "@/actions/tax-review";
 import { FindingsTable } from "@/components/tax/review/findings-table";
+import { EMPTY_LINK_CONTEXT, type LinkContext } from "@/lib/tax-review/links";
 import type { FindingDto, RunDto } from "@/lib/tax-review/state";
 import { formatNewYork, SEVERITY_LABELS, SEVERITIES } from "@/lib/tax-review/ui";
 
 // Run history: every stored run (date, who, fingerprint, whether it is for the current return, counts) and a read-only view of a past
 // run's findings (loaded through the getReviewRun action; nothing can be accepted or reopened from an earlier run).
 
-export function RunHistory({ runs, year }: { runs: RunDto[]; year: 2025 }) {
+export function RunHistory({ runs, year, links = EMPTY_LINK_CONTEXT }: { runs: RunDto[]; year: 2025; links?: LinkContext }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<{ id: string; findings: FindingDto[] } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -72,7 +73,7 @@ export function RunHistory({ runs, year }: { runs: RunDto[]; year: 2025 }) {
             </div>
             {openId === r.id && loaded !== null && loaded.id === r.id ? (
               <div className="border-t p-3">
-                <FindingsTable findings={loaded.findings} year={year} canDecide={false} whyNotDecide="This is an earlier run." readOnly />
+                <FindingsTable findings={loaded.findings} year={year} canDecide={false} whyNotDecide="This is an earlier run." readOnly links={links} />
               </div>
             ) : null}
           </li>

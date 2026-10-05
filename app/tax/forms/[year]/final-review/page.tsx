@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
 import { AppShell } from "@/components/app-shell";
+import { AnchorHighlight } from "@/components/tax/anchor-highlight";
 import { ApprovalCard } from "@/components/tax/review/approval-card";
 import { ByHandChecklist } from "@/components/tax/review/by-hand-checklist";
 import { FindingsTable } from "@/components/tax/review/findings-table";
@@ -17,6 +18,7 @@ import { loadReviewState } from "@/lib/tax-review-server";
 import { loadSourcePack } from "@/lib/tax-review-sources";
 import { ATTESTATION_V2_TEXT, TYPED_PHRASE } from "@/lib/tax-review/gate";
 import { verifyCards, type VerifiedCard } from "@/lib/tax-review/info-cards";
+import { REVIEW_ANCHORS } from "@/lib/tax-anchors";
 
 /** The by-hand cards: only statements whose quote verifies against the pinned source pack (a missing pack shows no cards, never unsourced ones). */
 function infoCards(): VerifiedCard[] {
@@ -55,6 +57,7 @@ export default async function FinalReviewPage({ params }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6" data-testid="final-review-page">
+        <AnchorHighlight />
         <div>
           <div className="mb-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <Link href="/tax" className="hover:underline">
@@ -89,6 +92,7 @@ export default async function FinalReviewPage({ params }: PageProps) {
         ) : (
           (() => {
             const state = loaded.state;
+            const links = loaded.links;
             const canDecide = state.approver.allowed && state.latestRun !== null && !state.runIsStale;
             const whyNotDecide = !state.approver.allowed
               ? state.approver.reason
@@ -100,7 +104,7 @@ export default async function FinalReviewPage({ params }: PageProps) {
             return (
               <>
                 <ReviewStatusBanner state={state} />
-                <GateChecklist state={state} />
+                <GateChecklist state={state} links={links} />
                 <RunControls year={2025} hasRun={state.latestRun !== null} runIsStale={state.runIsStale} />
                 <AiReviewPanel
                   year={2025}
@@ -110,7 +114,7 @@ export default async function FinalReviewPage({ params }: PageProps) {
                   whyNot={state.approver.allowed ? null : state.approver.reason}
                 />
 
-                <section aria-labelledby="findings-heading" className="space-y-3 rounded-lg border p-4" data-testid="review-findings">
+                <section id={REVIEW_ANCHORS.findings} aria-labelledby="findings-heading" className="anchor-target space-y-3 rounded-lg border p-4" data-testid="review-findings">
                   <div>
                     <h2 id="findings-heading" className="text-base font-semibold">
                       What the checks found
@@ -120,10 +124,10 @@ export default async function FinalReviewPage({ params }: PageProps) {
                       Findings that must be fixed cannot be accepted; the others can be, with a written reason.
                     </p>
                   </div>
-                  <FindingsTable findings={state.findings} year={2025} canDecide={canDecide} whyNotDecide={whyNotDecide} />
+                  <FindingsTable findings={state.findings} year={2025} canDecide={canDecide} whyNotDecide={whyNotDecide} links={links} listenForJumps />
                 </section>
 
-                <RegisterTable entries={state.register} narrated={state.registerNarrated} />
+                <RegisterTable entries={state.register} narrated={state.registerNarrated} links={links} />
 
                 {/* The honesty panel sits DIRECTLY above the approval card, so it is on screen when the owner approves. */}
                 <div className="space-y-4">
@@ -141,9 +145,9 @@ export default async function FinalReviewPage({ params }: PageProps) {
                   />
                 </div>
 
-                <RunHistory runs={state.runs} year={2025} />
-                <ByHandChecklist />
-                <InfoCards cards={infoCards()} />
+                <RunHistory runs={state.runs} year={2025} links={links} />
+                <ByHandChecklist links={links} />
+                <InfoCards cards={infoCards()} links={links} />
               </>
             );
           })()

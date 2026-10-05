@@ -11,7 +11,7 @@ const read = (p: string): string => readFileSync(resolve(ROOT, p), "utf8").repla
 const code = (p: string): string => read(p).replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
 
 const DIR = "components/tax/review";
-const CLIENT = ["run-controls.tsx", "ai-review-panel.tsx", "findings-table.tsx", "finding-detail.tsx", "disposition-dialog.tsx", "approval-card.tsx", "run-history.tsx"].map((f) => `${DIR}/${f}`);
+const CLIENT = ["run-controls.tsx", "ai-review-panel.tsx", "findings-table.tsx", "finding-detail.tsx", "finding-links.tsx", "disposition-dialog.tsx", "approval-card.tsx", "run-history.tsx"].map((f) => `${DIR}/${f}`);
 const SERVER = ["review-status.tsx", "honesty-panel.tsx", "by-hand-checklist.tsx", "register-table.tsx", "info-cards.tsx"].map((f) => `${DIR}/${f}`);
 const PAGE = "app/tax/forms/[year]/final-review/page.tsx";
 

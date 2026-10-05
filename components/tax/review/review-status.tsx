@@ -1,3 +1,6 @@
+import { LinkList } from "@/components/tax/review/finding-links";
+import { gateLinks, EMPTY_LINK_CONTEXT, type LinkContext } from "@/lib/tax-review/links";
+import { gateItemAnchorId, REVIEW_ANCHORS } from "@/lib/tax-anchors";
 import type { ReviewStateDto } from "@/lib/tax-review/state";
 import { formatNewYork, gateStateLabel, verdictChip } from "@/lib/tax-review/ui";
 
@@ -59,9 +62,11 @@ const ITEM_TONE: Record<"pass" | "fail" | "not_run", string> = {
   not_run: "border-slate-300 bg-slate-50 text-slate-900",
 };
 
-export function GateChecklist({ state }: { state: ReviewStateDto }) {
+export function GateChecklist({ state, links = EMPTY_LINK_CONTEXT }: { state: ReviewStateDto; links?: LinkContext }) {
+  // for each row that is not green: where to go to fix it (nothing here changes the gate)
+  const jumps = gateLinks({ items: state.gate.items, findings: state.findings }, links);
   return (
-    <section aria-labelledby="gate-heading" className="space-y-3 rounded-lg border p-4" data-testid="review-gate">
+    <section id={REVIEW_ANCHORS.gate} aria-labelledby="gate-heading" className="anchor-target space-y-3 rounded-lg border p-4" data-testid="review-gate">
       <div>
         <h2 id="gate-heading" className="text-base font-semibold">
           What must be green before you can approve
@@ -70,9 +75,14 @@ export function GateChecklist({ state }: { state: ReviewStateDto }) {
       </div>
       <ol className="space-y-2">
         {state.gate.items.map((item) => (
-          <li key={item.id} className={`rounded-md border px-3 py-2 text-sm ${ITEM_TONE[item.state]}`} data-testid={`gate-item-${item.id}`} data-state={item.state}>
+          <li key={item.id} id={gateItemAnchorId(item.id)} className={`anchor-target rounded-md border px-3 py-2 text-sm ${ITEM_TONE[item.state]}`} data-testid={`gate-item-${item.id}`} data-state={item.state}>
             <span className="font-medium">{item.label}</span>: <span className="font-semibold">{gateStateLabel(item.state)}</span>
             <span className="block text-xs">{item.detail}</span>
+            {jumps[item.id] !== undefined ? (
+              <div className="mt-1" data-testid={`gate-jump-${item.id}`}>
+                <LinkList links={jumps[item.id] ?? []} />
+              </div>
+            ) : null}
           </li>
         ))}
       </ol>

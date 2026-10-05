@@ -1,10 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DispositionDialog } from "@/components/tax/review/disposition-dialog";
 import { FindingDetail } from "@/components/tax/review/finding-detail";
+import { LinkList } from "@/components/tax/review/finding-links";
 import type { FindingDto } from "@/lib/tax-review/state";
-import { areasPresent, DEFAULT_FILTERS, filterFindings, SEVERITIES, SEVERITY_LABELS, severityCountsOf, toggleSeverity, type FindingFilters, type StatusFilter } from "@/lib/tax-review/ui";
+import { EMPTY_LINK_CONTEXT, findingLinks, REVIEW_FILTER_EVENT, type LinkContext } from "@/lib/tax-review/links";
+import { REVIEW_ANCHORS } from "@/lib/tax-anchors";
+import { areasPresent, DEFAULT_FILTERS, filterFindings, filtersFromHash, SEVERITIES, SEVERITY_LABELS, severityCountsOf, toggleSeverity, type FindingFilters, type StatusFilter } from "@/lib/tax-review/ui";
 import type { Severity } from "@/lib/tax-review/types";
 
 // The findings list with filters (severity, area, status, text), a detail panel per finding and the accept / reopen dialog. Plain JSON in;
@@ -45,6 +48,8 @@ export function FindingsTable({
   canDecide,
   whyNotDecide,
   readOnly = false,
+  links = EMPTY_LINK_CONTEXT,
+  listenForJumps = false,
 }: {
   findings: FindingDto[];
   year: 2025;
@@ -53,6 +58,10 @@ export function FindingsTable({
   whyNotDecide: string | null;
   /** A past run: nothing can be accepted or reopened. */
   readOnly?: boolean;
+  /** Where each finding's links go (built on the server from the current return). Without it every finding still links to its area's section. */
+  links?: LinkContext;
+  /** The gate checklist's "Jump to" links filter THIS list (only the main list on the page listens, not a past run's). */
+  listenForJumps?: boolean;
 }) {
   const [filters, setFilters] = useState<FindingFilters>(DEFAULT_FILTERS);
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -61,7 +70,28 @@ export function FindingsTable({
   const shown = useMemo(() => filterFindings(findings, filters), [findings, filters]);
   const counts = useMemo(() => severityCountsOf(findings), [findings]);
   const areas = useMemo(() => areasPresent(findings), [findings]);
+  const linksOf = useMemo(() => new Map(findings.map((f) => [f.key, findingLinks(f, links)])), [findings, links]);
   const dialogFinding = dialog === null ? null : (findings.find((f) => f.key === dialog.key) ?? null);
+
+  useEffect(() => {
+    if (!listenForJumps) return;
+    const apply = (hash: string): void => {
+      const want = filtersFromHash(hash);
+      if (want === null) return;
+      setFilters({ ...DEFAULT_FILTERS, status: want.status, layer: want.layer });
+      setOpenKey(null);
+      document.getElementById(REVIEW_ANCHORS.findings)?.scrollIntoView({ block: "start" });
+    };
+    apply(window.location.hash);
+    const onEvent = (e: Event): void => apply(String((e as CustomEvent<string>).detail ?? ""));
+    const onHash = (): void => apply(window.location.hash);
+    window.addEventListener(REVIEW_FILTER_EVENT, onEvent);
+    window.addEventListener("hashchange", onHash);
+    return () => {
+      window.removeEventListener(REVIEW_FILTER_EVENT, onEvent);
+      window.removeEventListener("hashchange", onHash);
+    };
+  }, [listenForJumps]);
 
   if (findings.length === 0) {
     return (
@@ -116,6 +146,11 @@ export function FindingsTable({
           <span className="mr-1 font-medium">Search</span>
           <input type="search" value={filters.text} onChange={(e) => setFilters((f) => ({ ...f, text: e.target.value }))} className="rounded-md border bg-background px-2 py-1 text-xs" placeholder="a word or a line" data-testid="filter-text" />
         </label>
+        {filters.layer !== undefined && filters.layer !== "all" ? (
+          <span className="rounded-full border px-2 py-0.5 text-xs" data-testid="filter-layer">
+            Layer {filters.layer} only
+          </span>
+        ) : null}
         <button type="button" className="text-xs underline" onClick={() => setFilters(DEFAULT_FILTERS)}>
           Clear filters
         </button>
@@ -138,10 +173,16 @@ export function FindingsTable({
                   {f.status === "accepted" ? " - accepted" : f.gating ? " - blocks approval" : ""}
                 </span>
               </button>
+              {!open ? (
+                <div className="px-3 pb-2" data-testid="finding-row-links">
+                  <LinkList links={(linksOf.get(f.key) ?? []).slice(0, 2)} />
+                </div>
+              ) : null}
               {open ? (
                 <div className="border-t p-3">
                   <FindingDetail
                     finding={f}
+                    links={linksOf.get(f.key) ?? []}
                     canDecide={!readOnly && canDecide}
                     whyNotDecide={readOnly ? "This is an earlier run; open the current checks to decide." : whyNotDecide}
                     onAccept={() => setDialog({ key: f.key, mode: "accept" })}

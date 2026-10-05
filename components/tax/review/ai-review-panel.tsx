@@ -6,6 +6,7 @@ import { cancelAiReview, estimateAiReview, runNextAiTask, startAiReview } from "
 import { BUTTON_PLAIN, BUTTON_PRIMARY } from "@/components/tax/forms/override-parts";
 import { canResume, checkStart, costLine, ERROR_KIND_LABEL, newerProgress, nextLoopAction, priceBasisText, progressLabel, SEND_NOTICE, TASK_STATE_LABEL } from "@/lib/tax-review/ai-panel";
 import { formatUsd } from "@/lib/tax-review/llm/model";
+import { REVIEW_ANCHORS } from "@/lib/tax-anchors";
 import type { AiEstimateDto, AiReviewDto } from "@/lib/tax-review/state";
 
 // The AI review passes on the Final review page: estimate the cost, confirm, start, watch progress, resume or cancel.
@@ -129,7 +130,7 @@ export function AiReviewPanel({ year, hasCurrentRun, runId, ai, whyNot }: { year
   const started = progress.status !== "not_run";
 
   return (
-    <section aria-labelledby="ai-heading" className="space-y-3 rounded-lg border p-4" data-testid="ai-review-panel">
+    <section id={REVIEW_ANCHORS.aiReview} aria-labelledby="ai-heading" className="anchor-target space-y-3 rounded-lg border p-4" data-testid="ai-review-panel">
       <div>
         <h2 id="ai-heading" className="text-base font-semibold">
           AI review passes

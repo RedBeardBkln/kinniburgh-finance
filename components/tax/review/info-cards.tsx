@@ -1,13 +1,16 @@
+import { LinkList } from "@/components/tax/review/finding-links";
 import type { VerifiedCard } from "@/lib/tax-review/info-cards";
+import { EMPTY_LINK_CONTEXT, infoLinks, type LinkContext } from "@/lib/tax-review/links";
+import { REVIEW_ANCHORS } from "@/lib/tax-anchors";
 
 // The "by hand" information cards (filing logistics, records and corrections). Server component. Every statement shown here carries its
 // source (the title, the page and the link) and a verbatim quote that was checked against the pinned source pack when the page was
 // built; a statement whose quote does not verify is not passed to this component at all (lib/tax-review/info-cards.ts verifyCards).
 
-export function InfoCards({ cards }: { cards: readonly VerifiedCard[] }) {
+export function InfoCards({ cards, links = EMPTY_LINK_CONTEXT }: { cards: readonly VerifiedCard[]; links?: LinkContext }) {
   if (cards.length === 0) return null;
   return (
-    <div className="grid gap-4 md:grid-cols-2" data-testid="review-info-cards">
+    <div id={REVIEW_ANCHORS.infoCards} className="anchor-target grid gap-4 md:grid-cols-2" data-testid="review-info-cards">
       {cards.map((card) => (
         <section key={card.id} aria-labelledby={`info-${card.id}`} className="space-y-2 rounded-lg border p-4" data-testid={`info-card-${card.id}`}>
           <h2 id={`info-${card.id}`} className="text-base font-semibold">
@@ -24,6 +27,7 @@ export function InfoCards({ cards }: { cards: readonly VerifiedCard[] }) {
                   </a>
                   , page {s.page}: <span className="italic">&ldquo;{s.quote}&rdquo;</span>
                 </p>
+                <LinkList links={infoLinks(s.id, links)} />
               </li>
             ))}
           </ul>

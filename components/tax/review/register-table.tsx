@@ -1,3 +1,6 @@
+import { LinkList } from "@/components/tax/review/finding-links";
+import { EMPTY_LINK_CONTEXT, registerLinks, type LinkContext } from "@/lib/tax-review/links";
+import { REVIEW_ANCHORS } from "@/lib/tax-anchors";
 import type { RegisterEntry } from "@/lib/tax-review/llm/register";
 import { byImpact } from "@/lib/tax-review/llm/register";
 
@@ -18,11 +21,11 @@ function dollars(n: number): string {
   return `$${n.toLocaleString("en-US")}`;
 }
 
-export function RegisterTable({ entries, narrated }: { entries: readonly RegisterEntry[]; narrated: boolean }) {
+export function RegisterTable({ entries, narrated, links = EMPTY_LINK_CONTEXT }: { entries: readonly RegisterEntry[]; narrated: boolean; links?: LinkContext }) {
   const ordered = byImpact(entries);
   const open = entries.filter((e) => e.status === "undecided").length;
   return (
-    <section aria-labelledby="register-heading" className="space-y-3 rounded-lg border p-4" data-testid="review-register">
+    <section id={REVIEW_ANCHORS.register} aria-labelledby="register-heading" className="anchor-target space-y-3 rounded-lg border p-4" data-testid="review-register">
       <div>
         <h2 id="register-heading" className="text-base font-semibold">
           Decisions that are yours
@@ -69,6 +72,9 @@ export function RegisterTable({ entries, narrated }: { entries: readonly Registe
                   </span>
                 ))}
               </p>
+              <div data-testid="register-links">
+                <LinkList links={registerLinks(e, links)} />
+              </div>
             </li>
           ))}
         </ul>

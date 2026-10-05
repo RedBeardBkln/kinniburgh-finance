@@ -5,7 +5,7 @@
 import { REASON_MAX, REASON_MIN, TYPED_PHRASE } from "@/lib/tax-review/limits";
 import { findRedactionIssues } from "@/lib/tax-review/redact";
 import type { FindingDto, ReviewStateDto } from "@/lib/tax-review/state";
-import type { FindingArea, Severity } from "@/lib/tax-review/types";
+import type { FindingArea, ReviewLayer, Severity } from "@/lib/tax-review/types";
 
 // ── Filters ───────────────────────────────────────────────────────────────────
 
@@ -18,6 +18,8 @@ export interface FindingFilters {
   area: "all" | FindingArea;
   status: StatusFilter;
   text: string;
+  /** Only the findings of one layer (the gate rows jump here); absent = every layer. */
+  layer?: "all" | ReviewLayer;
 }
 
 export const DEFAULT_FILTERS: FindingFilters = { severities: [], area: "all", status: "all", text: "" };
@@ -33,12 +35,25 @@ export function filterFindings(findings: readonly FindingDto[], f: FindingFilter
   return findings.filter((x) => {
     if (f.severities.length > 0 && !f.severities.includes(x.severity)) return false;
     if (f.area !== "all" && x.area !== f.area) return false;
+    if (f.layer !== undefined && f.layer !== "all" && x.layer !== f.layer) return false;
     if (f.status === "open" && x.status !== "open") return false;
     if (f.status === "gating" && !x.gating) return false;
     if (f.status === "accepted" && x.status !== "accepted") return false;
     if (needle !== "" && !`${x.message} ${x.check} ${x.formKey ?? ""} ${x.lineKey ?? ""}`.toLowerCase().includes(needle)) return false;
     return true;
   });
+}
+
+/**
+ * The filter a deep link asks for, from the URL fragment of the Final review page: "#findings-gating" (every open item that blocks approval),
+ * "#findings-gating-l1" / "-l2" / "-l3" (one layer), "#findings-all" (everything). null = the fragment is not a findings filter.
+ * (links.ts FINDINGS_HASH writes these; the findings table applies them and scrolls to itself.)
+ */
+export function filtersFromHash(hash: string): { status: StatusFilter; layer: "all" | ReviewLayer } | null {
+  const m = /^#?findings-(all|gating)(?:-(l[123]))?$/.exec(hash.trim());
+  if (m === null) return null;
+  if (m[1] === "all") return m[2] === undefined ? { status: "all", layer: "all" } : null;
+  return { status: "gating", layer: m[2] === undefined ? "all" : (m[2].toUpperCase() as ReviewLayer) };
 }
 
 /** Areas that occur in the findings, in the catalogue order of the model (the area filter only offers what exists). */

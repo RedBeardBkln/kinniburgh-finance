@@ -4,6 +4,7 @@ import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { runReviewChecks } from "@/actions/tax-review";
 import { BUTTON_PRIMARY } from "@/components/tax/forms/override-parts";
+import { REVIEW_ANCHORS } from "@/lib/tax-anchors";
 
 // "Run checks": runs every deterministic check for the CURRENT return on the server (footing, forms read back from the PDFs, source
 // documents, process state, the final package) and stores the run. Busy-state locking like the override dialog: the button is
@@ -40,7 +41,7 @@ export function RunControls({ year, hasRun, runIsStale }: { year: 2025; hasRun: 
   }
 
   return (
-    <section aria-labelledby="run-heading" className="space-y-2 rounded-lg border p-4" data-testid="review-run-controls">
+    <section id={REVIEW_ANCHORS.runChecks} aria-labelledby="run-heading" className="anchor-target space-y-2 rounded-lg border p-4" data-testid="review-run-controls">
       <div>
         <h2 id="run-heading" className="text-base font-semibold">
           Run the checks
