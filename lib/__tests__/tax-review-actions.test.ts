@@ -36,7 +36,7 @@ vi.mock("@/lib/tax-review-store", async (importOriginal) => {
 
 import { acceptFinding, getReviewRun, listReviewRuns, reopenFinding, runReviewChecks } from "@/actions/tax-review";
 import { approveReturn, withdrawApproval } from "@/actions/tax-return-approval";
-import { ATTESTATION_V1_TEXT, evaluateGate, TYPED_PHRASE, type GateInput } from "@/lib/tax-review/gate";
+import { ATTESTATION_V2_TEXT, evaluateGate, TYPED_PHRASE, type GateInput } from "@/lib/tax-review/gate";
 import { buildReviewState, type ApprovalDetail, type DispositionDetail, type RunRowLike } from "@/lib/tax-review/state";
 import { makeFinding, type Finding } from "@/lib/tax-review/types";
 import type { ReviewContext, ReviewRecords } from "@/lib/tax-review-server";
@@ -106,7 +106,7 @@ function greenState(records: ReviewRecords, ctx: ReviewContext) {
   return { ...real, gate: greenGate(), canApproveNow: ctx.approver.allowed };
 }
 
-const approvalInput = { taxYear: 2025, checked: true, attestationText: ATTESTATION_V1_TEXT, typedPhrase: TYPED_PHRASE, typedName: "Eric Kinniburgh" };
+const approvalInput = { taxYear: 2025, checked: true, attestationText: ATTESTATION_V2_TEXT, typedPhrase: TYPED_PHRASE, typedName: "Eric Kinniburgh" };
 const acceptInput = (f: Finding) => ({ taxYear: 2025, findingKey: f.key, evidenceHash: f.evidenceHash, reason: REASON });
 
 beforeEach(() => {
@@ -387,7 +387,7 @@ describe("approveReturn", () => {
     const r = await approveReturn(approvalInput);
     expect(r).toEqual({ ok: true, approvalId: "appr-1" });
     const arg = store.insertApproval.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(arg).toMatchObject({ kind: "approved", fingerprint: FP, runId: RUN, attestationVersion: "v1", approvedById: USER, approvedByName: "Eric Kinniburgh", reason: null });
+    expect(arg).toMatchObject({ kind: "approved", fingerprint: FP, runId: RUN, attestationVersion: "v2", approvedById: USER, approvedByName: "Eric Kinniburgh", reason: null });
     expect(arg["attestationTextHash"]).toMatch(/^[0-9a-f]{64}$/);
     expect(arg["typedConfirmationHash"]).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(arg["verdictSnapshot"])).not.toMatch(/Eric|message/);

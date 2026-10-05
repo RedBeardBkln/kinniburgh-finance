@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { ATTESTATION_V1_TEXT, evaluateGate, type GateInput } from "@/lib/tax-review/gate";
+import { ATTESTATION_V2_TEXT, evaluateGate, type GateInput } from "@/lib/tax-review/gate";
 import { HONESTY_ALL, HONESTY_CANNOT, HONESTY_INTRO } from "@/lib/tax-review/honesty";
 import { buildReviewState, NOT_RUN_NOTICE } from "@/lib/tax-review/state";
 import { checkApprovalForm, checkReason, gateStateLabel, SEVERITY_LABELS, verdictChip } from "@/lib/tax-review/ui";
@@ -53,7 +53,7 @@ describe("Final review wording", () => {
   it("the not-run notice, the attestation, the gate lines, the verdict chips, severity names, reasons and button blockers are clean", () => {
     const strings = [
       NOT_RUN_NOTICE,
-      ATTESTATION_V1_TEXT,
+      ATTESTATION_V2_TEXT,
       ...gateStrings(),
       ...Object.values(SEVERITY_LABELS),
       gateStateLabel("pass"),
@@ -92,7 +92,7 @@ describe("Final review wording", () => {
 
   it("the final-package banned list does not apply to the page, but the attestation never reaches the package index", () => {
     // the attestation contains 'review' (banned in the package): it must stay on the page
-    expect(findFinalPackageBannedWording(ATTESTATION_V1_TEXT).length).toBeGreaterThan(0);
+    expect(findFinalPackageBannedWording(ATTESTATION_V2_TEXT).length).toBeGreaterThan(0);
     const finalPackage = read("lib/tax2025/pdf/final-package.ts");
     expect(finalPackage).not.toContain("ATTESTATION");
     expect(finalPackage).not.toContain("tax-review/gate");

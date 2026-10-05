@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ATTESTATION_V1_TEXT,
+  ATTESTATION_V2_TEXT,
   attestationTextHash,
   currentApproval,
   dispositionFor,
@@ -169,14 +170,16 @@ describe("gate truth table", () => {
 describe("owner attestation (D5)", () => {
   const passed = evaluateGate(green());
   const flagged = evaluateGate({ ...green(), l3: { status: "not_run", adversarialCompleted: false } });
-  const ok = { checked: true, attestationText: ATTESTATION_V1_TEXT, typedPhrase: TYPED_PHRASE, typedName: "Eric Kinniburgh" };
+  const ok = { checked: true, attestationText: ATTESTATION_V2_TEXT, typedPhrase: TYPED_PHRASE, typedName: "Eric Kinniburgh" };
   const ctx = { approverName: "Eric Kinniburgh", approverAllowed: true };
 
-  it("text v1 is the plan's wording", () => {
-    expect(ATTESTATION_V1_TEXT).toBe(
-      "I, Eric Kinniburgh, prepared this 2025 federal and Connecticut income tax return myself. I have reviewed every figure and every decision recorded in the Final review, I understand the AI review is an automated aid and not a professional opinion, and I take full responsibility for the return as its preparer."
-    );
+  it("text v2 is the owner's own sentence", () => {
+    expect(ATTESTATION_V2_TEXT).toBe("This income tax return has been reviewed, prepared and filed by Eric Kinniburgh.");
     expect(attestationTextHash()).toMatch(/^[0-9a-f]{64}$/);
+    expect(attestationTextHash(ATTESTATION_V2_TEXT)).not.toBe(attestationTextHash(ATTESTATION_V1_TEXT));
+  });
+  it("text v1 is no longer accepted", () => {
+    expect(evaluateApproval(passed, { ...ok, attestationText: ATTESTATION_V1_TEXT }, ctx).ok).toBe(false);
   });
   it("is accepted only when the gate is PASSED and every condition holds", () => {
     expect(evaluateApproval(passed, ok, ctx)).toEqual({ ok: true, reasons: [] });
@@ -191,7 +194,7 @@ describe("owner attestation (D5)", () => {
   });
   it("needs the box, the exact text, the exact phrase and the full name", () => {
     expect(evaluateApproval(passed, { ...ok, checked: false }, ctx).ok).toBe(false);
-    expect(evaluateApproval(passed, { ...ok, attestationText: ATTESTATION_V1_TEXT + " " }, ctx).ok).toBe(false);
+    expect(evaluateApproval(passed, { ...ok, attestationText: ATTESTATION_V2_TEXT + " " }, ctx).ok).toBe(false);
     expect(evaluateApproval(passed, { ...ok, typedPhrase: "I prepared this return" }, ctx).ok).toBe(false);
     expect(evaluateApproval(passed, { ...ok, typedName: "Eric" }, ctx).ok).toBe(false);
     expect(evaluateApproval(passed, { ...ok, typedName: "  eric   KINNIBURGH " }, ctx).ok).toBe(true);

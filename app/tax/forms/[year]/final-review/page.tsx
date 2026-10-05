@@ -15,7 +15,7 @@ import { InfoCards } from "@/components/tax/review/info-cards";
 import { RegisterTable } from "@/components/tax/review/register-table";
 import { loadReviewState } from "@/lib/tax-review-server";
 import { loadSourcePack } from "@/lib/tax-review-sources";
-import { ATTESTATION_V1_TEXT, TYPED_PHRASE } from "@/lib/tax-review/gate";
+import { ATTESTATION_V2_TEXT, TYPED_PHRASE } from "@/lib/tax-review/gate";
 import { verifyCards, type VerifiedCard } from "@/lib/tax-review/info-cards";
 
 /** The by-hand cards: only statements whose quote verifies against the pinned source pack (a missing pack shows no cards, never unsourced ones). */
@@ -130,7 +130,7 @@ export default async function FinalReviewPage({ params }: PageProps) {
                   <HonestyPanel />
                   <ApprovalCard
                     year={2025}
-                    attestationText={ATTESTATION_V1_TEXT}
+                    attestationText={ATTESTATION_V2_TEXT}
                     requiredPhrase={TYPED_PHRASE}
                     gateGreen={state.gate.verdict === "passed"}
                     accountAllowed={state.approver.allowed}

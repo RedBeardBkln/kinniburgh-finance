@@ -6,7 +6,7 @@
 //   D1  a LINE override in force keeps the gate red (the engine does not recompute dependents).
 //   D2  an LLM finding that was downgraded from blocker/high because it could not be sourced still needs an
 //       acknowledgement (an "accepted" disposition with a written reason) before the gate turns green.
-//   D5  the attestation is Eric's, by his account only, text v1 (ATTESTATION_V1_TEXT).
+//   D5  the attestation is Eric's, by his account only, text v2 (ATTESTATION_V2_TEXT).
 //   D8  there is NO waiver: a layer that has not run (not_run / partial / failed) keeps the gate red, so approval is
 //       impossible until L2 and L3 have run for the CURRENT fingerprint.
 //
@@ -220,14 +220,17 @@ export function gateSnapshot(gate: GateResult): { verdict: Verdict; items: { id:
 
 // ── Owner attestation (decision D5) ───────────────────────────────────────────
 
-export const ATTESTATION_VERSION = "v1";
+export const ATTESTATION_VERSION = "v2";
 
-/** Text v1, exactly as the plan (5.7) words it. Changing a word is a new version, never an edit of v1. */
+/** Text v1 (historical; no longer selectable). Changing a word is a new version, never an edit of v1. */
 export const ATTESTATION_V1_TEXT =
   "I, Eric Kinniburgh, prepared this 2025 federal and Connecticut income tax return myself. I have reviewed every figure and every decision recorded in the Final review, I understand the AI review is an automated aid and not a professional opinion, and I take full responsibility for the return as its preparer.";
 
 
-export function attestationTextHash(text: string = ATTESTATION_V1_TEXT): string {
+/** Text v2: the owner's own sentence (his decision, 2026-10-04). It is shown on the approval page only, never in the filing package. */
+export const ATTESTATION_V2_TEXT = "This income tax return has been reviewed, prepared and filed by Eric Kinniburgh.";
+
+export function attestationTextHash(text: string = ATTESTATION_V2_TEXT): string {
   return sha256Hex(text);
 }
 
@@ -268,7 +271,7 @@ export function evaluateApproval(gate: GateResult, attempt: ApprovalAttempt, ctx
   if (gate.verdict !== "passed") reasons.push("The review is not PASSED for the current return, so it cannot be approved.");
   if (!ctx.approverAllowed) reasons.push("Only the owner's own account can record the approval.");
   if (!attempt.checked) reasons.push("Tick the box to confirm you prepared the return.");
-  if (attempt.attestationText !== ATTESTATION_V1_TEXT) reasons.push("The confirmation text shown is out of date; reload the page.");
+  if (attempt.attestationText !== ATTESTATION_V2_TEXT) reasons.push("The confirmation text shown is out of date; reload the page.");
   if (attempt.typedPhrase.trim() !== TYPED_PHRASE) reasons.push(`Type exactly: ${TYPED_PHRASE}`);
   if (norm(attempt.typedName) !== norm(ctx.approverName) || norm(ctx.approverName) === "") reasons.push("Type your full name as it appears on your account.");
   return { ok: reasons.length === 0, reasons };

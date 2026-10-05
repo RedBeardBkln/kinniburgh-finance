@@ -114,7 +114,7 @@ vi.mock("@/lib/tax-review-anthropic", () => transportFactory);
 import { approveReturn, withdrawApproval } from "@/actions/tax-return-approval";
 import { makeApprovalLookup } from "@/lib/tax-review-approval-lookup";
 import type { ReviewStoreDb } from "@/lib/tax-review-store";
-import { ATTESTATION_V1_TEXT, TYPED_PHRASE } from "@/lib/tax-review/gate";
+import { ATTESTATION_V2_TEXT, TYPED_PHRASE } from "@/lib/tax-review/gate";
 import { acceptFinding, cancelAiReview, estimateAiReview, getFinalReviewState, reopenFinding, runNextAiTask, runReviewChecks, startAiReview } from "@/actions/tax-review";
 import { engineGateState } from "@/lib/tax-review/l1/engine-state";
 import { runL1, type L1Result } from "@/lib/tax-review/l1/run-l1";
@@ -294,7 +294,7 @@ function lawClaimTransport(): MockTransport {
 // Own scenarios against the REAL actions + the REAL approval lookup over the in-memory DB above.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-const OWNER_INPUT = { taxYear: 2025 as const, checked: true, attestationText: ATTESTATION_V1_TEXT, typedPhrase: TYPED_PHRASE, typedName: "Eric Sample" };
+const OWNER_INPUT = { taxYear: 2025 as const, checked: true, attestationText: ATTESTATION_V2_TEXT, typedPhrase: TYPED_PHRASE, typedName: "Eric Sample" };
 const lookup = () => makeApprovalLookup({ resolveEntityId: async () => ENTITY, store: fake.db as unknown as ReviewStoreDb });
 const approvals = () => fake.tables.approval as { kind: string; fingerprint: string }[];
 
@@ -484,8 +484,8 @@ describe("tester: approveReturn is refused for every red input (rows stay at zer
   it("attestation conditions: unticked, changed text, trailing space, wrong phrase, wrong name, year 2024, non-boolean", async () => {
     await greenRun();
     await expectRefused({ ...OWNER_INPUT, checked: false });
-    await expectRefused({ ...OWNER_INPUT, attestationText: `${ATTESTATION_V1_TEXT} ` });
-    await expectRefused({ ...OWNER_INPUT, attestationText: ATTESTATION_V1_TEXT.replace("prepared", "reviewed") });
+    await expectRefused({ ...OWNER_INPUT, attestationText: `${ATTESTATION_V2_TEXT} ` });
+    await expectRefused({ ...OWNER_INPUT, attestationText: ATTESTATION_V2_TEXT.replace("prepared", "composed") });
     await expectRefused({ ...OWNER_INPUT, typedPhrase: "I prepared this return" });
     await expectRefused({ ...OWNER_INPUT, typedName: "Eva Sample" });
     await expectRefused({ ...OWNER_INPUT, typedName: "" });

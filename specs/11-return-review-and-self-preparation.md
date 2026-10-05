@@ -44,9 +44,11 @@ Honesty contract (design constraints, each has a test):
 
 > **Not a CPA.** Every constant above is primary-sourced (url + verifiedOn) so the owner can check it himself. The AI Return Reviewer cites only these constants, the pinned source pack and printed-form text, is not a CPA/EA, and a PASSED result does not certify the return. A source pack (`data/tax-sources/2025/`, manifest with sha256) pins the IRS/CT instruction pages the reviewer may quote; a re-issued page is a deliberate change.
 
-## 3. Attestation text v1 (constant `ATTESTATION_V1`; hash stored with the approval)
+## 3. Attestation text v2 (constant `ATTESTATION_V2_TEXT`; hash stored with the approval; v1 is historical)
 
-> I, Eric Kinniburgh, prepared this 2025 federal and Connecticut income tax return myself. I have reviewed every figure and every decision recorded in the Final review, I understand the AI review is an automated aid and not a professional opinion, and I take full responsibility for the return as its preparer.
+> This income tax return has been reviewed, prepared and filed by Eric Kinniburgh.
+>
+> (v1, retired before use, read: "I, Eric Kinniburgh, prepared this 2025 federal and Connecticut income tax return myself ..." The owner chose the shorter v2 sentence himself on 2026-10-04; the Final review page keeps its honesty panel directly above the approval card, and the sentence is never printed in the filing package.)
 
 Typed confirmation: the phrase `I PREPARED THIS RETURN` and his full name. Stored as hashes plus the version id. Who may approve: Eric's account only (orchestrator decision D5); the approving user's name is stored.
 

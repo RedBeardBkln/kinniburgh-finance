@@ -12,6 +12,7 @@ import { currentReturnFingerprint, type ReviewBuildDeps } from "@/lib/tax-review
 import type { OverrideRow } from "@/lib/tax2025/overrides";
 import {
   ATTESTATION_V1_TEXT,
+  ATTESTATION_V2_TEXT,
   currentApproval,
   evaluateApproval,
   evaluateGate,
@@ -202,14 +203,14 @@ describe("evaluateApproval: oracle enumeration", () => {
     l1: { status: "completed" }, l2: { status: "not_run", coverageListed: false }, l3: { status: "not_run", adversarialCompleted: false },
   });
   it("ok only when passed + allowed + checked + exact text + exact phrase + matching name", () => {
-    const texts = [PLAN_ATTESTATION, PLAN_ATTESTATION + " ", PLAN_ATTESTATION.replace("Eric", "Eva"), "", PLAN_ATTESTATION.toLowerCase()];
+    const texts = [ATTESTATION_V2_TEXT, ATTESTATION_V2_TEXT + " ", ATTESTATION_V2_TEXT.replace("Eric", "Eva"), PLAN_ATTESTATION, "", ATTESTATION_V2_TEXT.toLowerCase()];
     const phrases = ["I PREPARED THIS RETURN", "i prepared this return", " I PREPARED THIS RETURN ", "I PREPARED THIS RETURN.", "I  PREPARED THIS RETURN", ""];
     const names = ["Eric Kinniburgh", "eric kinniburgh", "  ERIC   KINNIBURGH ", "Eric", "Eva-Laura Ramirez-Wisiackas", "", "Eric Kinniburgh​"];
     let oks = 0;
     for (const gate of [passedGate, flaggedGate]) for (const allowed of [true, false]) for (const checked of [true, false]) for (const t of texts) for (const ph of phrases) for (const nm of names) for (const approver of ["Eric Kinniburgh", ""]) {
       const d = evaluateApproval(gate, { checked, attestationText: t, typedPhrase: ph, typedName: nm }, { approverName: approver, approverAllowed: allowed });
       const normName = (s: string) => s.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
-      const expected = gate.verdict === "passed" && allowed && checked && t === PLAN_ATTESTATION && ph.trim() === "I PREPARED THIS RETURN" && approver !== "" && normName(nm) === normName(approver);
+      const expected = gate.verdict === "passed" && allowed && checked && t === ATTESTATION_V2_TEXT && ph.trim() === "I PREPARED THIS RETURN" && approver !== "" && normName(nm) === normName(approver);
       if (d.ok !== expected) throw new Error(`mismatch ${JSON.stringify({ gate: gate.verdict, allowed, checked, t: t.slice(0, 10), ph, nm, approver })}: impl ${d.ok}`);
       if (d.ok) oks += 1;
       if (!d.ok) expect(d.reasons.length).toBeGreaterThan(0);
