@@ -248,6 +248,13 @@ export interface SheetDecisionPlaceholder {
   note: string;
 }
 
+/** Where a figure or an item came from (a document id, a questionnaire node, a GL code ...): what the links on the sheet are resolved from. Constants are never listed. */
+export interface SheetRef {
+  kind: string;
+  id: string;
+  label: string;
+}
+
 export interface SheetOpenItem {
   id: string;
   severity: "blocking" | "advisory";
@@ -261,13 +268,15 @@ export interface SheetOpenItem {
    */
   ownerAction: string | null;
   lines: { key: string; text: string }[];
+  /** The sources the engine attached to the item (documents, answers, books entries ...). */
+  refs: SheetRef[];
 }
 
 export interface SheetConflict {
   factKey: string;
   chosen: string | null;
   reason: string;
-  candidates: { basisLabel: string; label: string; valueText: string }[];
+  candidates: { basisLabel: string; label: string; valueText: string; refs: SheetRef[] }[];
 }
 
 export interface SheetHomework {
@@ -875,6 +884,8 @@ export function openItemOwner(item: Pick<OpenItem, "id" | "action">): "owner" | 
   return routeOpenItem(item).who;
 }
 
+const sheetRefs = (refs: readonly { kind: string; id: string; label: string }[]): SheetRef[] => refs.filter((r) => r.kind !== "constant").map((r) => ({ kind: r.kind, id: r.id, label: r.label }));
+
 function toSheetOpenItems(items: readonly OpenItem[]): SheetOpenItem[] {
   const seen = new Set<string>();
   const unique: OpenItem[] = [];
@@ -895,6 +906,7 @@ function toSheetOpenItems(items: readonly OpenItem[]): SheetOpenItem[] {
       who: routeOpenItem(i).who,
       ownerAction: routeOpenItem(i).ownerAction,
       lines: i.lineKeys.map((k) => ({ key: k, text: lineText(k) })),
+      refs: sheetRefs(i.refs),
     }));
 }
 
@@ -908,7 +920,7 @@ function toSheetConflicts(ret: Ty2025Return): SheetConflict[] {
     factKey: c.factKey,
     chosen: c.chosen,
     reason: c.reason,
-    candidates: c.candidates.map((x) => ({ basisLabel: BASIS_LABELS[x.basis] ?? x.basis, label: x.label, valueText: valueText(x.value) })),
+    candidates: c.candidates.map((x) => ({ basisLabel: BASIS_LABELS[x.basis] ?? x.basis, label: x.label, valueText: valueText(x.value), refs: sheetRefs(x.refs) })),
   }));
 }
 

@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { loadReviewInputs } from "@/lib/tax-review-build";
+import { loadFormData, loadReviewInputs } from "@/lib/tax-review-build";
 import { readRevocationFacts } from "@/lib/tax-review-approval-facts";
 import { getRunWithFindings, listApprovals, listDispositionDetails, listRuns } from "@/lib/tax-review-store";
 import { dbAiRunStore } from "@/lib/tax-review-l3-store";
@@ -10,6 +10,10 @@ import { approvalInForce, type ApprovalRevocationFacts, type GateEngineState } f
 import { engineGateState } from "@/lib/tax-review/l1/engine-state";
 import { buildReviewState, pickRun, type ApprovalDetail, type DispositionDetail, type ReviewStateDto, type RunRowLike } from "@/lib/tax-review/state";
 import type { Finding } from "@/lib/tax-review/types";
+import { buildLinkContext } from "@/lib/tax-review/links-context";
+import { EMPTY_LINK_CONTEXT, type LinkContext } from "@/lib/tax-review/links";
+import { buildSheetModel, type SheetModel } from "@/lib/tax2025-sheet";
+import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 
 // ── DB-aware assembly for the Final review page and its server actions (ai-return-reviewer, A6) ─────────────
 // READ-ONLY. No auth here and no "use server": every caller authenticates first (requireAuth() / auth()) and passes the session
@@ -27,6 +31,8 @@ export interface ReviewContext {
   approver: ApproverResolution;
   /** The judgments register built from the engine's own state (the AI-narrated wording replaces it once that task completed). */
   register?: RegisterEntry[];
+  /** Where each finding's links go (lines of the review sheet, printed pages, documents ...): plain JSON, built from the same return. */
+  links?: LinkContext;
 }
 
 export type ContextResult = { ok: true; ctx: ReviewContext } | { ok: false; error: string };
@@ -41,6 +47,32 @@ export function describeStoreFailure(err: unknown): string {
   if (code === "P2021" || code === "P2022") return TABLES_MISSING_MESSAGE;
   if (err instanceof Error && err.name === "ReviewStoreError") return err.message;
   return "The review could not be read or saved. Nothing was changed; try again.";
+}
+
+/** The link context for the return that was just loaded. A failure here only costs the deep links (they fall back to each area's section), never the review. */
+export function linkContextOf(inputs: Exclude<Awaited<ReturnType<typeof loadReviewInputs>>, { error: string }>): LinkContext {
+  try {
+    const model = buildSheetModel({
+      ret: inputs.built.ret,
+      documents: inputs.raw.documents.map((d) => ({ id: d.id, docType: d.docType, taxYear: d.taxYear, verified: d.verified, legacyFormat: d.legacyFormat, subjectType: d.subjectType })),
+      now: new Date(inputs.generatedAt),
+      ...(inputs.built.effective ? { effective: inputs.built.effective } : {}),
+    });
+    return buildLinkContext({ model, ret: inputs.built.ret, maps: FORM_MAPS, catalogs: loadFormData().catalogs });
+  } catch (err) {
+    console.error("tax review: link context could not be built:", err instanceof Error ? err.name : "unknown error");
+    return EMPTY_LINK_CONTEXT;
+  }
+}
+
+/** The link context for the return review sheet page (built from the sheet model it renders). Failure only costs the links. */
+export function linkContextForSheet(model: SheetModel): LinkContext {
+  try {
+    return buildLinkContext({ model, maps: FORM_MAPS, catalogs: loadFormData().catalogs });
+  } catch (err) {
+    console.error("tax review: link context could not be built:", err instanceof Error ? err.name : "unknown error");
+    return EMPTY_LINK_CONTEXT;
+  }
 }
 
 export async function loadReviewContext(year: 2025, userId: string): Promise<ContextResult> {
@@ -60,6 +92,7 @@ export async function loadReviewContext(year: 2025, userId: string): Promise<Con
       engine: engineGateState({ view: inputs.view, effective: inputs.built.effective }),
       approver: resolveApprover(users, inputs.ekcName, user.id),
       register: buildRegister({ ret: inputs.built.ret, facts: inputs.built.facts }),
+      links: linkContextOf(inputs),
     },
   };
 }
@@ -112,12 +145,12 @@ export function stateOf(ctx: ReviewContext, records: ReviewRecords): ReviewState
   });
 }
 
-export async function loadReviewState(year: 2025, userId: string): Promise<{ ok: true; state: ReviewStateDto } | { ok: false; error: string }> {
+export async function loadReviewState(year: 2025, userId: string): Promise<{ ok: true; state: ReviewStateDto; links: LinkContext } | { ok: false; error: string }> {
   const loaded = await loadReviewContext(year, userId);
   if (!loaded.ok) return loaded;
   try {
     const records = await readReviewRecords(loaded.ctx);
-    return { ok: true, state: stateOf(loaded.ctx, records) };
+    return { ok: true, state: stateOf(loaded.ctx, records), links: loaded.ctx.links ?? EMPTY_LINK_CONTEXT };
   } catch (err) {
     return { ok: false, error: describeStoreFailure(err) };
   }

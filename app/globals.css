@@ -58,6 +58,41 @@
   }
 }
 
+/* Deep links (final-review-deep-links): an element another page links to by id carries .anchor-target. scroll-margin keeps the row clear of
+   the top edge when the browser scrolls to it; the flash and the outline show the owner where the link landed (:target covers a full page
+   load, .anchor-flash is added by components/tax/anchor-highlight.tsx for client navigation and hash changes). Never printed. */
+.anchor-target {
+  scroll-margin-top: 6rem;
+}
+.anchor-target:target,
+.anchor-flash {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  animation: anchor-flash 3s ease-out 1;
+}
+@keyframes anchor-flash {
+  0%,
+  60% {
+    background-color: hsl(var(--accent));
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .anchor-target:target,
+  .anchor-flash {
+    animation: none;
+  }
+}
+@media print {
+  .anchor-target:target,
+  .anchor-flash {
+    outline: none;
+    animation: none;
+  }
+}
+
 /* Print: the CPA summary page (/tax/forms/[year]/cpa-summary) wraps its content in
    #cpa-summary. The app shell is a fixed-height, overflow-hidden flex column, which
    would clip a multi-page print to one screen, so on that page only we un-clamp it,

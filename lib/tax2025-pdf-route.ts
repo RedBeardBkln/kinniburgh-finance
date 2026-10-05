@@ -124,14 +124,15 @@ function jsonError(status: number, error: string): Response {
   });
 }
 
-function fileResponse(bytes: Uint8Array, contentType: string, filename: string): Response {
+function fileResponse(bytes: Uint8Array, contentType: string, filename: string, inline = false): Response {
   // Copy into a fresh ArrayBuffer-backed view so the body type is a plain BodyInit.
   const body = new Uint8Array(bytes);
   return new Response(body, {
     status: 200,
     headers: {
       "Content-Type": contentType,
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      // `inline` only when the caller asked to VIEW one PDF (?view=1: the Final review links open a form on a page); every download stays an attachment
+      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${filename}"`,
       "Content-Length": String(body.byteLength),
       "Cache-Control": NO_STORE,
     },
@@ -219,6 +220,13 @@ async function handleFinalPackage(view: PdfReturnView, req: PacketRequest, deps:
 
 export interface FormRequest extends PacketRequest {
   form: string;
+  /** Raw `view` query parameter: "1" opens ONE PDF inline in the browser's viewer (so a link can carry #page=N); anything else downloads it. */
+  view?: string | null;
+}
+
+/** `?view=1` asks for an inline PDF. It changes only the Content-Disposition header: every gate (auth, approval, blocking items) runs first. */
+export function parseView(raw: string | null | undefined): boolean {
+  return raw === "1";
 }
 
 export async function handleFormRequest(req: FormRequest, deps: PdfRouteDeps): Promise<Response> {
@@ -270,7 +278,7 @@ export async function handleFormRequest(req: FormRequest, deps: PdfRouteDeps): P
     const only = sheets[0];
     if (sheets.length === 1 && only) {
       const name = `ty${year.year}-${map.formId}-${fp12}${tag}.pdf`;
-      return fileResponse(only.result.bytes, "application/pdf", name);
+      return fileResponse(only.result.bytes, "application/pdf", name, parseView(req.view ?? null));
     }
     const mtime = new Date(view.generatedAt);
     const zippable: Zippable = {};

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { defaultPdfRouteDeps } from "@/lib/tax2025-pdf-build";
 import { handleFormRequest } from "@/lib/tax2025-pdf-route";
 
-// One filled form (DRAFT unless `?final=1` for an approved return; `?stamp=0` and `?final=1` return 403 until the
+// One filled form (DRAFT unless `?final=1` for an approved return; `?view=1` opens it inline in the viewer, which the Final review deep links use; `?stamp=0` and `?final=1` return 403 until the
 // owner has approved the current return). Auth-gated: auth() is the first statement;
 // the form id is whitelisted against the registered maps and the blank-form manifest.
 export const runtime = "nodejs";
@@ -21,6 +21,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ year: st
       form,
       stamp: new URL(req.url).searchParams.get("stamp"),
       final: new URL(req.url).searchParams.get("final"),
+      view: new URL(req.url).searchParams.get("view"),
       user: { id: session.user.id, name: session.user.name ?? "unknown user" },
     },
     defaultPdfRouteDeps,
