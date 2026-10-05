@@ -168,12 +168,12 @@ export function AiReviewPanel({ year, hasCurrentRun, runId, ai, whyNot }: { year
           </ul>
           <div className="flex flex-wrap items-center gap-2">
             {canResume(progress) && !looping && resumeId !== null ? (
-              <button type="button" className={BUTTON_PRIMARY} onClick={() => void loop(resumeId)} data-testid="ai-resume-button">
+              <button type="button" className={BUTTON_PRIMARY} onClick={() => void loop(resumeId)} disabled={whyNot !== null} data-testid="ai-resume-button">
                 Resume
               </button>
             ) : null}
             {canResume(progress) && resumeId !== null ? (
-              <button type="button" className={BUTTON_PLAIN} onClick={() => void doCancel(resumeId)} data-testid="ai-cancel-button">
+              <button type="button" className={BUTTON_PLAIN} onClick={() => void doCancel(resumeId)} disabled={whyNot !== null} data-testid="ai-cancel-button">
                 Cancel the AI review
               </button>
             ) : null}

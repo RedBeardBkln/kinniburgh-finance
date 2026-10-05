@@ -63,7 +63,7 @@ export async function runReviewChecks(input: z.input<typeof yearOnly>): Promise<
     // a second click on "Run checks" for the same return state within seconds is the same run, not a new one
     const latest = (await listRuns(year, result.entityId, 1))[0];
     if (latest !== undefined && latest.fingerprint === result.fingerprint.fingerprint && Date.now() - new Date(latest.startedAt).getTime() < 15_000) {
-      return { ok: true, runId: latest.id, findingCount: result.l1.findings.length, reused: true };
+      return { ok: true, runId: latest.id, findingCount: result.findings.length, reused: true };
     }
     const stored = await insertReviewRun({
       taxYear: year,
@@ -75,7 +75,8 @@ export async function runReviewChecks(input: z.input<typeof yearOnly>): Promise<
       config: result.config,
       l1Summary: result.l1Summary,
       l2Summary: result.l2Summary,
-      findings: result.l1.findings,
+      // L1 AND L2 (the independent recalculation): result.l1.findings alone would drop every L2 finding and the gate would never see one
+      findings: result.findings,
     });
     await writeReviewAudit(user.id, "tax_review_run_started", {
       runId: stored.runId,
@@ -84,6 +85,7 @@ export async function runReviewChecks(input: z.input<typeof yearOnly>): Promise<
       engineVersion: result.engineVersion,
       findingCount: stored.findingCount,
       l1Status: result.l1.status,
+      l2Status: result.l2.status,
       counts: result.l1.summary.counts,
     });
     revalidateYear(year);

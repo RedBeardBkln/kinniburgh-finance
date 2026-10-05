@@ -118,7 +118,7 @@ beforeEach(() => {
   server.readReviewRecords.mockResolvedValue(recordsOf());
   store.insertDisposition.mockResolvedValue({ id: "disp-1" });
   store.insertApproval.mockResolvedValue({ id: "appr-1" });
-  store.insertReviewRun.mockResolvedValue({ runId: RUN, findingCount: 1 });
+  store.insertReviewRun.mockImplementation(async (input: { findings: unknown[] }) => ({ runId: RUN, findingCount: input.findings.length }));
   store.listRuns.mockResolvedValue([]);
   store.getRunWithFindings.mockResolvedValue(null);
 });
@@ -238,12 +238,16 @@ describe("SSN-like text is refused before any work", () => {
 });
 
 describe("runReviewChecks", () => {
+  const l1Finding = finding("L1.E2.expense-ratio");
+  const l2Finding = finding("L2.diff.f1040.24", { layer: "L2", severity: "blocker", formKey: "f1040", lineKey: "f1040.24" });
   const result = (over: Record<string, unknown> = {}) => ({
     entityId: ENTITY,
     fingerprint: { fingerprint: FP },
     engineVersion: "e1",
-    l1: { findings: [finding("L1.E2.expense-ratio")], status: "completed", summary: { counts: { blocker: 0, high: 0, medium: 1, low: 0, info: 0 } } },
-    l2: { status: "not_run", coverage: [] },
+    l1: { findings: [l1Finding], status: "completed", summary: { counts: { blocker: 0, high: 0, medium: 1, low: 0, info: 0 } } },
+    l2: { status: "ran", coverage: [] },
+    // what runReviewForYear returns: L1 and L2 findings together (the action must store this list, not l1.findings)
+    findings: [l1Finding, l2Finding],
     config: { l1Version: 1 },
     l1Summary: { status: "completed" },
     l2Summary: { status: "not_run", coverage: [] },
@@ -253,15 +257,16 @@ describe("runReviewChecks", () => {
   it("runs L1 for the current return, stores the run and its findings, and writes an audit row of ids and counts", async () => {
     build.runReviewForYear.mockResolvedValue(result());
     const r = await runReviewChecks({ taxYear: 2025 });
-    expect(r).toEqual({ ok: true, runId: RUN, findingCount: 1, reused: false });
+    expect(r).toEqual({ ok: true, runId: RUN, findingCount: 2, reused: false });
     expect(build.runReviewForYear).toHaveBeenCalledWith(2025, "Eric Kinniburgh", "draft");
     const arg = store.insertReviewRun.mock.calls[0]?.[0] as { fingerprint: string; findings: Finding[]; startedById: string };
     expect(arg.fingerprint).toBe(FP);
-    expect(arg.findings).toHaveLength(1);
+    // L1 AND L2 findings are stored (the L2 hook): result.l1.findings alone would lose the recalculation's findings
+    expect(arg.findings.map((f) => f.layer)).toEqual(["L1", "L2"]);
     expect(arg.startedById).toBe(USER);
     const audit = mockDb.auditLog.create.mock.calls[0]?.[0] as { data: { changeType: string; after: Record<string, unknown> } };
     expect(audit.data.changeType).toBe("tax_review_run_started");
-    expect(Object.keys(audit.data.after).sort()).toEqual(["counts", "engineVersion", "findingCount", "fingerprint", "l1Status", "runId", "taxYear"]);
+    expect(Object.keys(audit.data.after).sort()).toEqual(["counts", "engineVersion", "findingCount", "fingerprint", "l1Status", "l2Status", "runId", "taxYear"]);
     expect(JSON.stringify(audit.data.after)).not.toMatch(/expense|thing to look at/i);
   });
 
