@@ -653,7 +653,7 @@ describe("source checks (page, components, styles)", () => {
   it("the page authenticates itself before loading anything and only hands the plain model to the sheet", () => {
     expect(page).toMatch(/const session = await auth\(\);\s*\n\s*if \(!session\?\.user\) redirect\("\/login"\);/);
     expect(page.indexOf("await auth()")).toBeLessThan(page.indexOf("loadSheet("));
-    expect(page).toContain("<ReturnSheet model={loaded.model} />");
+    expect(page).toContain("<ReturnSheet model={loaded.model} links={linkContextForSheet(loaded.model)} />");
     expect(page).toContain("<AppShell");
     expect(page).toContain('id="return-sheet"');
     expect(page).not.toMatch(/\.facts\b|\.resolved\b|loadTy2025RawInputs|extractionData|Decimal/);

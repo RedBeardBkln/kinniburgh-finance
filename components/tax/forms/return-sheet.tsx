@@ -18,11 +18,17 @@ import {
 import { OverrideDecisionButton } from "@/components/tax/forms/override-decision-button";
 import { OverrideLineButton } from "@/components/tax/forms/override-line-button";
 import { OverridesPanel } from "@/components/tax/forms/overrides-panel";
+import { AnchorHighlight } from "@/components/tax/anchor-highlight";
+import { LinkList } from "@/components/tax/review/finding-links";
+import { conflictLinks, EMPTY_LINK_CONTEXT, openItemLinks, type LinkContext } from "@/lib/tax-review/links";
+import { conflictAnchorId, decisionAnchorId, documentAnchorId, formGroupAnchorId, homeworkAnchorId, lineAnchorId, openItemAnchorId, SHEET_ANCHORS } from "@/lib/tax-anchors";
 
 // The printable RETURN REVIEW SHEET (Phase 1c). A server component: it receives ONLY the
 // plain-JSON SheetModel (built from the engine's Ty2025Return) - no Decimals, no raw
 // extraction data. Six parts, each starting a new printed page (see the #return-sheet
 // block in app/globals.css):
+// Their element ids (part-1, part-2, part-3, part-4, part-5, part-6, plus overrides, attestations and the headline tables) are written through SHEET_ANCHORS
+// (lib/tax-anchors.ts), the same constants the deep links (lib/tax-review/links.ts) are built from.
 //   P1 summary   P2 federal lines   P3 Connecticut lines
 //   P4 owner decisions   P5 open items, conflicts, owner homework   P6 documents + sign-off
 // Everything here is a computed DRAFT; the owner is the preparer of record. A line without
@@ -84,9 +90,9 @@ function Draft({ label }: { label: string }) {
 
 // ── P1 ────────────────────────────────────────────────────────────────────────
 
-function HeadlineTable({ title, rows, showProvisional }: { title: string; rows: SheetHeadlineRow[]; showProvisional: boolean }) {
+function HeadlineTable({ id, title, rows, showProvisional }: { id: string; title: string; rows: SheetHeadlineRow[]; showProvisional: boolean }) {
   return (
-    <div className="overflow-x-auto">
+    <div id={id} className="anchor-target overflow-x-auto">
       <table className="w-full min-w-[28rem] text-sm">
         <caption className="pb-1 text-left text-sm font-semibold">{title}</caption>
         <thead>
@@ -140,7 +146,7 @@ function Counter({ label, value, warn }: { label: string; value: number; warn?: 
 function PartSummary({ model }: { model: SheetModel }) {
   const s = model.summary;
   return (
-    <section id="part-1" className="sheet-part space-y-4" aria-labelledby="part-1-title">
+    <section id={SHEET_ANCHORS.summary} className="sheet-part anchor-target space-y-4" aria-labelledby="part-1-title">
       <Draft label={model.draftLabel} />
       <div>
         <h2 id="part-1-title" className="text-xl font-semibold">
@@ -158,8 +164,8 @@ function PartSummary({ model }: { model: SheetModel }) {
         {s.completenessText}
       </p>
       <OverridesPanel summary={s.overrides} />
-      <HeadlineTable title="Federal (Form 1040)" rows={s.federal} showProvisional={!s.complete} />
-      <HeadlineTable title="Connecticut (CT-1040)" rows={s.connecticut} showProvisional={!s.complete} />
+      <HeadlineTable id={SHEET_ANCHORS.headlineFederal} title="Federal (Form 1040)" rows={s.federal} showProvisional={!s.complete} />
+      <HeadlineTable id={SHEET_ANCHORS.headlineConnecticut} title="Connecticut (CT-1040)" rows={s.connecticut} showProvisional={!s.complete} />
       {!s.complete && s.provisionalNote !== null ? (
         <div className="space-y-1 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
           <p>{s.provisionalNote}</p>
@@ -212,7 +218,8 @@ function LineRow({ line, taxYear }: { line: SheetLine; taxYear: 2025 }) {
   const ov = line.override;
   return (
     <tr
-      className={`border-b align-top ${muted ? "text-muted-foreground" : ""} ${blocked ? "bg-amber-50/40" : ""} ${ov !== null ? "bg-fuchsia-50/50" : ""}`}
+      id={lineAnchorId(line.key)}
+      className={`anchor-target border-b align-top ${muted ? "text-muted-foreground" : ""} ${blocked ? "bg-amber-50/40" : ""} ${ov !== null ? "bg-fuchsia-50/50" : ""}`}
       data-line-key={line.key}
     >
       <td className="whitespace-nowrap py-1 pr-2 text-xs tabular-nums">{line.formLine}</td>
@@ -288,7 +295,7 @@ function LineRow({ line, taxYear }: { line: SheetLine; taxYear: 2025 }) {
 
 function FormGroup({ group, taxYear }: { group: SheetFormGroup; taxYear: 2025 }) {
   return (
-    <div className="break-inside-avoid-page space-y-1">
+    <div id={formGroupAnchorId(group.form)} className="anchor-target break-inside-avoid-page space-y-1">
       <div className="flex flex-wrap items-baseline gap-2">
         <h3 className="text-base font-semibold">{group.form}</h3>
         {group.requirement !== null ? (
@@ -322,7 +329,7 @@ function FormGroup({ group, taxYear }: { group: SheetFormGroup; taxYear: 2025 })
 
 function PartLines({ id, title, intro, groups, model, withAttestations }: { id: string; title: string; intro: string; groups: SheetFormGroup[]; model: SheetModel; withAttestations?: boolean }) {
   return (
-    <section id={id} className="sheet-part space-y-4" aria-labelledby={`${id}-title`}>
+    <section id={id} className="sheet-part anchor-target space-y-4" aria-labelledby={`${id}-title`}>
       <Draft label={model.draftLabel} />
       <div>
         <h2 id={`${id}-title`} className="text-xl font-semibold">
@@ -334,7 +341,7 @@ function PartLines({ id, title, intro, groups, model, withAttestations }: { id: 
         <FormGroup key={g.form} group={g} taxYear={model.taxYear} />
       ))}
       {withAttestations ? (
-        <div className="break-inside-avoid space-y-1">
+        <div id={SHEET_ANCHORS.attestations} className="anchor-target break-inside-avoid space-y-1">
           <h3 className="text-base font-semibold">Yes / no questions printed on the return</h3>
           <ul className="space-y-0.5 text-sm">
             {model.attestations.map((a) => (
@@ -375,7 +382,7 @@ function Alternative({ alt }: { alt: SheetAlternative }) {
 
 function Decision({ d, taxYear, canRecord }: { d: SheetDecision; taxYear: 2025; canRecord: boolean }) {
   return (
-    <div className="break-inside-avoid space-y-2 rounded-lg border p-4" data-decision={d.id}>
+    <div id={decisionAnchorId(d.id)} className="anchor-target break-inside-avoid space-y-2 rounded-lg border p-4" data-decision={d.id}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-base font-semibold">
           {d.id}: {d.label}
@@ -425,7 +432,7 @@ function Decision({ d, taxYear, canRecord }: { d: SheetDecision; taxYear: 2025; 
 
 function PartDecisions({ model }: { model: SheetModel }) {
   return (
-    <section id="part-4" className="sheet-part space-y-4" aria-labelledby="part-4-title">
+    <section id={SHEET_ANCHORS.decisions} className="sheet-part anchor-target space-y-4" aria-labelledby="part-4-title">
       <Draft label={model.draftLabel} />
       <div>
         <h2 id="part-4-title" className="text-xl font-semibold">
@@ -445,7 +452,7 @@ function PartDecisions({ model }: { model: SheetModel }) {
           <h3 className="text-base font-semibold">Decisions not raised or not computed yet</h3>
           <ul className="space-y-1 text-sm">
             {model.decisionPlaceholders.map((p) => (
-              <li key={p.id}>
+              <li key={p.id} id={decisionAnchorId(p.id)} className="anchor-target">
                 <span className="font-medium">
                   {p.id}: {p.label}.
                 </span>{" "}
@@ -461,9 +468,9 @@ function PartDecisions({ model }: { model: SheetModel }) {
 
 // ── P5 ────────────────────────────────────────────────────────────────────────
 
-function ItemRow({ item }: { item: SheetOpenItem }) {
+function ItemRow({ item, links }: { item: SheetOpenItem; links: LinkContext }) {
   return (
-    <tr className="border-b align-top" data-item-id={item.id}>
+    <tr id={openItemAnchorId(item.id)} className="anchor-target border-b align-top" data-item-id={item.id}>
       <td className="py-1 pr-2">
         <span className={`rounded-full border px-2 py-0.5 text-[11px] ${item.severity === "blocking" ? "border-red-300 bg-red-50 text-red-800" : "border-border bg-muted text-muted-foreground"}`}>
           {item.severity}
@@ -472,12 +479,15 @@ function ItemRow({ item }: { item: SheetOpenItem }) {
       <td className="py-1 pr-2 text-sm">{item.message}</td>
       <td className="py-1 pr-2 text-xs">{item.action}</td>
       <td className="py-1 pr-2 text-xs">{item.who === "owner" ? "owner" : item.who === "derived" ? "computed from other lines" : "your decision"}</td>
-      <td className="py-1 text-xs">{item.lines.length > 0 ? item.lines.map((l) => l.text).join(", ") : "-"}</td>
+      <td className="py-1 pr-2 text-xs">{item.lines.length > 0 ? item.lines.map((l) => l.text).join(", ") : "-"}</td>
+      <td className="py-1 text-xs print:hidden" data-testid="item-links">
+        <LinkList links={openItemLinks(item, links)} />
+      </td>
     </tr>
   );
 }
 
-function ItemTable({ items }: { items: SheetOpenItem[] }) {
+function ItemTable({ items, links }: { items: SheetOpenItem[]; links: LinkContext }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[44rem] text-sm">
@@ -487,12 +497,13 @@ function ItemTable({ items }: { items: SheetOpenItem[] }) {
             <th className="py-1 pr-2 font-medium">Item</th>
             <th className="py-1 pr-2 font-medium">Action</th>
             <th className="py-1 pr-2 font-medium">Who</th>
-            <th className="py-1 font-medium">Lines</th>
+            <th className="py-1 pr-2 font-medium">Lines</th>
+            <th className="py-1 font-medium print:hidden">Answer or resolve</th>
           </tr>
         </thead>
         <tbody>
           {items.map((i) => (
-            <ItemRow key={i.id} item={i} />
+            <ItemRow key={i.id} item={i} links={links} />
           ))}
         </tbody>
       </table>
@@ -500,11 +511,12 @@ function ItemTable({ items }: { items: SheetOpenItem[] }) {
   );
 }
 
-function PartOpenItems({ model }: { model: SheetModel }) {
+function PartOpenItems({ model, links }: { model: SheetModel; links: LinkContext }) {
+  const itemOf = new Map(model.openItems.map((i) => [i.id, i]));
   const direct = model.openItems.filter((i) => i.who !== "derived");
   const derived = model.openItems.filter((i) => i.who === "derived");
   return (
-    <section id="part-5" className="sheet-part space-y-4" aria-labelledby="part-5-title">
+    <section id={SHEET_ANCHORS.openItems} className="sheet-part anchor-target space-y-4" aria-labelledby="part-5-title">
       <Draft label={model.draftLabel} />
       <div>
         <h2 id="part-5-title" className="text-xl font-semibold">
@@ -512,7 +524,7 @@ function PartOpenItems({ model }: { model: SheetModel }) {
         </h2>
         <p className="text-xs text-muted-foreground">Blocking items first. Each item lists the return lines it affects.</p>
       </div>
-      <ItemTable items={direct} />
+      <ItemTable items={direct} links={links} />
       {direct.length === 0 ? <p className="py-2 text-sm">No open items.</p> : null}
       {derived.length > 0 ? (
         <div className="space-y-1" data-testid="derived-items">
@@ -521,7 +533,7 @@ function PartOpenItems({ model }: { model: SheetModel }) {
             These items only wait for figures the engine computes from other lines (taxable income, AGI, Schedule C profit ...). Nobody has to
             provide them: they resolve when the owner answers the homework items below and you settle the items above.
           </p>
-          <ItemTable items={derived} />
+          <ItemTable items={derived} links={links} />
         </div>
       ) : null}
 
@@ -530,7 +542,7 @@ function PartOpenItems({ model }: { model: SheetModel }) {
         {model.conflicts.length === 0 ? <p className="text-sm text-muted-foreground">None detected.</p> : null}
         <ul className="space-y-2 text-sm">
           {model.conflicts.map((c) => (
-            <li key={c.factKey} className="rounded-md border p-2">
+            <li key={c.factKey} id={conflictAnchorId(c.factKey)} className="anchor-target rounded-md border p-2">
               <p className="font-medium">{c.factKey}</p>
               <p className="text-xs">{c.reason}</p>
               <ul className="mt-1 list-disc pl-5 text-xs">
@@ -541,6 +553,9 @@ function PartOpenItems({ model }: { model: SheetModel }) {
                 ))}
               </ul>
               <p className="text-xs text-muted-foreground">Used: {c.chosen ?? "none of them"}</p>
+              <div className="mt-1 print:hidden" data-testid="conflict-links">
+                <LinkList links={conflictLinks(c, links)} />
+              </div>
             </li>
           ))}
         </ul>
@@ -551,13 +566,16 @@ function PartOpenItems({ model }: { model: SheetModel }) {
         {model.homework.length === 0 ? <p className="text-sm text-muted-foreground">Nothing is waiting on the owners.</p> : null}
         <ol className="space-y-1.5 text-sm">
           {model.homework.map((h) => (
-            <li key={h.id} className="flex gap-2">
+            <li key={h.id} id={homeworkAnchorId(h.id)} className="anchor-target flex gap-2">
               <span className="mt-1 inline-block h-3 w-3 shrink-0 border border-foreground" aria-hidden="true" />
               <span>
                 <span className="font-medium">{h.what}</span>{" "}
                 <span className="text-muted-foreground">
                   ({h.severity}) {h.why}
                   {h.lines.length > 0 ? ` Lines: ${h.lines.join(", ")}.` : ""}
+                </span>
+                <span className="mt-0.5 block print:hidden" data-testid="homework-links">
+                  <LinkList links={itemOf.get(h.id) === undefined ? [] : openItemLinks(itemOf.get(h.id) as SheetOpenItem, links)} />
                 </span>
               </span>
             </li>
@@ -572,7 +590,7 @@ function PartOpenItems({ model }: { model: SheetModel }) {
 
 function PartDocuments({ model }: { model: SheetModel }) {
   return (
-    <section id="part-6" className="sheet-part space-y-4" aria-labelledby="part-6-title">
+    <section id={SHEET_ANCHORS.documents} className="sheet-part anchor-target space-y-4" aria-labelledby="part-6-title">
       <Draft label={model.draftLabel} />
       <div>
         <h2 id="part-6-title" className="text-xl font-semibold">
@@ -592,7 +610,7 @@ function PartDocuments({ model }: { model: SheetModel }) {
           </thead>
           <tbody>
             {model.documents.map((d) => (
-              <tr key={d.id} className="border-b align-top">
+              <tr key={d.id} id={documentAnchorId(d.id)} className="anchor-target border-b align-top">
                 <td className="py-1 pr-2">
                   <Link href={d.href as Route} prefetch={false} className="text-primary hover:underline">
                     {d.docTypeLabel}
@@ -647,9 +665,10 @@ function PartDocuments({ model }: { model: SheetModel }) {
   );
 }
 
-export function ReturnSheet({ model }: { model: SheetModel }) {
+export function ReturnSheet({ model, links = EMPTY_LINK_CONTEXT }: { model: SheetModel; links?: LinkContext }) {
   return (
     <div className="space-y-8">
+      <AnchorHighlight />
       {/* Repeats on every printed page (fixed to the page box in print only; hidden on screen). */}
       <div
         className="sheet-print-header hidden border-b border-amber-600 bg-white px-2 py-0.5 text-center text-[9px] font-semibold text-amber-950 print:fixed print:left-0 print:right-0 print:top-0 print:block"
@@ -659,7 +678,7 @@ export function ReturnSheet({ model }: { model: SheetModel }) {
       </div>
       <PartSummary model={model} />
       <PartLines
-        id="part-2"
+        id={SHEET_ANCHORS.federal}
         title="2. Federal return, line by line"
         intro="Every line the engine emits, grouped by form. Amounts are whole dollars; a line that is not computed says so and is never zero."
         groups={model.federal}
@@ -667,14 +686,14 @@ export function ReturnSheet({ model }: { model: SheetModel }) {
         withAttestations
       />
       <PartLines
-        id="part-3"
+        id={SHEET_ANCHORS.connecticut}
         title="3. Connecticut return, line by line"
         intro="CT-1040 lines and the Connecticut figures derived from the federal return."
         groups={model.connecticut}
         model={model}
       />
       <PartDecisions model={model} />
-      <PartOpenItems model={model} />
+      <PartOpenItems model={model} links={links} />
       <PartDocuments model={model} />
     </div>
   );

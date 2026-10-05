@@ -9,6 +9,7 @@ import { ReturnSheet } from "@/components/tax/forms/return-sheet";
 import { buildTy2025ReturnWithOverrides } from "@/lib/tax2025-overrides-build";
 import { SHEET_DRAFT_LABEL, SHEET_SUPPORTED_YEAR } from "@/lib/tax2025-sheet";
 import { loadSheet } from "@/lib/tax2025-sheet-load";
+import { linkContextForSheet } from "@/lib/tax-review-server";
 
 interface PageProps {
   params: Promise<{ year: string }>;
@@ -77,7 +78,7 @@ export default async function TaxReturnSheetPage({ params }: PageProps) {
             <p className="text-sm">{loaded.message}</p>
           </div>
         ) : (
-          <ReturnSheet model={loaded.model} />
+          <ReturnSheet model={loaded.model} links={linkContextForSheet(loaded.model)} />
         )}
       </div>
     </AppShell>

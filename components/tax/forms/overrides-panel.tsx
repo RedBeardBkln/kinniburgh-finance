@@ -1,4 +1,5 @@
 import type { SheetOverridesSummary } from "@/lib/tax2025-sheet";
+import { SHEET_ANCHORS } from "@/lib/tax-anchors";
 
 // The overrides panel at the top of the review sheet. A server component: always
 // visible AND printed, so a reader of the printout can never miss that a figure is a
@@ -25,13 +26,13 @@ export function OverridesPanel({ summary }: { summary: SheetOverridesSummary }) 
     summary.stale.length + summary.engineChanged.length + summary.orphans.length + summary.anomalies.length + summary.invalid.length > 0;
   if (!any) {
     return (
-      <p className="text-xs text-muted-foreground" data-testid="overrides-none">
+      <p id={SHEET_ANCHORS.overrides} className="anchor-target text-xs text-muted-foreground" data-testid="overrides-none">
         No overrides are in force. Every figure below is the app&apos;s own computation.
       </p>
     );
   }
   return (
-    <section className="space-y-3 rounded-md border-2 border-violet-400 bg-violet-50/60 p-3" aria-label="Overrides in force" data-testid="overrides-panel">
+    <section id={SHEET_ANCHORS.overrides} className="anchor-target space-y-3 rounded-md border-2 border-violet-400 bg-violet-50/60 p-3" aria-label="Overrides in force" data-testid="overrides-panel">
       <h3 className="text-sm font-semibold text-violet-950">
         Overrides in force: {summary.lineCount} line figure(s), {summary.decisionCount} decision(s), {summary.ackCount} acknowledgement(s)
       </h3>

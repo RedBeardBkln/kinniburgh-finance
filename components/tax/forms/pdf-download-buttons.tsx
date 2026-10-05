@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
+import { FORMS_PAGE_ANCHORS } from "@/lib/tax-anchors";
 
 // DRAFT filled-PDF downloads for tax year 2025 (plan sections 6.9 / 6.10). A server
 // component of plain links: each is a GET to the auth-gated /api/tax/forms routes, so
@@ -38,7 +39,7 @@ export function PdfDownloadButtons({ year, overrideCount = 0 }: { year: number; 
   if (year !== PDF_SUPPORTED_YEAR) return null;
   const base = `/api/tax/forms/${year}/pdf`;
   return (
-    <section aria-labelledby="pdf-download-heading" className="space-y-2 rounded-lg border p-4">
+    <section id={FORMS_PAGE_ANCHORS.pdf} aria-labelledby="pdf-download-heading" className="anchor-target space-y-2 rounded-lg border p-4">
       <div>
         <h2 id="pdf-download-heading" className="text-base font-semibold">
           Filled PDF forms - DRAFT, not yet approved

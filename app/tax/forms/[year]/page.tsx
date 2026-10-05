@@ -13,6 +13,8 @@ import { FormsSummary } from "@/components/tax/forms/forms-summary";
 import { PDF_SUPPORTED_YEAR, PdfDownloadButtons } from "@/components/tax/forms/pdf-download-buttons";
 import { EntityFormsSectionView } from "@/components/tax/forms/entity-forms-section";
 import { YearNotice } from "@/components/tax/forms/year-notice";
+import { AnchorHighlight } from "@/components/tax/anchor-highlight";
+import { FORMS_PAGE_ANCHORS } from "@/lib/tax-anchors";
 import { defaultFilingTaxYear } from "@/lib/tax-default-year";
 
 interface PageProps {
@@ -53,6 +55,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
+        <AnchorHighlight />
         <YearNotice viewedYear={year} defaultYear={defaultFilingTaxYear()} hrefForDefaultYear={`/tax/forms/${defaultFilingTaxYear()}`} />
         <div>
           <div className="mb-1 flex items-center gap-2 text-sm text-muted-foreground">
@@ -113,7 +116,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
 
         <FormsSummary data={data} />
 
-        <section className="space-y-3">
+        <section id={FORMS_PAGE_ANCHORS.federal} className="anchor-target space-y-3">
           <h2 className="text-lg font-semibold">Federal — {data.householdLabel}</h2>
           <div className="grid gap-3 lg:grid-cols-2">
             {data.federal.map((entry) => (
@@ -122,7 +125,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
           </div>
         </section>
 
-        <section className="space-y-3">
+        <section id={FORMS_PAGE_ANCHORS.connecticut} className="anchor-target space-y-3">
           <h2 className="text-lg font-semibold">Connecticut — household</h2>
           <div className="grid gap-3 lg:grid-cols-2">
             {data.connecticut.map((entry) => (
@@ -131,7 +134,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
           </div>
         </section>
 
-        <section className="space-y-3">
+        <section id={FORMS_PAGE_ANCHORS.needsInput} className="anchor-target space-y-3">
           <div>
             <h2 className="text-lg font-semibold">Needs your input</h2>
             <p className="text-sm text-muted-foreground">
@@ -146,7 +149,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
           </div>
         </section>
 
-        <section className="space-y-3">
+        <section id={FORMS_PAGE_ANCHORS.business} className="anchor-target space-y-3">
           <div>
             <h2 className="text-lg font-semibold">Business entities</h2>
             <p className="text-sm text-muted-foreground">

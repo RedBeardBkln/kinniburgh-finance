@@ -97,7 +97,7 @@ export function FormCard({
   const pct = entry.fieldsTotal > 0 ? Math.round((entry.fieldsReady / entry.fieldsTotal) * 100) : 0;
 
   return (
-    <div className={`rounded-lg border bg-card p-4 ${muted ? "opacity-75" : ""}`} id={entry.id}>
+    <div className={`anchor-target rounded-lg border bg-card p-4 ${muted ? "opacity-75" : ""}`} id={entry.id}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">{entry.formName}</p>

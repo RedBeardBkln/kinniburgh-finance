@@ -8,6 +8,7 @@ import { loadQuestionnairePage } from "@/lib/tax-questionnaire-build";
 import { renderCopy } from "@/lib/tax-questionnaire";
 import { SOURCES } from "@/lib/tax-questionnaire-content";
 import { YearNotice } from "@/components/tax/forms/year-notice";
+import { AnchorHighlight } from "@/components/tax/anchor-highlight";
 import { defaultFilingTaxYear } from "@/lib/tax-default-year";
 
 interface PageProps {
@@ -35,6 +36,7 @@ export default async function TaxQuestionnairePage({ params, searchParams }: Pag
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-5">
+        <AnchorHighlight />
         <YearNotice
           viewedYear={year}
           defaultYear={defaultFilingTaxYear()}

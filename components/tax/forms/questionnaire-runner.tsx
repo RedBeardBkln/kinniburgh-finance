@@ -401,7 +401,7 @@ export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
               <li
                 key={node.id}
                 id={`q-${node.id}`}
-                className={`rounded-lg border bg-card p-4 ${highlight.has(node.id) ? "ring-2 ring-primary/50" : ""}`}
+                className={`anchor-target rounded-lg border bg-card p-4 ${highlight.has(node.id) ? "ring-2 ring-primary/50" : ""}`}
               >
                 <p className="text-base font-medium">
                   {index + 1}. {renderCopy(node.prompt, ctx)}

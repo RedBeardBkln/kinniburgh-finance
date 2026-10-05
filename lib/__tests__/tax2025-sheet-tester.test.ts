@@ -570,7 +570,8 @@ describe("tester: page / route / Forms page source facts", () => {
     expect(page.indexOf("redirect(\"/login\")")).toBeLessThan(page.indexOf("loadSheet("));
     expect(page.indexOf("await auth()")).toBeLessThan(page.indexOf("await params"));
     expect(page).toMatch(/year === SHEET_SUPPORTED_YEAR \? await loadSheet/);
-    expect(page).toMatch(/<ReturnSheet model=\{loaded\.model\} \/>/);
+    // the sheet gets the plain model and the link context built from that same model (JSON of line / document names and ids; no engine facts)
+    expect(page).toMatch(/<ReturnSheet model=\{loaded\.model\} links=\{linkContextForSheet\(loaded\.model\)\} \/>/);
     expect(page).not.toMatch(/loaded\.(ret|facts|resolved|raw)\b/);
   });
   it("Forms page diff touches only the engine call and the conclusion prop (no counters / cards / questionnaire change)", () => {
