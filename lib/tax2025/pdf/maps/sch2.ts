@@ -5,11 +5,12 @@
 // Medicare Tax) and 12 (NIIT) plus the totals 3, 7, 21; the rare lines are
 // not_applicable zeros (blank) or not_yet_computed (blank + advisory), never 0.
 //
-// Left blank on purpose: SSN (`ssn`); the "type" texts of 1y, 17a and 17z, the
-// Form 4255 box groups of 1e/1f, the line 4 exemption boxes and its "specify" text,
-// the line 8 "Form 5329 not required" box, and the reserved line 10 (`not_modeled`).
+// Left blank on purpose: SSN (`ssn`); the "type" texts of 1y, 17a and 17z (`zero_line_entry`: entries beside an amount that
+// is zero, with `follows`: an advisory item and a review finding if the amount is ever non-zero, hand-entries.ts); the line 4
+// exemption boxes and its "specify" code (`owner_statement_na`: the self-employment statements); the reserved line 10
+// (`form_na`); the Form 4255 box groups of 1e/1f and the line 8 "Form 5329 not required" box (`not_modeled`).
 
-import { blanks, ids, money } from "@/lib/tax2025/pdf/maps/dsl";
+import { blanks, entryBlanks, ids, money, notedBlanks } from "@/lib/tax2025/pdf/maps/dsl";
 import type { FormMap } from "@/lib/tax2025/pdf/types";
 
 const P1 = "form1[0].Page1[0].";
@@ -72,19 +73,22 @@ export const sch2Map: FormMap = {
     ...blanks("ssn", `${P1}f1_02[0]`),
     ...blanks(
       "not_modeled",
-      // 1y "type" text
-      `${P1}f1_09[0]`,
       // 1e and 1f Form 4255 check boxes (4 each)
       ...[0, 1, 2, 3].map((i) => `${P1}Line1e_ReadOrder[0].c1_1[${i}]`),
       ...[0, 1, 2, 3].map((i) => `${P1}Line1f_ReadOrder[0].c1_2[${i}]`),
-      // 4 exemption boxes (4361, 4029, other) and the "specify" text
-      ...ids(`${P1}Line4_ReadOrder[0].`, "c1_3", "c1_4", "c1_5", "f1_14"),
-      // 8 "Form 5329 not required" box, 10 reserved
+      // 8 "Form 5329 not required" box
       `${P1}Line8_ReadOrder[0].c1_6[0]`,
-      `${P1}f1_21[0]`,
-      // 17a "type, form number" and 17z "type" texts
-      `${P2}Line17a_ReadOrder[0].Line17_ReadOrder[0].f2_01[0]`,
-      `${P2}Line17z_ReadOrder[0].f2_19[0]`,
     ),
+    ...entryBlanks("line 1y: the code that says what kind of other addition to tax it is (beside the amount)", ["sch2.1y"], `${P1}f1_09[0]`),
+    // 4 exemption boxes (4361, 4029, other) and the "specify" code: the self-employment statements (se_other) say none applies
+    ...notedBlanks(
+      "owner_statement_na",
+      "line 4: the boxes for an exemption from self-employment tax (Form 4361, Form 4029, or another with its code after \"specify\"); none applies on your self-employment statements",
+      ...ids(`${P1}Line4_ReadOrder[0].`, "c1_3", "c1_4", "c1_5", "f1_14"),
+    ),
+    // 10 is reserved for future use
+    ...blanks("form_na", `${P1}f1_21[0]`),
+    ...entryBlanks("line 17a: the type and form number of the other credit recapture (beside the amount)", ["sch2.17a"], `${P2}Line17a_ReadOrder[0].Line17_ReadOrder[0].f2_01[0]`),
+    ...entryBlanks("line 17z: the words that say what kind of other tax it is (\"List type\")", ["sch2.17z"], `${P2}Line17z_ReadOrder[0].f2_19[0]`),
   ],
 };

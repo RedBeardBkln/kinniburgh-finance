@@ -9,13 +9,13 @@
 // standard deduction) is the engine's call (Form 1040 line 12e); the packet omits this
 // form when the standard deduction wins (inclusion rule, plan 5.2 C7).
 //
-// Left blank on purpose: SSN (`ssn`); the line 5a "elect general sales tax" box (the
-// engine uses state income tax paid, so the box stays unchecked), line 6 / 16 "type"
-// texts, the line 8 "not all used to buy/build/improve" box, line 8b payee text, the
-// reserved line 8d, and line 18 "itemize although below the standard deduction"
-// (`not_modeled`).
+// Left blank on purpose: SSN (`ssn`); the line 6 / 16 "type" texts and the line 8b payee text (`zero_line_entry`: entries beside
+// an amount that is zero, with `follows`: an advisory item and a review finding if the amount is ever non-zero, hand-entries.ts);
+// the reserved line 8d (`form_na`); the line 5a "elect general sales tax" box (the engine uses state income tax paid, so the box
+// stays unchecked), the line 8 "not all used to buy/build/improve" box and line 18 "itemize although below the standard
+// deduction" (`not_modeled`).
 
-import { blanks, money } from "@/lib/tax2025/pdf/maps/dsl";
+import { blanks, entryBlanks, money } from "@/lib/tax2025/pdf/maps/dsl";
 import type { FormMap } from "@/lib/tax2025/pdf/types";
 
 const P1 = "form1[0].Page1[0].";
@@ -58,16 +58,12 @@ export const schAMap: FormMap = {
   header: [{ field: `${P1}f1_1[0]`, source: "household.names" }],
   blank: [
     ...blanks("ssn", `${P1}f1_2[0]`),
-    ...blanks(
-      "not_modeled",
-      // 5a sales-tax election box, 6 "type", 8 box, 8b payee text, 8d reserved, 16 "type", 18 box
-      `${P1}c1_1[0]`,
-      `${P1}f1_12[0]`,
-      `${P1}Line8_ReadOrder[0].c1_2[0]`,
-      `${P1}Line8b_ReadOrder[0].f1_16[0]`,
-      `${P1}f1_19[0]`,
-      `${P1}f1_28[0]`,
-      `${P1}Line18_ReadOrder[0].c1_3[0]`,
-    ),
+    // 5a sales-tax election box, 8 box, 18 box
+    ...blanks("not_modeled", `${P1}c1_1[0]`, `${P1}Line8_ReadOrder[0].c1_2[0]`, `${P1}Line18_ReadOrder[0].c1_3[0]`),
+    ...entryBlanks("line 6: the words that say what kind of other tax it is (\"List type\")", ["scha.6"], `${P1}f1_12[0]`),
+    ...entryBlanks("line 8b: the name, identifying number and address of the person paid mortgage interest not reported on Form 1098", ["scha.8b"], `${P1}Line8b_ReadOrder[0].f1_16[0]`),
+    // 8d is reserved for future use
+    ...blanks("form_na", `${P1}f1_19[0]`),
+    ...entryBlanks("line 16: the words that say what kind of other itemized deduction it is (\"List type\")", ["scha.16"], `${P1}f1_28[0]`),
   ],
 };

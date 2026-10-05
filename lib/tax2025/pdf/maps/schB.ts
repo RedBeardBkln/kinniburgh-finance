@@ -13,11 +13,13 @@
 //     no attestation), so every Yes/No box stays UNCHECKED and an "Answer needed" item is
 //     raised. They fill when the view's answers carry foreignAccounts / foreignTrust of
 //     "yes" | "no".
-//   - Your social security number and the foreign-country text lines are blank by design.
+//   - Your social security number is blank by design; the line 7b foreign-country text lines are `owner_statement_na` (the
+//     foreign-account answer is "no", so there is no country to list).
 
 import type { FormMap, MapBlank, MapLine, MapTable } from "@/lib/tax2025/pdf/types";
 
 const P = "topmostSubform[0].Page1[0].";
+const SEVEN_B_NOTE = "line 7b: the names of the foreign countries where a financial account is located (only if Form 114 is required); none, on your answer that you have no foreign financial account";
 
 function rowFields(first: number, count: number, firstNameField: string): Array<Record<string, string>> {
   const rows: Array<Record<string, string>> = [];
@@ -64,9 +66,9 @@ const lines: MapLine[] = [
 
 const blank: MapBlank[] = [
   { field: `${P}f1_02[0]`, reason: "ssn" },
-  // 7b: names of the foreign countries (only if FinCEN 114 is required; not modeled).
-  { field: `${P}f1_65[0]`, reason: "not_modeled" },
-  { field: `${P}f1_66[0]`, reason: "not_modeled" },
+  // 7b: names of the foreign countries (only if FinCEN 114 is required): none on the owners' foreign-account answer.
+  { field: `${P}f1_65[0]`, reason: "owner_statement_na", note: SEVEN_B_NOTE },
+  { field: `${P}f1_66[0]`, reason: "owner_statement_na", note: SEVEN_B_NOTE },
 ];
 
 export const schBMap: FormMap = {

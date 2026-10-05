@@ -26,6 +26,7 @@ import { collectClaims } from "@/lib/tax2025/pdf/completeness";
 import { applyFlatFormOverlay } from "@/lib/tax2025/pdf/ct-overlay";
 import { fitCell, type FitKind } from "@/lib/tax2025/pdf/fit-text";
 import { formatDollars, splitName } from "@/lib/tax2025/pdf/format";
+import { entriesNeedingHand, handEntryMessage } from "@/lib/tax2025/pdf/hand-entries";
 import { resolveFieldValue } from "@/lib/tax2025/pdf/policy";
 import { getBlankBytes, getManifestEntry } from "@/lib/tax2025/pdf/registry";
 import { DRAFT_SUBJECT, draftStampText, stampPages } from "@/lib/tax2025/pdf/stamp";
@@ -330,6 +331,19 @@ export async function fillForm(
     }
     blankByDesign[b.reason] = (blankByDesign[b.reason] ?? 0) + matched;
     if (b.note !== undefined && matched > 0 && !blankNotes.includes(b.note)) blankNotes.push(b.note);
+  }
+  // A type / description / code box this packet leaves blank beside a line that now carries an amount (an override can supply one):
+  // never silent. The owner writes it on the printed form (hand-entries.ts).
+  for (const entry of entriesNeedingHand(map, view)) {
+    const first = entry.fields[0] ?? "entry";
+    addItem({
+      id: `fill:${formId}:entry:${first}`,
+      severity: "advisory",
+      source: "fill",
+      formId,
+      field: first,
+      message: handEntryMessage(entry),
+    });
   }
 
   form.updateFieldAppearances(font);

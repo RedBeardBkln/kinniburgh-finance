@@ -26,6 +26,16 @@ export function notedBlanks(reason: BlankReason, note: string, ...fields: string
   return fields.map((field) => ({ field, reason, note }));
 }
 
+/**
+ * Type / description / code entries printed beside an amount line that is zero for this return (the "List type" box of
+ * line 8z, the "(specify)" box of line 4c, the VIN row of Schedule 1-A line 22 ...): reason `zero_line_entry`, the note is
+ * REQUIRED (the cover lists it) and `follows` names the amount line(s) the entry belongs to. If a followed line ever prints a
+ * non-zero amount, hand-entries.ts raises an advisory item and a review finding instead of leaving the box silently empty.
+ */
+export function entryBlanks(note: string, follows: readonly LineRef[], ...fields: string[]): MapBlank[] {
+  return fields.map((field) => ({ field, reason: "zero_line_entry", note, follows }));
+}
+
 /** `prefix + id + "[0]"` for each id (the common field-name shape). */
 export function ids(prefix: string, ...names: string[]): string[] {
   return names.map((n) => `${prefix}${n}[0]`);

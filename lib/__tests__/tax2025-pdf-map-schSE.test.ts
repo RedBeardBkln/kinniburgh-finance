@@ -57,7 +57,7 @@ describe("Schedule SE map: pre-printed constants (maps tester D1)", () => {
   it("lines 7 and 14 are read-only 1-pt dummy widgets over a printed constant: blank by design, never written", async () => {
     for (const n of [SE7, SE14]) {
       expect(schSEMap.lines.some((l) => l.field === n), `${n} must not be a filled line`).toBe(false);
-      expect(schSEMap.blank.some((b) => "field" in b && b.field === n && b.reason === "not_modeled"), `${n} is blank by design`).toBe(true);
+      expect(schSEMap.blank.some((b) => "field" in b && b.field === n && b.reason === "form_na"), `${n} is blank by design (pre-printed on the form)`).toBe(true);
     }
     // the blank PDF really marks both read-only (so writing into them would be invisible and misleading)
     const { PDFDocument } = await import("pdf-lib");

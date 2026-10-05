@@ -5,12 +5,15 @@
 //
 // Left blank on purpose:
 //   - SSN (header) and the line 19b alimony recipient SSN: never stored (`ssn`).
-//   - The one-line "type" texts of 8z and 24z, the 1099-K memo amount at the top of
-//     page 1 (no engine key: it is a memo, not a return line), the 2b / 19c agreement
-//     dates, the "check if" boxes of lines 4, 7, 14 and 20, the amount repaid on line 7
-//     and the "Reserved for future use" line 22: `not_modeled`.
+//   - The "List type" text of 8z, the line 7 repaid box and amount, and the 2b / 19c agreement dates are entries
+//     beside an amount that is zero for this return: `zero_line_entry` with `follows` (blank while the line is
+//     zero; an advisory item and a review finding if it ever carries an amount, hand-entries.ts).
+//   - Line 24z ("Other adjustments, List type") and the "Reserved for future use" line 22: `form_na` (the 2025
+//     instructions say "Leave line 24z blank", and line 22 has no entry).
+//   - The 1099-K memo amount at the top of page 1 (no engine key: it is a memo, not a return line): `owner_statement_na`.
+//   - The "check if" boxes of lines 4, 14 and 20: `not_modeled`.
 
-import { blanks, ids, money } from "@/lib/tax2025/pdf/maps/dsl";
+import { blanks, entryBlanks, ids, money, notedBlanks } from "@/lib/tax2025/pdf/maps/dsl";
 import type { FormMap } from "@/lib/tax2025/pdf/types";
 
 const P1 = "topmostSubform[0].Page1[0].";
@@ -85,17 +88,18 @@ export const sch1Map: FormMap = {
   header: [{ field: `${P1}f1_01[0]`, source: "household.names" }],
   blank: [
     ...blanks("ssn", `${P1}f1_02[0]`, `${P2}Line19b_CombField[0].f2_10[0]`),
-    ...blanks(
-      "not_modeled",
-      // 1099-K memo amount, 2b agreement date, line 4 check boxes, line 7 repaid box
-      ...ids(P1, "f1_03", "f1_06", "c1_1", "c1_2"),
-      `${P1}Line7_ReadOrder[0].c1_3[0]`,
-      `${P1}Line7_ReadOrder[0].f1_11[0]`,
-      // 8z and 24z "List type" texts
-      `${P1}Line8z_ReadOrder[0].f1_35[0]`,
-      `${P2}Line24z_ReadOrder[0].f2_27[0]`,
-      // 14 and 20 check boxes, 19c agreement date, 22 reserved
-      ...ids(P2, "c2_1", "c2_2", "f2_11", "f2_14"),
+    // line 4 check boxes; line 14 and 20 check boxes
+    ...blanks("not_modeled", ...ids(P1, "c1_1", "c1_2"), ...ids(P2, "c2_1", "c2_2")),
+    ...notedBlanks(
+      "owner_statement_na",
+      "top of page 1: the amount of a Form 1099-K that was included in error or was for personal items sold at a loss; none, on your statements about other income",
+      ...ids(P1, "f1_03"),
     ),
+    ...entryBlanks("line 2b: the date of the original divorce or separation agreement (alimony received)", ["sch1.2a"], ...ids(P1, "f1_06")),
+    ...entryBlanks("line 7: the box and the amount repaid (unemployment compensation paid back)", ["sch1.7"], `${P1}Line7_ReadOrder[0].c1_3[0]`, `${P1}Line7_ReadOrder[0].f1_11[0]`),
+    ...entryBlanks("line 8z: the words that say what kind of other income it is (\"List type\")", ["sch1.8z"], `${P1}Line8z_ReadOrder[0].f1_35[0]`),
+    ...entryBlanks("line 19c: the date of the original divorce or separation agreement (alimony paid)", ["sch1.19a"], ...ids(P2, "f2_11")),
+    // 22 is reserved for future use; 24z: "Leave line 24z blank" (2025 Form 1040 instructions)
+    ...blanks("form_na", ...ids(P2, "f2_14"), `${P2}Line24z_ReadOrder[0].f2_27[0]`),
   ],
 };

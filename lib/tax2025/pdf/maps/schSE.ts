@@ -53,7 +53,7 @@ export const schSEMap: FormMap = {
     ...blanks("not_modeled", `${P1}c1_1[0]`),
     // Line 7 (the $176,100 maximum) and line 14 (the optional-method maximum) are PRE-PRINTED on the form: the
     // fields are read-only, 1-pt-wide dummy widgets laid over the printed constant (maps tester D1). Nothing is
-    // written into them; the engine still computes se.7 / se.14 and the printed constant matches it.
-    ...blanks("not_modeled", `${P1}f1_13[0]`, `${P2}f2_1[0]`),
+    // written into them (`form_na`); the engine still computes se.7 / se.14 and the printed constant matches it.
+    ...blanks("form_na", `${P1}f1_13[0]`, `${P2}f2_1[0]`),
   ],
 };

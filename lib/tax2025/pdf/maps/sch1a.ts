@@ -16,7 +16,7 @@
 // The form is OMITTED from the packet when the engine reports it is not required (engineFormId "sch1a" ->
 // Ty2025Return.formsRequired).
 
-import { blanks, money, notedBlanks } from "@/lib/tax2025/pdf/maps/dsl";
+import { blanks, entryBlanks, money, notedBlanks } from "@/lib/tax2025/pdf/maps/dsl";
 import type { FormMap, MapLine } from "@/lib/tax2025/pdf/types";
 import type { LineKey } from "@/lib/tax2025/types";
 
@@ -96,10 +96,12 @@ export const sch1aMap: FormMap = {
       `${P1}f1_07[0]`,
       `${P1}f1_08[0]`
     ),
-    // line 22: vehicle identification numbers and per-loan interest are never stored by the app
-    ...notedBlanks(
-      "not_modeled",
-      "Schedule 1-A line 22: the vehicle identification number and the interest per loan are never stored by this app (the owner states no qualifying vehicle loan, so Part IV is blank); if one applies the CPA enters them.",
+    // line 22: vehicle identification numbers and per-loan interest are never stored by the app. The owner states no qualifying
+    // vehicle loan (line 23 is zero), so the rows stay blank; if a loan ever applies, the rows are written on the printed form
+    // (a VIN per loan, more than two loans: attach a statement) and hand-entries.ts raises the advisory item.
+    ...entryBlanks(
+      "Schedule 1-A line 22: the vehicle identification number and the interest per loan (Part IV); the app never stores a vehicle identification number, and you stated no qualifying vehicle loan, so the rows are blank",
+      ["sch1a.23"],
       `${L22}Line22a[0].VIN-1_Comb[0].f2_01[0]`,
       `${L22}Line22a[0].f2_02[0]`,
       `${L22}Line22a[0].f2_03[0]`,

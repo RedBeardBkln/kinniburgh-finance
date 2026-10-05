@@ -4,10 +4,11 @@
 // Form 5695 is dropped by the owner (solar credit already taken in 2022), so 5a / 5b
 // print only if the engine ever emits a non-zero amount (a carryforward is an open item).
 //
-// Left blank on purpose: SSN (`ssn`); the "type" texts of 6z and 13z and the reserved
-// line 6e (`not_modeled`).
+// Left blank on purpose: SSN (`ssn`); the 13z "type" text (`zero_line_entry`: an entry beside an amount that is zero, with
+// `follows`: an advisory item and a review finding if the amount is ever non-zero, hand-entries.ts); the 6z "type" text and the
+// reserved line 6e (`form_na`: the 2025 instructions say "Leave line 6z blank" and line 6e has no entry).
 
-import { blanks, money } from "@/lib/tax2025/pdf/maps/dsl";
+import { blanks, entryBlanks, money } from "@/lib/tax2025/pdf/maps/dsl";
 import type { FormMap } from "@/lib/tax2025/pdf/types";
 
 const P1 = "topmostSubform[0].Page1[0].";
@@ -55,12 +56,8 @@ export const sch3Map: FormMap = {
   header: [{ field: `${P1}f1_01[0]`, source: "household.names" }],
   blank: [
     ...blanks("ssn", `${P1}f1_02[0]`),
-    ...blanks(
-      "not_modeled",
-      // 6e reserved; 6z and 13z "type" texts
-      `${P1}f1_13[0]`,
-      `${P1}Line6z_ReadOrder[0].f2_22[0]`,
-      `${P1}Line13z_ReadOrder[0].f1_34[0]`,
-    ),
+    // 6e reserved; 6z: "Leave line 6z blank" (2025 Form 1040 instructions)
+    ...blanks("form_na", `${P1}f1_13[0]`, `${P1}Line6z_ReadOrder[0].f2_22[0]`),
+    ...entryBlanks("line 13z: the words that say what kind of other payment or refundable credit it is (\"List type\")", ["sch3.13z"], `${P1}Line13z_ReadOrder[0].f1_34[0]`),
   ],
 };

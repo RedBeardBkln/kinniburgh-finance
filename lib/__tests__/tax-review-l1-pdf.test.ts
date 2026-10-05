@@ -286,11 +286,47 @@ describe("L1.B5 printed money lines no map claims", () => {
     expect(printedLineId("Row: 1a. Totals")).toBeNull();
     expect(printedLineId("7. Add lines")).toBe("7");
   });
-  it("lists unmodeled lines as information and never as a high on the real maps (sub-fields of a mapped line are not gaps)", async () => {
-    const f = await run(unkeyedLinesCheck, rich);
-    expect(f.filter((x) => x.severity === "high")).toEqual([]);
-    expect(f.every((x) => x.severity === "info")).toBe(true);
-    expect(f.length).toBeGreaterThan(0);
+  it("lists NOTHING on the real maps: every printed type, reserved or code entry carries an explicit decision (engine 1b.7)", async () => {
+    for (const ctx of [clean, rich]) {
+      const f = await run(unkeyedLinesCheck, ctx);
+      expect(f.filter((x) => x.check === "L1.B5.unmodeled" || x.check === "L1.B5.footing-part").map((x) => `${x.check} ${x.formKey ?? ""}`)).toEqual([]);
+      expect(f.map((x) => x.check)).toEqual([]);
+    }
+  });
+  it("a numbered text field a map still leaves as not_modeled is listed as information (the heuristic still works)", async () => {
+    const sch1 = FORM_MAPS.find((m) => m.formId === "f1040s1");
+    if (!sch1) throw new Error("no Schedule 1 map");
+    // put the line 8z "List type" box back under `not_modeled`
+    const blank = sch1.blank.map((b) => ("field" in b && /Line8z_ReadOrder/.test(b.field) ? { field: b.field, reason: "not_modeled" as const } : b));
+    const maps = rich.maps.map((m) => (m.formId === "f1040s1" ? { ...sch1, blank } : m));
+    const f = await run(unkeyedLinesCheck, { ...rich, maps });
+    const hit = f.filter((x) => x.check === "L1.B5.unmodeled");
+    expect(hit.map((x) => x.formKey)).toEqual(["f1040s1"]);
+    expect(hit[0]?.severity).toBe("info");
+    expect(hit[0]?.message).toContain("8z");
+  });
+  it("a type entry blank beside a line that carries an amount is a medium finding (an override can supply the amount)", async () => {
+    const base = rich.view.lines["f1040.1h"];
+    const supplied: PdfLine = {
+      key: "f1040.1h",
+      status: "overridden",
+      amount: 500,
+      reason: null,
+      formLabel: "Form 1040",
+      formLine: "1h",
+      label: base?.label ?? "Other earned income",
+    };
+    const view: PdfReturnView = { ...rich.view, lines: { ...rich.view.lines, "f1040.1h": supplied } };
+    const f = await run(unkeyedLinesCheck, { ...rich, view });
+    const hand = f.filter((x) => x.check === "L1.B5.entry-by-hand");
+    expect(hand).toHaveLength(1);
+    expect(hand[0]?.severity).toBe("medium");
+    expect(hand[0]?.acceptable).toBe(true);
+    expect(hand[0]?.formKey).toBe("f1040");
+    expect(hand[0]?.message).toContain("line 1h");
+    // a zero or untouched line produces nothing
+    const zero: PdfReturnView = { ...rich.view, lines: { ...rich.view.lines, "f1040.1h": { ...supplied, status: "not_applicable", amount: 0 } } };
+    expect((await run(unkeyedLinesCheck, { ...rich, view: zero })).filter((x) => x.check === "L1.B5.entry-by-hand")).toEqual([]);
   });
   it("a line that is part of a footing rule but whose field no map fills is high", async () => {
     const without12e: FormMap = { ...f1040Map, lines: f1040Map.lines.filter((l) => !(l.kind === "money" && l.line === "f1040.12e")), blank: [...f1040Map.blank] };

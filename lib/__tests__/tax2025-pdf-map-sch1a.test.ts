@@ -106,6 +106,10 @@ describe("Schedule 1-A map: every printed money line is an engine line", () => {
     expect(S1A_KEYS.every((k) => lineMeta(k).form === "Schedule 1-A")).toBe(true);
     const notes = sch1aMap.blank.filter((b) => "field" in b && b.note !== undefined);
     expect(notes).toHaveLength(11); // 2a-2e (5) + 22 (6)
+    // line 22 is an entry beside line 23 (zero for this return): it follows it
+    const l22 = sch1aMap.blank.filter((b) => b.reason === "zero_line_entry");
+    expect(l22).toHaveLength(6);
+    expect(l22.every((b) => b.follows?.join(",") === "sch1a.23")).toBe(true);
   });
 });
 
@@ -125,7 +129,8 @@ describe("Schedule 1-A map: policy details", () => {
     for (const name of [...f.keys()].filter((k) => k.includes("Table_Line22"))) expect(f.get(name), name).toBe("");
     expect(result.blankByDesign.ssn).toBe(1);
     expect(result.blankByDesign.owner_statement_na).toBe(5);
-    expect(result.blankByDesign.not_modeled).toBe(6);
+    expect(result.blankByDesign.not_modeled).toBeUndefined();
+    expect(result.blankByDesign.zero_line_entry).toBe(6);
     expect(result.blankNotes.join(" ")).toContain("vehicle identification number");
   });
 

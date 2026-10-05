@@ -2,6 +2,12 @@
 // money lines of a form that no map entry fills; a heuristic over the IRS field descriptions). A line that is a PART of a
 // footing rule but has no key means that footing cannot be proven: high. Every other unkeyed line is listed (info, one
 // finding per form) so "the engine does not model this printed line" is visible rather than silent.
+//
+// A field the map claims with an explicit reason other than `not_modeled` is a decision, not a gap: a reserved line or a
+// calendar-year header (`form_na`), an entry the owner's statements rule out (`owner_statement_na`), or a type / description /
+// code entry beside an amount that is zero (`zero_line_entry`, with `follows`). The gap report does not list those, so this check
+// stops reporting them. The safety net for the last kind is the finding L1.B5.entry-by-hand: when a followed amount line is NOT
+// zero (an override can supply one) the entry is blank on the printed form, and the finding says to write it by hand.
 
 import { buildGapReport } from "@/lib/tax2025-pdf-gap";
 import { lineMeta, type LineKey } from "@/lib/tax2025/line-catalog";
@@ -9,6 +15,7 @@ import { makeFinding, type Finding } from "@/lib/tax-review/types";
 import type { L1Check, L1Context } from "@/lib/tax-review/l1/context";
 import { FOOTING_RULES } from "@/lib/tax-review/l1/footing-rules";
 import { formIsFiled } from "@/lib/tax-review/l1/helpers";
+import { entriesNeedingHand, handEntryMessage } from "@/lib/tax2025/pdf/hand-entries";
 
 /** "11a. Subtract line 10 ..." -> "11a". */
 export function printedLineId(text: string): string | null {
@@ -82,7 +89,7 @@ function filledLineIds(ctx: L1Context, formId: string): Set<string> {
 
 export const unkeyedLinesCheck: L1Check = {
   id: "L1.B5",
-  description: "Printed money lines that no form map claims (footing cannot be proven for a part without a key)",
+  description: "Printed money lines that no form map claims (footing cannot be proven for a part without a key), and type or description entries left blank beside a line that carries an amount",
   run(ctx: L1Context): Finding[] {
     const gaps = buildGapReport(ctx.view, ctx.maps, ctx.catalogs);
     const out: Finding[] = [];
@@ -128,6 +135,26 @@ export const unkeyedLinesCheck: L1Check = {
             message: `${gap.formId}: ${lineIds.length} printed money line(s) are not modeled by the app and are left blank (${lineIds.slice(0, 10).join(", ")}${lineIds.length > 10 ? ", ..." : ""}). A blank is a zero on the form; check the list against your own situation.`,
             evidence: [{ ref: `form:${gap.formId}`, amount: lineIds.length, status: "count" }],
             recommendedAction: "Read the list and make sure none of those lines applies to you.",
+            acceptable: true,
+          })
+        );
+      }
+    }
+    // A "type / description / code" entry the packet leaves blank beside a line that carries an amount: written by hand.
+    for (const map of ctx.maps) {
+      if (!formIsFiled(ctx, map.formId, map.engineFormId)) continue;
+      for (const entry of entriesNeedingHand(map, ctx.view)) {
+        out.push(
+          makeFinding({
+            layer: "L1",
+            check: "L1.B5.entry-by-hand",
+            severity: "medium",
+            area: "forms",
+            formKey: map.formId,
+            ruleTag: entry.fields[0] ?? entry.note,
+            message: `${map.formId}: ${handEntryMessage(entry)}`,
+            evidence: entry.lines.map((l) => ({ ref: `form:${map.formId}`, amount: l.amount, status: `${l.label}: ${l.why === "amount" ? "amount" : "needs your answer"}` })),
+            recommendedAction: "Write the type, description or code on the printed form next to the amount (attach a statement if it does not fit), then accept this finding.",
             acceptable: true,
           })
         );
