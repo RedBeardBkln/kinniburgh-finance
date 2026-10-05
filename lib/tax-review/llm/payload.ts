@@ -7,7 +7,9 @@
 // PDFs ([form, line, label, printed value]).
 // WHAT IS NEVER SENT: SSNs (never stored), EINs (masked by redact.ts to the last four digits; employer ids are dropped here anyway),
 // bank / loan / account numbers, dates of birth, raw PDFs or images, document names, free-text notes, real or first names of the
-// household (they become "Taxpayer M" / "Taxpayer F"), street addresses and business names (generic labels, scrub.ts).
+// household (they become "Taxpayer M" / "Taxpayer F"), street addresses and the household's OWN business entity names (generic labels, scrub.ts).
+// WHAT IS SENT ON PURPOSE: payer / employer / bank / lender / brokerage names as read from the documents ("keep", the default; "generic" via
+// TAX_REVIEW_PAYER_NAMES replaces them). lib/tax-review/ai-panel.ts SEND_NOTICE says so, and tax-review-send-notice.test.ts pins the two together.
 //
 // The ONLY way a payload becomes outgoing text is `serializePayload`: scrub entity names and addresses, then buildOutgoingJson
 // (people labels, EIN mask, then refuse the whole payload if anything identifier-shaped is left).

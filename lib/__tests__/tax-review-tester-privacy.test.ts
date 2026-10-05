@@ -230,10 +230,11 @@ describe("tester: the quote verifier", () => {
     expect(verifyQuote(pack, "i8949", "The basis of property you buy is its price. The basis of property you buy is its price.")).toBe(false);
     expect(verifyQuote(pack, "i8949", "The basis of property you buy is usually its cost, including the purchase price and any costs of purchase, such as commissions. Report the sale on Form 8949 Part II.")).toBe(false);
   });
-  it("QUOTE VERIFIER GAP: a quote with no words in it (dot leaders / digits) can verify against a form's leader dots or number runs", () => {
-    const dots = verifyQuote(pack, "i8960", `${". ".repeat(20)}`.trim());
-    const dotsAnywhere = ["i8960", "i8995", "i2210", "p587", "i1040gi", "ct1040i"].filter((id) => verifyQuote(pack, id, ". . . . . . . . . . . . . . . . . . . . . . "));
-    // record what happens today (the report says whether it is a defect)
-    console.log("dot-leader quote verifies:", dots, "sources:", dotsAnywhere.join(","));
+  it("a quote with no words in it (dot leaders / digits) does not verify, in any source (integration tester D2, fixed)", () => {
+    for (const id of ["i8960", "i8995", "i2210", "p587", "i1040gi", "ct1040i"]) {
+      expect(verifyQuote(pack, id, ". . . . . . . . . . . . . . . . . . . . . . "), id).toBe(false);
+      expect(verifyQuote(pack, id, "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18"), id).toBe(false);
+      expect(verifyQuote(pack, id, "a b c d e f g h i j k l m n o p q r s t u v"), id).toBe(false);
+    }
   });
 });

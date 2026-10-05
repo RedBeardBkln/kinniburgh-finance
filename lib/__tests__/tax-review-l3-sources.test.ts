@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { hostAllowed, SOURCES } from "../../scripts/tax-sources/fetch";
 import { loadSourcePack, sourcePackDir } from "@/lib/tax-review-sources";
-import { excerptForTopics, hasSource, MIN_QUOTE_CHARS, normalizeForQuote, pageText, sourcePackDigestInput, topicsForTask, verifyQuote, type SourcePack } from "@/lib/tax-review/llm/sources";
+import { excerptForTopics, hasEnoughWords, hasSource, MIN_QUOTE_CHARS, MIN_QUOTE_LETTERS, MIN_QUOTE_WORDS, normalizeForQuote, pageText, sourcePackDigestInput, topicsForTask, verifyQuote, type SourcePack } from "@/lib/tax-review/llm/sources";
 import { TASK_IDS } from "@/lib/tax-review/llm/tasks";
 import { INFO_CARDS, verifyCard, verifyCards } from "@/lib/tax-review/info-cards";
 
@@ -59,6 +59,17 @@ describe("quote verifier", () => {
     expect(verifyQuote(pack, "i1040gi", sentence)).toBe(true);
     expect(verifyQuote(pack, "i1040gi", "if you are filing a   joint return,\nyour spouse must also sign.")).toBe(true);
     expect(verifyQuote(pack, "i1040gi", "You must send in a paper Form 8453 if you have to attach certain forms or other documents that can’t be electronically filed.")).toBe(true);
+  });
+  it("needs real words: dot leaders, number runs and letter-by-letter strings do not verify even when they occur in the source (integration tester D2)", () => {
+    const synthetic: SourcePack = { manifest: [], topics: [], texts: { s1: `Line 4 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4\f1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16\fThe credit is limited to the tax shown on line 7 of the worksheet.` } };
+    expect(verifyQuote(synthetic, "s1", ". . . . . . . . . . . . . . . . . . . . . . . . . . . .")).toBe(false);
+    expect(verifyQuote(synthetic, "s1", "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16")).toBe(false);
+    expect(verifyQuote(synthetic, "s1", "The credit is limited to the tax shown on line 7 of the worksheet.")).toBe(true);
+    expect(hasEnoughWords("a b c d e f g h i j k l m n o p q r s t u v w x y z")).toBe(false);
+    expect(hasEnoughWords("abcdefghijklmnopqrstuvwxyz abcdefghij")).toBe(false); // 2 words
+    expect(hasEnoughWords("the credit is limited to the tax shown")).toBe(true);
+    expect(MIN_QUOTE_LETTERS).toBe(20);
+    expect(MIN_QUOTE_WORDS).toBe(5);
   });
   it("accepts a quote that was broken by a line-end hyphen in the source", () => {
     expect(verifyQuote(pack, "i1040gi", "For online transfers directly from your checking or savings account at no cost to you, go to IRS.gov/Payments.")).toBe(true);

@@ -41,6 +41,16 @@ export interface SourcePack {
 
 /** Shortest quote that counts as a citation: a short phrase would match almost anywhere. */
 export const MIN_QUOTE_CHARS = 30;
+/** A quote must also hold real words: leader dots, line-number runs and amounts can match the source without citing anything (integration tester D2). */
+export const MIN_QUOTE_LETTERS = 20;
+export const MIN_QUOTE_WORDS = 5;
+
+/** True when the (normalised) quote has at least MIN_QUOTE_LETTERS letters and MIN_QUOTE_WORDS words of two or more letters. */
+export function hasEnoughWords(normalisedQuote: string): boolean {
+  const letters = normalisedQuote.match(/\p{L}/gu)?.length ?? 0;
+  const words = normalisedQuote.match(/\p{L}{2,}/gu)?.length ?? 0;
+  return letters >= MIN_QUOTE_LETTERS && words >= MIN_QUOTE_WORDS;
+}
 
 /** Hyphenation marks, typographic quotes and dashes and runs of whitespace are normalised on BOTH sides before comparing. */
 export function normalizeForQuote(text: string, hyphen: "keep" | "drop" = "keep"): string {
@@ -89,12 +99,12 @@ export function sourceEntry(pack: SourcePack, sourceId: string): SourceManifestE
 
 /**
  * True when `quote` appears verbatim (after whitespace / typography normalisation) in the source `sourceId`. A quote shorter
- * than MIN_QUOTE_CHARS never verifies. Never throws; an unknown source is simply not verified.
+ * than MIN_QUOTE_CHARS, or one without MIN_QUOTE_LETTERS letters / MIN_QUOTE_WORDS words (dot leaders, digits), never verifies. Never throws; an unknown source is simply not verified.
  */
 export function verifyQuote(pack: SourcePack, sourceId: string, quote: string | undefined | null): boolean {
   if (quote === undefined || quote === null) return false;
   const q = normalizeForQuote(quote);
-  if (q.length < MIN_QUOTE_CHARS) return false;
+  if (q.length < MIN_QUOTE_CHARS || !hasEnoughWords(q)) return false;
   const hay = normalizedText(pack, sourceId);
   return hay !== null && (hay[0].includes(q) || hay[1].includes(q));
 }
