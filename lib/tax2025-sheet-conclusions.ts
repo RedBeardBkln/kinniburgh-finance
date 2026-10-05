@@ -80,7 +80,21 @@ function buildCardConclusionsRaw(ret: Ty2025Return): Record<string, CardConclusi
     return `Additional Medicare Tax ${money(tax)} (Schedule 2 line 11); ${money(withheld)} already withheld (Form 1040 line 25c).`;
   });
 
-  out["qbi-deduction"] = formVerdict(ret, "f8995", "Form 8995", () => `Qualified business income deduction ${money(amountOf(ret, "f1040.13a"))} (Form 1040 line 13a).`);
+  out["qbi-deduction"] = formVerdict(ret, "f8995", "Form 8995", () => {
+    const loss16 = amountOf(ret, "f8995.16");
+    const loss17 = amountOf(ret, "f8995.17");
+    // The forms-required reason says a loss is carried to 2026 (no amount); this clause is the one place on the card that gives the amount (lines 16 / 17).
+    const carry =
+      (loss16 ?? 0) < 0 || (loss17 ?? 0) < 0
+        ? ` Amount carried to 2026: ${[
+            (loss16 ?? 0) < 0 ? `${money(-(loss16 ?? 0))} (Form 8995 line 16)` : "",
+            (loss17 ?? 0) < 0 ? `${money(-(loss17 ?? 0))} (Form 8995 line 17)` : "",
+          ]
+            .filter((x) => x !== "")
+            .join(" and ")}.`
+        : "";
+    return `Qualified business income deduction ${money(amountOf(ret, "f1040.13a"))} (Form 1040 line 13a).${carry}`;
+  });
   if (statusOf(ret, "f1040.13a") === "needs_cpa_judgment") {
     out["qbi-deduction"] = { tone: "blocked", text: `Needs your decision (Form 8995 versus 8995-A): ${reasonOf(ret, "f1040.13a")}` };
   }

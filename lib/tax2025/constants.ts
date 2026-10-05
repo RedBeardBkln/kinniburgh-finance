@@ -283,6 +283,13 @@ export const CONSTANTS = {
     URL_8995_INSTR,
     "Top of the MFJ phase-in band above the 8995 threshold (8995-A territory; not computed by this engine)."
   ),
+  QBI_LOSS_CARRYFORWARD_RULE: def(
+    "QBI_LOSS_CARRYFORWARD_RULE",
+    "lines 4 and 8 floor at 0; lines 16 and 17 cap at 0 (the carryforward)",
+    URL_8995_INSTR,
+    "Form 8995 (2025): line 4 \"Combine lines 2 and 3. If zero or less, enter -0-\"; line 8 \"Combine lines 6 and 7. If zero or less, enter -0-\"; line 16 \"Total qualified business (loss) carryforward. Combine lines 2 and 3. If greater than zero, enter -0-\" and line 17 \"Combine lines 6 and 7. If greater than zero, enter -0-\" (both printed inside parentheses). Instructions, line 4: with a qualified business net loss \"you don't qualify for the QBI deduction unless you have qualified REIT dividends or qualified PTP income. The loss will be carried forward to next year\"; line 16 \"is the amount to be carried forward to the next year\"; line 17 \"must be carried forward to next year\"; line 3 takes the prior-year carryforward. Regulation basis: 26 CFR 1.199A-1(c)(2) and (d)(2)(iii)(B) (a negative total QBI is treated as negative QBI from a separate trade or business in the following year).",
+    VERIFIED_ON_2026_10_04
+  ),
 
   // ── Schedule A ────────────────────────────────────────────────────────────
   SALT_CAP_MFJ: def(
@@ -487,6 +494,20 @@ export const CONSTANTS = {
   AMT_28_PERCENT_THRESHOLD: def("AMT_28_PERCENT_THRESHOLD", 239100, URL_6251_INSTR, "26% applies to the first $239,100 of the excess, 28% above."),
   AMT_RATE_LOW: def("AMT_RATE_LOW", 0.26, URL_6251_INSTR, "AMT 26% rate."),
   AMT_RATE_HIGH: def("AMT_RATE_HIGH", 0.28, URL_6251_INSTR, "AMT 28% rate."),
+  AMT_SENIOR_DEDUCTION_ADDBACK: def(
+    "AMT_SENIOR_DEDUCTION_ADDBACK",
+    "line 1a = Form 1040 line 14 minus Schedule 1-A line 37; line 1b = Form 1040 line 11b minus line 1a (may be negative)",
+    URL_6251_INSTR,
+    "Form 6251 (2025): line 1a \"Subtract Schedule 1-A (Form 1040), line 37, from Form 1040 line 14\"; line 1b \"Subtract line 1a from Form 1040 line 11b (if less than zero, enter as a negative amount)\"; line 4 \"Combine lines 1b through 3\". Instructions, What's New: the Schedule 1-A senior deduction \"is treated as a personal exemption that is added back to alternative minimum taxable income as an adjustment under section 56(b)(5)(D)\".",
+    VERIFIED_ON_2026_10_04
+  ),
+  AMT_LINE_2A_TAXES: def(
+    "AMT_LINE_2A_TAXES",
+    "line 2a = Schedule A line 7 when itemizing, else Form 1040 line 12e",
+    URL_6251_INSTR,
+    "Form 6251 (2025) line 2a: \"If filing Schedule A (Form 1040), enter the taxes from Schedule A, line 7; otherwise, enter the amount from Form 1040 or 1040-SR, line 12e\". Schedule A line 7 is line 5e plus line 6 (other taxes).",
+    VERIFIED_ON_2026_10_04
+  ),
 
   // ── Form 2210 / interest (informational; rules arrive in 1b) ──────────────
   SAFE_HARBOR_CURRENT_YEAR_FRACTION: def("SAFE_HARBOR_CURRENT_YEAR_FRACTION", 0.9, URL_2210_INSTR, "Safe harbor: 90% of the current-year tax."),

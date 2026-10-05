@@ -45,6 +45,18 @@ export function parseWholeDollarInput(text: string, maxAbsDollars: number = OVER
   return { ok: true, dollars, cents: dollars * 100 };
 }
 
+/**
+ * Lines whose printed form shows pre-printed parentheses, so the amount is a LOSS held as a negative number (Form 8995 lines 3, 7,
+ * 16 and 17). The PDF prints the magnitude of a negative amount inside those parentheses and leaves a zero or positive amount blank
+ * (specs/09, "Sign convention for the loss lines"). A plain sentence for the amount field of the override dialog; null for other lines.
+ */
+const LOSS_ENTRY_LINES: ReadonlySet<string> = new Set(["f8995.3", "f8995.7", "f8995.16", "f8995.17"]);
+
+export function amountEntryHint(lineKey: string): string | null {
+  if (!LOSS_ENTRY_LINES.has(lineKey)) return null;
+  return "This is a loss line. Enter a loss as a negative number, for example -3000. The form prints it without the minus sign, inside its own parentheses. A positive number leaves the box empty on the form.";
+}
+
 // ── Reason ────────────────────────────────────────────────────────────────────
 
 export type ReasonCheck = { ok: true; length: number } | { ok: false; error: string; length: number };

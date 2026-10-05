@@ -344,10 +344,13 @@ function evaluate(input: ScheduleAInput, treatment: Treatment): Evaluation {
         lines.push(blockedLine("scha.14", "Total gifts to charity", "14", "needs_cpa_rule_unverified", reason));
         block("needs_cpa_rule_unverified");
       } else {
-        line14 = total;
-        lines.push(amountLine("scha.14", "Total gifts to charity", "14", total));
+        // Line 14 "Add lines 11 through 13": the sum of the PRINTED whole-dollar lines (line 13, the carryover, is the sch_a_other
+        // statement and is 0 here), so the form foots. The limit test above stays on the whole total (it is a test, not a printed line).
+        // Decision D3 (2026-10-04): see specs/09 "Schedule A line 14 rounding".
+        line14 = cash.plus(noncash);
+        lines.push(amountLine("scha.14", "Total gifts to charity", "14", line14));
         if (input.donations.length > 0) {
-          reasons.push(`Charitable gifts ${fmt(total)} (cash ${fmt(cash)}, noncash ${fmt(noncash)}) are within 20% of AGI (${fmt(lowestLimit)}), so no AGI limit applies.`);
+          reasons.push(`Charitable gifts ${fmt(line14)} (cash ${fmt(cash)}, noncash ${fmt(noncash)}) are within 20% of AGI (${fmt(lowestLimit)}), so no AGI limit applies.`);
         } else {
           reasons.push("Owner confirmed no charitable gifts in 2025.");
         }

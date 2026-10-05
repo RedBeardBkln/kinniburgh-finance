@@ -20,8 +20,8 @@ function s1Facts(): Ty2025Facts {
 }
 
 describe("engine version", () => {
-  it("is ty2025-1b.5 (Schedule 1-A and Form 8960 emitted line by line, Form 8960 line 9b allocation, Form 8829 verdict)", () => {
-    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.5");
+  it("is ty2025-1b.6 (Form 8995 loss carryforward on lines 16 / 17, Form 6251 lines 1a / 1b / 2a, Schedule A line 14 adds the printed lines)", () => {
+    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.6");
   });
 });
 

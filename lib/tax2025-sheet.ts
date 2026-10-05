@@ -832,7 +832,7 @@ const OWNER_ACTION = /^(Archive|Record|Set |Enter|Upload|Open|Re-extract|Re-open
  * profit, Schedule SE earnings ...). The owner cannot provide those: they resolve when the root inputs are answered.
  */
 const DERIVED_PART =
-  /^(taxable income|(federal |CT )?AGI\b|Form 1040 line (2b|3b|5b|7a|11a|11b|22)\b|Schedule 1 line \d|Schedule A line \d|Form 8959 line 24|Schedule C net profit|Schedule SE net earnings|Schedule 3 line amounts|deductible half of SE tax|standard[- ]versus[- ]itemized|regular tax|interest \/ dividend)/i;
+  /^(taxable income|(federal |CT )?AGI\b|Form 1040 line (2b|3b|5b|7a|11a|11b|22)\b|Schedule 1 line \d|Schedule A line \d|Schedule 1-A line \d|Schedule A taxes|adjusted gross income \(1040 line 11b\)|total deductions \(1040 line 14\)|Form 8959 line 24|Schedule C net profit|Schedule SE net earnings|Schedule 3 line amounts|deductible half of SE tax|standard[- ]versus[- ]itemized|regular tax|interest \/ dividend)/i;
 
 function provideParts(action: string): string[] | null {
   const m = /^Provide:\s*([\s\S]*?)\.?\s*$/.exec(action.trim());

@@ -119,3 +119,69 @@ describe("computeQbi8995: missing inputs", () => {
     expect(computeQbi8995(input({ scheduleCNetProfit: null })).status).toBe("missing_input");
   });
 });
+
+// Form 8995 (2025) lines 3, 4, 7, 8, 16, 17 as printed: line 4 / 8 = "Combine ... If zero or less, enter -0-"; line 16 / 17 =
+// "Combine lines 2 and 3 / 6 and 7. If greater than zero, enter -0-" (the carryforward, a loss, printed inside parentheses).
+// Hand-computed, synthetic households (engine ty2025-1b.6; specs/09 "Form 8995 loss carryforward").
+describe("computeQbi8995: the loss carryforward (lines 3, 4, 7, 8, 16, 17)", () => {
+  /** A loss year shaped like the household this engine was built for: Schedule C -9,010, no half-SE tax, no SE health / retirement. */
+  const lossYear = (over: Partial<Qbi8995Input> = {}): Qbi8995Input =>
+    input({ scheduleCNetProfit: D(-9010), deductibleHalfSeTax: D(0), taxableIncomeBeforeQbi: D(220025), netCapitalGain: D(5557), ...over });
+
+  it("E1 loss year: line 2 = -9,010; 4 = 0; 5 = 0; 13 = 214,468; 14 = 42,894 (20% of 214,468 = 42,893.6); 15 = 0; 16 = -9,010; 17 = 0; line 13a = 0", () => {
+    const r = computeQbi8995(lossYear());
+    expect(r.status).toBe("computed");
+    const got = (["f8995.1i", "f8995.2", "f8995.4", "f8995.5", "f8995.6", "f8995.8", "f8995.9", "f8995.10", "f8995.11", "f8995.12", "f8995.13", "f8995.14", "f8995.15", "f8995.16", "f8995.17", "f1040.13a"] as const).map((k) => amt(r, k));
+    expect(got).toEqual(["-9010", "-9010", "0", "0", "0", "0", "0", "0", "220025", "5557", "214468", "42894", "0", "-9010", "0", "0"]);
+    expect(r.reasons.join(" ")).toContain("$9,010 carries forward to 2026");
+    expect(r.reasons.join(" ")).toContain("negative");
+  });
+
+  it("E2 a carry-in is absorbed by the profit: 10,000 + (-3,000) = 7,000 -> 20% = 1,400; line 14 = 10,000; deduction 1,400; line 16 = 0 (greater than zero -> -0-)", () => {
+    const r = computeQbi8995(input({ scheduleCNetProfit: D(10000), deductibleHalfSeTax: D(0), taxableIncomeBeforeQbi: D(50000), priorQbiLossCarryforward: D(-3000) }));
+    expect(["f8995.2", "f8995.4", "f8995.5", "f8995.13", "f8995.14", "f8995.15", "f8995.16", "f1040.13a"].map((k) => amt(r, k as LineKey))).toEqual([
+      "10000", "7000", "1400", "50000", "10000", "1400", "0", "1400",
+    ]);
+  });
+
+  it("E3 a carry-in larger than the profit: 2,000 + (-5,000) = -3,000 -> line 4 = 0, line 5 = 0, deduction 0, line 16 = -3,000", () => {
+    const r = computeQbi8995(input({ scheduleCNetProfit: D(2000), deductibleHalfSeTax: D(0), taxableIncomeBeforeQbi: D(50000), priorQbiLossCarryforward: D(-5000) }));
+    expect(["f8995.2", "f8995.4", "f8995.5", "f8995.15", "f8995.16", "f1040.13a"].map((k) => amt(r, k as LineKey))).toEqual(["2000", "0", "0", "0", "-3000", "0"]);
+    expect(r.reasons.join(" ")).toContain("$3,000 carries forward to 2026");
+    expect(r.reasons.join(" ")).toContain("Carried in from 2024");
+  });
+
+  it("E4 a loss plus REIT dividends (the Line 4 instruction): no QBI component, but 20% of the dividends is allowed: 5 = 0; 6 = 1,000; 8 = 1,000; 9 = 200; 15 = 200; 16 = -9,010", () => {
+    const r = computeQbi8995(lossYear({ section199aDividends: D(1000) }));
+    expect(["f8995.5", "f8995.6", "f8995.8", "f8995.9", "f8995.10", "f8995.15", "f8995.16", "f8995.17", "f1040.13a"].map((k) => amt(r, k as LineKey))).toEqual([
+      "0", "1000", "1000", "200", "200", "200", "-9010", "0", "200",
+    ]);
+  });
+
+  it("E5 REIT / PTP carry-in: line 6 = 300 and line 7 = -200 -> 8 = 100, 9 = 20, 17 = 0; line 6 = 100 and line 7 = -400 -> 8 = 0, 9 = 0, 17 = -300", () => {
+    const a = computeQbi8995(input({ section199aDividends: D(300), priorReitPtpLossCarryforward: D(-200) }));
+    expect(["f8995.6", "f8995.8", "f8995.9", "f8995.17"].map((k) => amt(a, k as LineKey))).toEqual(["300", "100", "20", "0"]);
+    const b = computeQbi8995(input({ section199aDividends: D(100), priorReitPtpLossCarryforward: D(-400) }));
+    expect(["f8995.6", "f8995.8", "f8995.9", "f8995.17"].map((k) => amt(b, k as LineKey))).toEqual(["100", "0", "0", "-300"]);
+    expect(b.reasons.join(" ")).toContain("2026 Form 8995 line 7");
+  });
+
+  it("a profit year with no carry-in leaves lines 16 and 17 at 0 and does not mention a carryforward", () => {
+    const r = computeQbi8995(input());
+    expect(amt(r, "f8995.16")).toBe("0");
+    expect(amt(r, "f8995.17")).toBe("0");
+    expect(r.reasons.join(" ")).not.toContain("carries forward");
+    expect(amt(r, "f8995.8")).toBe("0");
+  });
+
+  it("E6 over the Form 8995 limit and the missing-input branch emit only line 13a (the assembler's `owns` carries the blocking status to 16 / 17)", () => {
+    const over = computeQbi8995(lossYear({ taxableIncomeBeforeQbi: D(394601) }));
+    expect(over.lines.map((l) => l.key)).toEqual(["f1040.13a"]);
+    const missing = computeQbi8995(lossYear({ seHealthInsurance: null }));
+    expect(missing.lines.map((l) => l.key)).toEqual(["f1040.13a"]);
+  });
+
+  it("cites the carryforward rule", () => {
+    expect(computeQbi8995(input()).citations).toContain("QBI_LOSS_CARRYFORWARD_RULE");
+  });
+});
