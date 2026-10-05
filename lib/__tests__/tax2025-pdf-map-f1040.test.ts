@@ -190,13 +190,14 @@ describe("Form 1040 map: filing status, zero-print, privacy", () => {
     expect([...fields.keys()].filter((n) => /Table_Dependents/.test(n))).toHaveLength(40);
   });
 
-  it("blank-by-design counts: 4 SSN fields (you, spouse, MFS spouse line, former spouse); 41 dependents fields (40 table + the more-than-four box) + the 4 line 16 boxes / code", async () => {
+  it("blank-by-design counts: 4 SSN fields (you, spouse, MFS spouse line, former spouse); 41 dependents fields (40 table + the more-than-four box)", async () => {
     const result = await fillForm("f1040", coreView(), f1040Map, DEFAULT_FILL_OPTIONS);
     expect(result.blankByDesign.ssn).toBe(4);
-    expect(result.blankByDesign.owner_statement_na).toBe(45);
+    expect(result.blankByDesign.owner_statement_na).toBe(41);
     // the "other tax year" header row (3 fields) is not used by a calendar-year return
     expect(result.blankByDesign.form_na).toBe(3);
-    // 1h type (1) + the 4c boxes and code (4) + the 5c boxes and code (4) belong to amount lines that are zero here
-    expect(result.blankByDesign.zero_line_entry).toBe(9);
+    // 1h type (1) + the 4c boxes and code (4) + the 5c boxes and code (4) belong to amount lines that are zero here; the 4 line 16 boxes / code
+    // (`whenOverridden`) belong to a line that is not zero but is raised only if it is overridden
+    expect(result.blankByDesign.zero_line_entry).toBe(13);
   });
 });

@@ -24,14 +24,15 @@
 //   - Type / code entries beside an amount that is zero for this return (1h "Enter type", the 4c / 5c boxes and
 //     "(specify)" codes) are `zero_line_entry` with `follows`: blank while the line is zero, an advisory item and a
 //     review finding if the line ever carries an amount (hand-entries.ts). The line 16 boxes and code are
-//     `owner_statement_na` (no child's income, no lump-sum distribution, no other tax: the questionnaire statements).
+//     `zero_line_entry` too, but `whenOverridden` (line 16 is not zero: no child's income, no lump-sum distribution, no other
+//     tax on the questionnaire statements, so they are raised only if line 16 is overridden).
 //     The "other tax year" header row (f1_01-f1_03) is `form_na`: this is a calendar-year return.
 //   - Everything else the engine/answers do not model (12a-12c, "check if" boxes on lines
 //     3c-7b (except the "Schedule D not required" box, which follows the engine), 27b-c, 35a, deceased/combat-zone header)
 //     is `not_modeled`: left blank, counted on the cover, and the boxes with a decision attached carry a `note` so the cover
 //     LISTS each one.
 
-import { blanks, entryBlanks, ids, money, notedBlanks } from "@/lib/tax2025/pdf/maps/dsl";
+import { blanks, entryBlanks, ids, money, notedBlanks, overrideEntryBlanks } from "@/lib/tax2025/pdf/maps/dsl";
 import type { FormMap } from "@/lib/tax2025/pdf/types";
 
 const P1 = "topmostSubform[0].Page1[0].";
@@ -168,9 +169,10 @@ export const f1040Map: FormMap = {
     ...notedBlanks("not_modeled", "line 12a: someone can claim you or your spouse as a dependent boxes", ...ids(P2, "c2_1", "c2_2")),
     ...notedBlanks("not_modeled", "line 12b: spouse itemizes on a separate return box", ...ids(P2, "c2_3")),
     ...notedBlanks("not_modeled", "line 12c: you were a dual-status alien box", ...ids(P2, "c2_4")),
-    ...notedBlanks(
-      "owner_statement_na",
-      "line 16: the boxes for tax from Form 8814 (a child's income), Form 4972 (a lump-sum distribution) or another tax with its code (for example recapture of an education credit); none applies on your statements that there are no dependents, no pension or IRA distributions and no other taxes",
+    // line 16 is normally not zero: the boxes are raised only if line 16 carries an override (whenOverridden)
+    ...overrideEntryBlanks(
+      "line 16: the boxes for tax from Form 8814 (a child's income), Form 4972 (a lump-sum distribution) or another tax with its code (for example recapture of an education credit); your statements say none applies (no dependents, no pension or IRA distributions, no other taxes)",
+      ["f1040.16"],
       ...ids(P2, "c2_9", "c2_10", "c2_11", "f2_07"),
     ),
     ...notedBlanks("not_modeled", "line 27b: clergy filing Schedule SE box", ...ids(P2, "c2_12")),

@@ -221,7 +221,7 @@ export const BLANK_REASON_LABELS: Readonly<Record<BlankReason, string>> = {
   owner_statement_na: "Does not apply (owner statement)",
   not_modeled: "Not modeled by the engine yet",
   form_na: "Not used by this return (the form directs it elsewhere or has no such entry)",
-  zero_line_entry: "Type, description or code entries of lines that are zero (written by hand only if the line applies)",
+  zero_line_entry: "Type, description or code entries this return does not need (written by hand only if the line applies)",
 };
 
 export type HeaderSource =
@@ -317,10 +317,13 @@ export interface MapTable {
  * belongs to (the "type" box beside line 8z, the VIN row of Schedule 1-A line 22, ...). While every followed line is zero or not
  * applicable the blank is right; if one of them prints a non-zero amount (an override can supply one) the packet raises an
  * advisory item and the review a finding, so a type box is never silently empty next to an amount (hand-entries.ts).
+ * `whenOverridden` is for an entry beside a line that is normally NOT zero (the "other tax" boxes of Form 1040 line 16, the
+ * exemption boxes of Schedule 2 line 4): the computed amount says nothing about the entry, so it fires only when the followed line
+ * has an override in force (whatever the amount).
  */
 export type MapBlank =
-  | { field: string; reason: BlankReason; note?: string; follows?: readonly LineRef[] }
-  | { match: RegExp; reason: BlankReason; note?: string; follows?: readonly LineRef[] };
+  | { field: string; reason: BlankReason; note?: string; follows?: readonly LineRef[]; whenOverridden?: boolean }
+  | { match: RegExp; reason: BlankReason; note?: string; follows?: readonly LineRef[]; whenOverridden?: boolean };
 
 /**
  * One physical copy of a form that may be filed several times (Form 8949: one Part I box and one Part II

@@ -7,10 +7,10 @@
 //
 // Left blank on purpose: SSN (`ssn`); the "type" texts of 1y, 17a and 17z (`zero_line_entry`: entries beside an amount that
 // is zero, with `follows`: an advisory item and a review finding if the amount is ever non-zero, hand-entries.ts); the line 4
-// exemption boxes and its "specify" code (`owner_statement_na`: the self-employment statements); the reserved line 10
+// exemption boxes and its "specify" code (`zero_line_entry` with `whenOverridden`: line 4 is the self-employment tax, so only an override raises them); the reserved line 10
 // (`form_na`); the Form 4255 box groups of 1e/1f and the line 8 "Form 5329 not required" box (`not_modeled`).
 
-import { blanks, entryBlanks, ids, money, notedBlanks } from "@/lib/tax2025/pdf/maps/dsl";
+import { blanks, entryBlanks, ids, money, overrideEntryBlanks } from "@/lib/tax2025/pdf/maps/dsl";
 import type { FormMap } from "@/lib/tax2025/pdf/types";
 
 const P1 = "form1[0].Page1[0].";
@@ -81,9 +81,10 @@ export const sch2Map: FormMap = {
     ),
     ...entryBlanks("line 1y: the code that says what kind of other addition to tax it is (beside the amount)", ["sch2.1y"], `${P1}f1_09[0]`),
     // 4 exemption boxes (4361, 4029, other) and the "specify" code: the self-employment statements (se_other) say none applies
-    ...notedBlanks(
-      "owner_statement_na",
-      "line 4: the boxes for an exemption from self-employment tax (Form 4361, Form 4029, or another with its code after \"specify\"); none applies on your self-employment statements",
+    // (line 4 is the self-employment tax, normally not zero: the boxes are raised only if line 4 carries an override)
+    ...overrideEntryBlanks(
+      "line 4: the boxes for an exemption from self-employment tax (Form 4361, Form 4029, or another with its code after \"specify\"); your self-employment statements say none applies",
+      ["sch2.4"],
       ...ids(`${P1}Line4_ReadOrder[0].`, "c1_3", "c1_4", "c1_5", "f1_14"),
     ),
     // 10 is reserved for future use

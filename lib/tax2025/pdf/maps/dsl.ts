@@ -36,6 +36,14 @@ export function entryBlanks(note: string, follows: readonly LineRef[], ...fields
   return fields.map((field) => ({ field, reason: "zero_line_entry", note, follows }));
 }
 
+/**
+ * Like `entryBlanks`, for an entry beside a line that is normally NOT zero (the "other tax" boxes of Form 1040 line 16, the exemption
+ * boxes of Schedule 2 line 4): the entry is raised only when a followed line has an override in force (`whenOverridden`).
+ */
+export function overrideEntryBlanks(note: string, follows: readonly LineRef[], ...fields: string[]): MapBlank[] {
+  return fields.map((field) => ({ field, reason: "zero_line_entry", note, follows, whenOverridden: true }));
+}
+
 /** `prefix + id + "[0]"` for each id (the common field-name shape). */
 export function ids(prefix: string, ...names: string[]): string[] {
   return names.map((n) => `${prefix}${n}[0]`);

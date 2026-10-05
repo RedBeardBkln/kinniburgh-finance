@@ -279,6 +279,7 @@ export const LINK_RULES: readonly LinkRule[] = [
   { match: /^L1\.B2\./, note: "ink on a form that should be blank: the form", extras: {} },
   { match: /^L1\.B3\./, note: "a printed line label differs: the line and the form page", extras: {} },
   { match: /^L1\.B4\./, note: "a checkbox or answer differs: the question and the form", extras: { question: "answers", sections: ["attestations"] } },
+  { match: /^L1\.B5\.entry-by-hand$/, note: "a description, type or code box that must be filled by hand: the form", extras: {} },
   { match: /^L1\.B5\./, note: "lines the engine does not model: the form", extras: {} },
   { match: /^L1\.B6\./, note: "the clean copy / final package check: the form and the PDF section", extras: { sections: ["pdfSection"] } },
 

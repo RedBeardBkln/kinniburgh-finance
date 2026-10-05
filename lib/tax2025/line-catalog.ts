@@ -32,7 +32,7 @@ export const NONE_GROUP_TEXT = {
   other_adjustments:
     "No Schedule 1 Part II adjustments other than HSA, half of SE tax, SE retirement, SE health insurance and IRA: no educator expenses, penalty on early withdrawal, alimony paid, student loan interest or line 24 items.",
   other_taxes:
-    "No Schedule 2 additional taxes beyond AMT, self-employment tax, Additional Medicare Tax and net investment income tax, and no other tax included on Form 1040 line 16 (recapture of an education credit, tax from a section 962 election, a foreign mutual fund (Form 8621) or a partnership audit (Form 8978)).",
+    "No Schedule 2 additional taxes beyond AMT, self-employment tax, Additional Medicare Tax and net investment income tax, and no other tax included on Form 1040 line 16 (recapture of an education credit, tax from a section 962 election, a foreign mutual fund (Form 8621), a partnership audit (Form 8978) or a triggering event under section 965(i)).",
   other_nonrefundable_credits:
     "No other nonrefundable credits: child and dependent care, education, Form 5695 line 32 energy improvements, general business, adoption and the other Schedule 3 line 6 credits.",
   solar_credit: "No 2025 residential clean energy credit (Form 5695 line 15).",

@@ -153,7 +153,7 @@ export const unkeyedLinesCheck: L1Check = {
             formKey: map.formId,
             ruleTag: entry.fields[0] ?? entry.note,
             message: `${map.formId}: ${handEntryMessage(entry)}`,
-            evidence: entry.lines.map((l) => ({ ref: `form:${map.formId}`, amount: l.amount, status: `${l.label}: ${l.why === "amount" ? "amount" : "needs your answer"}` })),
+            evidence: entry.lines.map((l) => ({ ref: `form:${map.formId}`, amount: l.amount, status: `${l.label}: ${l.why === "amount" ? "amount" : l.why === "override" ? "override" : "needs your answer"}` })),
             recommendedAction: "Write the type, description or code on the printed form next to the amount (attach a statement if it does not fit), then accept this finding.",
             acceptable: true,
           })

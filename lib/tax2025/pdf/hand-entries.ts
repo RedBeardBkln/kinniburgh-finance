@@ -13,15 +13,21 @@ export interface HandEntry {
   /** Fields (or `match:<regex>` for a pattern entry) that carry the note and stay blank. */
   fields: string[];
   /** The followed lines that need the entry, in map order ("Schedule 1 line 8z"). */
-  lines: { key: LineRef; label: string; amount: number | null; why: "amount" | "needs_answer" }[];
+  lines: { key: LineRef; label: string; amount: number | null; why: "amount" | "needs_answer" | "override" }[];
 }
 
-/** Does this followed line print an amount, or still wait on the owner's answer (so a description may be needed)? */
-function needsEntry(line: PdfLine | undefined): "amount" | "needs_answer" | null {
+/**
+ * Does this followed line print an amount, carry an override, or still wait on the owner's answer (so a description may be needed)?
+ * `whenOverridden` entries (beside a line that is normally not zero) look at the override only.
+ */
+function needsEntry(line: PdfLine | undefined, whenOverridden: boolean): "amount" | "needs_answer" | "override" | null {
   if (line === undefined) return null;
+  if (whenOverridden) return line.status === "overridden" ? "override" : null;
   switch (line.status) {
-    case "computed":
     case "overridden":
+      // an override is the owner's own figure: any amount, even a zero, may need its description
+      return line.amount !== null && line.amount !== 0 ? "amount" : "override";
+    case "computed":
     case "not_applicable":
       return line.amount !== null && line.amount !== 0 ? "amount" : null;
     case "needs_cpa_judgment":
@@ -44,7 +50,7 @@ export function entriesNeedingHand(map: FormMap, view: PdfReturnView): HandEntry
     const need: HandEntry["lines"] = [];
     for (const key of b.follows) {
       const line = view.lines[key];
-      const why = needsEntry(line);
+      const why = needsEntry(line, b.whenOverridden === true);
       if (line !== undefined && why !== null) {
         need.push({ key, label: `${line.formLabel} line ${line.formLine}`, amount: line.amount, why });
       }
@@ -61,6 +67,10 @@ export function entriesNeedingHand(map: FormMap, view: PdfReturnView): HandEntry
 /** The plain-language sentence for one hand entry (packet advisory item and review finding). */
 export function handEntryMessage(entry: HandEntry): string {
   const where = entry.lines.map((l) => l.label).join(", ");
-  const why = entry.lines.every((l) => l.why === "amount") ? "carries an amount" : "needs your answer or carries an amount";
+  const why = entry.lines.every((l) => l.why === "amount")
+    ? "carries an amount"
+    : entry.lines.every((l) => l.why === "override")
+      ? "has an override"
+      : "needs your answer, has an override or carries an amount";
   return `${entry.note}: ${where} ${why}, and this packet leaves that entry blank. Write it on the printed form (attach a statement if it does not fit).`;
 }

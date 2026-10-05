@@ -199,6 +199,15 @@ describe("findingLinks maps finding data to the right place", () => {
     expect(hrefs(a)).toContain("/tax/forms/2025/return#form-schedule-a");
   });
 
+  it("L1.B5.entry-by-hand has its own rule (a box to fill by hand), not the 'lines the engine does not model' note", () => {
+    const ruleFor = (id: string) => LINK_RULES.find((r) => (typeof r.match === "string" ? r.match === id : r.match.test(id)));
+    const rule = ruleFor("L1.B5.entry-by-hand");
+    expect(rule?.note).toMatch(/must be filled by hand/);
+    expect(ruleFor("L1.B5.unmodeled")?.note).toMatch(/does not model/);
+    const links = findingLinks(finding("L1.B5.entry-by-hand", { formKey: "f1040sa" }), CTX);
+    expect(hrefs(links)).toContain("/api/tax/forms/2025/pdf/f1040sa?view=1");
+  });
+
   it("a form the app has no PDF for still gets its card or the PDF section, never a PDF link", () => {
     const links = findingLinks(finding("L1.G1.no-pdf", { formKey: "f6251", area: "forms" }), CTX);
     expect(links.some((l) => l.kind === "pdf")).toBe(false);

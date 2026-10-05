@@ -10,7 +10,7 @@ import { buildGapReport } from "@/lib/tax2025-pdf-gap";
 import { toPdfReturnView } from "@/lib/tax2025/pdf/adapter";
 import { checkCompleteness } from "@/lib/tax2025/pdf/completeness";
 import { fillForm } from "@/lib/tax2025/pdf/fill";
-import { entriesNeedingHand } from "@/lib/tax2025/pdf/hand-entries";
+import { entriesNeedingHand, handEntryMessage } from "@/lib/tax2025/pdf/hand-entries";
 import { FORM_MAPS } from "@/lib/tax2025/pdf/maps";
 import { f1040Map } from "@/lib/tax2025/pdf/maps/f1040";
 import { sch1Map } from "@/lib/tax2025/pdf/maps/sch1";
@@ -72,7 +72,7 @@ const DECISIONS: ReadonlyArray<{ map: FormMap; reason: string; fields: string[];
   { map: f1040Map, reason: "zero_line_entry", fields: ["Page1[0].f1_54[0]"], follows: ["f1040.1h"] },
   { map: f1040Map, reason: "zero_line_entry", fields: ["Page1[0].f1_64[0]", "Page1[0].c1_35[0]", "Page1[0].c1_36[0]", "Page1[0].c1_37[0]"], follows: ["f1040.4a", "f1040.4b"] },
   { map: f1040Map, reason: "zero_line_entry", fields: ["Page1[0].f1_67[0]", "Page1[0].c1_38[0]", "Page1[0].c1_39[0]", "Page1[0].c1_40[0]"], follows: ["f1040.5a", "f1040.5b"] },
-  { map: f1040Map, reason: "owner_statement_na", fields: ["Page2[0].f2_07[0]", "Page2[0].c2_9[0]", "Page2[0].c2_10[0]", "Page2[0].c2_11[0]"] },
+  { map: f1040Map, reason: "zero_line_entry", fields: ["Page2[0].f2_07[0]", "Page2[0].c2_9[0]", "Page2[0].c2_10[0]", "Page2[0].c2_11[0]"], follows: ["f1040.16"] },
   { map: sch1Map, reason: "zero_line_entry", fields: ["Page1[0].Line7_ReadOrder[0].f1_11[0]", "Page1[0].Line7_ReadOrder[0].c1_3[0]"], follows: ["sch1.7"] },
   { map: sch1Map, reason: "zero_line_entry", fields: ["Page1[0].Line8z_ReadOrder[0].f1_35[0]"], follows: ["sch1.8z"] },
   { map: sch1Map, reason: "form_na", fields: ["Page2[0].f2_14[0]", "Page2[0].Line24z_ReadOrder[0].f2_27[0]"] },
@@ -80,7 +80,7 @@ const DECISIONS: ReadonlyArray<{ map: FormMap; reason: string; fields: string[];
   { map: sch1Map, reason: "zero_line_entry", fields: ["Page1[0].f1_06[0]"], follows: ["sch1.2a"] },
   { map: sch1Map, reason: "zero_line_entry", fields: ["Page2[0].f2_11[0]"], follows: ["sch1.19a"] },
   { map: sch2Map, reason: "zero_line_entry", fields: ["Page1[0].f1_09[0]"], follows: ["sch2.1y"] },
-  { map: sch2Map, reason: "owner_statement_na", fields: ["Page1[0].Line4_ReadOrder[0].f1_14[0]", "Page1[0].Line4_ReadOrder[0].c1_3[0]", "Page1[0].Line4_ReadOrder[0].c1_4[0]", "Page1[0].Line4_ReadOrder[0].c1_5[0]"] },
+  { map: sch2Map, reason: "zero_line_entry", fields: ["Page1[0].Line4_ReadOrder[0].f1_14[0]", "Page1[0].Line4_ReadOrder[0].c1_3[0]", "Page1[0].Line4_ReadOrder[0].c1_4[0]", "Page1[0].Line4_ReadOrder[0].c1_5[0]"], follows: ["sch2.4"] },
   { map: sch2Map, reason: "form_na", fields: ["Page1[0].f1_21[0]"] },
   { map: sch2Map, reason: "zero_line_entry", fields: ["Page2[0].Line17z_ReadOrder[0].f2_19[0]"], follows: ["sch2.17z"] },
   { map: sch2Map, reason: "zero_line_entry", fields: ["Page2[0].Line17a_ReadOrder[0].Line17_ReadOrder[0].f2_01[0]"], follows: ["sch2.17a"] },
@@ -200,6 +200,59 @@ describe("hand entries: a followed line that carries an amount raises a note, a 
   });
 });
 
+describe("whenOverridden entries (Form 1040 line 16 boxes, Schedule 2 line 4 boxes): raised by an override on the line, never by its computed amount", () => {
+  const OVERRIDE_ONLY: ReadonlyArray<{ map: FormMap; key: LineKey; fields: number }> = [
+    { map: f1040Map, key: "f1040.16", fields: 4 },
+    { map: sch2Map, key: "sch2.4", fields: 4 },
+  ];
+  it("the real maps mark exactly these two entries whenOverridden", () => {
+    const marked = FORM_MAPS.flatMap((m) => m.blank.filter((b) => b.whenOverridden === true).map((b) => `${m.formId}:${(b.follows ?? []).join(",")}`));
+    expect(marked.sort()).toEqual(["f1040:f1040.16", "f1040:f1040.16", "f1040:f1040.16", "f1040:f1040.16", "f1040s2:sch2.4", "f1040s2:sch2.4", "f1040s2:sch2.4", "f1040s2:sch2.4"]);
+  });
+  for (const { map, key, fields } of OVERRIDE_ONLY) {
+    it(`${key}: a computed non-zero amount raises nothing (Eric-shaped line 16 is 38,053)`, () => {
+      const base = coreView();
+      const lines = withLine(base.lines, key, { status: "computed", amount: 38_053 });
+      expect(entriesNeedingHand(map, coreView({ lines }))).toEqual([]);
+      expect(entriesNeedingHand(map, base)).toEqual([]);
+    });
+    it(`${key}: needs_cpa_judgment or not_applicable raise nothing; an override raises one item for the ${fields} fields, whatever the amount`, () => {
+      const base = coreView();
+      for (const status of ["needs_cpa_judgment", "not_applicable", "not_yet_computed"] as const) {
+        const lines = withLine(base.lines, key, { status, amount: status === "not_applicable" ? 0 : null });
+        expect(entriesNeedingHand(map, coreView({ lines })), status).toEqual([]);
+      }
+      for (const amount of [400, 0]) {
+        const hit = entriesNeedingHand(map, coreView({ lines: withLine(base.lines, key, { status: "overridden", amount }) }));
+        expect(hit, `override ${amount}`).toHaveLength(1);
+        expect(hit[0]?.fields).toHaveLength(fields);
+        expect(hit[0]?.lines.map((l) => `${l.key}:${l.why}`)).toEqual([`${key}:override`]);
+        expect(handEntryMessage(hit[0]!)).toContain("has an override");
+        expect(handEntryMessage(hit[0]!)).not.toMatch(/CPA/);
+      }
+    });
+  }
+  it("a normal (amount) entry still reports a zero or null override as an override, and a non-zero one as an amount", () => {
+    const base = coreView();
+    const zero = entriesNeedingHand(sch1Map, coreView({ lines: withLine(base.lines, "sch1.8z", { status: "overridden", amount: 0 }) }));
+    expect(zero[0]?.lines.map((l) => l.why)).toEqual(["override"]);
+    expect(handEntryMessage(zero[0]!)).toContain("has an override");
+    const some = entriesNeedingHand(sch1Map, coreView({ lines: withLine(base.lines, "sch1.8z", { status: "overridden", amount: 500 }) }));
+    expect(some[0]?.lines.map((l) => l.why)).toEqual(["amount"]);
+  });
+  it("fill: an override on line 16 is an advisory item on Form 1040 and its note names the boxes; computed 38,053 raises none", async () => {
+    const over = coreView({ lines: withLine(coreView().lines, "f1040.16", { status: "overridden", amount: 40_000 }) });
+    const filled = await fillForm("f1040", over, f1040Map, NO_STAMP);
+    const items = filled.openItems.filter((i) => i.id.startsWith("fill:f1040:entry:"));
+    expect(items).toHaveLength(1);
+    expect(items[0]?.severity).toBe("advisory");
+    expect(items[0]?.message).toContain("line 16");
+    expect(items[0]?.message).toContain("has an override");
+    const plain = await fillForm("f1040", coreView(), f1040Map, NO_STAMP);
+    expect(plain.openItems.filter((i) => i.id.startsWith("fill:f1040:entry:"))).toEqual([]);
+  });
+});
+
 describe("fill: an override-supplied amount beside a blank entry is an advisory item on the packet", () => {
   it("override 8z = $500: one advisory item on Schedule 1 and its note on the cover model; a zero line: none", async () => {
     const supplied = coreView({ lines: withLine(coreView().lines, "sch1.8z", { status: "overridden", amount: 500 }) });
@@ -306,6 +359,7 @@ describe("the three widened statements name what the IRS puts in the type / code
     expect(NONE_GROUP_TEXT.other_earned_income).toMatch(/strike or lockout/);
     expect(NONE_GROUP_TEXT.other_taxes).toMatch(/education credit/);
     expect(NONE_GROUP_TEXT.other_taxes).toMatch(/section 962/);
+    expect(NONE_GROUP_TEXT.other_taxes).toMatch(/section 965\(i\)/);
     expect(NONE_GROUP_TEXT.se_other).toMatch(/Form 4361/);
     expect(NONE_GROUP_TEXT.se_other).toMatch(/notary/);
     expect(NONE_GROUP_TEXT.other_income).toMatch(/1099-K/);
