@@ -61,7 +61,7 @@ describe("quote verifier", () => {
     expect(verifyQuote(pack, "i1040gi", "You must send in a paper Form 8453 if you have to attach certain forms or other documents that can’t be electronically filed.")).toBe(true);
   });
   it("needs real words: dot leaders, number runs and letter-by-letter strings do not verify even when they occur in the source (integration tester D2)", () => {
-    const synthetic: SourcePack = { manifest: [], topics: [], texts: { s1: `Line 4 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4\f1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16\fThe credit is limited to the tax shown on line 7 of the worksheet.` } };
+    const synthetic: SourcePack = { version: 1, taxYear: 2025, manifest: [], topics: [], texts: { s1: `Line 4 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4\f1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16\fThe credit is limited to the tax shown on line 7 of the worksheet.` } };
     expect(verifyQuote(synthetic, "s1", ". . . . . . . . . . . . . . . . . . . . . . . . . . . .")).toBe(false);
     expect(verifyQuote(synthetic, "s1", "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16")).toBe(false);
     expect(verifyQuote(synthetic, "s1", "The credit is limited to the tax shown on line 7 of the worksheet.")).toBe(true);

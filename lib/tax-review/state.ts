@@ -4,7 +4,7 @@
 // and nothing arrives from a client. The output is JSON-safe (no Date) and holds only what the owner may see: findings (already
 // redacted by construction), counts, short fingerprints; never the facts, the raw documents or the full fingerprint.
 
-import { approvalInForce, currentApproval, evaluateGate, findingStatus, isGatingFinding, type ApprovalRow, type DispositionRow, type GateEngineState, type GateInput, type GateResult, type LayerRunState } from "@/lib/tax-review/gate";
+import { approvalInForce, approvalRevocationReasons, currentApproval, evaluateGate, findingStatus, isGatingFinding, type ApprovalRevocationFacts, type ApprovalRow, type DispositionRow, type GateEngineState, type GateInput, type GateResult, type LayerRunState } from "@/lib/tax-review/gate";
 import type { ApproverResolution } from "@/lib/tax-review/approver";
 import { countBySeverity, SEVERITIES, type EvidenceItem, type Finding, type FindingCitation, type ReviewLayer, type Severity } from "@/lib/tax-review/types";
 import { emptyProgress, l3GateState, type AiReviewProgress, type AiRunStatus, type TaskProgress } from "@/lib/tax-review/llm/progress";
@@ -178,8 +178,10 @@ export interface RunDto {
 export interface ApprovalDto {
   /** An approval row is the latest word (approved and not withdrawn), whatever fingerprint it is bound to. */
   inForce: boolean;
-  /** In force AND for exactly the current return. */
+  /** In force AND for exactly the current return AND not revoked since (a reopened finding, a new open blocking finding, a cancelled AI review). */
   current: boolean;
+  /** Why an approval for exactly the current return no longer counts (empty / absent when it does, or when none exists). */
+  revokedReasons?: string[];
   approvedByName: string | null;
   at: string | null;
   fingerprint12: string | null;
@@ -284,6 +286,11 @@ export interface ReviewStateInput {
   ai?: AiReviewProgress | null;
   /** The engine's own register for the current return (shown when no narrated one exists). */
   register?: readonly RegisterEntry[];
+  /**
+   * What an approval is re-checked against (lib/tax-review-approval-facts.ts readRevocationFacts: the same facts the clean-copy routes use).
+   * Absent: derived from `latest` and `dispositions` (no cancellation times), for callers that build the state by hand.
+   */
+  revocation?: ApprovalRevocationFacts;
 }
 
 export function buildReviewState(input: ReviewStateInput): ReviewStateDto {
@@ -295,7 +302,10 @@ export function buildReviewState(input: ReviewStateInput): ReviewStateDto {
   const dtos = findings.map((f) => toFindingDto(f, input.dispositions, challengeOf.get(f.key) ?? null));
   // the latest word: an approved row not followed by a withdrawal (any fingerprint)
   const inForceRows = approvalInForce(input.approvals);
-  const current = currentApproval(input.approvals, input.currentFingerprint);
+  const revocation: ApprovalRevocationFacts =
+    input.revocation ?? { findings: run !== null && run.fingerprint === input.currentFingerprint ? findings : [], dispositions: input.dispositions, aiCancelledAt: [] };
+  const current = currentApproval(input.approvals, input.currentFingerprint, revocation);
+  const revokedReasons = inForceRows !== null && inForceRows.fingerprint === input.currentFingerprint ? approvalRevocationReasons(inForceRows, revocation) : [];
   const l2l3Red = gate.items.some((i) => (i.id === "l2" || i.id === "l3") && i.state === "not_run");
   return {
     year: SUPPORTED_REVIEW_YEAR,
@@ -314,6 +324,7 @@ export function buildReviewState(input: ReviewStateInput): ReviewStateDto {
     approval: {
       inForce: inForceRows !== null,
       current: current !== null,
+      ...(revokedReasons.length > 0 ? { revokedReasons } : {}),
       approvedByName: (current ?? inForceRows)?.approvedByName ?? null,
       at: (current ?? inForceRows) === null ? null : iso((current ?? inForceRows)!.at),
       fingerprint12: (current ?? inForceRows) === null ? null : short12((current ?? inForceRows)!.fingerprint),

@@ -230,7 +230,7 @@ describe("currentApproval oracle", () => {
       const sorted = rows.map((r, i) => ({ r, i })).sort((a, b) => a.r.at.getTime() - b.r.at.getTime() || a.i - b.i);
       const last = sorted[sorted.length - 1]?.r;
       const expected = last && last.kind === "approved" && last.fingerprint === cur ? last : null;
-      const got = currentApproval(rows, cur);
+      const got = currentApproval(rows, cur, { findings: [], dispositions: [], aiCancelledAt: [] });
       expect(got?.id ?? null).toBe(expected?.id ?? null);
     }
   });

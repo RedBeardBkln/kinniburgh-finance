@@ -1,11 +1,12 @@
 import { db } from "@/lib/db";
 import { loadReviewInputs } from "@/lib/tax-review-build";
+import { readRevocationFacts } from "@/lib/tax-review-approval-facts";
 import { getRunWithFindings, listApprovals, listDispositionDetails, listRuns } from "@/lib/tax-review-store";
 import { dbAiRunStore } from "@/lib/tax-review-l3-store";
 import { emptyProgress, foldProgress, type AiReviewProgress } from "@/lib/tax-review/llm/progress";
 import { buildRegister, type RegisterEntry } from "@/lib/tax-review/llm/register";
 import { resolveApprover, type ApproverResolution } from "@/lib/tax-review/approver";
-import type { GateEngineState } from "@/lib/tax-review/gate";
+import { approvalInForce, type ApprovalRevocationFacts, type GateEngineState } from "@/lib/tax-review/gate";
 import { engineGateState } from "@/lib/tax-review/l1/engine-state";
 import { buildReviewState, pickRun, type ApprovalDetail, type DispositionDetail, type ReviewStateDto, type RunRowLike } from "@/lib/tax-review/state";
 import type { Finding } from "@/lib/tax-review/types";
@@ -71,6 +72,8 @@ export interface ReviewRecords {
   approvals: ApprovalDetail[];
   /** The AI review of the latest run, folded from its events (null = no run). */
   ai?: AiReviewProgress | null;
+  /** What the approval in force is re-checked against (the same facts the clean-copy routes read). */
+  revocation?: ApprovalRevocationFacts;
 }
 
 /** The events of a run's AI review. A table that does not exist yet (migration not applied) or any read failure means "no AI review": the gate stays red. */
@@ -88,7 +91,10 @@ export async function readReviewRecords(ctx: Pick<ReviewContext, "year" | "entit
   const picked = pickRun(runs, ctx.fingerprint);
   const stored = picked === null ? null : await getRunWithFindings(picked.id, ctx.entityId);
   const [dispositions, approvals, ai] = await Promise.all([listDispositionDetails(ctx.year, ctx.entityId), listApprovals(ctx.year, ctx.entityId), picked === null ? Promise.resolve(null) : readAiProgress(picked.id)]);
-  return { runs, latest: stored === null ? null : { run: stored.run, findings: stored.findings }, dispositions, approvals, ai };
+  // the approval in force is re-checked against what was recorded after it (reopened finding, new blocking finding, cancelled AI review)
+  const inForce = approvalInForce(approvals);
+  const revocation = inForce === null ? undefined : await readRevocationFacts(ctx.year, ctx.entityId, inForce.fingerprint);
+  return { runs, latest: stored === null ? null : { run: stored.run, findings: stored.findings }, dispositions, approvals, ai, ...(revocation !== undefined ? { revocation } : {}) };
 }
 
 export function stateOf(ctx: ReviewContext, records: ReviewRecords): ReviewStateDto {
@@ -102,6 +108,7 @@ export function stateOf(ctx: ReviewContext, records: ReviewRecords): ReviewState
     approver: ctx.approver,
     ai: records.ai,
     register: ctx.register,
+    ...(records.revocation !== undefined ? { revocation: records.revocation } : {}),
   });
 }
 

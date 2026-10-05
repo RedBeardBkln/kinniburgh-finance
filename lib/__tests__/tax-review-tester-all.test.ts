@@ -115,7 +115,7 @@ import { approveReturn, withdrawApproval } from "@/actions/tax-return-approval";
 import { makeApprovalLookup } from "@/lib/tax-review-approval-lookup";
 import type { ReviewStoreDb } from "@/lib/tax-review-store";
 import { ATTESTATION_V1_TEXT, TYPED_PHRASE } from "@/lib/tax-review/gate";
-import { cancelAiReview, estimateAiReview, getFinalReviewState, runNextAiTask, runReviewChecks, startAiReview } from "@/actions/tax-review";
+import { acceptFinding, cancelAiReview, estimateAiReview, getFinalReviewState, reopenFinding, runNextAiTask, runReviewChecks, startAiReview } from "@/actions/tax-review";
 import { engineGateState } from "@/lib/tax-review/l1/engine-state";
 import { runL1, type L1Result } from "@/lib/tax-review/l1/run-l1";
 import { bindFiles, readPacketFiles } from "@/lib/tax-review/l1/pdf-read";
@@ -566,5 +566,122 @@ describe("tester: what a model can and cannot do to the gate (prompt injection)"
     const done = fake.tables.event.find((e) => e["eventKey"] === "done:a1") as { data: { rejected: unknown[] } } | undefined;
     expect(done?.data.rejected.length).toBe(2);
     expect((await state()).canApproveNow).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// Integration review (O3): an approval stops being current when, AFTER it, a finding that blocks approval is reopened or decided again,
+// a new open blocking finding appears, or an AI review of a run for the same return is cancelled. Real actions + the real lookup.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+describe("approval revocation after the approval (reopened finding, new blocking finding, cancelled AI review)", () => {
+  const REASON = "Looked at it and the return stands as it is.";
+  const accept = async (f: { key: string; evidenceHash: string }) => acceptFinding({ taxYear: 2025, findingKey: f.key, evidenceHash: f.evidenceHash, reason: REASON });
+
+  /** Checks with two acceptable L2 blockers, the AI review completed, both blockers accepted with a reason, then approved. */
+  async function approvedWithAcceptedBlockers(): Promise<{ runId: string; blockers: { key: string; evidenceHash: string }[] }> {
+    const runId = await runChecks(clean, { l2: blocked.l2 });
+    expect(await runAi(runId)).toBe("completed");
+    const s = await state();
+    const blockers = s.findings.filter((f) => f.gating && f.acceptable);
+    expect(blockers.length).toBeGreaterThanOrEqual(2);
+    for (const b of blockers) expect((await accept(b)).ok).toBe(true);
+    expect((await state()).canApproveNow).toBe(true);
+    expect((await approveReturn(OWNER_INPUT)).ok).toBe(true);
+    expect(await lookup().currentApproval(FP)).toBe(true);
+    return { runId, blockers };
+  }
+
+  it("control: accepted blockers, approved, nothing changes afterwards: still current (the checks do not over-revoke)", async () => {
+    await approvedWithAcceptedBlockers();
+    const s = await state();
+    expect(s.approval.current).toBe(true);
+    expect(s.approval.revokedReasons ?? []).toEqual([]);
+    expect(await lookup().currentApproval(FP)).toBe(true);
+  });
+
+  it("a finding reopened AFTER the approval revokes it (routes' lookup, page state, clean copies); deciding it again does not restore it; a fresh approval is current", async () => {
+    const { blockers } = await approvedWithAcceptedBlockers();
+    const first = blockers[0]!;
+    expect((await reopenFinding({ taxYear: 2025, findingKey: first.key, evidenceHash: first.evidenceHash })).ok).toBe(true);
+    expect(await lookup().currentApproval(FP)).toBe(false);
+    expect(await lookup().approvedAt(FP)).toBeNull();
+    let s = await state();
+    expect(s.approval.inForce).toBe(true); // the row is kept (and can be withdrawn)
+    expect(s.approval.current).toBe(false);
+    expect((s.approval.revokedReasons ?? []).join(" ")).toMatch(/open again/);
+    expect(s.gate.verdict).toBe("flagged");
+    expect((await approveReturn(OWNER_INPUT)).ok).toBe(false); // red gate
+    expect(approvals()).toHaveLength(1);
+    // deciding it again does NOT quietly restore the old approval: the owner re-approves
+    expect((await accept(first)).ok).toBe(true);
+    s = await state();
+    expect(s.gate.verdict).toBe("passed");
+    expect(s.approval.current).toBe(false);
+    expect((s.approval.revokedReasons ?? []).join(" ")).toMatch(/reopened or decided again after the approval/);
+    expect(await lookup().currentApproval(FP)).toBe(false);
+    expect((await approveReturn(OWNER_INPUT)).ok).toBe(true);
+    expect(approvals()).toHaveLength(2);
+    expect(await lookup().currentApproval(FP)).toBe(true);
+    expect((await state()).approval.current).toBe(true);
+  });
+
+  it("a new open blocking finding in a later run for the SAME return revokes the approval; a later run with nothing new does not", async () => {
+    const { runId } = await approvedWithAcceptedBlockers();
+    (fake.tables.run[0] as { startedAt: Date }).startedAt = new Date(Date.UTC(2020, 0, 1)); // defeat the 15 s same-run window
+    // a second run with exactly the same findings: every blocker is already accepted (same key and evidence), so nothing new is open
+    const same = await runChecks(clean, { l2: blocked.l2 });
+    expect(same).not.toBe(runId);
+    expect(await lookup().currentApproval(FP)).toBe(true);
+    expect((await state()).approval.current).toBe(true);
+    // a third run finds something new that blocks approval and has no disposition
+    (fake.tables.run[1] as { startedAt: Date }).startedAt = new Date(Date.UTC(2020, 0, 2));
+    const fresh = makeFinding({ layer: "L1", check: "L1.B1.newly-found", severity: "high", area: "forms", message: "A line that was fine before now differs.", recommendedAction: "Look at it.", acceptable: true });
+    await runChecks(clean, { l2: blocked.l2, extraFindings: [fresh] });
+    expect(await lookup().currentApproval(FP)).toBe(false);
+    const s = await state();
+    expect(s.approval.current).toBe(false);
+    expect((s.approval.revokedReasons ?? []).join(" ")).toMatch(/open again/);
+    expect(approvals()).toHaveLength(1); // nothing deleted
+  });
+
+  it("an AI review cancelled AFTER the approval revokes it; an unfinished one or one cancelled earlier does not", async () => {
+    // an AI review that was started and cancelled BEFORE the approval does not count against it
+    const r0 = await runChecks(clean);
+    await estimateAiReview({ taxYear: 2025 });
+    await startAiReview({ taxYear: 2025, confirm: true });
+    await stepAi(r0, 2);
+    await cancelAiReview({ taxYear: 2025, runId: r0 });
+    (fake.tables.run[0] as { startedAt: Date }).startedAt = new Date(Date.UTC(2020, 0, 1));
+    const r1 = await runChecks(clean);
+    expect(await runAi(r1)).toBe("completed");
+    expect((await approveReturn(OWNER_INPUT)).ok).toBe(true);
+    expect(await lookup().currentApproval(FP)).toBe(true);
+    // a newer run for the same return: its AI review is started and not finished: the approval stands ...
+    (fake.tables.run[1] as { startedAt: Date }).startedAt = new Date(Date.UTC(2020, 0, 2));
+    const r2 = await runChecks(clean);
+    await estimateAiReview({ taxYear: 2025 });
+    await startAiReview({ taxYear: 2025, confirm: true });
+    await stepAi(r2, 2);
+    expect(await lookup().currentApproval(FP)).toBe(true);
+    // ... and cancelling it after the approval revokes it
+    expect((await cancelAiReview({ taxYear: 2025, runId: r2 })).ok).toBe(true);
+    expect(await lookup().currentApproval(FP)).toBe(false);
+    const s = await state();
+    expect(s.approval.inForce).toBe(true);
+    expect(s.approval.current).toBe(false);
+    expect((s.approval.revokedReasons ?? []).join(" ")).toMatch(/AI review was cancelled after the approval/);
+  });
+
+  it("the lookup fails closed when the facts cannot be read (a rejection, not 'approved')", async () => {
+    await approvedWithAcceptedBlockers();
+    const broken = makeApprovalLookup({
+      resolveEntityId: async () => ENTITY,
+      store: fake.db as unknown as ReviewStoreDb,
+      listEvents: async () => {
+        throw new Error("events table missing");
+      },
+    });
+    await expect(broken.currentApproval(FP)).rejects.toThrow();
   });
 });

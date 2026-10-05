@@ -208,17 +208,18 @@ describe("owner attestation (D5)", () => {
 describe("current approval", () => {
   const A = { kind: "approved" as const, fingerprint: FP, at: "2026-10-05T10:00:00Z" };
   const W = { kind: "withdrawn" as const, fingerprint: FP, at: "2026-10-05T11:00:00Z" };
+  const NONE = { findings: [], dispositions: [], aiCancelledAt: [] }; // nothing recorded since (revocation: tax-review-approval-revocation.test.ts)
   it("is current for the same fingerprint, not after a change, not after a withdrawal", () => {
-    expect(currentApproval([A], FP)).toEqual(A);
-    expect(currentApproval([A], "b".repeat(64))).toBeNull();
-    expect(currentApproval([A, W], FP)).toBeNull();
-    expect(currentApproval([], FP)).toBeNull();
+    expect(currentApproval([A], FP, NONE)).toEqual(A);
+    expect(currentApproval([A], "b".repeat(64), NONE)).toBeNull();
+    expect(currentApproval([A, W], FP, NONE)).toBeNull();
+    expect(currentApproval([], FP, NONE)).toBeNull();
   });
   it("a later approval after a withdrawal is current again, and rows may arrive in any order", () => {
     const A2 = { ...A, at: "2026-10-05T12:00:00Z" };
-    expect(currentApproval([A2, W, A], FP)).toEqual(A2);
+    expect(currentApproval([A2, W, A], FP, NONE)).toEqual(A2);
   });
   it("an approval for an older fingerprint is not current even if a newer return was never approved", () => {
-    expect(currentApproval([A, { ...A, fingerprint: "c".repeat(64), at: "2026-10-06T10:00:00Z" }], FP)).toBeNull();
+    expect(currentApproval([A, { ...A, fingerprint: "c".repeat(64), at: "2026-10-06T10:00:00Z" }], FP, NONE)).toBeNull();
   });
 });

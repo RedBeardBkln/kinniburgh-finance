@@ -41,8 +41,9 @@ export function ReviewStatusBanner({ state }: { state: ReviewStateDto }) {
         </p>
       ) : state.approval.inForce ? (
         <p className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-950" data-testid="review-approval-stale">
-          An approval from {state.approval.at !== null ? formatNewYork(state.approval.at) : "earlier"} exists, but the return has changed since (it was for fingerprint {state.approval.fingerprint12}). It no
-          longer counts, and the clean copies are locked until you approve the current state.
+          {state.approval.revokedReasons !== undefined
+            ? `An approval from ${state.approval.at !== null ? formatNewYork(state.approval.at) : "earlier"} exists, but it no longer counts: ${state.approval.revokedReasons.join("; ")}. The clean copies are locked until you approve again.`
+            : `An approval from ${state.approval.at !== null ? formatNewYork(state.approval.at) : "earlier"} exists, but the return has changed since (it was for fingerprint ${state.approval.fingerprint12}). It no longer counts, and the clean copies are locked until you approve the current state.`}
         </p>
       ) : null}
       {state.runIsStale ? (

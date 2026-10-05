@@ -298,10 +298,53 @@ export function approvalInForce<T extends ApprovalRow>(rows: readonly T[]): T | 
 }
 
 /**
- * The approval that is in force AND counts for this return: its fingerprint must equal the CURRENT return fingerprint (any later
- * change makes it non-current without deleting it).
+ * What an approval is re-checked against after it was recorded (integration review, observation O3). Read from the database by
+ * lib/tax-review-approval-facts.ts and by the page's records; the pure rule below decides.
  */
-export function currentApproval<T extends ApprovalRow>(rows: readonly T[], currentFingerprint: string): T | null {
+export interface ApprovalRevocationFacts {
+  /** The findings of the NEWEST run bound to the approved fingerprint (the run the gate reads), the more severe one per key. */
+  findings: readonly Finding[];
+  /** Every disposition (the latest one per finding state wins). */
+  dispositions: readonly DispositionRow[];
+  /** When an AI review of a run bound to the approved fingerprint was cancelled (one entry per cancelled event). */
+  aiCancelledAt: readonly (Date | string)[];
+}
+
+/** No run, no disposition and no cancellation: for callers with nothing more to look at (tests, a return that has no run yet). */
+export const NO_REVOCATION_FACTS: ApprovalRevocationFacts = { findings: [], dispositions: [], aiCancelledAt: [] };
+
+/**
+ * Why an approval no longer counts although the return itself is unchanged (empty = nothing found). Three things revoke it:
+ *  - a finding that blocks approval is OPEN now (the owner reopened an accepted finding after approving, or a later run or AI review stored a new
+ *    blocking finding nobody has accepted; the gate this approval was recorded under was green, so every blocking finding was closed then);
+ *  - the owner recorded a disposition (accepted or reopened) on a blocking finding AFTER the approval: at approval time every blocking finding was
+ *    already closed, so a later decision on one means the set the owner attested to has changed (a reopen followed by a fresh acceptance does not
+ *    quietly restore the old approval: approving again is the owner's act);
+ *  - an AI review of a run for this return was cancelled AFTER the approval (the approval needed a completed one; a cancelled review is "not run").
+ * A revoked approval is not deleted: it stays in the history, and approving again (a later row) starts over. Pure.
+ */
+export function approvalRevocationReasons(approval: Pick<ApprovalRow, "at">, facts: ApprovalRevocationFacts): string[] {
+  const reasons: string[] = [];
+  const blocking = (f: Finding): boolean => isGatingFinding(f) || !f.acceptable;
+  const open = facts.findings.filter((f) => findingStatus(f, facts.dispositions) === "open" && blocking(f));
+  if (open.length > 0) reasons.push(`${open.length} finding${open.length === 1 ? "" : "s"} that ${open.length === 1 ? "blocks" : "block"} approval ${open.length === 1 ? "is" : "are"} open again (reopened or newly found since the approval)`);
+  const approvedAt = time(approval.at);
+  const blockingKeys = new Set(facts.findings.filter(blocking).map((f) => f.key));
+  if (open.length === 0 && facts.dispositions.some((d) => time(d.at) > approvedAt && blockingKeys.has(d.findingKey))) {
+    reasons.push("a finding that blocks approval was reopened or decided again after the approval");
+  }
+  if (facts.aiCancelledAt.some((at) => time(at) > approvedAt)) reasons.push("the AI review was cancelled after the approval");
+  return reasons;
+}
+
+/**
+ * The approval that is in force AND counts for this return: its fingerprint must equal the CURRENT return fingerprint (any later
+ * change makes it non-current without deleting it), AND nothing recorded after it has revoked it (a reopened finding, a new open
+ * blocking finding, a cancelled AI review: approvalRevocationReasons). The facts are required on purpose: a caller that does not have
+ * them must say so with NO_REVOCATION_FACTS rather than forget the check.
+ */
+export function currentApproval<T extends ApprovalRow>(rows: readonly T[], currentFingerprint: string, facts: ApprovalRevocationFacts): T | null {
   const state = approvalInForce(rows);
-  return state !== null && state.fingerprint === currentFingerprint ? state : null;
+  if (state === null || state.fingerprint !== currentFingerprint) return null;
+  return approvalRevocationReasons(state, facts).length === 0 ? state : null;
 }

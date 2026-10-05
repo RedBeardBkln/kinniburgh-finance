@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/db", () => ({ db: {} }));
 
 import {
-  findCurrentApproval,
   getRunWithFindings,
   insertApproval,
   insertDisposition,
@@ -19,6 +18,7 @@ import {
   type ReviewStoreDb,
   type RunRow,
 } from "@/lib/tax-review-store";
+import { findCurrentApproval as findCurrent } from "@/lib/tax-review-approval-facts";
 import { makeFinding, type Finding } from "@/lib/tax-review/types";
 
 const FP = "a".repeat(64);
@@ -214,10 +214,10 @@ describe("approvals", () => {
   it("an approval is current only for its own fingerprint and until it is withdrawn", async () => {
     const f = fakeDb();
     await insertApproval(approved(FP), f.store);
-    expect((await findCurrentApproval(2025, ENTITY, FP, f.store))?.kind).toBe("approved");
-    expect(await findCurrentApproval(2025, ENTITY, FP2, f.store)).toBeNull();
+    expect((await findCurrent(2025, ENTITY, FP, { store: f.store, listEvents: async () => [] }))?.kind).toBe("approved");
+    expect(await findCurrent(2025, ENTITY, FP2, { store: f.store, listEvents: async () => [] })).toBeNull();
     await insertApproval({ ...approved(FP), kind: "withdrawn", reason: "Found a mistake in a W-2.", attestationVersion: null, attestationTextHash: null, typedConfirmationHash: null }, f.store);
-    expect(await findCurrentApproval(2025, ENTITY, FP, f.store)).toBeNull();
+    expect(await findCurrent(2025, ENTITY, FP, { store: f.store, listEvents: async () => [] })).toBeNull();
     expect(f.approvals).toHaveLength(2); // history is kept, nothing is deleted
   });
   it("an approval row must carry the attestation hashes, a withdrawal a reason", async () => {

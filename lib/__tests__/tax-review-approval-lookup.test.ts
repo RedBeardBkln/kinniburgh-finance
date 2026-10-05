@@ -67,6 +67,10 @@ function fakeStore(rows: ApprovalDbRow[], reads: { n: number }, fail = false): R
         throw new Error("the lookup never writes");
       },
     },
+    // no review run, finding or disposition exists in these cases: nothing can revoke the approval (revocation: tax-review-approval-revocation.test.ts)
+    taxReviewRun: { findMany: async () => [] },
+    taxReviewFinding: { findMany: async () => [] },
+    taxReviewFindingDisposition: { findMany: async () => [] },
   } as unknown as ReviewStoreDb;
 }
 

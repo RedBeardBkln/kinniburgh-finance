@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { approveReturn, withdrawApproval } from "@/actions/tax-return-approval";
 import { BUTTON_DANGER, BUTTON_PLAIN, BUTTON_PRIMARY, FIELD } from "@/components/tax/forms/override-parts";
 import type { ApprovalDto } from "@/lib/tax-review/state";
-import { checkApprovalForm, checkReason, formatNewYork, reasonCounter } from "@/lib/tax-review/ui";
+import { checkApprovalForm, checkReason, formatNewYork, packageDownloadOutcome, reasonCounter } from "@/lib/tax-review/ui";
 
 // The approval card: the owner's own act. It shows the attestation text VERBATIM (the page passes the server's constant), a tick box,
 // the phrase and the full name to type, and the button, which stays off until the gate is green and everything is typed. This is
@@ -46,6 +46,8 @@ export function ApprovalCard({
   const [result, setResult] = useState<{ ok: boolean; text: string; reasons?: string[] } | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawReason, setWithdrawReason] = useState("");
+  const [downloading, setDownloading] = useState(false);
+  const base = `/api/tax/forms/${year}/pdf`;
 
   const form = checkApprovalForm({ checked, typedPhrase: phrase, typedName: name, busy, gateGreen, accountAllowed, alreadyApproved: approval.current });
   const withdrawCheck = checkReason(withdrawReason);
@@ -72,6 +74,36 @@ export function ApprovalCard({
     }
   }
 
+  // The final package is fetched (not a plain download link): a refusal is a JSON body, and a link would save that body as a file named like the zip.
+  async function downloadFinal() {
+    if (downloading) return;
+    setDownloading(true);
+    setResult(null);
+    try {
+      const res = await fetch(`${base}?final=1`, { credentials: "same-origin", cache: "no-store" });
+      const type = res.headers.get("content-type");
+      const asFile = res.ok && type !== null && /zip|octet-stream/i.test(type);
+      const outcome = packageDownloadOutcome({ ok: res.ok, status: res.status, contentType: type, disposition: res.headers.get("content-disposition") }, asFile ? null : await res.text());
+      if (outcome.kind === "refused") {
+        setResult({ ok: false, text: outcome.message });
+        startTransition(() => router.refresh()); // the approval may have been revoked: show the current state
+        return;
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = outcome.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setResult({ ok: false, text: "The download did not work and nothing was saved. Try again." });
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   async function withdraw() {
     if (!withdrawCheck.ok || busy) return;
     setBusy(true);
@@ -93,7 +125,6 @@ export function ApprovalCard({
     }
   }
 
-  const base = `/api/tax/forms/${year}/pdf`;
   return (
     <section aria-labelledby="approval-heading" className="space-y-3 rounded-lg border-2 border-primary/40 p-4" data-testid="review-approval-card">
       <div>
@@ -102,7 +133,7 @@ export function ApprovalCard({
         </h2>
         <p className="text-xs text-muted-foreground" data-testid="approval-fingerprint-line">
           Current return fingerprint <code className="rounded bg-muted px-1 font-mono">{currentFingerprint12}</code> -{" "}
-          {approval.current ? "approved for this state" : approval.inForce ? `an approval exists for an earlier state (${approval.fingerprint12}): stale` : "not approved"}
+          {approval.current ? "approved for this state" : approval.inForce ? (approval.revokedReasons !== undefined ? "an approval exists but no longer counts" : `an approval exists for an earlier state (${approval.fingerprint12}): stale`) : "not approved"}
         </p>
       </div>
 
@@ -113,9 +144,9 @@ export function ApprovalCard({
             {approval.at !== null ? ` on ${formatNewYork(approval.at)}` : ""}.
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <a href={`${base}?final=1`} download className={`${BUTTON_PRIMARY} inline-flex items-center`} data-testid="download-final-package">
-              Download the final package (zip)
-            </a>
+            <button type="button" onClick={() => void downloadFinal()} disabled={downloading} aria-busy={downloading} className={`${BUTTON_PRIMARY} inline-flex items-center`} data-testid="download-final-package">
+              {downloading ? "Preparing..." : "Download the final package (zip)"}
+            </button>
             <a href={base} download className={`${BUTTON_PLAIN} inline-flex items-center`}>
               Download the stamped draft packet
             </a>
@@ -125,7 +156,9 @@ export function ApprovalCard({
         <div className="space-y-3">
           {approval.inForce ? (
             <p className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-950" data-testid="approval-stale">
-              The return changed after your earlier approval, so that approval no longer counts and the clean copies are locked. You can approve the current state once the checks are green.
+              {approval.revokedReasons !== undefined
+                ? `Your earlier approval no longer counts and the clean copies are locked: ${approval.revokedReasons.join("; ")}. You can approve again once the checks are green.`
+                : "The return changed after your earlier approval, so that approval no longer counts and the clean copies are locked. You can approve the current state once the checks are green."}
             </p>
           ) : null}
           <blockquote className="rounded-md border-l-4 border-primary bg-muted/40 p-3 text-sm" data-testid="attestation-text">

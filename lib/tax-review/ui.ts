@@ -140,3 +140,39 @@ export function formatNewYork(iso: string): string {
   if (Number.isNaN(d.getTime())) return "unknown time";
   return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d);
 }
+
+// ── The final package download (a refusal must be shown, never saved as a file) ───────────────────────────────
+
+/** What to do with the answer of GET .../pdf?final=1: save the zip, or show a plain refusal message (integration tester O6). */
+export type PackageDownloadOutcome = { kind: "file"; filename: string } | { kind: "refused"; message: string };
+
+const REFUSAL_BY_STATUS: Readonly<Record<number, string>> = {
+  401: "Your session has ended. Sign in again, then try the download again.",
+  403: "The final package is available only after your approval of the current return. Reload this page to see whether the approval still counts.",
+  409: "The final package cannot be built while a blocking item remains on the return.",
+};
+
+/**
+ * Decides from the response head and (for a refusal) its body text. A file is only a 200 with a zip / octet-stream content type; anything else
+ * (a JSON refusal body, the sign-in page returned as HTML, an empty answer) is a refusal whose message is the route's own `{ "error": "..." }`
+ * text when it has one, else a plain sentence for the status.
+ */
+export function packageDownloadOutcome(res: { ok: boolean; status: number; contentType: string | null; disposition: string | null }, bodyText: string | null): PackageDownloadOutcome {
+  const type = (res.contentType ?? "").toLowerCase();
+  if (res.ok && (type.includes("zip") || type.includes("octet-stream"))) {
+    const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(res.disposition ?? "");
+    const name = m?.[1] === undefined ? "" : m[1].replace(/[^A-Za-z0-9._-]/g, "_");
+    return { kind: "file", filename: name !== "" ? name : "final-package.zip" };
+  }
+  let message = "";
+  if (bodyText !== null && bodyText.trim() !== "") {
+    try {
+      const parsed: unknown = JSON.parse(bodyText);
+      const err = typeof parsed === "object" && parsed !== null ? (parsed as { error?: unknown }).error : undefined;
+      if (typeof err === "string") message = err.trim().slice(0, 300);
+    } catch {
+      // not JSON (an HTML page): fall back to the sentence for the status
+    }
+  }
+  return { kind: "refused", message: message !== "" ? message : (REFUSAL_BY_STATUS[res.status] ?? "The final package could not be downloaded. Nothing was saved; try again.") };
+}

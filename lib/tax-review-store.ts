@@ -1,6 +1,5 @@
 import { db } from "@/lib/db";
 import {
-  currentApproval,
   REASON_MAX,
   REASON_MIN,
   type ApprovalRow,
@@ -404,14 +403,4 @@ export async function listApprovals(taxYear: number, entityId: string, store: Re
     runId: r.runId,
     approvedByName: r.approvedByName,
   }));
-}
-
-/** The approval in force for exactly this fingerprint, or null. The clean-copy routes and the approval card both call this. */
-export async function findCurrentApproval(
-  taxYear: number,
-  entityId: string,
-  fingerprint: string,
-  store: ReviewStoreDb = defaultDb()
-): Promise<(ApprovalRow & { id: string; approvedByName: string }) | null> {
-  return currentApproval(await listApprovals(taxYear, entityId, store), fingerprint);
 }
