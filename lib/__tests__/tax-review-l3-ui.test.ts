@@ -14,7 +14,7 @@ const read = (p: string): string => readFileSync(resolve(ROOT, p), "utf8").repla
 const code = (p: string): string => read(p).replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
 const PANEL = "components/tax/review/ai-review-panel.tsx";
 
-const estimate = (over: Partial<AiEstimateDto> = {}): AiEstimateDto => ({ model: "claude-opus-5-5", inputTokens: 400_000, outputTokens: 30_000, expectedUsd: 8.25, worstCaseUsd: 14.5, warn: false, warnThresholdUsd: 50, priceSource: "default_upper_bound", inPerMtok: 15, outPerMtok: 75, payloadBytes: 120_000, tasks: [], alreadyStarted: false, runId: "r", ...over });
+const estimate = (over: Partial<AiEstimateDto> = {}): AiEstimateDto => ({ model: "claude-opus-5-5", inputTokens: 400_000, outputTokens: 30_000, expectedUsd: 8.25, worstCaseUsd: 14.5, warn: false, warnThresholdUsd: 50, priceSource: "default_upper_bound", inPerMtok: 15, outPerMtok: 75, maxWithRetryUsd: 30, payloadBytes: 120_000, requests: 13, reusedTaskIds: [], tasks: [], alreadyStarted: false, runId: "r", ...over });
 
 describe("start check", () => {
   it("needs an estimate, the confirmation of what is sent, and (above $50) a second acknowledgement", () => {

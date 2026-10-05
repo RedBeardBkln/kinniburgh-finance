@@ -9,7 +9,9 @@ import { describeStoreFailure, loadReviewContext, readReviewRecords, stateOf, ty
 import { getRunWithFindings, insertDisposition, insertReviewRun, listRuns } from "@/lib/tax-review-store";
 import { findingRefSchema, looksLikeIdentifier, reasonSchema, reviewYearSchema, SSN_REASON_ERROR, writeReviewAudit, type ReviewActionResult } from "@/lib/tax-review-action-support";
 import { toAiDto, toFindingDto, toRunDto, type AiEstimateDto, type AiReviewDto, type FindingDto, type RunDto } from "@/lib/tax-review/state";
-import { prepareAiReview } from "@/lib/tax-review-l3";
+import { prepareAiReview, type AiPrep } from "@/lib/tax-review-l3";
+import { loadReusePlan } from "@/lib/tax-review-l3-reuse";
+import { estimateWithReuse } from "@/lib/tax-review/llm/reuse";
 import { dbAiRunStore } from "@/lib/tax-review-l3-store";
 import { createAnthropicTransport } from "@/lib/tax-review-anthropic";
 import { loadSourcePack } from "@/lib/tax-review-sources";
@@ -222,6 +224,10 @@ async function aiAccess(userId: string, year: 2025): Promise<AiAccess> {
   return { ok: true, ctx: loaded.ctx, userName: author.name };
 }
 
+function reuseLookupOf(prep: AiPrep): Parameters<typeof loadReusePlan>[0] {
+  return { entityId: prep.entityId, fingerprint: prep.fingerprint, model: prep.model, payloadJson: prep.serialized.json, register: prep.register, pack: prep.pack };
+}
+
 /** The estimate and the run it would attach to. Writes nothing and calls no model. */
 export async function estimateAiReview(input: z.input<typeof yearOnly>): Promise<ReviewActionResult<{ estimate: AiEstimateDto }>> {
   const user = await requireAuth();
@@ -237,7 +243,9 @@ export async function estimateAiReview(input: z.input<typeof yearOnly>): Promise
     const prep = await prepareAiReview(year, access.userName, latest.findings.filter((f) => f.layer === "L1"));
     if ("error" in prep) return { ok: false, error: prep.error };
     if (prep.fingerprint !== access.ctx.fingerprint) return { ok: false, error: "The return changed while the estimate was being prepared. Try again." };
-    const e = prep.estimate;
+    // finished tasks of an earlier failed / cancelled review of this same return are reused: the estimate covers only what will be sent
+    const plan = await loadReusePlan(reuseLookupOf(prep), year, latest.run.id);
+    const e = estimateWithReuse(prep, plan);
     return {
       ok: true,
       estimate: {
@@ -246,13 +254,16 @@ export async function estimateAiReview(input: z.input<typeof yearOnly>): Promise
         outputTokens: e.outputTokens,
         expectedUsd: e.expectedUsd,
         worstCaseUsd: e.worstCaseUsd,
+        maxWithRetryUsd: e.maxWithRetryUsd ?? e.worstCaseUsd,
         warn: e.warn,
         warnThresholdUsd: e.warnThresholdUsd,
         priceSource: e.price.source,
         inPerMtok: e.price.inPerMtok,
         outPerMtok: e.price.outPerMtok,
         payloadBytes: prep.serialized.bytes,
-        tasks: e.tasks.map((t) => ({ id: t.taskId, inputTokens: t.inputTokens, outputTokens: t.outputTokens })),
+        requests: e.requests ?? e.tasks.length,
+        reusedTaskIds: e.reusedTaskIds ?? [],
+        tasks: e.tasks.map((t) => ({ id: t.taskId, inputTokens: t.inputTokens, outputTokens: t.outputTokens, reused: t.reused === true })),
         alreadyStarted: records.ai?.started === true,
         runId: latest.run.id,
       },
@@ -278,12 +289,15 @@ export async function startAiReview(input: z.input<typeof aiStartSchema>): Promi
     const prep = await prepareAiReview(year, access.userName, latest.findings.filter((f) => f.layer === "L1"));
     if ("error" in prep) return { ok: false, error: prep.error };
     if (prep.fingerprint !== access.ctx.fingerprint) return { ok: false, error: "The return changed while the review was being prepared. Run the checks again." };
-    if (prep.estimate.warn && parsed.data.acknowledgeHighCost !== true) {
-      return { ok: false, error: `The estimated cost is above ${formatUsd(prep.estimate.warnThresholdUsd)}. Confirm that you accept it to start.` };
-    }
+    // recomputed here, never taken from the client: which finished tasks of an earlier review of this return are copied into this run
     const store = dbAiRunStore();
-    const started = await startAiRun(store, { runId: latest.run.id, payload: prep.serialized, model: prep.model, estimate: prep.estimate, pack: prep.pack, ret: prep.ret, facts: prep.facts });
-    await writeReviewAudit(user.id, "tax_review_ai_started", { runId: latest.run.id, taxYear: year, fingerprint: access.ctx.fingerprint, model: prep.model, estimatedUsd: Math.round(prep.estimate.expectedUsd * 100) / 100, tasks: prep.estimate.tasks.length, started: started.started });
+    const plan = await loadReusePlan(reuseLookupOf(prep), year, latest.run.id, store);
+    const estimate = estimateWithReuse(prep, plan);
+    if (estimate.warn && parsed.data.acknowledgeHighCost !== true) {
+      return { ok: false, error: `The estimated cost is above ${formatUsd(estimate.warnThresholdUsd)}. Confirm that you accept it to start.` };
+    }
+    const started = await startAiRun(store, { runId: latest.run.id, payload: prep.serialized, model: prep.model, estimate, pack: prep.pack, ret: prep.ret, facts: prep.facts, reuse: { events: plan.events, findings: plan.findings } });
+    await writeReviewAudit(user.id, "tax_review_ai_started", { runId: latest.run.id, taxYear: year, fingerprint: access.ctx.fingerprint, model: prep.model, estimatedUsd: Math.round(estimate.expectedUsd * 100) / 100, tasks: estimate.requests ?? estimate.tasks.length, reusedTasks: plan.reusedTaskIds.length, reusedFromRunId: plan.sourceRunId, started: started.started });
     revalidateYear(year);
     return { ok: true, runId: latest.run.id, ai: toAiDto(foldProgress(await store.listEvents(latest.run.id), Date.now())), reused: !started.started };
   } catch (err) {
@@ -322,7 +336,8 @@ export async function runNextAiTask(input: z.input<typeof aiRunSchema>): Promise
       nowMs: () => Date.now(),
       currentFingerprint: access.ctx.fingerprint,
       runFingerprint: run.fingerprint,
-      timeoutMs: 240_000,
+      // one request per call: the page's maxDuration is 300 s, so a request is cut off cleanly at 280 s instead of being killed mid-write
+      timeoutMs: 280_000,
     });
     if (step.status === "ran") {
       await writeReviewAudit(user.id, "tax_review_ai_task_done", { runId: run.id, taxYear: year, task: step.task, ok: step.ok, completed: step.progress.completedCount, inputTokens: step.progress.usage.inputTokens, outputTokens: step.progress.usage.outputTokens });

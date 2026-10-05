@@ -114,8 +114,10 @@ export interface AiReviewDto {
   model: string | null;
   promptVersion: string | null;
   completedCount: number;
+  /** Of completedCount: tasks copied from an earlier review of the same return (nothing was sent for them, they cost nothing here). */
+  reusedCount: number;
   totalCount: number;
-  tasks: { id: string; pass: string; title: string; state: TaskProgress["state"]; attempts: number; failures: number; inputTokens: number; outputTokens: number; errorKind: string | null; findingCount: number; rejectedCount: number; unverifiedCount: number }[];
+  tasks: { id: string; pass: string; title: string; state: TaskProgress["state"]; attempts: number; failures: number; inputTokens: number; outputTokens: number; errorKind: string | null; findingCount: number; rejectedCount: number; unverifiedCount: number; reused: boolean; cutoffRetries: number }[];
   inputTokens: number;
   outputTokens: number;
   costUsdSoFar: number | null;
@@ -131,13 +133,19 @@ export interface AiEstimateDto {
   outputTokens: number;
   expectedUsd: number;
   worstCaseUsd: number;
+  /** The absolute ceiling including one retry of every cut-off answer at a larger limit (shown next to the worst case). */
+  maxWithRetryUsd: number;
   warn: boolean;
   warnThresholdUsd: number;
   priceSource: "env" | "default_upper_bound";
   inPerMtok: number;
   outPerMtok: number;
   payloadBytes: number;
-  tasks: { id: string; inputTokens: number; outputTokens: number }[];
+  /** Requests that will be sent (the tasks that are not reused). */
+  requests: number;
+  /** Finished tasks of an earlier failed / cancelled review of this same return that are copied, not sent again (no cost). */
+  reusedTaskIds: string[];
+  tasks: { id: string; inputTokens: number; outputTokens: number; reused: boolean }[];
   /** An AI review already exists for this run (it can be resumed, not started again). */
   alreadyStarted: boolean;
   runId: string;
@@ -149,8 +157,9 @@ export function toAiDto(p: AiReviewProgress): AiReviewDto {
     model: p.model,
     promptVersion: p.promptVersion,
     completedCount: p.completedCount,
+    reusedCount: p.reusedCount,
     totalCount: p.totalCount,
-    tasks: p.tasks.map((t) => ({ id: t.id, pass: t.pass, title: t.title, state: t.state, attempts: t.attempts, failures: t.failures, inputTokens: t.usage.inputTokens, outputTokens: t.usage.outputTokens, errorKind: t.error?.kind ?? null, findingCount: t.findingCount, rejectedCount: t.rejectedCount, unverifiedCount: t.unverifiedCount })),
+    tasks: p.tasks.map((t) => ({ id: t.id, pass: t.pass, title: t.title, state: t.state, attempts: t.attempts, failures: t.failures, inputTokens: t.usage.inputTokens, outputTokens: t.usage.outputTokens, errorKind: t.error?.kind ?? null, findingCount: t.findingCount, rejectedCount: t.rejectedCount, unverifiedCount: t.unverifiedCount, reused: t.reused, cutoffRetries: t.cutoffRetries })),
     inputTokens: p.usage.inputTokens,
     outputTokens: p.usage.outputTokens,
     costUsdSoFar: p.costUsdSoFar,

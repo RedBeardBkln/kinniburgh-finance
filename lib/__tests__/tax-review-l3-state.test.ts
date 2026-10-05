@@ -92,7 +92,7 @@ describe("buildReviewState with an AI review", () => {
   });
   it("the client DTO has task states, tokens and the estimate but no payload, prompt or model text", () => {
     const s = state(allDone());
-    expect(Object.keys(s.ai).sort()).toEqual(["busy", "completedCount", "costUsdSoFar", "estimate", "inputTokens", "model", "nextTask", "outputTokens", "promptVersion", "status", "tasks", "totalCount"]);
-    expect(Object.keys(s.ai.tasks[0] ?? {}).sort()).toEqual(["attempts", "errorKind", "failures", "findingCount", "id", "inputTokens", "outputTokens", "pass", "rejectedCount", "state", "title", "unverifiedCount"]);
+    expect(Object.keys(s.ai).sort()).toEqual(["busy", "completedCount", "costUsdSoFar", "estimate", "inputTokens", "model", "nextTask", "outputTokens", "promptVersion", "reusedCount", "status", "tasks", "totalCount"]);
+    expect(Object.keys(s.ai.tasks[0] ?? {}).sort()).toEqual(["attempts", "cutoffRetries", "errorKind", "failures", "findingCount", "id", "inputTokens", "outputTokens", "pass", "rejectedCount", "reused", "state", "title", "unverifiedCount"]);
   });
 });

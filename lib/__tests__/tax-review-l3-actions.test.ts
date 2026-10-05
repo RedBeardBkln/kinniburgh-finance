@@ -17,7 +17,7 @@ vi.mock("@/lib/tax-review-server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/tax-review-server")>();
   return { ...actual, loadReviewContext: server.loadReviewContext, readReviewRecords: server.readReviewRecords };
 });
-const store = vi.hoisted(() => ({ listRuns: vi.fn(), insertReviewRun: vi.fn(), insertDisposition: vi.fn(), getRunWithFindings: vi.fn() }));
+const store = vi.hoisted(() => ({ listRuns: vi.fn(), listRunsForFingerprint: vi.fn(), insertReviewRun: vi.fn(), insertDisposition: vi.fn(), getRunWithFindings: vi.fn() }));
 vi.mock("@/lib/tax-review-store", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/tax-review-store")>()), ...store }));
 
 const prepare = vi.hoisted(() => ({ prepareAiReview: vi.fn() }));
@@ -35,13 +35,13 @@ vi.mock("@/lib/tax-review-anthropic", () => transportFactory);
 import { cancelAiReview, estimateAiReview, getAiReviewStatus, runNextAiTask, startAiReview } from "@/actions/tax-review";
 import * as l3store from "@/lib/tax-review-l3-store";
 import { loadSourcePack } from "@/lib/tax-review-sources";
-import { estimateAiRun, type MemoryRunStore } from "@/lib/tax-review/llm/run";
+import { estimateAiRun, runAllTasks, startAiRun, type MemoryRunStore } from "@/lib/tax-review/llm/run";
 import { priceFromEnv } from "@/lib/tax-review/llm/model";
 import { emptyProgress } from "@/lib/tax-review/llm/progress";
 import { makeFinding, type Finding } from "@/lib/tax-review/types";
 import type { ReviewContext, ReviewRecords } from "@/lib/tax-review-server";
 import type { RunRowLike } from "@/lib/tax-review/state";
-import { richFixture, scriptedTransport, type L3Fixture } from "./tax-review-l3-harness";
+import { finding, MockTransport, ok, richFixture, scriptedTransport, taskOf, type L3Fixture } from "./tax-review-l3-harness";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
@@ -77,6 +77,7 @@ beforeEach(() => {
   server.loadReviewContext.mockResolvedValue({ ok: true, ctx: ctxOf() });
   server.readReviewRecords.mockImplementation(async () => recordsOf({ ai: mem.events.length > 0 ? (await import("@/lib/tax-review/llm/progress")).foldProgress(mem.events, Date.now()) : null }));
   store.listRuns.mockResolvedValue([runRow()]);
+  store.listRunsForFingerprint.mockResolvedValue([]);
   prepare.prepareAiReview.mockResolvedValue(prep());
   transportFactory.createAnthropicTransport.mockReturnValue(scriptedTransport(() => undefined));
 });
@@ -143,7 +144,7 @@ describe("start: only after the owner confirms the estimate", () => {
     expect(mem.events.map((e) => e.eventKey)).toEqual(["run_started", "payload", "register"]);
     const audit = mockDb.auditLog.create.mock.calls[0]?.[0]?.data as { changeType: string; after: Record<string, unknown> };
     expect(audit.changeType).toBe("tax_review_ai_started");
-    expect(Object.keys(audit.after).sort().join(",")).toBe("estimatedUsd,fingerprint,model,runId,started,tasks,taxYear");
+    expect(Object.keys(audit.after).sort().join(",")).toBe("estimatedUsd,fingerprint,model,reusedFromRunId,reusedTasks,runId,started,tasks,taxYear");
     expect(JSON.stringify(audit)).not.toMatch(/Taxpayer|message|json/);
   });
   it("a second start returns the existing review without writing anything again", async () => {
@@ -213,6 +214,96 @@ describe("steps, status, cancel", () => {
     if (c.ok) expect(c.ai.status).toBe("cancelled");
     const audit = mockDb.auditLog.create.mock.calls.map((x) => (x[0] as { data: { changeType: string } }).data.changeType);
     expect(audit).toContain("tax_review_ai_cancelled");
+  });
+});
+
+describe("a new review reuses the finished steps of an earlier failed review of the same return", () => {
+  const OLD = "44444444-4444-4444-8444-444444444444";
+  /** The earlier review: a1 a2 b1 b2 b3 finished (two findings), c1 cut off at every budget: failed closed. Stored in the same in-memory store. */
+  async function failedEarlierRun(over: { fingerprint?: string } = {}): Promise<void> {
+    const pack = loadSourcePack();
+    const estimate = estimateAiRun(fx.payload, pack, priceFromEnv({}), "mock-model", fx.register);
+    await startAiRun(mem, { runId: OLD, payload: { json: fx.serialized.json, payload: fx.payload }, model: "mock-model", estimate, pack, ret: fx.pipeline.ret, facts: fx.pipeline.ctx.facts });
+    let t = Date.parse("2026-10-05T11:00:00Z");
+    const transport = new MockTransport((req) => {
+      t += 3_000;
+      const id = taskOf(req);
+      if (id === "c1") return { text: "{", stopReason: "max_tokens", usage: { inputTokens: 1000, outputTokens: req.maxTokens }, model: "mock-model" };
+      if (id === "a1") return ok({ findings: [finding(fx.payload, { category: "wrong_amount" })] });
+      if (id === "b1") return ok({ findings: [finding(fx.payload, { category: "wrong_amount", area: "deductions" }, "f1040.11a")] });
+      return ok({ findings: [] });
+    });
+    const progress = await runAllTasks(OLD, { store: mem, transport, pack, nowMs: () => t, currentFingerprint: FP, runFingerprint: FP, sleep: async () => undefined, backoffMs: 1 });
+    expect(progress.status).toBe("failed");
+    store.listRunsForFingerprint.mockImplementation(async () => [runRow({ id: RUN }), runRow({ id: OLD, startedAt: new Date("2026-10-05T11:00:00Z"), ...(over.fingerprint !== undefined ? { fingerprint: over.fingerprint } : {}) })]);
+  }
+  beforeEach(() => {
+    // the page folds only the events of ITS run (the store here holds both runs)
+    server.readReviewRecords.mockImplementation(async () => {
+      const own = mem.events.filter((e) => e.runId === RUN);
+      return recordsOf({ ai: own.length > 0 ? (await import("@/lib/tax-review/llm/progress")).foldProgress(own, Date.now()) : null });
+    });
+  });
+
+  it("the estimate counts only the steps that will be sent and lists the reused ones; it writes nothing", async () => {
+    await failedEarlierRun();
+    const before = mem.events.length;
+    const r = await estimateAiReview({ taxYear: 2025 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.estimate.requests).toBe(8);
+    expect(r.estimate.reusedTaskIds).toEqual(["a1", "a2", "b1", "b2", "b3"]);
+    expect(r.estimate.tasks.filter((t) => t.reused).map((t) => t.id)).toEqual(["a1", "a2", "b1", "b2", "b3"]);
+    expect(r.estimate.tasks.filter((t) => t.reused).every((t) => t.inputTokens === 0 && t.outputTokens === 0)).toBe(true);
+    const full = estimateAiRun(fx.payload, loadSourcePack(), priceFromEnv({}), "mock-model", fx.register);
+    expect(r.estimate.expectedUsd).toBeLessThan(full.expectedUsd);
+    expect(r.estimate.worstCaseUsd).toBeLessThan(full.worstCaseUsd);
+    expect(r.estimate.maxWithRetryUsd).toBeLessThan(full.maxWithRetryUsd ?? 0);
+    expect(mem.events).toHaveLength(before);
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+    expect(transportFactory.createAnthropicTransport).not.toHaveBeenCalled();
+  });
+  it("start copies the finished steps into the new run in the same append (estimate stored with the run), audit rows hold ids and counts only; the next step is the first one that is not finished", async () => {
+    await failedEarlierRun();
+    const r = await startAiReview({ taxYear: 2025, confirm: true });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.ai).toMatchObject({ status: "running", completedCount: 5, reusedCount: 5, nextTask: "c1" });
+    expect(mem.events.filter((e) => e.runId === RUN).map((e) => e.eventKey)).toEqual(["run_started", "payload", "register", "done:a1", "done:a2", "done:b1", "done:b2", "done:b3"]);
+    expect((await mem.listL3Findings(RUN)).length).toBe(2);
+    expect((await mem.listL3Findings(OLD)).length).toBe(2);
+    const audit = mockDb.auditLog.create.mock.calls[0]?.[0]?.data as { after: Record<string, unknown> };
+    expect(audit.after).toMatchObject({ tasks: 8, reusedTasks: 5, reusedFromRunId: OLD });
+    expect(JSON.stringify(audit)).not.toMatch(/Taxpayer|message|json/);
+    // the first request of the new run is c1; none of the five reused tasks is sent again
+    const t = scriptedTransport(() => undefined);
+    transportFactory.createAnthropicTransport.mockReturnValue(t);
+    const step = await runNextAiTask({ taxYear: 2025, runId: RUN });
+    expect(step).toMatchObject({ ok: true, step: "ran" });
+    expect(t.calls.map(taskOf)).toEqual(["c1"]);
+  });
+  it("an earlier review of ANOTHER return state is never reused (the cost estimate stays the full one)", async () => {
+    await failedEarlierRun({ fingerprint: "b".repeat(64) });
+    const r = await estimateAiReview({ taxYear: 2025 });
+    expect(r.ok && r.estimate.requests).toBe(13);
+    expect(r.ok && r.estimate.reusedTaskIds).toEqual([]);
+    const started = await startAiReview({ taxYear: 2025, confirm: true });
+    expect(started.ok && started.ai.reusedCount).toBe(0);
+    expect(mem.events.filter((e) => e.runId === RUN).map((e) => e.eventKey)).toEqual(["run_started", "payload", "register"]);
+  });
+  it("a different model than the earlier review used: nothing is reused", async () => {
+    await failedEarlierRun();
+    prepare.prepareAiReview.mockResolvedValue({ ...prep(), model: "another-model" });
+    const r = await estimateAiReview({ taxYear: 2025 });
+    expect(r.ok && r.estimate.requests).toBe(13);
+  });
+  it("a reuse lookup that cannot read the earlier runs means 'reuse nothing', not an error", async () => {
+    store.listRunsForFingerprint.mockRejectedValue(Object.assign(new Error("db down with SECRET text"), { code: "P1001" }));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const r = await estimateAiReview({ taxYear: 2025 });
+    expect(r.ok && r.estimate.requests).toBe(13);
+    expect(JSON.stringify(spy.mock.calls)).not.toMatch(/SECRET/);
+    spy.mockRestore();
   });
 });
 
