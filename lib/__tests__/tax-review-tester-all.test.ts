@@ -605,7 +605,7 @@ describe("approval revocation after the approval (reopened finding, new blocking
     const first = blockers[0]!;
     expect((await reopenFinding({ taxYear: 2025, findingKey: first.key, evidenceHash: first.evidenceHash })).ok).toBe(true);
     expect(await lookup().currentApproval(FP)).toBe(false);
-    expect(await lookup().approvedAt(FP)).toBeNull();
+    expect((await lookup().approvedAt?.(FP)) ?? null).toBeNull();
     let s = await state();
     expect(s.approval.inForce).toBe(true); // the row is kept (and can be withdrawn)
     expect(s.approval.current).toBe(false);
