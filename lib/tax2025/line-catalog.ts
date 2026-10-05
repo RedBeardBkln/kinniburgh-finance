@@ -419,8 +419,8 @@ const F8995 = [
   ["13", "Taxable income minus net capital gain"],
   ["14", "Income limitation (20% of line 13)"],
   ["15", "Qualified business income deduction"],
-  ["16", "Total qualified business (loss) carryforward", "qbi_carryforwards"],
-  ["17", "Total qualified REIT / PTP (loss) carryforward", "qbi_carryforwards"],
+  ["16", "Total qualified business (loss) carryforward"],
+  ["17", "Total qualified REIT / PTP (loss) carryforward"],
 ] as const satisfies readonly Row[];
 
 // ── Form 8959 ─────────────────────────────────────────────────────────────────
@@ -516,7 +516,7 @@ const EXTRA = [
   // The worksheet's line 3 is NOT 1040 line 7a: with Schedule D it is the smaller of Schedule D line 15 or 16 (0 if either is a loss or blank)
   ["qdcg.3", "Form 1040 worksheet", "3", "Qualified Dividends and Capital Gain Tax Worksheet, line 3 (smaller of Schedule D line 15 or 16, not below 0)"],
   ["f6251.amti", "Form 6251", "4", "Alternative minimum taxable income"],
-  ["f6251.tmt", "Form 6251", "10", "Tentative minimum tax"],
+  ["f6251.tmt", "Form 6251", "9", "Tentative minimum tax"],
   ["f6251.amt", "Form 6251", "11", "Alternative minimum tax"],
   // Phase 1b: the standard deduction with the age 65 / blind boxes (Form 1040 line 12d); the total is the standard amount for line 12e
   ["std.additional", "Standard deduction chart", "12d", "Additional standard deduction (born before January 2, 1961 or blind, per box)"],

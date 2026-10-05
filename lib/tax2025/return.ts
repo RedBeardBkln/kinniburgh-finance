@@ -98,7 +98,7 @@ import {
 } from "@/lib/tax2025/types";
 
 /** Bumped whenever a rule, the constants or the line catalog changes (stale-output detection for stored overrides / PDFs). */
-export const TY2025_ENGINE_VERSION = "ty2025-1b.5";
+export const TY2025_ENGINE_VERSION = "ty2025-1b.6";
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
 
@@ -743,9 +743,12 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     qualifiedDividends: A.num("f1040.3a"),
     netCapitalGain: A.num("qdcg.3"),
     section199aDividends: A.assume(inv.section199aDividends, ZERO, "Section 199A dividends, assumed $0"),
+    // Lines 3 and 7 are the "none" group qbi_carryforwards: 0 once the owner states none, no amount (so 0 here) until then.
+    priorQbiLossCarryforward: A.peek("f8995.3") ?? ZERO,
+    priorReitPtpLossCarryforward: A.peek("f8995.7") ?? ZERO,
     ...(decisions.qbiForm ? { decision: decisions.qbiForm } : {}),
   });
-  A.register(qbi, { refs: [...bookRefs, ...dividendRefs], owns: ["f1040.13a"] });
+  A.register(qbi, { refs: [...bookRefs, ...dividendRefs], owns: ["f1040.13a", "f8995.16", "f8995.17"] });
   A.sum("f1040.14", ["f1040.12e", "f1040.13a", "f1040.13b"]);
   A.derive("f1040.15", ["f1040.11b", "f1040.14"], (v) => maxD(ZERO, v[0]!.minus(v[1]!)));
   if (!fill && A.scheduleD !== null) {
@@ -777,10 +780,20 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     const l17 = A.lines.get("scha.17");
     return l17 !== undefined && hasAmount(l17.status) && l17.amount !== null && std !== null ? new Decimal(l17.amount).greaterThan(std) : null;
   })();
+  // Form 6251 line 1a subtracts Schedule 1-A line 37 (the senior deduction). A stated Schedule 1-A TOTAL has no line 37: it is 0 only when
+  // that total is 0 (otherwise the split is unknown and the screen says so instead of guessing).
+  const sch1aLine37: Decimal | null = (() => {
+    const l37 = A.peek("sch1a.37");
+    if (l37 !== null) return l37;
+    if (facts.adjustments.sch1a.value !== null) return (A.peek("f1040.13b") ?? ZERO).isZero() ? ZERO : null;
+    return null;
+  })();
   const amtScreen = computeAmtScreen({
-    taxableIncome: A.num("f1040.15"),
+    agi: A.num("f1040.11b"),
+    deductionsLine14: A.num("f1040.14"),
+    seniorDeduction: A.assume(sch1aLine37, ZERO, "Schedule 1-A line 37 (senior deduction), assumed $0"),
     itemizing,
-    saltDeduction: A.num("scha.5e"),
+    scheduleATaxes: A.num("scha.7"),
     standardDeduction: std,
     privateActivityBondInterest: A.assume(inv.privateActivityBondInterest, ZERO, "Private activity bond interest, assumed $0"),
     regularTax: A.num("f1040.16"),
@@ -1362,12 +1375,21 @@ export function computeFormsRequired(
         : r8959.status === "computed"
           ? { required: true, reason: "Form 8959 is required." }
           : { required: "blocking", reason: "Cannot tell until Form 8959 inputs are resolved." };
+  // Form 8995 is where a qualified business loss is carried to the next year (lines 16 and 17) and where a loss carried in is used
+  // (lines 3 and 7), so it is attached when there is a deduction OR a loss carried out or in (Instructions for Form 8995, lines 3, 4, 16, 17).
+  const qbiLossOut = Math.min(amount("f8995.16") ?? 0, 0) + Math.min(amount("f8995.17") ?? 0, 0);
+  const qbiLossIn = (amount("f8995.3") ?? 0) !== 0 || (amount("f8995.7") ?? 0) !== 0;
+  const qbiCarryText = qbiLossOut < 0 ? ` A qualified business loss of ${fmt(new Decimal(Math.abs(qbiLossOut)))} is carried forward to 2026: Form 8995 lines 16 and 17 are where the carryforward is recorded.` : "";
   out.f8995 =
-    amount("f1040.13a") !== null && (amount("f1040.13a") ?? 0) > 0
-      ? { required: true, reason: "A qualified business income deduction is claimed." }
-      : blockedStatus("f1040.13a")
-        ? { required: "blocking", reason: "The QBI deduction is not computed yet." }
-        : { required: false, reason: "No QBI deduction." };
+    (amount("f1040.13a") ?? 0) > 0
+      ? { required: true, reason: `A qualified business income deduction is claimed.${qbiCarryText}` }
+      : qbiLossOut < 0
+        ? { required: true, reason: qbiCarryText.trim() }
+        : qbiLossIn
+          ? { required: true, reason: "A qualified business loss carried in from 2024 is used on Form 8995 lines 3 and 7." }
+          : blockedStatus("f1040.13a")
+            ? { required: "blocking", reason: "The QBI deduction is not computed yet." }
+            : { required: false, reason: "No QBI deduction and no qualified business loss carryforward." };
   const amt = amount("sch2.2");
   out.f6251 =
     amt === null ? { required: "blocking", reason: "The AMT screen is not computed yet." } : amt > 0 ? { required: true, reason: "AMT applies." } : { required: false, reason: "The AMT screen shows no AMT." };
@@ -1663,6 +1685,24 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
         refs: [],
       });
     }
+  }
+  // A qualified business loss carried to 2026 (Form 8995 line 16 / 17): the owner needs the amount for next year's return
+  const qbiOut16 = A.peek("f8995.16");
+  const qbiOut17 = A.peek("f8995.17");
+  const qbiLoss16 = qbiOut16 !== null && qbiOut16.lessThan(0);
+  const qbiLoss17 = qbiOut17 !== null && qbiOut17.lessThan(0);
+  if (qbiLoss16 || qbiLoss17) {
+    const parts: string[] = [];
+    if (qbiLoss16 && qbiOut16 !== null) parts.push(`A qualified business loss of ${fmt(qbiOut16.negated())} carries forward to 2026. It is on Form 8995 line 16. It reduces your 2026 qualified business income (2026 Form 8995 line 3).`);
+    if (qbiLoss17 && qbiOut17 !== null) parts.push(`A qualified REIT dividend / publicly traded partnership loss of ${fmt(qbiOut17.negated())} carries forward to 2026. It is on Form 8995 line 17 (2026 Form 8995 line 7).`);
+    openItems.push({
+      id: "qbi-carryforward-out",
+      severity: "advisory",
+      message: `${parts.join(" ")} It does not change your 2025 tax. This assumes no loss was carried into 2025 from 2024 (you said none).`,
+      action: "Read your 2024 Form 8995 (or 8995-A): if it showed a loss on line 16 or 17, tell your tax preparer, because it belongs on 2025 line 3 or 7. Then keep this Form 8995 with your 2025 return and give the carryforward amount to whoever prepares your 2026 return.",
+      lineKeys: [...(qbiLoss16 ? (["f8995.16"] as LineKey[]) : []), ...(qbiLoss17 ? (["f8995.17"] as LineKey[]) : [])],
+      refs: [],
+    });
   }
   const blockingItemCount = openItems.filter((o) => o.severity === "blocking").length;
   const strictHeadline = buildHeadline(A, blockingItemCount, null, openItems);

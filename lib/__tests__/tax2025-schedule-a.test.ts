@@ -272,6 +272,41 @@ describe("computeScheduleA: charitable gifts from the donation log", () => {
     expect(amt(r, "scha.14")).toBe("700");
   });
 
+  // Decision D3 (2026-10-04, specs/09 "Schedule A line 14 rounding"): line 14 is "Add lines 11 through 13" of the PRINTED whole-dollar lines,
+  // so the form foots. (The 1040 instructions' "include cents when adding ... round off only the total" is ambiguous here; this
+  // engine, the L1 footing rule and the independent oracle all add the printed lines.)
+  const cents = (kind: "cash" | "noncash", amount: string, n: number): DonationInput => ({
+    id: `c-${kind}-${n}`,
+    kind,
+    amount: D(amount),
+    amountCents: Math.round(Number(amount) * 100),
+    substantiation: "written_acknowledgment",
+    receiptDocumentId: "r1",
+  });
+
+  it("S1 cash 100.40 and noncash 200.40: line 11 = 100, line 12 = 200, line 14 = 300 (not round(300.80) = 301), line 17 uses 300", () => {
+    const r = computeScheduleA(base({ donations: [cents("cash", "100.40", 1), cents("noncash", "200.40", 2)], donationsNoneConfirmed: false }));
+    expect(amt(r, "scha.11")).toBe("100");
+    expect(amt(r, "scha.12")).toBe("200");
+    expect(amt(r, "scha.14")).toBe("300");
+    // the same 300 in whole dollars gives the same line 17
+    const whole = computeScheduleA(base({ donations: [gift("cash", 100), gift("noncash", 200)], donationsNoneConfirmed: false }));
+    expect(amt(r, "scha.17")).toBe(amt(whole, "scha.17"));
+  });
+
+  it("S1 property: line 14 equals line 11 + line 12 (+ line 13 = 0) for a table of 20 cent pairs, half cases (x.50 up, x.49 down) included", () => {
+    const pairs: [string, string][] = [
+      ["0.50", "0.50"], ["0.49", "0.49"], ["100.40", "200.40"], ["10.50", "20.50"], ["10.49", "20.49"], ["99.99", "0.01"], ["1.50", "2.49"],
+      ["0.00", "0.50"], ["0.50", "0.00"], ["33.33", "33.33"], ["33.50", "33.50"], ["1234.56", "789.01"], ["500.49", "0.50"], ["500.50", "0.49"],
+      ["12.51", "12.51"], ["12.49", "12.49"], ["250.25", "250.25"], ["7.75", "7.75"], ["19.99", "20.01"], ["0.99", "0.99"],
+    ];
+    expect(pairs).toHaveLength(20);
+    pairs.forEach(([c, n], i) => {
+      const r = computeScheduleA(base({ donations: [cents("cash", c, i * 2), cents("noncash", n, i * 2 + 1)], donationsNoneConfirmed: false }));
+      expect(Number(amt(r, "scha.14")), `${c} + ${n}`).toBe(Number(amt(r, "scha.11")) + Number(amt(r, "scha.12")));
+    });
+  });
+
   it("gifts over 20% of AGI -> needs_cpa_rule_unverified (60% cash limit not verified)", () => {
     // AGI 150,000 -> 20% = 30,000; gifts 30,001
     const r = computeScheduleA(base({ donations: [gift("cash", 30001)], donationsNoneConfirmed: false }));

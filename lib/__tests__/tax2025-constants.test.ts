@@ -138,6 +138,20 @@ describe("mortgage insurance and CT-1040 Schedule 1 constants (verified 2026-10-
     expect(CONSTANTS.SCHEDULE_A_LINE_8D.url).toBe("https://www.irs.gov/instructions/i1040sca");
   });
 
+  it("the Form 8995 loss carryforward and Form 6251 line 1a / 1b / 2a rules are registered with the irs.gov instructions, the 2026-10-04 date and the printed wording", () => {
+    const qbi = CONSTANTS.QBI_LOSS_CARRYFORWARD_RULE;
+    expect(qbi.url).toBe("https://www.irs.gov/instructions/i8995");
+    expect(qbi.verifiedOn).toBe("2026-10-04");
+    expect(qbi.note).toContain("If greater than zero, enter -0-");
+    expect(qbi.note).toContain("1.199A-1");
+    for (const c of [CONSTANTS.AMT_SENIOR_DEDUCTION_ADDBACK, CONSTANTS.AMT_LINE_2A_TAXES]) {
+      expect(c.url).toBe("https://www.irs.gov/instructions/i6251");
+      expect(c.verifiedOn).toBe("2026-10-04");
+    }
+    expect(CONSTANTS.AMT_SENIOR_DEDUCTION_ADDBACK.note).toContain("56(b)(5)(D)");
+    expect(CONSTANTS.AMT_LINE_2A_TAXES.note).toContain("Schedule A, line 7");
+  });
+
   it("every CT Schedule 1 constant has the CT instructions url, the 2026-10-04 date and a note", () => {
     const ids = [
       "CT_SCH1_STATUTORY_MODIFICATIONS_ONLY",

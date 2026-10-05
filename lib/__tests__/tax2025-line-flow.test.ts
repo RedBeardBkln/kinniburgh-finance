@@ -127,6 +127,20 @@ describe("downstreamOf", () => {
     expect(downstreamOf("f8889a.13")).toEqual(expect.arrayContaining(["sch1.13", "sch1.26", "f1040.10", "f1040.11a"]));
   });
 
+  it("engine ty2025-1b.6: the Form 8995 loss carryforward (lines 16 / 17) and the Form 6251 Part I inputs (lines 1a / 1b / 2a)", () => {
+    expect(downstreamOf("f8995.1i")).toEqual(expect.arrayContaining(["f8995.2", "f8995.16"]));
+    expect(downstreamOf("f8995.3")).toEqual(expect.arrayContaining(["f8995.4", "f8995.16"]));
+    expect(downstreamOf("f8995.7")).toEqual(expect.arrayContaining(["f8995.8", "f8995.17"]));
+    expect(downstreamOf("f8995.6")).toEqual(expect.arrayContaining(["f8995.17"]));
+    // lines 16 and 17 feed nothing in 2025
+    expect(downstreamOf("f8995.16")).toEqual([]);
+    expect(downstreamOf("f8995.17")).toEqual([]);
+    expect(downstreamOf("sch1a.37")).toEqual(expect.arrayContaining(["f6251.amti", "f6251.amt", "sch2.2"]));
+    expect(downstreamOf("scha.7")).toEqual(expect.arrayContaining(["f6251.amti"]));
+    expect(downstreamOf("f1040.14")).toEqual(expect.arrayContaining(["f6251.amti"]));
+    expect(downstreamOf("f1040.11b")).toEqual(expect.arrayContaining(["f6251.amti"]));
+  });
+
   it("never flags upstream lines", () => {
     expect(downstreamOf("f1040.16")).not.toContain("f1040.15");
     expect(downstreamOf("sch1.3")).not.toContain("schc.31");

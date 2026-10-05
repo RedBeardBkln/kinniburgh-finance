@@ -127,6 +127,8 @@ const PAIRS: readonly (readonly [Keys, Keys])[] = [
 
   // ── AMT and NIIT screens ────────────────────────────────────────────────────
   [["f1040.15", "scha.5e", "scha.17", "std.total", "f1040.3a", "qdcg.3"], "f6251.amti"],
+  // Form 6251 lines 1a / 1b / 2a: AGI, total deductions, the senior deduction add-back (Schedule 1-A line 37) and the Schedule A taxes (line 7)
+  [["f1040.11b", "f1040.14", "sch1a.37", "scha.7"], "f6251.amti"],
   ["f1040.16", "f6251.tmt"],
   ["f6251.amti", "f6251.tmt"],
   ["f6251.tmt", "f6251.amt"],
@@ -183,6 +185,9 @@ const PAIRS: readonly (readonly [Keys, Keys])[] = [
   ["f8995.13", "f8995.14"],
   [["f8995.10", "f8995.14"], "f8995.15"],
   ["f8995.15", "f1040.13a"],
+  // Lines 16 and 17: the loss carried to 2026 ("Combine lines 2 and 3" / "Combine lines 6 and 7"); they feed nothing in 2025
+  [["f8995.2", "f8995.3"], "f8995.16"],
+  [["f8995.6", "f8995.7"], "f8995.17"],
 
   // ── Standard deduction, Schedule A ──────────────────────────────────────────
   ["std.additional", "std.total"],

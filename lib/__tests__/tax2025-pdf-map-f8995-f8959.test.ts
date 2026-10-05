@@ -96,6 +96,35 @@ describe("Form 8995 map", () => {
     expect(f.get(`${T}Row1i[0].f1_05[0]`)).toBe(""); // line 1i
   });
 
+  // Lines 3, 7, 16 and 17 are (loss) lines whose parentheses the form pre-prints: the engine's negative loss prints as its magnitude
+  // ("sign: refund"); a zero or positive amount stays blank. Lines 1i(c) and 2 have no printed parentheses and keep the minus sign.
+  it("a loss year: 1i and 2 read -9,010, 4 and 15 read 0, line 16 reads 9,010 inside the printed parentheses, 17 stays blank (engine ty2025-1b.6)", async () => {
+    const LOSS: ReadonlyArray<readonly [LineKey, number]> = [
+      ["f8995.1i", -9010], ["f8995.2", -9010], ["f8995.3", 0], ["f8995.4", 0], ["f8995.5", 0], ["f8995.6", 0], ["f8995.7", 0], ["f8995.8", 0], ["f8995.9", 0],
+      ["f8995.10", 0], ["f8995.11", 220025], ["f8995.12", 5557], ["f8995.13", 214468], ["f8995.14", 42894], ["f8995.15", 0], ["f8995.16", -9010], ["f8995.17", 0],
+    ];
+    const view = viewWith({ lines: linesOf(LOSS), formsRequired: { f8995: required(true, "A qualified business loss of $9,010 is carried forward to 2026: Form 8995 lines 16 and 17 are where the carryforward is recorded.") } });
+    expect(formInclusion(f8995Map, view)).toMatchObject({ include: true });
+    const result = await fillForm("f8995", view, f8995Map, NO_STAMP);
+    const f = await readAllFields(result.bytes);
+    expect(f.get(`${T}Row1i[0].f1_05[0]`)).toBe("-9,010");
+    expect(f.get(`${P}Line2_ReadOrder[0].f1_18[0]`)).toBe("-9,010");
+    expect(f.get(`${P}f1_19[0]`)).toBe(""); // line 3
+    expect(f.get(`${P}f1_20[0]`)).toBe("0"); // line 4
+    expect(f.get(`${P}f1_31[0]`)).toBe("0"); // line 15
+    expect(f.get(`${P}f1_32[0]`)).toBe("9,010"); // line 16
+    expect(f.get(`${P}f1_33[0]`)).toBe(""); // line 17
+  });
+
+  it("carry-in and carry-out lines print the magnitude of a loss and nothing for zero or a positive amount", async () => {
+    const mk = (l3: number, l16: number, l7: number, l17: number) =>
+      viewWith({ lines: linesOf([["f8995.3", l3], ["f8995.7", l7], ["f8995.16", l16], ["f8995.17", l17]]), formsRequired: { f8995: required(true) } });
+    const a = await readAllFields((await fillForm("f8995", mk(-3000, -3000, -400, -300), f8995Map, NO_STAMP)).bytes);
+    expect([a.get(`${P}f1_19[0]`), a.get(`${P}f1_32[0]`), a.get(`${P}f1_23[0]`), a.get(`${P}f1_33[0]`)]).toEqual(["3,000", "3,000", "400", "300"]);
+    const b = await readAllFields((await fillForm("f8995", mk(0, 0, 0, 0), f8995Map, NO_STAMP)).bytes);
+    expect([b.get(`${P}f1_19[0]`), b.get(`${P}f1_32[0]`), b.get(`${P}f1_23[0]`), b.get(`${P}f1_33[0]`)]).toEqual(["", "", "", ""]);
+  });
+
   it("no EKC name in the view: row i name stays blank with an advisory item", async () => {
     const view = viewWith({ lines: linesOf(F8995_AMOUNTS), header: { ekcName: null }, formsRequired: { f8995: required(true) } });
     const result = await fillForm("f8995", view, f8995Map, NO_STAMP);

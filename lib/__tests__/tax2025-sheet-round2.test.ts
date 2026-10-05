@@ -139,7 +139,7 @@ describe("D3: owner homework holds only real owner inputs", () => {
     ["rule:ct-tax", "Provide: federal AGI."],
     ["rule:ct-property-tax-credit", "Provide: CT AGI."],
     ["rule:saver-8880", "Provide: Form 1040 line 11a."],
-    ["rule:amt-screen-6251", "Provide: taxable income (1040 line 15); standard-versus-itemized result; regular tax (1040 line 16)."],
+    ["rule:amt-screen-6251", "Provide: adjusted gross income (1040 line 11b); total deductions (1040 line 14); Schedule 1-A line 37 (the senior deduction); standard-versus-itemized result; regular tax (1040 line 16)."],
     ["rule:niit-8960", "Provide: Form 1040 line 2b (taxable interest); Form 1040 line 3b (ordinary dividends); Form 1040 line 5b (pensions and annuities); Form 1040 line 7a (capital gain or loss); Schedule 1 line 3 (business income or loss); Schedule 1 line 4 (other gains or losses); Schedule 1 line 5 (rental, partnership, S corporation, trust income); Schedule A line 5a (state and local income tax); Schedule A line 9 (investment interest); standard versus itemized deduction; Form 1040 line 11a (adjusted gross income)."],
     ["rule:schedule-se", "Provide: Schedule C net profit (line 31)."],
     ["rule:addl-medicare-8959", "Provide: Schedule SE net earnings."],

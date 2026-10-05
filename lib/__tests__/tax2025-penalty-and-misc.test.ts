@@ -260,9 +260,12 @@ describe("standard deduction flows into Schedule A and the AMT screen", () => {
 
   it("the AMT screen adds back the ADJUSTED standard deduction: TI 150,000 + 34,700 = AMTI 184,700; (184,700 - 137,000) x 26% = 12,402", () => {
     const r = computeAmtScreen({
-      taxableIncome: D(150000),
+      // line 1b = 184,700 - 34,700 = 150,000 (no senior deduction)
+      agi: D(184700),
+      deductionsLine14: D(34700),
+      seniorDeduction: D(0),
       itemizing: false,
-      saltDeduction: null,
+      scheduleATaxes: null,
       standardDeduction: D(34700),
       privateActivityBondInterest: D(0),
       regularTax: D(22828),

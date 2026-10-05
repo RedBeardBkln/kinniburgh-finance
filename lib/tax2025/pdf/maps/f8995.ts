@@ -8,6 +8,13 @@
 //     stores no EIN/SSN). Rows ii-v are not used.
 //   - Lines 2-17 are the engine's f8995.* keys. Lines the form says to enter 0 on when the
 //     result is zero or less (4, 13) and the deduction itself (15) print "0".
+//   - Lines 3, 7, 16 and 17 are (loss) lines: the form PRE-PRINTS the parentheses ("3 (   )",
+//     "16 (   )", ...), and the engine holds the loss as a NEGATIVE amount. They use
+//     sign "refund", the existing "print the magnitude of a negative amount, blank otherwise"
+//     mode, so a loss of 9,010 prints as 9,010 inside the printed parentheses and a zero or
+//     positive amount stays blank (line 16 / 17 are "-0-" in that case, printed blank like
+//     every other zero the form does not ask to be written). Line 1i(c), 2 and 6 have no
+//     printed parentheses and keep a leading minus ("-9,010").
 //   - The form is included in a packet only when the engine reports it required
 //     (engineFormId "f8995" -> Ty2025Return.formsRequired).
 
@@ -19,11 +26,11 @@ const T = `${P}Table[0].`;
 const lines: MapLine[] = [
   { kind: "money", field: `${T}Row1i[0].f1_05[0]`, line: "f8995.1i" },
   { kind: "money", field: `${P}Line2_ReadOrder[0].f1_18[0]`, line: "f8995.2" },
-  { kind: "money", field: `${P}f1_19[0]`, line: "f8995.3" },
+  { kind: "money", field: `${P}f1_19[0]`, line: "f8995.3", sign: "refund" },
   { kind: "money", field: `${P}f1_20[0]`, line: "f8995.4", zero: "print" },
   { kind: "money", field: `${P}f1_21[0]`, line: "f8995.5" },
   { kind: "money", field: `${P}Line6_ReadOrder[0].f1_22[0]`, line: "f8995.6" },
-  { kind: "money", field: `${P}f1_23[0]`, line: "f8995.7" },
+  { kind: "money", field: `${P}f1_23[0]`, line: "f8995.7", sign: "refund" },
   { kind: "money", field: `${P}f1_24[0]`, line: "f8995.8" },
   { kind: "money", field: `${P}f1_25[0]`, line: "f8995.9" },
   { kind: "money", field: `${P}f1_26[0]`, line: "f8995.10" },
@@ -32,8 +39,8 @@ const lines: MapLine[] = [
   { kind: "money", field: `${P}f1_29[0]`, line: "f8995.13", zero: "print" },
   { kind: "money", field: `${P}f1_30[0]`, line: "f8995.14" },
   { kind: "money", field: `${P}f1_31[0]`, line: "f8995.15", zero: "print", expected: true },
-  { kind: "money", field: `${P}f1_32[0]`, line: "f8995.16" },
-  { kind: "money", field: `${P}f1_33[0]`, line: "f8995.17" },
+  { kind: "money", field: `${P}f1_32[0]`, line: "f8995.16", sign: "refund" },
+  { kind: "money", field: `${P}f1_33[0]`, line: "f8995.17", sign: "refund" },
 ];
 
 const blank: MapBlank[] = [

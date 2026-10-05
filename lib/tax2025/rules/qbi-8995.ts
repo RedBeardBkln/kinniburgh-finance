@@ -42,11 +42,19 @@ export interface Qbi8995Input {
   netCapitalGain: Decimal | null;
   /** 1099-DIV box 5 section 199A dividends (REIT), whole dollars. */
   section199aDividends: Decimal | null;
+  /**
+   * Form 8995 line 3: the qualified business net (loss) carryforward from the prior year, signed (a loss is NEGATIVE).
+   * Omitted = 0. The assembler holds every line of this rule until the owner states "none" (group qbi_carryforwards),
+   * so a non-zero value is never printed on an unconfirmed statement.
+   */
+  priorQbiLossCarryforward?: Decimal;
+  /** Form 8995 line 7: the qualified REIT dividends and PTP (loss) carryforward from the prior year, signed. Omitted = 0. */
+  priorReitPtpLossCarryforward?: Decimal;
   /** X3 decision. */
   decision?: Decided<"8995" | "8995a">;
 }
 
-const CITATIONS = ["QBI_RATE", "QBI_8995_THRESHOLD_MFJ"];
+const CITATIONS = ["QBI_RATE", "QBI_8995_THRESHOLD_MFJ", "QBI_LOSS_CARRYFORWARD_RULE"];
 
 export function computeQbi8995(input: Qbi8995Input): RuleResult {
   const base = { ruleId: "qbi-8995", form: "Form 8995", citations: CITATIONS, inputsUsed: [] };
@@ -135,16 +143,23 @@ export function computeQbi8995(input: Qbi8995Input): RuleResult {
     .minus(roundLine(input.seHealthInsurance))
     .minus(roundLine(input.seRetirement));
   const line2 = line1;
-  const line4 = maxD(ZERO, line2); // prior-year QBI loss carryforward (line 3): not available, none assumed (see openItems)
+  // Lines 3 and 7 (the prior-year carryforwards) are signed inputs; the form prints them inside parentheses.
+  const line3 = roundLine(input.priorQbiLossCarryforward ?? ZERO);
+  const line7 = roundLine(input.priorReitPtpLossCarryforward ?? ZERO);
+  // Lines 4 / 8 ("If zero or less, enter -0-") and 16 / 17 ("If greater than zero, enter -0-"): see QBI_LOSS_CARRYFORWARD_RULE.
+  const line4 = maxD(ZERO, line2.plus(line3));
   const line5 = roundLine(line4.times(K.QBI_RATE.value));
   const line6 = maxD(ZERO, roundLine(input.section199aDividends));
-  const line9 = roundLine(line6.times(K.QBI_RATE.value));
+  const line8 = maxD(ZERO, line6.plus(line7));
+  const line9 = roundLine(line8.times(K.QBI_RATE.value));
   const line10 = line5.plus(line9);
   const line11 = tiBefore;
   const line12 = roundLine(input.qualifiedDividends.plus(maxD(ZERO, input.netCapitalGain)));
   const line13 = maxD(ZERO, line11.minus(line12));
   const line14 = roundLine(line13.times(K.QBI_RATE.value));
   const line15 = minD(line10, line14);
+  const line16 = minD(ZERO, line2.plus(line3));
+  const line17 = minD(ZERO, line6.plus(line7));
 
   const lines: RuleLine[] = [
     amountLine("f8995.1i", "Qualified business income of EK Consulting (net of half of SE tax, SE health insurance, SE retirement)", "8995 line 1i(c)", line1),
@@ -152,7 +167,7 @@ export function computeQbi8995(input: Qbi8995Input): RuleResult {
     amountLine("f8995.4", "Total qualified business income (after loss carryforward, not below 0)", "8995 line 4", line4),
     amountLine("f8995.5", "QBI component (20%)", "8995 line 5", line5),
     amountLine("f8995.6", "Qualified REIT dividends and PTP income", "8995 line 6", line6),
-    amountLine("f8995.8", "Total qualified REIT dividends and PTP income", "8995 line 8", line6),
+    amountLine("f8995.8", "Total qualified REIT dividends and PTP income", "8995 line 8", line8),
     amountLine("f8995.9", "REIT and PTP component (20%)", "8995 line 9", line9),
     amountLine("f8995.10", "QBI deduction before the income limitation", "8995 line 10", line10),
     amountLine("f8995.11", "Taxable income before the QBI deduction", "8995 line 11", line11),
@@ -160,15 +175,27 @@ export function computeQbi8995(input: Qbi8995Input): RuleResult {
     amountLine("f8995.13", "Taxable income minus net capital gain", "8995 line 13", line13),
     amountLine("f8995.14", "Income limitation (20% of line 13)", "8995 line 14", line14),
     amountLine("f8995.15", "Qualified business income deduction", "8995 line 15", line15),
+    amountLine("f8995.16", "Total qualified business (loss) carryforward to 2026", "8995 line 16", line16),
+    amountLine("f8995.17", "Total qualified REIT / PTP (loss) carryforward to 2026", "8995 line 17", line17),
     amountLine("f1040.13a", "Qualified business income deduction", "13a", line15),
   ];
   const reasons = [
     `Form 8995: Schedule C net profit ${fmt(netProfit)} minus half of SE tax ${fmt(roundLine(input.deductibleHalfSeTax))}, SE health insurance ${fmt(roundLine(input.seHealthInsurance))} and SE retirement ${fmt(roundLine(input.seRetirement))} = QBI ${fmt(line1)}; 20% = ${fmt(line5)}${line9.greaterThan(0) ? ` plus 20% of section 199A dividends ${fmt(line9)}` : ""}.`,
     `Income limitation: 20% x (taxable income before QBI ${fmt(line11)} minus net capital gain ${fmt(line12)}) = ${fmt(line14)}; the deduction is the smaller, ${fmt(line15)}.`,
   ];
-  if (line1.lessThan(0)) {
+  if (!line3.isZero() || !line7.isZero()) {
     reasons.push(
-      `QBI is negative (${fmt(line1)}): no deduction, and the loss carries forward to 2026 (the carryforward amount is not tracked here).`
+      `Carried in from 2024: qualified business (loss) ${fmt(line3)} on line 3 and REIT / PTP (loss) ${fmt(line7)} on line 7.`
+    );
+  }
+  if (line16.lessThan(0)) {
+    reasons.push(
+      `QBI is negative after the carry-in (line 2 plus line 3 = ${fmt(line16)}): no QBI component and no deduction from it, and the loss of ${fmt(line16.negated())} carries forward to 2026 (Form 8995 line 16; it becomes 2026 Form 8995 line 3).`
+    );
+  }
+  if (line17.lessThan(0)) {
+    reasons.push(
+      `REIT dividends and PTP income are negative after the carry-in (line 6 plus line 7 = ${fmt(line17)}): no REIT / PTP component, and the loss of ${fmt(line17.negated())} carries forward to 2026 (Form 8995 line 17; it becomes 2026 Form 8995 line 7).`
     );
   }
   return { ...base, status: aggregateStatus(lines), lines, reasons, inputsMissing: [] };
