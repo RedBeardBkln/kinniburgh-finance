@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { DuplicateEventError, type AiRunStore, type NewRunEvent } from "@/lib/tax-review/llm/run";
+import { DuplicateEventError, type AiRunStore, type NewRunEvent, type StoredFinding } from "@/lib/tax-review/llm/run";
 import type { RunEvent } from "@/lib/tax-review/llm/progress";
 import { dedupeFindings, findingSchema, SEVERITIES, severityRank, type Finding, type Severity } from "@/lib/tax-review/types";
 import { rowToFinding, type FindingRow } from "@/lib/tax-review-store";
@@ -99,6 +99,11 @@ export function dbAiRunStore(store: L3StoreDb = defaultDb()): AiRunStore {
       // Two tasks of one pass can emit the same finding key (same pass, category, line and rule) with different severities: both rows are kept
       // (the table is insert-only), and every reader sees the MORE SEVERE one (dedupeFindings keeps the most serious, the first on a tie).
       return dedupeFindings(rows.map(rowToFinding));
+    },
+    async listL3FindingRows(runId: string): Promise<StoredFinding[]> {
+      // read-only: every stored L3 row of the run as it is (not collapsed per key), with the time it was stored; reuse.ts attributes them to tasks
+      const rows = (await store.taxReviewFinding.findMany({ where: { runId, layer: "L3" }, orderBy: { createdAt: "asc" } })) as unknown as Array<FindingRow & { createdAt: Date }>;
+      return rows.map((r) => ({ finding: rowToFinding(r), at: r.createdAt.getTime() }));
     },
     async append(runId: string, events: readonly NewRunEvent[], findings: readonly Finding[]): Promise<void> {
       const eventRows: NewEventRow[] = events.map((e) => ({ runId, eventKey: e.eventKey, kind: e.kind, taskId: e.taskId, attempt: e.attempt, data: e.data }));

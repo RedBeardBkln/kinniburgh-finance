@@ -113,7 +113,8 @@ function figureAllowed(fig: number, allowed: readonly ReadonlySet<number>[]): bo
 
 type EvidenceResult = { ok: true; item: EvidenceItem } | { ok: false; reason: RejectReason };
 
-function resolveEvidence(ref: string, amount: number | null, index: PayloadIndex): EvidenceResult {
+/** Exported for reuse.ts, which re-checks the evidence of a reused finding against the CURRENT payload with this same function. */
+export function resolveEvidence(ref: string, amount: number | null, index: PayloadIndex): EvidenceResult {
   if (isLineKey(ref)) {
     const line = index.lines.get(ref);
     if (line === undefined) return { ok: false, reason: "unknown_line" };

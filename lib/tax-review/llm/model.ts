@@ -54,8 +54,12 @@ export function priceFromEnv(env: EnvLike): Price {
   return i !== null && o !== null ? { inPerMtok: i, outPerMtok: o, source: "env" } : DEFAULT_PRICE;
 }
 
-/** Characters per token used for the estimate (a conservative figure for English / JSON text). */
-export const CHARS_PER_TOKEN = 3.5;
+/**
+ * Characters per token used for the estimate. Calibrated on the first live run (2026-10-05, claude-opus-5-5): the prompts (JSON data
+ * plus source text) came to 2.35 to 2.66 characters per token (c1 2.35, a1 2.58, a2 2.66, b1 2.66, b2 2.53, b3 2.59); the earlier 3.5
+ * under-counted the input by about 35%. 2.4 errs slightly high on purpose.
+ */
+export const CHARS_PER_TOKEN = 2.4;
 
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
@@ -67,18 +71,34 @@ export function costUsd(inputTokens: number, outputTokens: number, price: Price)
 
 export interface TaskEstimate {
   taskId: string;
+  /** Input tokens of ONE request of this task (0 for a reused task: it is not sent). */
   inputTokens: number;
-  /** Expected (not maximum) output tokens. */
+  /** Expected (not maximum) output tokens (0 for a reused task). */
   outputTokens: number;
+  /** max_tokens of the first request (0 for a reused task). */
   maxOutputTokens: number;
+  /** max_tokens of the one retry after a cut-off answer; 0 = no retry is possible (or the task is reused). Absent in estimates stored before the retry existed. */
+  retryOutputTokens?: number;
+  /** The task already has a finished, valid result from an earlier review of the same return: it is not sent and costs nothing. */
+  reused?: boolean;
 }
 
 export interface RunEstimate {
   tasks: TaskEstimate[];
+  /** Requests that will be sent (tasks that are not reused), each at least once. */
+  requests?: number;
+  /** Tasks whose finished results are reused (not sent, no cost). */
+  reusedTaskIds?: string[];
   inputTokens: number;
   outputTokens: number;
-  /** Cost if every output hits max_tokens (the ceiling of the estimate). */
+  /** Cost if every request that will be sent uses its whole first output budget (max_tokens) and none is cut off. The $50 warning looks at this. */
   worstCaseUsd: number;
+  /**
+   * The absolute ceiling under the run's rules: every request that will be sent is cut off at its budget once and answered on the one
+   * retry using the whole larger budget (the input is paid twice then). Shown next to the worst case so no ceiling is hidden; absent in
+   * estimates stored before the retry existed.
+   */
+  maxWithRetryUsd?: number;
   expectedUsd: number;
   price: Price;
   warn: boolean;
@@ -87,19 +107,27 @@ export interface RunEstimate {
 }
 
 export function estimateRun(tasks: readonly TaskEstimate[], price: Price, model: string): RunEstimate {
-  const inputTokens = tasks.reduce((n, t) => n + t.inputTokens, 0);
-  const outputTokens = tasks.reduce((n, t) => n + t.outputTokens, 0);
-  const worst = tasks.reduce((n, t) => n + t.maxOutputTokens, 0);
+  const sent = tasks.filter((t) => t.reused !== true);
+  const inputTokens = sent.reduce((n, t) => n + t.inputTokens, 0);
+  const outputTokens = sent.reduce((n, t) => n + t.outputTokens, 0);
+  const worst = sent.reduce((n, t) => n + t.maxOutputTokens, 0);
+  // ceiling with the retry: each task is cut off at its budget once and answered at the larger budget (input sent twice, both outputs full)
+  const ceilingInput = sent.reduce((n, t) => n + t.inputTokens * ((t.retryOutputTokens ?? 0) > 0 ? 2 : 1), 0);
+  const ceilingOutput = sent.reduce((n, t) => n + t.maxOutputTokens + (t.retryOutputTokens ?? 0), 0);
   const expectedUsd = costUsd(inputTokens, outputTokens, price);
   const worstCaseUsd = costUsd(inputTokens, worst, price);
+  const maxWithRetryUsd = costUsd(ceilingInput, ceilingOutput, price);
   return {
     tasks: tasks.map((t) => ({ ...t })),
+    requests: sent.length,
+    reusedTaskIds: tasks.filter((t) => t.reused === true).map((t) => t.taskId),
     inputTokens,
     outputTokens,
     worstCaseUsd,
+    maxWithRetryUsd,
     expectedUsd,
     price,
-    // warn on the worse of the two so a cheap expectation cannot hide a high ceiling
+    // warn on the worst case, not on the expectation, so a cheap expectation cannot hide a high ceiling
     warn: worstCaseUsd > WARN_ESTIMATE_USD,
     warnThresholdUsd: WARN_ESTIMATE_USD,
     model,

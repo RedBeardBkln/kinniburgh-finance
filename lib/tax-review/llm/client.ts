@@ -5,7 +5,10 @@
 //
 // What `runStructured` guarantees:
 //   - the model's text is parsed and validated against a zod schema; anything else is a FAILURE, not a partial result;
-//   - a stop at max_tokens is a failure (never a truncated "success"), and is not retried (it would stop at the same place);
+//   - a stop at max_tokens is a failure (never a truncated "success") and is not retried HERE (it would stop at the same place): the
+//     orchestrator (run.ts) answers it with ONE later request at a larger budget, as a separate step, because a request at a large
+//     budget can take minutes and two of them do not fit one serverless call. The reasoning ("thinking") tokens of the model count
+//     against max_tokens, so a budget has to cover the reasoning AND the answer;
 //   - a refusal is a failure; an abort / timeout is a failure; transient errors (network, 408 / 409 / 429 / 5xx) are retried
 //     with backoff, malformed or non-conforming output is retried once;
 //   - token usage is summed over every attempt (a failed attempt costs money too);
@@ -34,6 +37,8 @@ export interface LlmRequest {
 export interface LlmUsage {
   inputTokens: number;
   outputTokens: number;
+  /** Output tokens the model spent on internal reasoning (part of outputTokens), when the API reports it. Diagnostic only. */
+  thinkingTokens?: number;
 }
 
 export interface LlmResponse {
@@ -78,9 +83,17 @@ export interface RunStructuredOptions<T> {
   backoffMs?: number;
 }
 
+/** How the call ended, for the task event (never any text of the model). */
+export interface CallStats {
+  /** The max_tokens the requests were sent with. */
+  maxTokensUsed: number;
+  /** Length in characters of the visible answer of the last attempt (reasoning is not in it); null when nothing came back. */
+  textChars: number | null;
+}
+
 export type RunStructuredResult<T> =
-  | { ok: true; value: T; usage: LlmUsage; attempts: number; responseHash: string; model: string; stopReason: string | null }
-  | { ok: false; kind: LlmFailureKind; usage: LlmUsage; attempts: number; /** Error class name only. */ detail: string; responseHash: string | null };
+  | ({ ok: true; value: T; usage: LlmUsage; attempts: number; responseHash: string; model: string; stopReason: string | null } & CallStats)
+  | ({ ok: false; kind: LlmFailureKind; usage: LlmUsage; attempts: number; /** Error class name only. */ detail: string; responseHash: string | null } & CallStats);
 
 export const DEFAULT_TIMEOUT_MS = 240_000;
 export const DEFAULT_MAX_ATTEMPTS = 3;
@@ -125,9 +138,11 @@ export async function runStructured<T>(opts: RunStructuredOptions<T>): Promise<R
   let lastDetail = "NoAttempt";
   let lastHash: string | null = null;
   let invalidOutputs = 0;
+  let textChars: number | null = null;
+  const stats = (): CallStats => ({ maxTokensUsed: opts.request.maxTokens, textChars });
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    if (opts.signal?.aborted === true) return { ok: false, kind: "aborted", usage, attempts: attempt - 1, detail: "Aborted", responseHash: lastHash };
+    if (opts.signal?.aborted === true) return { ok: false, kind: "aborted", usage, attempts: attempt - 1, detail: "Aborted", responseHash: lastHash, ...stats() };
     const controller = new AbortController();
     const timer = { fired: false };
     const handle = setTimeout(() => {
@@ -140,26 +155,28 @@ export async function runStructured<T>(opts: RunStructuredOptions<T>): Promise<R
       const res = await opts.transport.send(opts.request, controller.signal);
       usage.inputTokens += res.usage.inputTokens;
       usage.outputTokens += res.usage.outputTokens;
+      if (res.usage.thinkingTokens !== undefined) usage.thinkingTokens = (usage.thinkingTokens ?? 0) + res.usage.thinkingTokens;
       lastHash = sha256Text(res.text);
-      if (res.stopReason === "max_tokens") return { ok: false, kind: "max_tokens", usage, attempts: attempt, detail: "MaxTokens", responseHash: lastHash };
-      if (res.stopReason === "refusal") return { ok: false, kind: "refusal", usage, attempts: attempt, detail: "Refusal", responseHash: lastHash };
+      textChars = res.text.length;
+      if (res.stopReason === "max_tokens") return { ok: false, kind: "max_tokens", usage, attempts: attempt, detail: "MaxTokens", responseHash: lastHash, ...stats() };
+      if (res.stopReason === "refusal") return { ok: false, kind: "refusal", usage, attempts: attempt, detail: "Refusal", responseHash: lastHash, ...stats() };
       const value = parseAndValidate(res.text, opts.schema);
-      if (value !== null) return { ok: true, value, usage, attempts: attempt, responseHash: lastHash, model: res.model, stopReason: res.stopReason };
+      if (value !== null) return { ok: true, value, usage, attempts: attempt, responseHash: lastHash, model: res.model, stopReason: res.stopReason, ...stats() };
       invalidOutputs += 1;
       lastKind = "invalid_output";
       lastDetail = "InvalidOutput";
       // malformed or non-conforming output is retried ONCE
-      if (invalidOutputs >= 2) return { ok: false, kind: "invalid_output", usage, attempts: attempt, detail: lastDetail, responseHash: lastHash };
+      if (invalidOutputs >= 2) return { ok: false, kind: "invalid_output", usage, attempts: attempt, detail: lastDetail, responseHash: lastHash, ...stats() };
     } catch (err) {
       const c = classify(err, callerAborted(opts.signal), timer.fired);
       lastKind = c.kind;
       lastDetail = c.detail;
-      if (c.kind !== "transient") return { ok: false, kind: c.kind, usage, attempts: attempt, detail: c.detail, responseHash: lastHash };
+      if (c.kind !== "transient") return { ok: false, kind: c.kind, usage, attempts: attempt, detail: c.detail, responseHash: lastHash, ...stats() };
       if (attempt < maxAttempts) await sleep((opts.backoffMs ?? 2000) * 2 ** (attempt - 1));
     } finally {
       clearTimeout(handle);
       opts.signal?.removeEventListener("abort", onCallerAbort);
     }
   }
-  return { ok: false, kind: lastKind, usage, attempts: maxAttempts, detail: lastDetail, responseHash: lastHash };
+  return { ok: false, kind: lastKind, usage, attempts: maxAttempts, detail: lastDetail, responseHash: lastHash, ...stats() };
 }

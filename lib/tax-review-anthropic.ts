@@ -52,10 +52,13 @@ export function createAnthropicTransport(apiKey: string | undefined = process.en
         );
         const message = await stream.finalMessage();
         const text = message.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+        // output_tokens includes the model's reasoning ("thinking") tokens and they count against max_tokens; the API reports their number
+        // separately (output_tokens_details.thinking_tokens), which is kept so a cut-off answer can be told apart from a long one
+        const thinking = message.usage.output_tokens_details?.thinking_tokens;
         return {
           text,
           stopReason: message.stop_reason ?? null,
-          usage: { inputTokens: message.usage.input_tokens, outputTokens: message.usage.output_tokens },
+          usage: { inputTokens: message.usage.input_tokens, outputTokens: message.usage.output_tokens, ...(typeof thinking === "number" ? { thinkingTokens: thinking } : {}) },
           model: message.model,
         };
       } catch (err) {

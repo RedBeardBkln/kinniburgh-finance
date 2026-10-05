@@ -25,7 +25,7 @@ import { foldProgress, eventKeys, type AiReviewProgress, type RunEvent } from "@
 import { buildRegister, type RegisterEntry } from "@/lib/tax-review/llm/register";
 import { adversarialOutputSchema, findingsOutputSchema, registerOutputSchema } from "@/lib/tax-review/llm/schemas";
 import { excerptForTopics, sourcePackDigestInput, topicsForTask, type SourcePack } from "@/lib/tax-review/llm/sources";
-import { jsonSchemaFor, promptHash, PROMPT_VERSION, SYSTEM_PROMPT, taskById, TASKS, userPrompt, type TaskDef, type TaskId } from "@/lib/tax-review/llm/tasks";
+import { escalatedBudget, jsonSchemaFor, promptHash, PROMPT_VERSION, retryBudget, SYSTEM_PROMPT, taskById, taskContentHash, TASKS, userPrompt, type TaskDef, type TaskId } from "@/lib/tax-review/llm/tasks";
 import { applyNarrations, numbersIn, validateChallenges, validateFindings, type Challenge } from "@/lib/tax-review/llm/validate";
 import { dedupeFindings, severityRank, sha256Hex, type Finding } from "@/lib/tax-review/types";
 import type { Ty2025Facts } from "@/lib/tax2025/facts";
@@ -45,11 +45,22 @@ export class DuplicateEventError extends Error {
 
 export type NewRunEvent = Omit<RunEvent, "createdAt">;
 
+/** A stored L3 finding row with the time it was stored (epoch milliseconds). */
+export interface StoredFinding {
+  finding: Finding;
+  at: number;
+}
+
 export interface AiRunStore {
   /** Every event of a run. */
   listEvents(runId: string): Promise<RunEvent[]>;
   /** The run's findings of layer L3 (for the adversarial pass and to skip duplicates). */
   listL3Findings(runId: string): Promise<Finding[]>;
+  /**
+   * The run's stored L3 finding rows exactly as stored (NOT collapsed per key) with the time each was stored. Only the reuse of finished
+   * tasks of an earlier run reads this (reuse.ts): a task's findings are stored together, right after its `done:<task>` event.
+   */
+  listL3FindingRows(runId: string): Promise<StoredFinding[]>;
   /**
    * ATOMIC: insert the events and the findings together or neither. Throws DuplicateEventError when an event key already exists for the
    * run (the caller backs off). Findings whose key the run already has are skipped by the store.
@@ -60,16 +71,25 @@ export interface AiRunStore {
 /** An in-memory store (read-only script path, tests): nothing is ever written anywhere else. */
 export class MemoryRunStore implements AiRunStore {
   readonly events: RunEvent[] = [];
+  /** Findings of every run (a MemoryRunStore normally holds one run). */
   readonly findings: Finding[] = [];
+  /** Which run each stored finding belongs to and when it was stored. */
+  private readonly meta = new WeakMap<Finding, { runId: string; at: number }>();
   private tick = 0;
   /** The clock is injected (this module never reads the time itself): epoch milliseconds. */
   constructor(private readonly clock: () => number) {}
   async listEvents(runId: string): Promise<RunEvent[]> {
     return this.events.filter((e) => e.runId === runId).map((e) => ({ ...e }));
   }
-  async listL3Findings(): Promise<Finding[]> {
+  async listL3Findings(runId?: string): Promise<Finding[]> {
     // the more severe of two findings with one key (see dbAiRunStore)
-    return dedupeFindings(this.findings.filter((f) => f.layer === "L3"));
+    return dedupeFindings(this.findings.filter((f) => f.layer === "L3" && (runId === undefined || this.meta.get(f)?.runId === runId)));
+  }
+  async listL3FindingRows(runId: string): Promise<StoredFinding[]> {
+    return this.findings.flatMap((f) => {
+      const m = this.meta.get(f);
+      return f.layer === "L3" && m?.runId === runId ? [{ finding: f, at: m.at }] : [];
+    });
   }
   async append(runId: string, events: readonly NewRunEvent[], findings: readonly Finding[]): Promise<void> {
     for (const e of events) if (this.events.some((x) => x.runId === runId && x.eventKey === e.eventKey)) throw new DuplicateEventError();
@@ -77,13 +97,19 @@ export class MemoryRunStore implements AiRunStore {
       this.tick += 1;
       this.events.push({ ...e, createdAt: new Date(this.clock() + this.tick) });
     }
-    // same rule as dbAiRunStore: a key already held is stored again only when strictly more serious
+    // same rule as dbAiRunStore: a key already held (by this run) is stored again only when strictly more serious
     const best = new Map<string, number>();
-    for (const f of this.findings) best.set(f.key, Math.min(best.get(f.key) ?? Infinity, severityRank(f.severity)));
+    for (const f of this.findings) {
+      if (this.meta.get(f)?.runId === runId) best.set(f.key, Math.min(best.get(f.key) ?? Infinity, severityRank(f.severity)));
+    }
+    this.tick += 1;
     for (const f of dedupeFindings(findings)) {
       const have = best.get(f.key);
       if (have === undefined || severityRank(f.severity) < have) {
-        this.findings.push(f);
+        // stored as its own object: one finding object can belong to only one run's rows (a reused finding is a new row in the new run)
+        const stored: Finding = { ...f };
+        this.findings.push(stored);
+        this.meta.set(stored, { runId, at: this.clock() + this.tick });
         best.set(f.key, severityRank(f.severity));
       }
     }
@@ -115,16 +141,19 @@ export function buildPrompt(task: TaskDef, payload: ReviewPayload, pack: SourceP
 }
 
 /**
- * The cost estimate shown BEFORE a run starts: input tokens from the real prompt text of every task (chars / 3.5), expected output
- * at half of each task's max_tokens, worst case at max_tokens. For the adversarial pass the prior findings are assumed to be 25
- * short findings. An estimate, not a quote: the real cost is the tokens the API reports.
+ * The cost estimate shown BEFORE a run starts: input tokens from the real prompt text of every task (chars / CHARS_PER_TOKEN, calibrated
+ * on the first live run), expected output from each task's `expectedOutputTokens` (measured for a1-b3), worst case = every request cut
+ * off once and answered on the larger retry budget (see estimateRun). For the adversarial pass the prior findings are assumed to be
+ * 40 short findings. A task in `reused` is not sent and costs nothing: the estimate then covers only the tasks that will be sent.
+ * An estimate, not a quote: the real cost is the tokens the API reports.
  */
-export function estimateAiRun(payload: ReviewPayload, pack: SourcePack, price: Price, model: string, register: readonly RegisterEntry[]): RunEstimate {
+export function estimateAiRun(payload: ReviewPayload, pack: SourcePack, price: Price, model: string, register: readonly RegisterEntry[], reused: ReadonlySet<string> = new Set()): RunEstimate {
   const assumed: Finding[] = [];
   const tasks: TaskEstimate[] = TASKS.map((t) => {
+    if (reused.has(t.id)) return { taskId: t.id, inputTokens: 0, outputTokens: 0, maxOutputTokens: 0, retryOutputTokens: 0, reused: true };
     const parts = buildPrompt(t, payload, pack, { priorFindings: assumed, register });
-    const priorExtra = t.id === "f1" ? 25 * 120 : 0;
-    return { taskId: t.id, inputTokens: estimateTokens(parts.system) + estimateTokens(parts.user) + priorExtra, outputTokens: Math.round(t.maxTokens / 2), maxOutputTokens: t.maxTokens };
+    const priorExtra = t.id === "f1" ? 40 * 160 : 0;
+    return { taskId: t.id, inputTokens: estimateTokens(parts.system) + estimateTokens(parts.user) + priorExtra, outputTokens: t.expectedOutputTokens, maxOutputTokens: t.maxTokens, retryOutputTokens: retryBudget(t), reused: false };
   });
   return estimateRun(tasks, price, model);
 }
@@ -142,9 +171,14 @@ export interface StartInput {
   facts: Ty2025Facts;
   /** Optional exact tax deltas for the register (from the independent recomputation). */
   counterfactuals?: Parameters<typeof buildRegister>[0]["counterfactuals"];
+  /**
+   * Finished tasks of an earlier review of the SAME return, copied into this run (reuse.ts planReuse): their `done:<task>` events and their
+   * finding rows are stored in the same atomic append as the start of the run. Absent = nothing is reused.
+   */
+  reuse?: { events: readonly NewRunEvent[]; findings: readonly Finding[] };
 }
 
-/** Records the start of an AI review of a run: the config, the redacted payload and the deterministic register. Idempotent. */
+/** Records the start of an AI review of a run: the config, the redacted payload, the deterministic register and any reused task results. Idempotent. */
 export async function startAiRun(store: AiRunStore, input: StartInput): Promise<{ started: boolean }> {
   const register = buildRegister({ ret: input.ret, facts: input.facts, ...(input.counterfactuals !== undefined ? { counterfactuals: input.counterfactuals } : {}) });
   const events: NewRunEvent[] = [
@@ -158,9 +192,10 @@ export async function startAiRun(store: AiRunStore, input: StartInput): Promise<
     },
     { runId: input.runId, eventKey: eventKeys.payload, kind: "payload", taskId: null, attempt: null, data: { json: input.payload.json } },
     { runId: input.runId, eventKey: eventKeys.register, kind: "register", taskId: null, attempt: null, data: { entries: register } },
+    ...(input.reuse?.events ?? []),
   ];
   try {
-    await store.append(input.runId, events, []);
+    await store.append(input.runId, events, input.reuse?.findings ?? []);
     return { started: true };
   } catch (err) {
     if (err instanceof DuplicateEventError) return { started: false };
@@ -208,7 +243,7 @@ function registerOf(events: readonly RunEvent[]): RegisterEntry[] {
 }
 
 function failureData(r: Extract<RunStructuredResult<unknown>, { ok: false }>): Record<string, unknown> {
-  return { kind: r.kind, detail: r.detail, attempts: r.attempts, usage: r.usage, responseHash: r.responseHash };
+  return { kind: r.kind, detail: r.detail, attempts: r.attempts, usage: r.usage, responseHash: r.responseHash, maxTokensUsed: r.maxTokensUsed, textChars: r.textChars };
 }
 
 /** Runs the next pending task of a run (at most one model request) and records the outcome. */
@@ -239,6 +274,9 @@ export async function runNextTask(runId: string, deps: StepDeps): Promise<StepRe
 
   const tp = progress.tasks.find((t) => t.id === task.id);
   const n = (tp?.attempts ?? 0) + 1;
+  // an answer cut off at the task's budget is answered with ONE more request at a larger budget (this step), never again at the same one
+  const isRetryOfCutoff = tp?.cutoffBudget !== null && tp?.cutoffBudget !== undefined;
+  const budget = isRetryOfCutoff ? (escalatedBudget(tp.cutoffBudget as number) ?? task.maxTokens) : task.maxTokens;
   try {
     await deps.store.append(runId, [{ runId, eventKey: eventKeys.taskStarted(task.id, n), kind: "task_started", taskId: task.id, attempt: n, data: {} }], []);
   } catch (err) {
@@ -253,7 +291,7 @@ export async function runNextTask(runId: string, deps: StepDeps): Promise<StepRe
   const schema: z.ZodType<unknown> = task.kind === "register" ? registerOutputSchema : task.kind === "adversarial" ? adversarialOutputSchema : findingsOutputSchema;
   const result = await runStructured({
     transport: deps.transport,
-    request: { model, system: parts.system, user: parts.user, maxTokens: task.maxTokens, jsonSchema: jsonSchemaFor(task), effort: "high" },
+    request: { model, system: parts.system, user: parts.user, maxTokens: budget, jsonSchema: jsonSchemaFor(task), effort: "high" },
     schema,
     ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
     ...(deps.timeoutMs !== undefined ? { timeoutMs: deps.timeoutMs } : {}),
@@ -262,7 +300,10 @@ export async function runNextTask(runId: string, deps: StepDeps): Promise<StepRe
   });
 
   if (!result.ok) {
-    await appendIgnoringDuplicate(deps.store, runId, { runId, eventKey: eventKeys.taskFailed(task.id, n), kind: "task_failed", taskId: task.id, attempt: n, data: failureData(result) });
+    // the FIRST cut-off of a task is not a failure yet: the next step asks once for a larger budget. The cut-off of that retry, or a budget
+    // that cannot be raised (hard ceiling), is a failure and ends the task: it would stop at the same place again.
+    const retryLarger = result.kind === "max_tokens" && !isRetryOfCutoff && escalatedBudget(budget) !== null;
+    await appendIgnoringDuplicate(deps.store, runId, { runId, eventKey: eventKeys.taskFailed(task.id, n), kind: "task_failed", taskId: task.id, attempt: n, data: { ...failureData(result), retryLarger, ...(retryLarger ? { nextMaxTokens: escalatedBudget(budget) } : {}) } });
     return { status: "ran", task: task.id, ok: false, progress: foldProgress(await deps.store.listEvents(runId), deps.nowMs()) };
   }
 
@@ -297,6 +338,12 @@ export async function runNextTask(runId: string, deps: StepDeps): Promise<StepRe
     attempts: result.attempts,
     responseHash: result.responseHash,
     promptHash: sha256Hex(`${task.id}|${promptHash()}`),
+    // what the task asked (reuse.ts compares it) and which finding keys this task produced (so a later run can copy exactly these)
+    contentHash: taskContentHash(task),
+    findingKeys: accepted.map((f) => f.key),
+    maxTokensUsed: result.maxTokensUsed,
+    escalated: isRetryOfCutoff,
+    textChars: result.textChars,
     model: result.model,
     excerpt: parts.excerpt,
     ...(task.kind === "adversarial" ? { challenges } : {}),

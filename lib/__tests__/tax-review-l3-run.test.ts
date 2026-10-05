@@ -364,7 +364,7 @@ describe("cost estimate (m)", () => {
     expect(est.tasks.map((x) => x.taskId)).toEqual([...TASK_IDS]);
     expect(est.tasks.every((x) => x.inputTokens > 500 && x.maxOutputTokens > 0)).toBe(true);
     expect(est.inputTokens).toBeGreaterThan(50_000);
-    expect(est.inputTokens).toBeLessThan(600_000);
+    expect(est.inputTokens).toBeLessThan(1_000_000);
     expect(est.expectedUsd).toBeGreaterThan(0);
     expect(est.worstCaseUsd).toBeGreaterThan(est.expectedUsd);
     expect(est.price.source).toBe("default_upper_bound");

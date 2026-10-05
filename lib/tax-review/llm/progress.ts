@@ -64,6 +64,14 @@ export interface TaskProgress {
   rejectedCount: number;
   unverifiedCount: number;
   privacyDropped: number;
+  /** The result was copied from a finished task of an earlier review of the same return (nothing was sent for it in this run). */
+  reused: boolean;
+  /** Answers cut off at the first budget and answered (or pending) on the one retry with a larger budget: not counted as failures. */
+  cutoffRetries: number;
+  /** max_tokens of the cut-off request whose larger retry is still due (the next try asks for escalatedBudget of it); null otherwise. */
+  cutoffBudget: number | null;
+  /** The task was cut off at a budget that cannot be raised any more (or on the retry itself): it fails at once, no further try. */
+  cutoffFinal: boolean;
 }
 
 export type AiRunStatus = "not_run" | "running" | "completed" | "failed" | "cancelled" | "stale";
@@ -78,6 +86,8 @@ export interface AiReviewProgress {
   estimate: RunEstimate | null;
   tasks: TaskProgress[];
   completedCount: number;
+  /** Of completedCount: tasks whose results were reused from an earlier review (no request was sent for them). */
+  reusedCount: number;
   totalCount: number;
   usage: Usage;
   /** Cost of the tokens used so far at the run's price assumption; null before the run started. */
@@ -119,8 +129,9 @@ export function emptyProgress(): AiReviewProgress {
     promptHash: null,
     sourcePackHash: null,
     estimate: null,
-    tasks: TASKS.map((t) => ({ id: t.id, pass: t.pass, title: t.title, state: "pending", attempts: 0, failures: 0, usage: { inputTokens: 0, outputTokens: 0 }, error: null, findingCount: 0, rejectedCount: 0, unverifiedCount: 0, privacyDropped: 0 })),
+    tasks: TASKS.map((t) => ({ id: t.id, pass: t.pass, title: t.title, state: "pending", attempts: 0, failures: 0, usage: { inputTokens: 0, outputTokens: 0 }, error: null, findingCount: 0, rejectedCount: 0, unverifiedCount: 0, privacyDropped: 0, reused: false, cutoffRetries: 0, cutoffBudget: null, cutoffFinal: false })),
     completedCount: 0,
+    reusedCount: 0,
     totalCount: TASK_IDS.length,
     usage: { inputTokens: 0, outputTokens: 0 },
     costUsdSoFar: null,
@@ -159,12 +170,21 @@ export function foldProgress(events: readonly RunEvent[], nowMs: number): AiRevi
       lastStart.set(tid, timeOf(e.createdAt));
       running.set(tid, true);
     } else if (e.kind === "task_failed") {
-      t.failures += 1;
       running.set(tid, false);
       const u = usageOf(d["usage"]);
       t.usage.inputTokens += u.inputTokens;
       t.usage.outputTokens += u.outputTokens;
-      t.error = { kind: (typeof d["kind"] === "string" ? d["kind"] : "unknown") as LlmFailureKind | "unknown", detail: typeof d["detail"] === "string" ? d["detail"] : "" };
+      const kind = (typeof d["kind"] === "string" ? d["kind"] : "unknown") as LlmFailureKind | "unknown";
+      t.error = { kind, detail: typeof d["detail"] === "string" ? d["detail"] : "" };
+      if (kind === "max_tokens" && d["retryLarger"] === true) {
+        // the first cut-off is not a failure yet: the next try asks for a larger budget, once
+        t.cutoffRetries += 1;
+        t.cutoffBudget = num(d["maxTokensUsed"]) > 0 ? num(d["maxTokensUsed"]) : null;
+      } else {
+        t.failures += 1;
+        // a cut-off that is not followed by a larger retry (the retry itself, or no larger budget possible, or an event from before the retry existed) ends the task
+        if (kind === "max_tokens") t.cutoffFinal = true;
+      }
     } else if (e.kind === "task_completed") {
       t.state = "completed";
       running.set(tid, false);
@@ -175,6 +195,7 @@ export function foldProgress(events: readonly RunEvent[], nowMs: number): AiRevi
       t.rejectedCount = Array.isArray(d["rejected"]) ? d["rejected"].length : 0;
       t.unverifiedCount = num(d["unverified"]);
       t.privacyDropped = num(d["privacyDropped"]);
+      t.reused = d["reused"] === true;
       t.error = null;
       if (tid === "f1" && Array.isArray(d["challenges"])) out.challenges = d["challenges"].filter((c): c is Challenge => typeof obj(c)["findingKey"] === "string" && typeof obj(c)["note"] === "string");
       if (tid === "e2" && Array.isArray(d["register"])) out.narratedRegister = d["register"] as RegisterEntry[];
@@ -182,13 +203,14 @@ export function foldProgress(events: readonly RunEvent[], nowMs: number): AiRevi
   }
   for (const t of out.tasks) {
     if (t.state === "completed") continue;
-    if (t.failures >= MAX_TASK_ATTEMPTS) t.state = "failed";
+    if (t.failures >= MAX_TASK_ATTEMPTS || t.cutoffFinal) t.state = "failed";
     else if (running.get(t.id) === true) t.state = nowMs - (lastStart.get(t.id) ?? 0) < STALE_RUNNING_MS ? "running" : "pending";
     else t.state = "pending";
     // a task abandoned while "running" consumed an attempt but left no failure row: count it so retries are bounded
-    if (t.state === "pending" && t.attempts - t.failures >= MAX_TASK_ATTEMPTS) t.state = "failed";
+    if (t.state === "pending" && t.attempts - t.failures - t.cutoffRetries >= MAX_TASK_ATTEMPTS) t.state = "failed";
   }
   out.completedCount = out.tasks.filter((t) => t.state === "completed").length;
+  out.reusedCount = out.tasks.filter((t) => t.state === "completed" && t.reused).length;
   for (const t of out.tasks) {
     out.usage.inputTokens += t.usage.inputTokens;
     out.usage.outputTokens += t.usage.outputTokens;
