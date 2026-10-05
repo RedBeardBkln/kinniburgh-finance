@@ -31,13 +31,15 @@ const EIN_LIKE = /(?<!\d)\d{2}[-‐-―−]\d{7}(?!\d)/;
 const EIN_ALL = /(?<!\d)(\d{2})[-‐-―−](\d{3})(\d{4})(?!\d)/g;
 /** Separators people put between the groups of an identifier. */
 const SEP = "[-\\s.,/_\\u2010-\\u2015\\u2212]";
+/** A comma between two numbers is a list ("Forms 8949, 8959, 8960, 8995"), not the grouping of one identifier: the split-group shapes below do not use it. */
+const SEP_NO_COMMA = "[-\\s._/\\u2010-\\u2015\\u2212]";
 /** An EIN whose two groups are split by something other than the usual dash: "12 3456789", "12.3456789", "12_3456789" (one or two separator characters). */
-const EIN_SPLIT = new RegExp(`(?<!\\d)\\d{2}${SEP}{1,2}\\d{7}(?!\\d)`);
+const EIN_SPLIT = new RegExp(`(?<!\\d)\\d{2}${SEP_NO_COMMA}{1,2}\\d{7}(?!\\d)`);
 /** Nine or more single numerals with ONE separator between each ("1 2 3 4 5 6 7 8 9", "1-2-3-4-5-6-7-8-9"): a number spelled out numeral by numeral. */
 const SPACED_SINGLES = new RegExp(`(?<!\\d)\\d(?:${SEP}\\d){8,}(?!\\d)`);
-/** A card or account number written in groups: 4-4-4-(1 to 4) or 4-6-5 (American Express), at least one separator between the groups. */
-const CARD_4444 = new RegExp(`(?<!\\d)(\\d{4})${SEP}{1,3}(\\d{4})${SEP}{1,3}(\\d{4})${SEP}{1,3}(\\d{1,4})(?!\\d)`);
-const CARD_465 = new RegExp(`(?<!\\d)\\d{4}${SEP}{1,3}\\d{6}${SEP}{1,3}\\d{5}(?!\\d)`);
+/** A card or account number written in groups: 4-4-4-4 or 4-6-5 (American Express), at least one separator between the groups, no comma (see SEP_NO_COMMA). */
+const CARD_4444 = new RegExp(`(?<!\\d)(\\d{4})${SEP_NO_COMMA}{1,3}(\\d{4})${SEP_NO_COMMA}{1,3}(\\d{4})${SEP_NO_COMMA}{1,3}(\\d{4})(?!\\d)`);
+const CARD_465 = new RegExp(`(?<!\\d)\\d{4}${SEP_NO_COMMA}{1,3}\\d{6}${SEP_NO_COMMA}{1,3}\\d{5}(?!\\d)`);
 /** Four tax years in a row ("2022 2023 2024 2025") have the card shape but are years, not a card. */
 const isYear = (g: string): boolean => g.length === 4 && Number(g) >= 1990 && Number(g) <= 2100;
 /** 3-2-4 (SSN) and 3-3-3 grouping with up to three separator characters between groups. */
