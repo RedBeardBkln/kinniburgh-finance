@@ -339,6 +339,56 @@ interest on the underpayment". The CT-1040 instructions (line 29) repeat the tes
 and let the filer leave line 29 blank so DRS bills the interest. The engine therefore prints line 29 = 0 below the
 threshold and marks it informational (CT-2210 not modeled) at or above it.
 
+### Lines the IRS says to leave blank, reserved lines, and type / description / code entries (engine ty2025-1b.7, verified 2026-10-05)
+
+No tax number is involved in this section: it records which printed entries the packet leaves blank on purpose and why. Sources
+(verifiedOn 2026-10-05): the 2025 Form 1040 instructions, `https://www.irs.gov/pub/irs-prior/i1040gi--2025.pdf` (which also contain the
+instructions of Schedules 1, 2, 3 and 1-A); the 2025 Schedule A instructions, `https://www.irs.gov/pub/irs-prior/i1040sca--2025.pdf`;
+the 2025 Schedule B instructions, `https://www.irs.gov/pub/irs-prior/i1040sb--2025.pdf`. Printed page numbers are the footer
+numbers of the PDF (an entry that spans a page break is given to the nearest page).
+
+**Leave blank (modeled as a fixed zero that does not depend on any owner statement).**
+- Schedule 1 line 24z: "Line 24z Leave line 24z blank." (Form 1040 instructions, Schedule 1 "Lines 24a Through 24z", printed p. 100).
+  Engine: `sch1.24z` is a fixed `not_applicable` 0 (rule id `irs-leave-blank`), in no none-group; the oracle (L2) states 0 independently.
+- Schedule 3 line 6z: "Line 6z. Leave line 6z blank." (Form 1040 instructions, Schedule 3 "Other Nonrefundable Credits", printed p. 116).
+  Engine: `sch3.6z` is a fixed `not_applicable` 0, same rule id; the oracle states 0 independently.
+
+**Reserved for future use (no entry exists; map reason `form_na`).**
+- Schedule 1 line 22: "Line 22 has been reserved for future use." (printed p. 99).
+- Schedule 2 line 10: "Line 10 has been reserved for future use." (printed p. 113).
+- Schedule 3 line 6e: "Line 6e. Line 6e has been reserved for future use." (printed p. 116).
+- Schedule A line 8d: "Line 8d Reserved for future use" (Schedule A instructions).
+- Form 1040 "other tax year" header row (beginning, ending, "20__"): the 1040 is the calendar-year form ("For the year Jan. 1-Dec. 31, 2025, or other
+  tax year beginning ... ending ..."); this return is a calendar-year return, so the row has no entry (`form_na`). Schedule SE line 7 and line 14 are
+  pre-printed constants (the form's own read-only widgets, `form_na`).
+
+**Type / description / code entries beside a line that is zero for this return (map reason `zero_line_entry`, with `follows`).** Each is blank
+while the line it follows is zero or not applicable; if that line ever carries an amount (an override can supply one) the packet raises an
+advisory item and the review raises `L1.B5.entry-by-hand` so the entry is written by hand. The rules that call for the entry:
+- Form 1040 line 1h: "The following types of income must be included in the total on line 1h. Strike or lockout benefits (other than bona fide gifts).
+  Excess elective deferrals ... If the total amount you ... deferred for 2025 under all plans was more than $23,500 ... include the excess on line 1h." (printed p. 24)
+- Form 1040 line 4c: "If another publication or instruction tells you to write a word or code next to line 4b, check box 3 on line 4c and enter that word or code on the
+  entry space next to box 3." (printed p. 28). Line 5c is the same for line 5b (printed p. 30).
+- Schedule 1 line 7: "If you received an overpayment of unemployment compensation in 2025, subtract the amount you repaid from the total amount you received. Enter the result
+  on line 7. Also, check the box on line 7 and enter the amount you repaid in the entry space." (printed p. 89)
+- Schedule 1 line 8z: "List the type and amount of income. If necessary, include a statement showing the required information." (Schedule 1 "Line 8z")
+- Schedule 2 line 1y: "Other additions to tax. Enter the following additions to tax ... Identify as "ARPCR." ... "EPE8933." ... "NEPE8933." ... "EPGEPE." ... "6418(g)(2)."" (printed p. 111)
+- Schedule 2 line 17z: "Use line 17z to report any taxes not reported elsewhere on your return or other schedules. List the type and amount of tax." (Schedule 2 "Line 17z")
+- Schedule 3 line 13z: "Use line 13z to report the credit under section 960(c) ... Enter "960(c)" and the amount of the credit ... Enter "Form 8689" and the amount paid ... Identify as "1062NL."" (printed p. 117)
+- Schedule A line 6: "Enter only one total on line 6 but list the type and amount of each tax included." Line 16: "List the type and amount of each expense from the following list next to line 16 and
+  enter the total of these expenses on line 16. If you are filing a paper return and you can't fit all your expenses on the dotted lines next to line 16, attach a statement instead showing the type and amount of each expense."
+- Schedule 1-A line 22 (Part IV): "Enter the VIN(s) of the APV(s) on line 22, column (i). If you need to report more than two VINs, attach a statement to your return showing the information required on line 22."
+  The app never stores a vehicle identification number (an identifier), and `sch1a.23` is 0 for a return with no qualifying vehicle loan, so the two rows stay blank and are written by hand if a loan ever applies.
+
+**Entries an owner statement rules out (map reason `owner_statement_na`, with a note).**
+- Form 1040 line 16 boxes and code: "Include in the total on the entry space on line 16 all of the following taxes that apply. ... Tax from Form(s) 8814 ... Tax from Form 4972 ... Tax with respect to a section 962
+  election ... Check box 3 and enter the amount and "962" ... Recapture of an education credit ... Check box 3 and enter the amount and "ECR" ... Any tax from Form 8621, line 16e, relating to a section 1291 fund ... "1291TAX"
+  ... Tax from Form 8978, line 14 ... "Form 8978"" (printed p. 33-34). The engine gates line 16 on the `other_taxes` statement (rule `tax-calc`), whose wording now names these taxes.
+- Schedule 2 line 4 boxes and code: "If you filed Form 4361, received IRS approval, and had no other income subject to self-employment tax, check box 1 on line 4. If you filed Form 4029 and received IRS approval, check box 2 on line 4. ...
+  check box 3, and enter "EAS" ... community income ... "ECI" ... notary public ... "EN"" (printed p. 112). The `se_other` statement wording now names these exemptions.
+- Schedule B line 7b: "If you are required to file FinCEN Form 114, list the name(s) of the foreign country or countries in the space provided on line 7b. Attach a separate statement if you need more space." (Schedule B instructions). The foreign-account answer is "no".
+- Schedule 1 (top of page 1) Form 1099-K memo: "For 2025, enter the amount reported to you on Form(s) 1099-K that was included in error or for personal items sold at a loss." (printed on the form). The `other_income` statement wording now names it.
+
 ### Not verified (the engine emits `needs_cpa_rule_unverified`, never an estimate)
 
 - Charitable AGI limits for gifts (60% cash to public charities): only the 30%/20% sentences were found.
