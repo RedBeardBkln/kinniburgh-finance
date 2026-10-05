@@ -31,10 +31,45 @@ export function checkStart(estimate: AiEstimateDto | null, state: { understood: 
   return { canStart: reasons.length === 0, reasons };
 }
 
+/** Which steps the estimate covers: what will be sent, and what is reused (and therefore not counted). */
+export function estimateScopeText(e: Pick<AiEstimateDto, "requests" | "reusedTaskIds" | "tasks">): string {
+  const sent = `${e.requests} request${e.requests === 1 ? "" : "s"} will be sent`;
+  if (e.reusedTaskIds.length === 0) return `${sent}.`;
+  const ids = e.reusedTaskIds.join(", ");
+  return `${sent}. ${e.reusedTaskIds.length} finished step${e.reusedTaskIds.length === 1 ? "" : "s"} (${ids}) ${e.reusedTaskIds.length === 1 ? "is" : "are"} reused from an earlier review of this same return and not sent again, so ${e.reusedTaskIds.length === 1 ? "it is" : "they are"} not in the estimate.`;
+}
+
 export function priceBasisText(e: Pick<AiEstimateDto, "priceSource" | "inPerMtok" | "outPerMtok">): string {
   return e.priceSource === "env"
     ? `Price assumption from this server's settings: ${formatUsd(e.inPerMtok)} per million input tokens and ${formatUsd(e.outPerMtok)} per million output tokens.`
     : `Price assumption: ${formatUsd(e.inPerMtok)} per million input tokens and ${formatUsd(e.outPerMtok)} per million output tokens. This is a built-in upper-end assumption, not a verified price; set the real rates (TAX_REVIEW_PRICE_IN_PER_MTOK, TAX_REVIEW_PRICE_OUT_PER_MTOK) on the server to make the estimate meaningful. Your hard spending limit is the one you set in your Anthropic account.`;
+}
+
+/** The one button of a failed or cancelled AI review (it runs the checks again for the current return, then shows the new estimate). */
+export const RESTART_BUTTON_LABEL = "Start a new review (reuses finished steps)";
+
+/** What the owner is told the button does. */
+export const RESTART_EXPLANATION =
+  "A failed or cancelled review is never continued. The button runs the checks again for the current return and then prepares a new AI review. The steps this review already finished are copied into the new one (only when the return, the model and the questions asked are exactly the same), so you are not charged for them again. You see the new estimate, which counts only the steps that will be sent, and nothing is sent until you confirm it.";
+
+/** Plain sentence for the reason a step failed. A cut-off answer says that the larger retry was used too. */
+export function taskFailureText(t: AiReviewDto["tasks"][number]): string {
+  const why = ERROR_KIND_LABEL[t.errorKind ?? "unknown"] ?? "an error";
+  if (t.errorKind === "max_tokens") return `the answer was cut off, also after one retry with a larger limit (${t.attempts} ${t.attempts === 1 ? "try" : "tries"})`;
+  return `${why} (${t.attempts} ${t.attempts === 1 ? "try" : "tries"})`;
+}
+
+/** What failed, in plain words, for a failed run ("" when no task failed). */
+export function failureSummary(ai: AiReviewDto): string {
+  const failed = ai.tasks.filter((t) => t.state === "failed");
+  if (failed.length === 0) return "";
+  const parts = failed.map((t) => `step ${t.id} (${t.title}): ${taskFailureText(t)}`);
+  return `Failed: ${parts.join("; ")}. ${ai.completedCount} of ${ai.totalCount} steps finished and are kept in this review's record.`;
+}
+
+/** The review ended without finishing and a new one can take over its finished steps. */
+export function canRestart(ai: AiReviewDto): boolean {
+  return ai.status === "failed" || ai.status === "cancelled";
 }
 
 export function progressLabel(ai: AiReviewDto): string {
@@ -45,7 +80,7 @@ export function progressLabel(ai: AiReviewDto): string {
     case "completed":
       return `Done: all ${total} tasks completed.`;
     case "failed":
-      return `Stopped: a task failed after its retries (${n} of ${total} tasks completed). The gate stays red.`;
+      return `Stopped: a step failed (${n} of ${total} steps completed). The gate stays red.`;
     case "cancelled":
       return `Cancelled after ${n} of ${total} tasks. The gate stays red.`;
     case "stale":
@@ -58,6 +93,7 @@ export function progressLabel(ai: AiReviewDto): string {
 export function costLine(ai: AiReviewDto): string {
   const parts: string[] = [`${ai.inputTokens.toLocaleString("en-US")} input and ${ai.outputTokens.toLocaleString("en-US")} output tokens so far`];
   if (ai.costUsdSoFar !== null) parts.push(`about ${formatUsd(ai.costUsdSoFar)} at the price assumption`);
+  if (ai.reusedCount > 0) parts.push(`${ai.reusedCount} finished step${ai.reusedCount === 1 ? "" : "s"} reused from an earlier review (not sent again, no cost)`);
   if (ai.estimate !== null) parts.push(`estimate was ${formatUsd(ai.estimate.expectedUsd)} (up to ${formatUsd(ai.estimate.worstCaseUsd)})`);
   return parts.join("; ");
 }

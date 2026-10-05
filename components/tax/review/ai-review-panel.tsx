@@ -2,9 +2,9 @@
 
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { cancelAiReview, estimateAiReview, runNextAiTask, startAiReview } from "@/actions/tax-review";
+import { cancelAiReview, estimateAiReview, runNextAiTask, runReviewChecks, startAiReview } from "@/actions/tax-review";
 import { BUTTON_PLAIN, BUTTON_PRIMARY } from "@/components/tax/forms/override-parts";
-import { canResume, checkStart, costLine, ERROR_KIND_LABEL, newerProgress, nextLoopAction, priceBasisText, progressLabel, SEND_NOTICE, TASK_STATE_LABEL } from "@/lib/tax-review/ai-panel";
+import { canResume, canRestart, checkStart, costLine, estimateScopeText, failureSummary, newerProgress, nextLoopAction, priceBasisText, progressLabel, RESTART_BUTTON_LABEL, RESTART_EXPLANATION, SEND_NOTICE, TASK_STATE_LABEL, taskFailureText } from "@/lib/tax-review/ai-panel";
 import { formatUsd } from "@/lib/tax-review/llm/model";
 import { REVIEW_ANCHORS } from "@/lib/tax-anchors";
 import type { AiEstimateDto, AiReviewDto } from "@/lib/tax-review/state";
@@ -88,6 +88,41 @@ export function AiReviewPanel({ year, hasCurrentRun, runId, ai, whyNot }: { year
     }
   }
 
+  // The one button of a failed or cancelled review: run the checks again for the current return (a new run), then show the new estimate,
+  // which counts only the steps that will be sent (the finished ones are reused by the server). Nothing is sent until the owner confirms.
+  async function doNewReview() {
+    if (busy || looping) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const checks = await runReviewChecks({ taxYear: year });
+      if (!checks.ok) {
+        setMessage({ ok: false, text: checks.error });
+        return;
+      }
+      if (checks.reused) {
+        setMessage({ ok: false, text: "The checks were run a moment ago for this review. Wait a few seconds and press the button again." });
+        return;
+      }
+      const res = await estimateAiReview({ taxYear: year });
+      if (!res.ok) {
+        setMessage({ ok: false, text: res.error });
+        return;
+      }
+      // forget this tab's copy of the old review: the page shows the new run once it is refreshed
+      setProgress(null);
+      setKnownRunId(null);
+      setEstimate(res.estimate);
+      setUnderstood(false);
+      setAcceptHighCost(false);
+      startTransition(() => router.refresh());
+    } catch {
+      setMessage({ ok: false, text: "The new review could not be prepared. Nothing was sent. Try again." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function doStart() {
     if (busy || !check.canStart || estimate === null) return;
     setBusy(true);
@@ -162,7 +197,9 @@ export function AiReviewPanel({ year, hasCurrentRun, runId, ai, whyNot }: { year
                 <span className={t.state === "failed" ? "font-medium text-red-800" : t.state === "completed" ? "text-green-800" : "text-muted-foreground"}>
                   {TASK_STATE_LABEL[t.state]}
                   {t.state === "completed" ? ` - ${t.findingCount} finding${t.findingCount === 1 ? "" : "s"}${t.rejectedCount > 0 ? `, ${t.rejectedCount} set aside` : ""}${t.unverifiedCount > 0 ? `, ${t.unverifiedCount} unverified` : ""}` : ""}
-                  {t.failures > 0 && t.state !== "completed" ? ` (${t.failures} failed: ${ERROR_KIND_LABEL[t.errorKind ?? "unknown"] ?? "an error"})` : ""}
+                  {t.reused ? " (reused from an earlier review)" : ""}
+                  {t.cutoffRetries > 0 && t.state !== "failed" ? " (cut off once, retried with a larger limit)" : ""}
+                  {t.state === "failed" ? ` (${taskFailureText(t)})` : t.failures > 0 && t.state !== "completed" ? ` (${t.failures} failed)` : ""}
                 </span>
               </li>
             ))}
@@ -183,15 +220,35 @@ export function AiReviewPanel({ year, hasCurrentRun, runId, ai, whyNot }: { year
         </div>
       ) : null}
 
-      {started && (progress.status === "failed" || progress.status === "cancelled" || progress.status === "stale") ? (
-        <p className="text-xs text-muted-foreground" data-testid="ai-restart-note">
-          A failed, cancelled or stale AI review is not restarted: run the checks again (above) and start a new AI review for that run.
+      {started && canRestart(progress) ? (
+        <div className="space-y-2 rounded-md border border-slate-300 bg-slate-50 p-3 text-sm" data-testid="ai-restart">
+          {progress.status === "failed" ? (
+            <p className="font-medium text-red-800" role="alert" data-testid="ai-failure-summary">
+              {failureSummary(progress)}
+            </p>
+          ) : (
+            <p className="font-medium" data-testid="ai-failure-summary">
+              The AI review was cancelled after {progress.completedCount} of {progress.totalCount} steps.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground" data-testid="ai-restart-note">
+            {RESTART_EXPLANATION}
+          </p>
+          <button type="button" className={BUTTON_PRIMARY} onClick={() => void doNewReview()} disabled={busy || looping || whyNot !== null || estimate !== null} aria-busy={busy} data-testid="ai-restart-button">
+            {busy && estimate === null ? "Preparing the new review..." : RESTART_BUTTON_LABEL}
+          </button>
+        </div>
+      ) : null}
+
+      {started && progress.status === "stale" ? (
+        <p className="text-xs text-muted-foreground" data-testid="ai-stale-note">
+          This AI review was stopped because the return changed after it started: run the checks again (above) and start a new AI review for that run. Finished steps of a review of a different return state are never reused.
         </p>
       ) : null}
 
-      {!started ? (
+      {!started || (estimate !== null && canRestart(progress)) ? (
         <div className="space-y-3">
-          {hasCurrentRun ? (
+          {started ? null : hasCurrentRun ? (
             <div className="flex flex-wrap items-center gap-3">
               <button type="button" className={BUTTON_PRIMARY} onClick={() => void doEstimate()} disabled={busy || looping || whyNot !== null} aria-busy={busy} data-testid="ai-estimate-button">
                 {busy && estimate === null ? "Preparing the estimate..." : "Estimate the cost"}
@@ -205,11 +262,13 @@ export function AiReviewPanel({ year, hasCurrentRun, runId, ai, whyNot }: { year
           {estimate !== null ? (
             <div className="space-y-2 rounded-md border border-slate-300 bg-slate-50 p-3 text-sm" data-testid="ai-estimate">
               <p className="font-medium">
-                Estimated cost: about {formatUsd(estimate.expectedUsd)} (up to {formatUsd(estimate.worstCaseUsd)} if every answer uses its full length)
+                Estimated cost: about {formatUsd(estimate.expectedUsd)} (up to {formatUsd(estimate.worstCaseUsd)} if every answer uses its full length; absolute ceiling {formatUsd(estimate.maxWithRetryUsd)} if every answer were also cut off once and had to be asked again with a larger limit)
+              </p>
+              <p className="text-xs" data-testid="ai-estimate-scope">
+                {estimateScopeText(estimate)}
               </p>
               <p className="text-xs">
-                {estimate.tasks.length} requests, about {estimate.inputTokens.toLocaleString("en-US")} input and {estimate.outputTokens.toLocaleString("en-US")} output tokens, model <code className="font-mono">{estimate.model}</code>. The redacted summary that would be sent is{" "}
-                {(estimate.payloadBytes / 1024).toFixed(0)} KB.
+                About {estimate.inputTokens.toLocaleString("en-US")} input and {estimate.outputTokens.toLocaleString("en-US")} output tokens, model <code className="font-mono">{estimate.model}</code>. The redacted summary that would be sent is {(estimate.payloadBytes / 1024).toFixed(0)} KB.
               </p>
               <p className="text-xs text-muted-foreground" data-testid="ai-price-basis">
                 {priceBasisText(estimate)}
