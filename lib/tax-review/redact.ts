@@ -15,13 +15,38 @@ import { containsSsnLikeText } from "@/lib/tax-extraction-schema";
 
 export type RedactionIssue = "ssn_like" | "nine_digit_run" | "long_digit_run" | "ein_like";
 
-/** A hex token (digest, fingerprint): 12 to 64 hex characters containing at least one letter. */
-const HEX_TOKEN = /\b(?=[0-9a-f]*[a-f])[0-9a-f]{12,64}\b/gi;
+/**
+ * A hex digest token. Only WHOLE tokens of exactly 12 / 16 / 32 / 40 / 64 hex characters containing at least one letter a-f can be
+ * a digest (fingerprints, sha-256 / sha-1 / md5 hashes); a number glued to letters ("123456789abc" is 12 characters but is not
+ * trusted: see exemptHex) is not exempt just because it uses hex letters.
+ */
+const HEX_TOKEN = /(?<![0-9a-z_])(?:[0-9a-f]{64}|[0-9a-f]{40}|[0-9a-f]{32}|[0-9a-f]{16}|[0-9a-f]{12})(?![0-9a-z_])/gi;
 /** A UUID (document ids appear in review text); its last group can be twelve digits by chance. */
-const UUID_TOKEN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+const UUID_TOKEN = /(?<![0-9a-z_])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-z_])/gi;
 /** NN-NNNNNNN (an employer identification number as printed). */
 const EIN_LIKE = /\b\d{2}[-‐-―−]\d{7}\b/;
 const EIN_ALL = /\b(\d{2})[-‐-―−](\d{3})(\d{4})\b/g;
+/** Separators people put between the groups of an identifier. */
+const SEP = "[-\\s.,/_\\u2010-\\u2015\\u2212]";
+/** 3-2-4 (SSN) and 3-3-3 grouping with up to three separator characters between groups. */
+const GROUPED_ID = new RegExp(`(?<!\\d)(?:\\d{3}${SEP}{0,3}\\d{2}${SEP}{0,3}\\d{4}|(?<!\\d[,.])\\d{3}${SEP}{1,3}\\d{3}${SEP}{1,3}\\d{3})(?!\\d)`);
+/** Invisible / format characters (zero-width, soft hyphen, bidi marks, BOM ...) that can split a digit run. */
+const INVISIBLE = /[\p{Cf}­͏؜ᅟᅠ឴឵᠎ㅤﾠ]/gu;
+
+/** Text as it is scanned: NFKC, invisible characters removed, every Unicode decimal digit read as a digit (ASCII digits keep their value). */
+function scanText(text: string): string {
+  return text
+    .normalize("NFKC")
+    .replace(INVISIBLE, "")
+    .replace(/\p{Nd}/gu, (c) => (/[0-9]/.test(c) ? c : "0"));
+}
+
+/** A 12 / 16 character hex token that carries a 9+ digit run is a number with letters glued on, not a digest; 32 / 40 / 64 character tokens are digests. */
+function exemptHex(token: string): boolean {
+  if (!/[a-f]/i.test(token)) return false;
+  if (token.length >= 32) return true;
+  return !/\d{9,}/.test(token);
+}
 
 function normalise(text: string): string {
   return text.normalize("NFKC");
@@ -29,12 +54,12 @@ function normalise(text: string): string {
 
 /** Which kinds of taxpayer / account identifier the text looks like. Empty = nothing found. */
 export function findRedactionIssues(text: string): RedactionIssue[] {
-  const t = normalise(text);
+  const t = scanText(text);
   const issues: RedactionIssue[] = [];
-  if (containsSsnLikeText(t)) issues.push("ssn_like");
+  if (containsSsnLikeText(t) || GROUPED_ID.test(t)) issues.push("ssn_like");
   if (EIN_LIKE.test(t)) issues.push("ein_like");
-  const withoutHex = t.replace(UUID_TOKEN, " ").replace(HEX_TOKEN, " ");
-  for (const m of withoutHex.matchAll(/\d{9,}/g)) {
+  const withoutDigests = t.replace(UUID_TOKEN, " ").replace(HEX_TOKEN, (m) => (exemptHex(m) ? " " : m));
+  for (const m of withoutDigests.matchAll(/\d{9,}/g)) {
     issues.push(m[0].length === 9 ? "nine_digit_run" : "long_digit_run");
     break;
   }
@@ -63,7 +88,7 @@ export function assertSafeOutgoing(text: string, where: string): void {
 
 /** "12-3456789" -> "**-***6789": only the last four digits stay. Text without an EIN is returned unchanged. */
 export function maskEin(text: string): string {
-  return normalise(text).replace(EIN_ALL, (_m, _a: string, _b: string, last: string) => `**-***${last}`);
+  return normalise(text).replace(INVISIBLE, "").replace(EIN_ALL, (_m, _a: string, _b: string, last: string) => `**-***${last}`);
 }
 
 // ── Household labels (owner decision D4) ──────────────────────────────────────

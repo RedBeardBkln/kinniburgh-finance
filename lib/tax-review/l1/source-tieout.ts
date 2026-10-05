@@ -407,12 +407,12 @@ export const sourceTieoutCheck: L1Check = {
         makeFinding({
           layer: "L1",
           check: "L1.C1.no-documents",
-          severity: "high",
+          severity: "blocker",
           area: "process",
           message: "The source documents were not available to this review run, so the amounts on the return could not be compared with them.",
           evidence: [{ ref: "check:documents", amount: null, status: "not available" }],
           recommendedAction: "Run the review again. Compare the return with your documents by hand until it can.",
-          acceptable: true,
+          acceptable: false,
         }),
       ];
     }

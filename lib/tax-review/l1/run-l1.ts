@@ -9,6 +9,7 @@ import { blankNotZeroCheck } from "@/lib/tax-review/l1/blank-not-zero";
 import { doubleCountCheck } from "@/lib/tax-review/l1/double-count";
 import { engineCompleteCheck, overridesInForceCheck, unresolvedChoicesCheck } from "@/lib/tax-review/l1/engine-state";
 import { filingMethodCheck } from "@/lib/tax-review/l1/filing-method";
+import { inputGuard } from "@/lib/tax-review/l1/input-guard";
 import { footingCheck, footingCoverageSummary, coverageDriftCheck, linkCheck } from "@/lib/tax-review/l1/footing";
 import { requiredFormsCheck } from "@/lib/tax-review/l1/forms-required";
 import { auditLabels, labelAuditCheck } from "@/lib/tax-review/l1/pdf-labels";
@@ -115,6 +116,25 @@ export async function runL1(input: L1Context, checks: readonly L1Check[] = L1_CH
     summaries.push({ id: "pdf-read", description: "Read every packet PDF back from its bytes", status: "failed", findings: 1, error: errorClass(err) });
   }
   const ctx: L1Context = { ...input, read };
+  // fail closed on missing inputs (a preset empty read-back of a packet that has forms counts as missing too)
+  const guard = inputGuard(ctx);
+  if (read.length === 0 && ctx.packet.files.some((f) => f.formId !== null)) {
+    guard.push(
+      makeFinding({
+        layer: "L1",
+        check: "L1.runner.input-missing",
+        severity: "blocker",
+        area: "process",
+        ruleTag: "pdf-read-back",
+        message: "The review could not run its checks on what the forms print: the packet files were not read back. A missing input is never treated as a pass.",
+        evidence: [{ ref: "check:input.pdf-read-back", amount: null, status: "missing" }],
+        recommendedAction: "Run the review again. If it repeats, the review has a defect: do not approve until it is fixed.",
+        acceptable: false,
+      })
+    );
+  }
+  findings.push(...guard);
+  summaries.push({ id: "inputs", description: "Every input the checks need is present (a missing input is a blocker, never a pass)", status: guard.length === 0 ? "ok" : "failed", findings: guard.length });
   for (const check of checks) {
     try {
       const got = await check.run(ctx);

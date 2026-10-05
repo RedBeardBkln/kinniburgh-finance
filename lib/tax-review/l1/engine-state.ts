@@ -276,7 +276,8 @@ export const overridesInForceCheck: L1Check = {
 export function engineGateState(ctx: Pick<L1Context, "view" | "effective">): GateEngineState {
   const h = ctx.view.headline;
   return {
-    complete: h.complete,
+    // fail closed: without the override layer nobody knows whether a line is pinned, so the return is not reported complete
+    complete: h.complete && ctx.effective !== null,
     blockingItemCount: h.blockingItemCount,
     lineOverrideCount: ctx.effective?.applied.lines.length ?? 0,
     staleOverrideCount: ctx.effective?.stale.length ?? 0,

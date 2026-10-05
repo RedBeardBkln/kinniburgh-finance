@@ -7,7 +7,7 @@ import {
   type DispositionRow,
 } from "@/lib/tax-review/gate";
 import { findRedactionIssues } from "@/lib/tax-review/redact";
-import { findingSchema, type Finding } from "@/lib/tax-review/types";
+import { evidenceHashOf, findingKey, findingSchema, type Finding } from "@/lib/tax-review/types";
 
 // ── DB access for the AI Return Reviewer (plan section 5.8) ─────────────────────
 // INSERT-ONLY, by design and by test: this file contains reads (findMany / findFirst) and creates (create /
@@ -167,6 +167,16 @@ function toFindingRow(runId: string, f: Finding): NewFindingRow {
   // Re-validate at the storage boundary: a finding that is not valid, or carries SSN-like text, never reaches the table.
   const parsed = findingSchema.safeParse(f);
   if (!parsed.success) throw new ReviewStoreError(`finding ${f.check} is not valid`);
+  // Never trust the hashes the caller computed: recompute them from the content.
+  if (f.evidenceHash !== evidenceHashOf(f.evidence)) throw new ReviewStoreError(`finding ${f.check} has an evidence hash that does not match its evidence`);
+  const expectedKey = findingKey({ layer: f.layer, check: f.check, ...(f.formKey !== undefined ? { formKey: f.formKey } : {}), ...(f.lineKey !== undefined ? { lineKey: f.lineKey } : {}), ...(f.ruleTag !== undefined ? { ruleTag: f.ruleTag } : {}) });
+  if (f.key !== expectedKey) throw new ReviewStoreError(`finding ${f.check} has a key that does not match its content`);
+  // Whole-finding text guard (message, evidence, citation, ...): no SSN-like, EIN-like or long digit text reaches the table.
+  // (the key and the hash are our own hex digests: a 16-hex digest can hold a 9-digit run by chance, so they are not part of the text scan)
+  const { key: _key, evidenceHash: _hash, ...content } = f;
+  void _key;
+  void _hash;
+  checkFreeText(`finding ${f.check}`, JSON.stringify(content));
   return {
     runId,
     key: f.key,
@@ -199,6 +209,9 @@ export async function insertReviewRun(input: InsertRunInput, store: ReviewStoreD
     keys.add(f.key);
   }
   checkFreeText("started-by name", input.startedByName);
+  checkFreeText("run config", JSON.stringify(input.config ?? null));
+  checkFreeText("l1 summary", JSON.stringify(input.l1Summary ?? null));
+  checkFreeText("l2 summary", JSON.stringify(input.l2Summary ?? null));
   return store.$transaction(async (tx) => {
     const run = await tx.taxReviewRun.create({
       data: {
@@ -348,6 +361,9 @@ export interface InsertApprovalInput {
 export async function insertApproval(input: InsertApprovalInput, store: ReviewStoreDb = defaultDb()): Promise<{ id: string }> {
   if (!FINGERPRINT_RE.test(input.fingerprint)) throw new ReviewStoreError("the return fingerprint must be 64 hex characters");
   if (input.kind === "approved") {
+    // An approval is only valid for a gate that computed PASSED: refuse anything else here too (defence in depth; the action also calls evaluateApproval).
+    const snap = input.verdictSnapshot as { verdict?: unknown } | null;
+    if (snap === null || typeof snap !== "object" || snap.verdict !== "passed") throw new ReviewStoreError("an approval can only be recorded for a gate whose verdict is passed");
     if (input.attestationVersion === null || input.attestationTextHash === null || input.typedConfirmationHash === null) {
       throw new ReviewStoreError("an approval records the attestation version and the hashes of the text and of the typed confirmation");
     }

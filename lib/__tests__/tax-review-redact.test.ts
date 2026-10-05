@@ -39,7 +39,7 @@ describe("findRedactionIssues", () => {
     expect(isSafeOutgoing("１２３-４５-６７８９")).toBe(false);
   });
   it("allows hex digests that happen to contain a 9-digit run", () => {
-    expect(isSafeOutgoing("fingerprint 0123456789ab and ffff123456789000aaaa")).toBe(true);
+    expect(isSafeOutgoing("fingerprint 4dd661066a07 and 123456789000aaaa123456789000aaaa")).toBe(true);
     // a digits-only 12 character token is a number, not a digest
     expect(isSafeOutgoing("fingerprint 012345678901")).toBe(false);
   });

@@ -41,7 +41,7 @@ describe("runL1", () => {
     expect(failed?.severity).toBe("blocker");
     expect(failed?.acceptable).toBe(false);
     expect(JSON.stringify(r)).not.toMatch(/secret value|123456789/);
-    expect(r.summary.checks.map((c) => `${c.id}:${c.status}`)).toEqual(["L1.TEST:failed", "L1.OK:ok"]);
+    expect(r.summary.checks.map((c) => `${c.id}:${c.status}`)).toEqual(["inputs:ok", "L1.TEST:failed", "L1.OK:ok"]);
     expect(r.summary.checks.find((c) => c.id === "L1.TEST")?.error).toBe("RangeError");
   });
   it("an unreadable PDF fails closed instead of being skipped", async () => {

@@ -61,18 +61,18 @@ export async function loadTy2025RawInputs(taxYear: 2025): Promise<RawTy2025Input
   const yearEnd = new Date(bounds.endExclusive.getTime() - 1000);
 
   const [documents, paystubs, workspace, users, donations] = await Promise.all([
-    db.document.findMany({ where: { entityId: personal.id, archivedAt: null } }),
-    db.paystub.findMany({ where: { entityId: personal.id, archivedAt: null } }),
+    db.document.findMany({ where: { entityId: personal.id, archivedAt: null }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+    db.paystub.findMany({ where: { entityId: personal.id, archivedAt: null }, orderBy: { id: "asc" } }),
     db.taxWorkspace.findUnique({ where: { entityId_taxYear: { entityId: personal.id, taxYear } } }),
-    db.user.findMany({ select: { id: true, name: true } }),
+    db.user.findMany({ select: { id: true, name: true }, orderBy: { id: "asc" } }),
     db.donation.findMany({
       where: { entityId: personal.id, archivedAt: null, date: { gte: bounds.start, lt: bounds.endExclusive } },
-      orderBy: [{ date: "asc" }, { createdAt: "asc" }],
+      orderBy: [{ date: "asc" }, { createdAt: "asc" }, { id: "asc" }],
     }),
   ]);
 
   const questions = workspace
-    ? await db.taxQuestion.findMany({ where: { workspaceId: workspace.id }, select: { key: true, answer: true, skippedReason: true } })
+    ? await db.taxQuestion.findMany({ where: { workspaceId: workspace.id }, select: { key: true, answer: true, skippedReason: true }, orderBy: { key: "asc" } })
     : [];
   const planning = planningFromRows(
     questions.map((q) => ({ key: q.key, answer: q.answer, skippedReason: q.skippedReason })),
@@ -154,8 +154,8 @@ export async function loadTy2025RawInputs(taxYear: 2025): Promise<RawTy2025Input
       computePL(ekc.id, bounds.start, yearEnd),
       db.transaction.groupBy({ by: ["glCodeId"], where: { ...txWhere, glCodeId: null }, _count: { _all: true } }),
       db.transaction.groupBy({ by: ["glCodeId"], where: { ...txWhere, glCodeId: { not: null } }, _sum: { amount: true } }),
-      db.mileageEntry.findMany({ where: { entityId: ekc.id, archivedAt: null, date: { gte: bounds.start, lt: bounds.endExclusive } } }),
-      db.fixedAsset.findMany({ where: { entityId: ekc.id, archivedAt: null }, orderBy: [{ placedInServiceDate: "asc" }, { createdAt: "asc" }] }),
+      db.mileageEntry.findMany({ where: { entityId: ekc.id, archivedAt: null, date: { gte: bounds.start, lt: bounds.endExclusive } }, orderBy: [{ date: "asc" }, { id: "asc" }] }),
+      db.fixedAsset.findMany({ where: { entityId: ekc.id, archivedAt: null }, orderBy: [{ placedInServiceDate: "asc" }, { createdAt: "asc" }, { id: "asc" }] }),
     ]);
     uncodedTransactionCount = uncodedRows
       .filter((r) => r.glCodeId === null)
