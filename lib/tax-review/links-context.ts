@@ -139,6 +139,22 @@ export function buildLinkContext(input: LinkContextInput): LinkContext {
       const prev = linePdf[key];
       if (prev === undefined || (mine && prev.slice(0, prev.lastIndexOf(":")) !== m.formId)) linePdf[key] = `${m.formId}:${page}`;
     }
+    // CT-1040 only: the lines the owner keys by hand (23, 24, 24a) are blank boxes of the overlay with no money entry, so they have no line page
+    // above; take it from the box itself (field `ct1040.l23` -> line `ct1040.23`), the same geometry the money lines use.
+    if (m.formId === "ct1040") {
+      for (const b of m.blank) {
+        if (!("field" in b)) continue;
+        const at = /^ct1040\.l(\d+[a-z]?)$/.exec(b.field);
+        const page = at === null ? undefined : pageOf.get(b.field);
+        if (at === null || page === undefined) continue;
+        const key = `ct1040.${at[1]}`;
+        if (linePdf[key] === undefined) linePdf[key] = `ct1040:${page}`;
+      }
+      // The flat CT-1040 has no signature box in the overlay; its declaration and signature block is printed directly under line 30 on the
+      // same sheet (read from the blank form: page 2 carries lines 17-30, then "Sign Here"), so it is the page of the line 30 box.
+      const declaration = pageOf.get("ct1040.l30");
+      if (declaration !== undefined) signaturePages.ct1040 = declaration;
+    }
     for (const b of m.blank) {
       if (b.reason !== "signature_pin") continue;
       const hit = "field" in b ? (pageOf.get(b.field) === undefined ? [] : [pageOf.get(b.field) as number]) : catalog.fields.filter((f) => b.match.test(f.name) && f.page !== null).map((f) => (f.page as number) + 1);

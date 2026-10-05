@@ -397,7 +397,9 @@ function conflictAnchorsOf(f: LinkableFinding, ctx: LinkContext): string[] {
   return out;
 }
 
-const BLOCKING_ITEM_PREFIX = /^Blocking item \([^)]*\): /;
+// The producer (l1/engine-state.ts) writes `Blocking item (${formLabel}): ${text}` and a form label can hold parentheses itself ("Form 8889 (spouse A)"),
+// so the label is read up to the FIRST "): " (lazy), not up to the first ")".
+const BLOCKING_ITEM_PREFIX = /^Blocking item \(.*?\): /;
 
 function openItemIdOf(f: LinkableFinding, ctx: LinkContext): string | null {
   if (f.ruleTag !== null && f.ruleTag !== undefined && has(ctx.openItems, f.ruleTag)) return f.ruleTag;

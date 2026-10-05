@@ -458,6 +458,19 @@ describe("the real link context", () => {
     expect(hrefs(links)).toContain("/api/tax/forms/2025/pdf/f1040?view=1#page=2");
   });
 
+  it("CT-1040: the signature block and the hand-keyed lines 23 / 24 / 24a open page 2 (where the blank form prints them)", () => {
+    // read from the blank form: page 2 carries lines 17-30, then the "Sign Here" declaration; 23 / 24 / 24a sit in the same block as 25
+    expect(REAL.signaturePages["ct1040"]).toBe(2);
+    expect(REAL.linePdf["ct1040.25"]).toBe("ct1040:2");
+    for (const k of ["ct1040.23", "ct1040.24", "ct1040.24a"]) expect(REAL.linePdf[k], k).toBe("ct1040:2");
+    expect(hrefs(byHandLinks(BY_HAND.find((t) => t.startsWith("CT-1040 lines 23")) ?? "", REAL))).toContain("/api/tax/forms/2025/pdf/ct1040?view=1#page=2");
+    expect(hrefs(infoLinks("ct_joint_sign", REAL))).toContain("/api/tax/forms/2025/pdf/ct1040?view=1#page=2");
+    expect(hrefs(infoLinks("ct_joint_liability", REAL))).toContain("/api/tax/forms/2025/pdf/ct1040?view=1#page=2");
+    // page 1 is lines 1-16, page 3 the Schedule 1 detail: the pages did not shift
+    expect(REAL.linePdf["ct1040.6"]).toBe("ct1040:1");
+    expect(REAL.linePdf["ct1040.s1.36"]).toBe("ct1040:3");
+  });
+
   it("every registered form can be named, and every card id it points at exists on the Forms page", () => {
     const tf = read("lib/tax-forms.ts");
     for (const m of FORM_MAPS) {
