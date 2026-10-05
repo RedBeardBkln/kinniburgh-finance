@@ -3,7 +3,7 @@
 import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { clearTaxReturnOverride, setTaxReturnOverride } from "@/actions/tax-return-overrides";
-import { checkLineForm, checkReasonInput, describeActionFailure } from "@/lib/tax2025/override-input";
+import { amountEntryHint, checkLineForm, checkReasonInput, describeActionFailure } from "@/lib/tax2025/override-input";
 import type { OverrideAuthority } from "@/lib/tax2025/overrides";
 import { AuthorityField, BUTTON_PLAIN, BUTTON_PRIMARY, ClearSection, FIELD, HistorySection, ReasonField } from "@/components/tax/forms/override-parts";
 import { ModalShell } from "@/components/tax/forms/modal-shell";
@@ -40,6 +40,7 @@ export function OverrideDialog({ line, taxYear, onClose }: { line: OverrideDialo
   const [result, setResult] = useState<string | null>(null);
 
   const form = checkLineForm({ amountText, reasonText, busy });
+  const amountHint = amountEntryHint(line.key);
   const clearCheck = checkReasonInput(clearReason);
 
   function finish() {
@@ -130,6 +131,11 @@ export function OverrideDialog({ line, taxYear, onClose }: { line: OverrideDialo
             placeholder="for example 12345 or $12,345"
             className={FIELD}
           />
+          {amountHint !== null ? (
+            <p className="text-xs text-muted-foreground" data-testid="override-amount-hint">
+              {amountHint}
+            </p>
+          ) : null}
           {form.amountError !== null ? (
             <p id={`${amountId}-err`} className="text-xs text-red-700">
               {form.amountError}

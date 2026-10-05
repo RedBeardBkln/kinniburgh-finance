@@ -77,10 +77,10 @@ export function buildCardConclusions(ret: Ty2025Return): Record<string, CardConc
   out["qbi-deduction"] = formVerdict(ret, "f8995", "Form 8995", () => {
     const loss16 = amountOf(ret, "f8995.16");
     const loss17 = amountOf(ret, "f8995.17");
-    // A qualified business loss is carried to 2026: say the amount to bring into next year's return (Form 8995 lines 16 / 17).
+    // The forms-required reason says a loss is carried to 2026 (no amount); this clause is the one place on the card that gives the amount (lines 16 / 17).
     const carry =
       (loss16 ?? 0) < 0 || (loss17 ?? 0) < 0
-        ? ` A qualified business loss carries forward to 2026: ${[
+        ? ` Amount carried to 2026: ${[
             (loss16 ?? 0) < 0 ? `${money(-(loss16 ?? 0))} (Form 8995 line 16)` : "",
             (loss17 ?? 0) < 0 ? `${money(-(loss17 ?? 0))} (Form 8995 line 17)` : "",
           ]

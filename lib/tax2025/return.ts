@@ -1379,7 +1379,8 @@ export function computeFormsRequired(
   // (lines 3 and 7), so it is attached when there is a deduction OR a loss carried out or in (Instructions for Form 8995, lines 3, 4, 16, 17).
   const qbiLossOut = Math.min(amount("f8995.16") ?? 0, 0) + Math.min(amount("f8995.17") ?? 0, 0);
   const qbiLossIn = (amount("f8995.3") ?? 0) !== 0 || (amount("f8995.7") ?? 0) !== 0;
-  const qbiCarryText = qbiLossOut < 0 ? ` A qualified business loss of ${fmt(new Decimal(Math.abs(qbiLossOut)))} is carried forward to 2026: Form 8995 lines 16 and 17 are where the carryforward is recorded.` : "";
+  // The dollar amount is stated once per screen or page (the open item `qbi-carryforward-out` and the review-sheet card), not in this reason.
+  const qbiCarryText = qbiLossOut < 0 ? " A qualified business loss is carried forward to 2026: Form 8995 lines 16 and 17 record it." : "";
   out.f8995 =
     (amount("f1040.13a") ?? 0) > 0
       ? { required: true, reason: `A qualified business income deduction is claimed.${qbiCarryText}` }

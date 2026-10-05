@@ -61,6 +61,7 @@ describe("override UI source checks", () => {
     expect(src).toContain("It does NOT recompute the");
     expect(src).toContain("These lines depend on this one and will NOT be recalculated");
     expect(src).toContain("Amount (whole dollars)");
+    expect(src).toContain("amountEntryHint(line.key)"); // the loss-line hint (enter a loss as a negative number)
     expect(src).toContain('inputMode="numeric"');
     expect(src).toContain("Reason (required)");
     expect(src).toMatch(/disabled=\{!form\.canSave\}/); // Save stays disabled until amount and reason are valid

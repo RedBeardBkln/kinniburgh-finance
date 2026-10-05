@@ -103,7 +103,7 @@ describe("Form 8995 map", () => {
       ["f8995.1i", -9010], ["f8995.2", -9010], ["f8995.3", 0], ["f8995.4", 0], ["f8995.5", 0], ["f8995.6", 0], ["f8995.7", 0], ["f8995.8", 0], ["f8995.9", 0],
       ["f8995.10", 0], ["f8995.11", 220025], ["f8995.12", 5557], ["f8995.13", 214468], ["f8995.14", 42894], ["f8995.15", 0], ["f8995.16", -9010], ["f8995.17", 0],
     ];
-    const view = viewWith({ lines: linesOf(LOSS), formsRequired: { f8995: required(true, "A qualified business loss of $9,010 is carried forward to 2026: Form 8995 lines 16 and 17 are where the carryforward is recorded.") } });
+    const view = viewWith({ lines: linesOf(LOSS), formsRequired: { f8995: required(true, "A qualified business loss is carried forward to 2026: Form 8995 lines 16 and 17 record it.") } });
     expect(formInclusion(f8995Map, view)).toMatchObject({ include: true });
     const result = await fillForm("f8995", view, f8995Map, NO_STAMP);
     const f = await readAllFields(result.bytes);

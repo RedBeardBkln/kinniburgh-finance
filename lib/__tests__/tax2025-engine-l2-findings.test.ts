@@ -82,11 +82,12 @@ describe("G1: a Schedule C loss year (Form 8995 line 16)", () => {
     expect(duplicateEmissions(facts)).toEqual([]);
   });
 
-  it("Form 8995 is required (a loss is carried to 2026), and the reason says so with the amount", () => {
+  it("Form 8995 is required (a loss is carried to 2026), and the reason says so WITHOUT the amount (the open item states it once)", () => {
     const req = ret.formsRequired.f8995;
     expect(req?.required).toBe(true);
     expect(req?.reason).toContain("carried forward to 2026");
-    expect(req?.reason).toContain("$9,010");
+    expect(req?.reason).toContain("lines 16 and 17");
+    expect(req?.reason).not.toMatch(/\$/);
   });
 
   it("the advisory open item names the amount, the line and 2026, and is not blocking", () => {
@@ -109,11 +110,13 @@ describe("G1: a Schedule C loss year (Form 8995 line 16)", () => {
     expect(amt(ret, "f1040.14")).toBe(ded + s1a);
   });
 
-  it("the review sheet's QBI card tells the owner the 2026 carryforward amount", () => {
+  it("the review sheet's QBI card tells the owner the 2026 carryforward amount exactly once", () => {
     const text = buildCardConclusions(ret)["qbi-deduction"]?.text ?? "";
     expect(text).toContain("Form 8995 required");
-    expect(text).toContain("carries forward to 2026");
-    expect(text).toContain("$9,010 (Form 8995 line 16)");
+    expect(text).toContain("carried forward to 2026");
+    expect(text).toContain("Amount carried to 2026: $9,010 (Form 8995 line 16)");
+    expect(text.split("$9,010")).toHaveLength(2);
+    expect(text.split("2026")).toHaveLength(3); // the reason and the amount clause: each names 2026 once, no third statement
   });
 });
 
@@ -154,6 +157,9 @@ describe("G2: the packet contains Form 8995 with the loss in the printed parenth
     const text = model.blocks.map((b) => ("text" in b ? b.text : "")).join("\n");
     expect(text).toContain("A qualified business loss of $9,010 carries forward to 2026");
     expect(text).toContain("carried forward to 2026");
+    // the amount is stated once on the cover: in the open item, not again in the "Forms in this packet" reason
+    expect(text.split("\n").filter((l) => l.includes("2026") && l.includes("$9,010"))).toHaveLength(1);
+    expect(text.split("carried forward to 2026")).toHaveLength(2); // the forms reason names the fact once, without the amount
   });
 });
 

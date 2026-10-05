@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  amountEntryHint,
   checkDecisionForm,
   checkLineForm,
   checkReasonInput,
@@ -154,5 +155,18 @@ describe("formatOverrideHistoryRow", () => {
   it("sorts every version newest first", () => {
     const rows = [1, 3, 2].map((v) => ({ ...base, id: `r${v}`, version: v }));
     expect(sortHistoryNewestFirst(rows).map((r) => r.version)).toEqual([3, 2, 1]);
+  });
+});
+
+describe("amountEntryHint (loss lines of Form 8995)", () => {
+  it.each(["f8995.3", "f8995.7", "f8995.16", "f8995.17"])("%s tells the user to enter a loss as a negative number", (key) => {
+    const hint = amountEntryHint(key) ?? "";
+    expect(hint).toContain("Enter a loss as a negative number");
+    expect(hint).toContain("-3000");
+    expect(hint).toContain("A positive number leaves the box empty");
+  });
+
+  it("other lines get no hint (the loss lines have pre-printed parentheses; 1i, 2 and 6 and every other line do not)", () => {
+    for (const key of ["f8995.1i", "f8995.2", "f8995.6", "f8995.4", "f1040.13a", "sch1.5"]) expect(amountEntryHint(key), key).toBeNull();
   });
 });
