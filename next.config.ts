@@ -10,6 +10,9 @@ const nextConfig: NextConfig = {
   // dynamic segments ([year], [form]) are covered by "**" rather than spelled out.
   outputFileTracingIncludes: {
     "/api/tax/forms/**": ["./data/forms/**/*"],
+    // The Final review page hosts server actions that read the blank forms (the packet is built and read back) and, for the AI review
+    // passes, the pinned source pack (data/tax-sources: IRS / Connecticut instruction text, manifest, topics). Same reason: dynamic paths.
+    "/tax/forms/**": ["./data/forms/**/*", "./data/tax-sources/**/*"],
   },
   headers: async () => [
     {

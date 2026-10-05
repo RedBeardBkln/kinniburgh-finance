@@ -10,12 +10,29 @@ import { HonestyPanel } from "@/components/tax/review/honesty-panel";
 import { ReviewStatusBanner, GateChecklist } from "@/components/tax/review/review-status";
 import { RunControls } from "@/components/tax/review/run-controls";
 import { RunHistory } from "@/components/tax/review/run-history";
+import { AiReviewPanel } from "@/components/tax/review/ai-review-panel";
+import { InfoCards } from "@/components/tax/review/info-cards";
+import { RegisterTable } from "@/components/tax/review/register-table";
 import { loadReviewState } from "@/lib/tax-review-server";
+import { loadSourcePack } from "@/lib/tax-review-sources";
 import { ATTESTATION_V1_TEXT, TYPED_PHRASE } from "@/lib/tax-review/gate";
+import { verifyCards, type VerifiedCard } from "@/lib/tax-review/info-cards";
 
-// "Run the checks" is a server action hosted by this page: it builds the packet and the final package and reads them back, which can
-// take a while, so the page raises the time limit (the PDF routes and the review-queue page use the same 60 seconds).
-export const maxDuration = 60;
+/** The by-hand cards: only statements whose quote verifies against the pinned source pack (a missing pack shows no cards, never unsourced ones). */
+function infoCards(): VerifiedCard[] {
+  try {
+    return verifyCards(loadSourcePack());
+  } catch {
+    return [];
+  }
+}
+
+// "Run the checks" and the AI review steps are server actions hosted by this page. The checks build the packet and the final package and
+// read them back (about half a minute); each AI step makes ONE model request (up to 240 s, then the call is aborted and the task is
+// retried). Hence the raised limit. UNVERIFIED on this project's plan: whether a page-level maxDuration above 60 applies to the actions
+// it hosts (the repo precedent exports 60 from a page for its actions); if the platform caps it lower, an AI step that runs long ends as a
+// failed task and is retried, and the review can still be run from the read-only script (scripts/tax-review/run-ai-review.ts).
+export const maxDuration = 300;
 
 interface PageProps {
   params: Promise<{ year: string }>;
@@ -85,6 +102,13 @@ export default async function FinalReviewPage({ params }: PageProps) {
                 <ReviewStatusBanner state={state} />
                 <GateChecklist state={state} />
                 <RunControls year={2025} hasRun={state.latestRun !== null} runIsStale={state.runIsStale} />
+                <AiReviewPanel
+                  year={2025}
+                  hasCurrentRun={state.latestRun !== null && !state.runIsStale}
+                  runId={state.latestRun?.id ?? null}
+                  ai={state.ai}
+                  whyNot={state.approver.allowed ? null : state.approver.reason}
+                />
 
                 <section aria-labelledby="findings-heading" className="space-y-3 rounded-lg border p-4" data-testid="review-findings">
                   <div>
@@ -98,6 +122,8 @@ export default async function FinalReviewPage({ params }: PageProps) {
                   </div>
                   <FindingsTable findings={state.findings} year={2025} canDecide={canDecide} whyNotDecide={whyNotDecide} />
                 </section>
+
+                <RegisterTable entries={state.register} narrated={state.registerNarrated} />
 
                 {/* The honesty panel sits DIRECTLY above the approval card, so it is on screen when the owner approves. */}
                 <div className="space-y-4">
@@ -117,6 +143,7 @@ export default async function FinalReviewPage({ params }: PageProps) {
 
                 <RunHistory runs={state.runs} year={2025} />
                 <ByHandChecklist />
+                <InfoCards cards={infoCards()} />
               </>
             );
           })()

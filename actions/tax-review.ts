@@ -5,10 +5,18 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runReviewForYear } from "@/lib/tax-review-build";
-import { describeStoreFailure, loadReviewContext, readReviewRecords, stateOf } from "@/lib/tax-review-server";
+import { describeStoreFailure, loadReviewContext, readReviewRecords, stateOf, type ReviewContext } from "@/lib/tax-review-server";
 import { getRunWithFindings, insertDisposition, insertReviewRun, listRuns } from "@/lib/tax-review-store";
 import { findingRefSchema, looksLikeIdentifier, reasonSchema, reviewYearSchema, SSN_REASON_ERROR, writeReviewAudit, type ReviewActionResult } from "@/lib/tax-review-action-support";
-import { toFindingDto, toRunDto, type FindingDto, type RunDto } from "@/lib/tax-review/state";
+import { toAiDto, toFindingDto, toRunDto, type AiEstimateDto, type AiReviewDto, type FindingDto, type RunDto } from "@/lib/tax-review/state";
+import { prepareAiReview } from "@/lib/tax-review-l3";
+import { dbAiRunStore } from "@/lib/tax-review-l3-store";
+import { createAnthropicTransport } from "@/lib/tax-review-anthropic";
+import { loadSourcePack } from "@/lib/tax-review-sources";
+import type { LlmTransport } from "@/lib/tax-review/llm/client";
+import { formatUsd } from "@/lib/tax-review/llm/model";
+import { foldProgress } from "@/lib/tax-review/llm/progress";
+import { cancelAiRun, runNextTask, startAiRun } from "@/lib/tax-review/llm/run";
 
 // AI Return Reviewer, Final review: run the checks, list runs and findings, accept or reopen a finding (ai-return-reviewer, A6).
 //
@@ -186,5 +194,176 @@ export async function getFinalReviewState(input: z.input<typeof yearOnly>) {
     return { ok: true as const, state: stateOf(loaded.ctx, await readReviewRecords(loaded.ctx)) };
   } catch (err) {
     return { ok: false as const, error: describeStoreFailure(err) };
+  }
+}
+
+// ── AI review passes (L3; ai-return-reviewer, Phase B) ──────────────────────────────────────────────────────
+// The AI review attaches to a stored run of the CURRENT return (run the checks first). It is started only after the owner sees the
+// cost estimate and confirms, and only from the owner's own account (it spends the owner's API credit). It runs ONE model request per
+// call (the page loops), so every call fits a serverless time limit and a failed task is retried alone. The state is derived from
+// append-only event rows (lib/tax-review/llm/progress.ts); the verdict and the gate stay code (lib/tax-review/gate.ts): the model can
+// only ADD findings, validated by lib/tax-review/llm/validate.ts. Only counts, task states, tokens and an estimate go to the client,
+// never the payload or any model text.
+
+const aiRunSchema = z.object({ taxYear: reviewYearSchema, runId: z.string().uuid("Not a review run.") }).strict();
+const aiStartSchema = z.object({ taxYear: reviewYearSchema, confirm: z.literal(true, { errorMap: () => ({ message: "Confirm the estimated cost first." }) }), acknowledgeHighCost: z.boolean().optional() }).strict();
+
+type AiAccess = { ok: true; ctx: ReviewContext; userName: string } | { ok: false; error: string };
+
+async function aiAccess(userId: string, year: 2025): Promise<AiAccess> {
+  const author = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
+  if (!author) return { ok: false, error: "Your user record was not found." };
+  const loaded = await loadReviewContext(year, userId);
+  if (!loaded.ok) return { ok: false, error: loaded.error };
+  // owner only: the AI review spends the owner's API credit
+  if (!loaded.ctx.approver.allowed) return { ok: false, error: loaded.ctx.approver.reason ?? "Only the owner's own account can run the AI review." };
+  return { ok: true, ctx: loaded.ctx, userName: author.name };
+}
+
+/** The estimate and the run it would attach to. Writes nothing and calls no model. */
+export async function estimateAiReview(input: z.input<typeof yearOnly>): Promise<ReviewActionResult<{ estimate: AiEstimateDto }>> {
+  const user = await requireAuth();
+  const parsed = yearOnly.safeParse(input);
+  if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
+  const year = parsed.data.taxYear;
+  const access = await aiAccess(user.id, year);
+  if (!access.ok) return access;
+  try {
+    const records = await readReviewRecords(access.ctx);
+    const latest = records.latest;
+    if (latest === null || latest.run.fingerprint !== access.ctx.fingerprint) return { ok: false, error: "Run the checks for the current return first; the AI review attaches to them." };
+    const prep = await prepareAiReview(year, access.userName, latest.findings.filter((f) => f.layer === "L1"));
+    if ("error" in prep) return { ok: false, error: prep.error };
+    if (prep.fingerprint !== access.ctx.fingerprint) return { ok: false, error: "The return changed while the estimate was being prepared. Try again." };
+    const e = prep.estimate;
+    return {
+      ok: true,
+      estimate: {
+        model: e.model,
+        inputTokens: e.inputTokens,
+        outputTokens: e.outputTokens,
+        expectedUsd: e.expectedUsd,
+        worstCaseUsd: e.worstCaseUsd,
+        warn: e.warn,
+        warnThresholdUsd: e.warnThresholdUsd,
+        priceSource: e.price.source,
+        inPerMtok: e.price.inPerMtok,
+        outPerMtok: e.price.outPerMtok,
+        payloadBytes: prep.serialized.bytes,
+        tasks: e.tasks.map((t) => ({ id: t.taskId, inputTokens: t.inputTokens, outputTokens: t.outputTokens })),
+        alreadyStarted: records.ai?.started === true,
+        runId: latest.run.id,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: describeStoreFailure(err) };
+  }
+}
+
+/** Starts the AI review of the current run after the owner confirmed the estimate. Idempotent: a second start returns the existing review. */
+export async function startAiReview(input: z.input<typeof aiStartSchema>): Promise<ReviewActionResult<{ runId: string; ai: AiReviewDto; reused: boolean }>> {
+  const user = await requireAuth();
+  const parsed = aiStartSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
+  const year = parsed.data.taxYear;
+  const access = await aiAccess(user.id, year);
+  if (!access.ok) return access;
+  try {
+    const records = await readReviewRecords(access.ctx);
+    const latest = records.latest;
+    if (latest === null || latest.run.fingerprint !== access.ctx.fingerprint) return { ok: false, error: "Run the checks for the current return first; the AI review attaches to them." };
+    if (records.ai?.started === true) return { ok: true, runId: latest.run.id, ai: toAiDto(records.ai), reused: true };
+    const prep = await prepareAiReview(year, access.userName, latest.findings.filter((f) => f.layer === "L1"));
+    if ("error" in prep) return { ok: false, error: prep.error };
+    if (prep.fingerprint !== access.ctx.fingerprint) return { ok: false, error: "The return changed while the review was being prepared. Run the checks again." };
+    if (prep.estimate.warn && parsed.data.acknowledgeHighCost !== true) {
+      return { ok: false, error: `The estimated cost is above ${formatUsd(prep.estimate.warnThresholdUsd)}. Confirm that you accept it to start.` };
+    }
+    const store = dbAiRunStore();
+    const started = await startAiRun(store, { runId: latest.run.id, payload: prep.serialized, model: prep.model, estimate: prep.estimate, pack: prep.pack, ret: prep.ret, facts: prep.facts });
+    await writeReviewAudit(user.id, "tax_review_ai_started", { runId: latest.run.id, taxYear: year, fingerprint: access.ctx.fingerprint, model: prep.model, estimatedUsd: Math.round(prep.estimate.expectedUsd * 100) / 100, tasks: prep.estimate.tasks.length, started: started.started });
+    revalidateYear(year);
+    return { ok: true, runId: latest.run.id, ai: toAiDto(foldProgress(await store.listEvents(latest.run.id), Date.now())), reused: !started.started };
+  } catch (err) {
+    return { ok: false, error: describeStoreFailure(err) };
+  }
+}
+
+async function findRun(year: 2025, entityId: string, runId: string): Promise<{ id: string; fingerprint: string } | null> {
+  const runs = await listRuns(year, entityId, 25);
+  const run = runs.find((r) => r.id === runId);
+  return run === undefined ? null : { id: run.id, fingerprint: run.fingerprint };
+}
+
+/** Runs the next pending task of a started AI review (at most one model request) and returns the new progress. */
+export async function runNextAiTask(input: z.input<typeof aiRunSchema>): Promise<ReviewActionResult<{ ai: AiReviewDto; step: string }>> {
+  const user = await requireAuth();
+  const parsed = aiRunSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
+  const year = parsed.data.taxYear;
+  const access = await aiAccess(user.id, year);
+  if (!access.ok) return access;
+  try {
+    const run = await findRun(year, access.ctx.entityId, parsed.data.runId);
+    if (run === null) return { ok: false, error: "That review run was not found." };
+    let transport: LlmTransport;
+    try {
+      transport = createAnthropicTransport();
+    } catch {
+      return { ok: false, error: "The AI review is not configured on this server (no API key)." };
+    }
+    // the fingerprint is recomputed here from the live inputs (access.ctx), never taken from the client
+    const step = await runNextTask(run.id, {
+      store: dbAiRunStore(),
+      transport,
+      pack: loadSourcePack(),
+      nowMs: () => Date.now(),
+      currentFingerprint: access.ctx.fingerprint,
+      runFingerprint: run.fingerprint,
+      timeoutMs: 240_000,
+    });
+    if (step.status === "ran") {
+      await writeReviewAudit(user.id, "tax_review_ai_task_done", { runId: run.id, taxYear: year, task: step.task, ok: step.ok, completed: step.progress.completedCount, inputTokens: step.progress.usage.inputTokens, outputTokens: step.progress.usage.outputTokens });
+      revalidateYear(year);
+    }
+    return { ok: true, ai: toAiDto(step.progress), step: step.status === "ran" ? (step.ok ? "ran" : "task_failed") : step.status };
+  } catch (err) {
+    return { ok: false, error: describeStoreFailure(err) };
+  }
+}
+
+/** Progress of an AI review (a re-read; the page also gets it with the Final review state). */
+export async function getAiReviewStatus(input: z.input<typeof aiRunSchema>): Promise<ReviewActionResult<{ ai: AiReviewDto }>> {
+  const user = await requireAuth();
+  const parsed = aiRunSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
+  const loaded = await loadReviewContext(parsed.data.taxYear, user.id);
+  if (!loaded.ok) return { ok: false, error: loaded.error };
+  try {
+    const run = await findRun(parsed.data.taxYear, loaded.ctx.entityId, parsed.data.runId);
+    if (run === null) return { ok: false, error: "That review run was not found." };
+    return { ok: true, ai: toAiDto(foldProgress(await dbAiRunStore().listEvents(run.id), Date.now())) };
+  } catch (err) {
+    return { ok: false, error: describeStoreFailure(err) };
+  }
+}
+
+/** Cancels an AI review: the gate then treats the AI review passes as not passed. Nothing already stored is removed. */
+export async function cancelAiReview(input: z.input<typeof aiRunSchema>): Promise<ReviewActionResult<{ ai: AiReviewDto }>> {
+  const user = await requireAuth();
+  const parsed = aiRunSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
+  const access = await aiAccess(user.id, parsed.data.taxYear);
+  if (!access.ok) return access;
+  try {
+    const run = await findRun(parsed.data.taxYear, access.ctx.entityId, parsed.data.runId);
+    if (run === null) return { ok: false, error: "That review run was not found." };
+    const store = dbAiRunStore();
+    await cancelAiRun(store, run.id);
+    await writeReviewAudit(user.id, "tax_review_ai_cancelled", { runId: run.id, taxYear: parsed.data.taxYear });
+    revalidateYear(parsed.data.taxYear);
+    return { ok: true, ai: toAiDto(foldProgress(await store.listEvents(run.id), Date.now())) };
+  } catch (err) {
+    return { ok: false, error: describeStoreFailure(err) };
   }
 }

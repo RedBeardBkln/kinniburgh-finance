@@ -1,0 +1,2292 @@
+Department of Revenue Services State of Connecticut
+
+Form CT-1040
+
+(Rev. 12/25)
+
+Connecticut Resident Income Tax Return Instructions
+
+2025
+
+For additional information on the Connecticut Income Tax, visit portal.ct.gov/DRS/Individuals/Resident-Income-Tax/Tax-Information.
+Before you begin, gather all your records, including all your federal Forms W2 and 1099, and your completed federal income tax return. You will need the information on your federal return to complete your Connecticut return.
+1 Taxpayer Information
+Filing Status - Check only one box. Check the appropriate box to indicate your filing status.
+Generally, your filing status on your Connecticut return must match your federal income tax filing status. If you are not certain of your filing status for 2025, consult the information in your federal income tax booklet or call the IRS at 8008291040.
+There are certain situations where you and your spouse may be required to file separate Connecticut returns even though you file jointly for federal purposes. See Special Rules for Married Individuals, below.
+If your filing status is qualifying surviving spouse on federal Form 1040, or federal Form 1040SR, do not enter your deceased spouse's name or SSN in the spaces provided for spouse's name and spouse's SSN on Form CT1040.
+Special Rules for Married Individuals When one spouse is a Connecticut resident or a nonresident and the other spouse is a part-year resident, each spouse who is required to file a Connecticut income tax return must file as married filing separately.
+When one spouse is a Connecticut resident and the other is a nonresident, each spouse who is required to file a Connecticut income tax return must file as married filing separately unless they:
+� File jointly for federal income tax purposes; and
+� Elect to be treated as if both were Connecticut residents for the entire taxable year.
+When both spouses are partyear residents of Connecticut but do not have the same period of residency, married filing separately is their Connecticut income tax filing status.
+When both spouses are partyear residents of Connecticut and have the same period of residency, they may choose married filing jointly or married filing separately as their Connecticut income tax filing status.
+When both spouses are nonresidents of Connecticut and only one has income derived from or connected with sources within Connecticut, only that spouse is required to file a Connecticut income tax return and that spouse's Connecticut income tax filing status is married filing separately for Connecticut unless they both elect to file a joint
+
+Connecticut income tax return. If an election is made, married filing jointly is their Connecticut income tax filing status.
+When one spouse is a nonresident alien and the other is a citizen or resident of the United States, each spouse who is required to file a Connecticut income tax return must file as married filing separately unless:
+� An election is made by the nonresident alien and his or her spouse to file a joint federal income tax return;
+� A married filing joint return is filed for federal income tax purposes; and
+� The spouses are otherwise required or permitted to file a joint Connecticut income tax return.
+The election to file a joint return means the joint federal adjusted gross income must be used on Form CT1040, Line 1. It also means the spouse who would not otherwise be required to file is now jointly and severally liable for any tax liability associated with the filing of the income tax return.
+If you are filing a joint federal return with your spouse but are required to file a separate Connecticut return, each of you will have to recompute your federal adjusted gross income as if you were each filing as married filing separately for federal income tax purposes. Enter on Form CT1040, Line 1, your income as recalculated.
+Social Security Number, Name, and Address
+You must write your Social Security Number (SSN), name, and address in the space provided. If your city or town of residence is different from your mailing address enter the additional information in the space provided. Indicate a country code when filing your Connecticut income tax return. If your mailing address is in the United States, enter "USA." The full list of country codes is available at portal.ct.gov/DRS-countrycodes. If you file a joint return, enter your SSN and your spouse's SSN in the order they appear on your federal return. If the taxpayer is deceased, see Deceased Taxpayers at portal.ct.gov/drs/individuals/ resident-income-tax/other-helpful-information#deceased .
+If you are a nonresident alien and do not have an SSN, enter your Individual Taxpayer Identification Number (ITIN) in the space provided above your name. Nonresident aliens who have applied for an ITIN from the Internal Revenue Service by filing federal Form W7, but have not received the ITIN, must wait for the ITIN to be issued before filing their Connecticut tax return. However, if you have not received your ITIN by April 15, file your return without the ITIN, enter Applied For or NRA in the SSN field, pay the tax due, and attach a copy of the federal Form W7. The Department of Revenue Services (DRS) will contact you upon receipt of your return. DRS will hold your return until you receive your ITIN and you forward the information to us. DRS cannot process your return until we receive the ITIN. See Special Information for Nonresident Aliens at portal.ct.gov/drs/individuals/nonresident-partyear/tax-information#nonresidentaliens.
+
+Authorization to Receive Health Coverage Information from Access Health CT
+Access Health CT is Connecticut's official health insurance marketplace, where you can shop, compare and enroll in quality health and dental plans. It is also the only place where you can qualify for financial help to lower your costs, and if eligible, enroll in low or no-cost coverage through HUSKY Health Programs (Medicaid and the Children's Health Insurance Program (CHIP)) or the Covered Connecticut Program. If you need health coverage and are interested in learning about the health coverage options available through Access Health CT, check the box on Form CT1040, Connecticut Resident Income Tax Return.
+By checking the box on Form CT-1040, Connecticut Resident Income Tax Return, you authorize the Department of Revenue Services to transmit certain demographic information about you and your household to Access Health CT. This election authorizes Access Health CT to contact you with information about health coverage options and financial assistance that may be available to you.
+2 Calculate Your Tax
+Line 1: Federal Adjusted Gross Income Enter your federal adjusted gross income from your 2025 federal income tax return. This is the amount reported on federal Form 1040, Line 11a, or federal Form 1040SR, Line 11a.
+Nonresident aliens, see Special Information for Nonresident Aliens at https://portal.ct.gov/drs/individuals/nonresident-partyear/tax-information#nonresidentaliens.
+Line 2: Additions Enter the amount from Form CT1040, Schedule 1, Line 38. See Additions to Federal Adjusted Gross Income on Page 7.
+Line 3 Add Line 1 and Line 2 and enter the total.
+Line 4: Subtractions Enter the amount from Form CT1040, Schedule 1, Line 50. See Subtractions From Federal Adjusted Gross Income on Page 8.
+Line 5: Connecticut Adjusted Gross Income Subtract Line 4 from Line 3 and enter the result. This is your Connecticut adjusted gross income.
+Line 6: Income Tax For each filing status, if the amount on Line 5 is: $12,000 or less for married filing separately; $15,000 or less for single; $19,000 or less for head of household; or $24,000 or less for married filing jointly, or qualifying surviving spouse, enter "0" on Line 6. You do not owe any income tax. Otherwise, calculate your tax using one of the following methods.
+If your Connecticut adjusted gross income is less than or equal to $102,000, you may use the Tax Tables on the DRS website at portal.ct.gov/DRS/DRS-Forms/Current-Year-Forms/ Calculators-and-Tables.
+If your Connecticut adjusted gross income is more than $102,000, you may:
+1. Calculate your tax liability instantly by visiting myconneCT at portal.ct.gov/DRS-myconneCT. Below the Individuals panel on the myconneCT homepage, select View Tax Calculators, then select Income Tax Calculator; or
+Form CT-1040 Instructions (Rev. 12/25)
+
+2. Use the Tax Calculation Schedule beginning on Page 19.
+After you have found the calculated tax, enter that amount on Line 6.
+Line 7: Credit for Income Taxes Paid to Qualifying Jurisdictions If all or part of the income reported on this return is subject to income tax in a qualifying jurisdiction and you have filed a return and paid income taxes to that jurisdiction, complete Form CT1040, Schedule 2, and enter the amount from Line 59 here. See Schedule 2 - Credit for Income Taxes Paid to Qualifying Jurisdictions on Page 11. You must attach a copy of your return filed with the qualifying jurisdiction(s) or the credit will be disallowed. If filing your return electronically, you must keep a copy of the return filed with the qualifying jurisdiction(s) and provide a copy if requested by DRS.
+Line 8 Subtract Line 7 from Line 6 and enter the result. If Line 7 is greater than Line 6, enter "0."
+Line 9: Connecticut Alternative Minimum Tax If you were required to pay the federal alternative minimum tax for 2025, you must file Form CT6251, Connecticut Alternative Minimum Tax Return - Individuals. Enter the amount shown on Form CT6251, Line 23.
+Line 10 Add Line 8 and Line 9 and enter the total.
+Line 11: Credit for Property Taxes Paid on Your Primary Residence, Motor Vehicle, or Both
+If Line 10 is zero, skip Line 11 and Line 12 and go to Line 13. Otherwise, complete and attach Schedule 3 on Page 4 of Form CT1040 to be allowed this credit. Enter the amount from Line 68 on Line 11. Be certain to include all of the requested information or your credit may be denied. See Schedule 3 Property Tax Credit on Page 14.
+You may also use the online Property Tax Credit Calculator by visiting myconneCT at portal.ct.gov/DRS-myconneCT. Below the Individuals panel on the myconneCT homepage, select View Tax Calculators, then select Property Tax Credit Calculator. If you choose to use the online calculator, you must complete Lines 60 through 63 of Schedule 3, Property Tax Credit found on Form CT1040, Page 4 or your credit will be denied.
+The credit is limited to Connecticut residents who paid qualifying property tax on their residence and/or motor vehicle.
+The maximum property tax credit allowed is $300 per return regardless of filing status. See Property Tax Credit Table on Page 27. This credit can be used to offset only your 2025 income tax. You may not carry this credit forward and it is not refundable.
+Line 12 Subtract Line 11 from Line 10 and enter the result. If less than zero, enter "0."
+Line 13: Allowable Credits Certain taxpayers who paid the real estate conveyance tax at the rate of 2.25% prescribed in Conn. Gen. Stat. � 12494(b)(2)
+Page 2 of 28
+
+(C) may claim a tax credit against their income tax liability by completing Schedule CT-1040 REC, Real Estate Conveyance Tax Credit Schedule - Used for Purposes of Completing Form CT-1040. Schedule CT-1040 REC must be completed in its entirety and submitted with Form CT1040, Connecticut Resident Income Tax Return. For more information, see Taxpayer Services Special Bulletin 2024-5.
+Enter the amount from Schedule CTIT Credit, Income Tax Credit Summary, Part 1, Line 10.
+Use Schedule CTIT Credit to claim the Youth Development Organization Contribution Tax Credit, ABLE Account Tax Credit, the Birth of a Stillborn Child Tax Credit, Employer CHET Contributions Tax Credit, Angel Investor Tax Credit, Real Estate Conveyance Tax Credit, Accredited Theater Production Tax Credit, University of Connecticut Incentive Program Tax Credit, Workforce Housing Opportunity Development Tax Credit, or to claim the credit for a prior year alternative minimum tax from Form CT8801, Credit for Prior Year Connecticut Minimum Tax for Individuals, Trusts, and Estates.
+Do not use Schedule CT-IT Credit to report any PE Tax Credit.
+If you have any PE Tax credit, use Schedule CT-PE, PassThrough Entity Tax Credit.
+Line 14: Connecticut Income Tax
+Subtract Line 13 from Line 12 and enter the result. If less than zero, enter "0."
+Line 15: Individual Use Tax
+Complete the Connecticut Individual Use Tax Worksheet on Page 28, then complete and attach Schedule 4 on Page 4 of Form CT1040. Enter on Line 15 the total use tax due as reported on Schedule 4, Line 69. You must enter "0" if no Connecticut use tax is due; otherwise you have not filed a use tax return. Failure to report use tax due on Line 15 and include that amount in Line 16 may subject you to a penalty of up to $5,000, imprisonment for up to 5 years, or both. See Page 15 for more information on the use tax.
+
+Line 16 and Line 17 Add Line 14 and Line 15. Enter the total on Line 16 and Line 17.
+
+3 Payments
+Line 18: Connecticut Tax Withheld
+For each federal Form W2 or 1099 where Connecticut income tax was withheld, enter the following on Lines 18a through 18e.
+
+Enter the number from Box b in Column A of Form CT -1040.
+
+2025 22222 a Employee's social security number
+b Employer identification number (EIN)
+XX-XXXXXXX
+c Employer's name, address, and ZIP code
+
+OMB No. 1545-0008 1 Wages, tips, other compensation
+
+2 Federal income tax withheld
+
+3 Social security wages
+
+4 Social security tax withheld
+
+5 Medicare wages and tips
+
+6 Medicare tax withheld
+
+7 Social security tips
+
+8 Allocated tips
+
+D Control number
+
+9
+
+10 Dependent care benefits
+
+e Employee's first name and initial Last name
+Enter the amount from Box 16 in Column B of Form CT -1040.
+
+f Employee's address and ZIP code
+15 State Employer's state ID number
+CT
+
+16 State wages, tips, etc.
+XXX.00
+
+Suff. 11 Nonqualified plans
+
+13 employee Statutory
+
+Retirement plan
+
+Third-party sick pay
+
+14 Other
+
+12a
+C o d e
+1C 2b
+o d e
+12c
+C o d e
+1C 2d
+o d e
+
+17 State income tax
+XXX.00
+
+18 Local wages, tips, etc.
+
+19 Local income tax
+
+20 Locality name
+
+W-2Wage and Tax
+
+Form
+
+Statement
+
+Copy 1 For State, City, or Local Tax Department
+
+Box 15 must show CT to be claimed as Connecti-
+cut withholding.
+
+2025 Department of the Treasury - Internal Revenue Service
+Enter the amount from Box 17 (in whole dollars) in Column C of Form CT -1040.
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Column A: Enter the Employer Identification Number or Payer
+Identification Number.
+Column B: Enter the amount of Connecticut wages, tips, etc.
+Column C: Enter the amount of Connecticut income tax withheld.
+You must complete all columns or your Connecticut withholding will be disallowed. Do not include tax withheld for other states or federal income tax withholding.
+If you have more than five federal Forms W2 or 1099 showing Connecticut income tax withheld, you must complete and attach Supplemental Schedule CT1040WH, Connecticut Income Tax Withholding. Enter on Supplemental Schedule CT1040WH only Connecticut income tax withholding amounts not previously reported on Form CT1040. Enter the total from Supplemental Schedule CT1040WH, Line 3, on Line 18f, Column C.
+Add all entries in Column C (including the additional amount from Supplemental Schedule CT1040WH) and enter the total Connecticut income tax withheld on Line 18.
+Do not send copies of Forms W2 or 1099. Keep these for your records. DRS may request them at a later date.
+When filing Form CT8379, Nonobligated Spouse Claim, attach all Forms W2 and 1099, and Schedules CT K1 and CT1041 K1.
+Line 19: All 2025 Estimated Tax Payments
+Enter the total of all Connecticut estimated tax payments, advance tax payments, and any overpayments of Connecticut income tax applied from a prior year. Include any 2025 estimated payments made in 2026. Do not include any refunds received.
+Line 20: Payments Made With Form CT-1040 EXT
+If you filed Form CT1040 EXT, Application for Extension of Time to File, enter the amount you paid with that form.
+Line 20a: Connecticut Earned Income Tax Credit
+A Connecticut resident taxpayer may claim an earned income tax credit (CT EITC) against the Connecticut income tax due for the taxable year. The amount of the CT EITC is 40% of the earned income credit claimed and allowed on the federal income tax return for the same taxable year. Any taxpayer eligible for CT EITC that has at least one qualifying child for federal income tax purposes for the same taxable year, is eligible to receive an additional two hundred fifty dollars ($250).
+If the CT EITC exceeds the taxpayer's Connecticut income tax liability, the excess is considered an overpayment and will be refunded without interest.
+Complete Schedule CTEITC, Connecticut Earned Income Tax Credit, to calculate your earned income tax credit. Enter the amount from Schedule CTEITC, Line 16.
+You must attach a copy of your schedule or the credit will be disallowed.
+Line 20b: Claim of Right Credit
+If you have claim of right income for federal tax purposes and are claiming the federal claim of right credit on your 2025 federal return, you may also be entitled to a claim of right credit for Connecticut income tax purposes.
+If during your 2025 taxable year you had to repay income you included in your Connecticut adjusted gross income for an earlier taxable year, and the amount you repaid is more than $3,000, you may be able to claim a credit against your Connecticut income tax for your 2025 taxable year. If you are eligible for the Connecticut claim of right credit, complete
+Page 3 of 28
+
+Form CT1040 CRC, Claim of Right Credit, to claim a credit equal to the Connecticut income tax you would not have had to pay if the repaid amount had not been included in your Connecticut adjusted gross income in the earlier taxable year.
+You are eligible for the Connecticut claim of right credit if you meet all of the following conditions: � You were a resident, nonresident, or part-year resident
+individual who included income in Connecticut adjusted gross income for an earlier taxable year(s) of receipt. A trust or estate is not eligible to claim relief for Connecticut income tax purposes;
+� You were required to repay the income during your 2025 taxable year (year of repayment);
+� The amount of the repayment exceeds $3,000; and
+� You determined your federal income tax liability for the year of repayment under IRC � 1341(a)(4) (see Exceptions) or IRC � 1341(a)(5).
+If the claim of right credit exceeds your Connecticut income tax liability, the excess is considered an overpayment and will be refunded.
+Complete Form CT-1040 CRC, Claim of Right Credit, to calculate your claim of right credit. Enter the amount from Form CT-1040 CRC, Line 6.
+Line 20c: Pass-Through Entity Tax Credit
+If you are a partner or a member of a PE required to pay the Connecticut PE Tax, or if you are a beneficiary of a trust or estate that is a member of such PE, and you receive a Schedule CT K1 or a Schedule CT1041 K1 reporting an amount of PE Tax Credit, then you must complete Schedule CTPE, PassThrough Entity Tax Credit. Enter the amount from Schedule CTPE, Line 1.
+You must attach a copy of Schedule CTPE or the credit will be disallowed.
+Do not send copies of Schedules CT K1 and CT1041 K1, but keep them for your records. DRS may request them at a later date.
+Line 20d: Historic Homes Rehabilitation Tax Credit
+Enter the amount received from your Historic Homes Rehabilitation Tax Credit Voucher and submit a copy of the voucher you received from the Department of Economic and Community Development with your Connecticut income tax return. All tax credit vouchers shall be issued by The Department of Economic and Community Development to those eligible that are (1) owners rehabilitating historic homes; or (2) taxpayers making contributions to qualified rehabilitation expenditures on historic homes.
+Line 21: Total Payments and Refundable Credits Add Lines 18, 19, 20, 20a, 20b, 20c, and 20d and enter the total. This is the total of your Connecticut tax payments and refundable credits.
+4 Overpayment
+Line 22: Overpayment If Line 21 is greater than Line 17, subtract Line 17 from Line 21 and enter the result. This is your overpayment.
+To properly allocate your overpayment, go to Lines 23 through 25.
+If Line 21 is less than Line 17, you have an amount due. Go to Line 26.
+Form CT-1040 Instructions (Rev. 12/25)
+
+If you were required to make estimated income tax payments, but you did not pay enough tax through withholding, estimated payments, or both, by any installment due date, or if any PE Tax Credit reported to you on Schedule CT K1, Part 4, Line 1, or Schedule CT1041 K1, Part 4, Line 1, is not sufficient to cover your tax liability, your overpayment may be reduced by the interest due on the underpayment of estimated tax. See Form CT2210, Underpayment of Estimated Income Tax by Individuals, Trusts, and Estates.
+
+Line 23: Amount of Line 22 You Want Applied to Your 2026 Estimated Tax
+Enter the amount of your 2025 overpayment you want applied to your 2026 estimated Connecticut income tax. It will be treated as estimated tax paid on April 15, 2026, if your return is filed on time or if you filed a timely request for extension and your return is filed within the extension period. Payments received after April 15, 2026, will be applied as of the date of receipt. Your request to apply this amount to your 2026 estimated income tax is irrevocable.
+
+Line 24: CHET Contribution from Schedule CT-CHET
+Complete and attach Schedule CTCHET, Connecticut Higher Education Trust (CHET) 529 College Savings Plan Contribution, to contribute all or part of your Connecticut individual income tax overpayment (Line 22). Enter the total contributions as reported on Schedule CTCHET, Line 4. Your contribution is irrevocable.
+
+Line 24a: Total Contributions to Designated Charities
+You may make a contribution on this return only if you are entitled to a refund of an overpayment. Your contribution is limited to your refund amount. Complete and attach Schedule 5 on Page 4 of Form CT1040. Enter the total contributions as reported on Schedule 5, Line 70. Your contribution is irrevocable.
+You may also make direct contributions by following the instructions on Page 18.
+
+Line 25: Refund
+Subtract Lines 23, 24, and 24a from Line 22 and enter the result. This is the amount of your refund.
+
+There are two refund options available:
+
+Option 1: Direct Deposit
+Complete Lines 25a, 25b, and 25c to have your refund directly deposited into your checking or savings account. See Refund Information at portal.ct.gov/DRS/Individuals/ResidentIncome-Tax/Tax-Information.
+This option is not available to first-time filers.
+Enter your nine-digit bank routing number and your bank account number on Lines 25b and 25c. Your bank routing number is generally the first ninedigit number printed on your check or savings withdrawal slip. Your bank account number generally follows the bank routing number. Do not include the check number as part of your account number. Bank account numbers can be up to 17 characters.
+
+Name of Depositor Street Address
+
+Date
+
+No. 101
+
+City, State, Zip Code
+Pay to the
+$ Order of
+
+ 
+
+Name of your Bank Street Address City, State, Zip Code
+092125789
+Routing Number
+
+091 025 025413
+Account Number
+
+0101 Page 4 of 28
+
+Federal banking rules require DRS to inquire whether the direct deposit request is to a foreign bank account. If it is, DRS will issue your refund by check.
+Option 2: Paper Check If you do not elect or qualify for direct deposit, a refund check will be issued and refund processing may be delayed.
+Your overpayment will be applied in the following order: penalty and interest you owe DRS; other taxes you owe DRS; debts to other Connecticut state agencies; federal taxes you owe the IRS; taxes you owe to other states; amounts designated by you to be applied to your 2026 estimated tax; CHET contributions; and charitable contributions designated by you. Any remaining balance will be refunded to you.
+5 Amount You Owe
+Line 26: Tax Due If Line 17 is greater than Line 21, subtract Line 21 from Line 17 and enter the result. This is the amount of tax you owe.
+Line 27: Penalty for Late Payment or Late Filing Late Payment Penalty: The penalty for late payment or underpayment of income or use tax is 10% of the amount due. See Penalty for Late Payment or Late Filing at portal.ct.gov/ DRS/Individuals/Resident-Income-Tax/Tax-Information.
+Late Filing Penalty: In the event that no tax is due, DRS may impose a $50 penalty for the late filing of any return or report required by law to be filed.
+Line 28: Interest for Late Payment or Late Filing If you fail to pay the tax when due, interest will be charged at 1% per month or fraction of a month from the due date until payment is made.
+Line 29: Interest on Underpayment of Estimated Tax If Line 14 minus Line 18 and Line 20c is $1,000 or more, you may owe interest on estimated tax you either underpaid or paid late. Form CT2210, Underpayment of Estimated Income Tax by Individuals, Trusts and Estates, can help you determine whether you did underestimate and will help you calculate interest. However, this is a complex form and you may prefer to have DRS calculate the interest. If so, do not file Form CT2210; leave this line blank and DRS will send you a bill. Interest on underpayment of estimated income tax stops accruing on the earlier of the day you pay your tax or April 15, 2026.
+Line 30: Total Amount Due Add Lines 26 through 29 and enter the total. This is the total amount you owe. Pay the amount in full with your return. See Payment Options at portal.ct.gov/DRS/Individuals/ Resident-Income-Tax/Tax-Information.
+6 Sign Your Return
+After you complete Form CT1040, sign your name and write the date you signed the return. Your spouse must also sign and enter the date if this is a joint return. The signature line is on Page 2 of Form CT1040.
+If you file a joint return, you must review the information with
+Form CT-1040 Instructions (Rev. 12/25)
+
+your spouse. When both you and your spouse sign the return, you become jointly and severally responsible for paying the full amount of tax, interest, and penalties due.
+In addition, you and your spouse will be jointly entitled to any refund which will be issued to both names listed on the return.
+Paid Preparer Signature Anyone you pay to prepare your return must sign and date it. Paid preparers must also enter their Preparer Tax Identification Number (PTIN), and their firm's Federal Employer Identification Number (FEIN) in the spaces provided.
+Alternative Signature Methods DRS conforms to IRS Notice 200454, which provides for alternative preparer signature procedures for federal income tax paper returns that paid practitioners prepare on behalf of their clients. Specifically, income tax return preparers may sign original returns, amended returns, or requests for filing extensions by rubber stamp, mechanical device, or computer software program. These alternative methods of signing must include either a facsimile of the individual preparer's signature or the individual preparer's printed name.
+Income tax return preparers who use alternative methods of signing must provide all of the other preparer information that is required on returns and extensions, such as the name, address, relevant employer identification number, the preparer's tax preparer tax identification number (PTIN), and phone number.
+Paid preparers can follow the same procedure with respect to paper Connecticut income tax returns prepared on behalf of their clients. This procedure only applies to preparers' signatures. It does not affect other signature requirements for taxpayers, and does not apply to documents other than tax returns.
+Third Party Designee To authorize DRS to contact your friend, family member, or any other person to discuss your 2025 tax return, enter the designee's name, telephone number, and any five numbers the designee chooses as his or her personal identification number (PIN). To authorize DRS to contact the paid preparer who signed your return, enter "Preparer" in the space for the designee's name. You do not have to provide the other information requested.
+If you enter a designee's name, you and your spouse, if filing a joint return, are authorizing DRS to call the designee to answer any questions that may arise during the processing of your return. You are also authorizing the designee to:
+� Give DRS any information missing from your return;
+� Call DRS for information about the processing of your return or the status of your refund or payment; and
+� Respond to certain DRS notices you have shared with the designee about math errors, offsets, and return preparation. The notices will not be sent to the designee.
+Once DRS processes the return, the authorization ends. The authorization cannot be revoked. However, the authorization will automatically end no later than the due date (without
+Page 5 of 28
+
+regard to extensions) for filing your 2026 tax return. This is April 15, 2027, for most taxpayers.
+Selecting a designee does not replace a power of attorney and will not authorize the designee to receive refunds, bind you to anything (including additional tax liabilities), or represent you before DRS. To authorize another individual to represent you or act on your behalf, you must complete LGL001, Power of Attorney.
+Order of Attachments If you are submitting any of the following, paper clip them to the front of your Connecticut income tax return in the following order: � Your check for payment of the tax due. See Pay by Mail
+at portal.ct.gov/DRS/Individuals/Resident-Income-Tax/ Tax-Information. � Form CT19IT, Title 19 Status Release; � Form CT1127, Application for Extension of Time for Payment of Income Tax; � Form CT1040 CRC, Claim of Right Credit; � Form CT8379, Nonobligated Spouse Claim; and � Federal Form 1310, Statement of Person Claiming Refund Due a Deceased Taxpayer.
+If you are submitting any of the following, attach them to the back of your return:
+� Supplemental Schedule CT1040WH, Connecticut Income Tax Withholding;
+� Schedule CTPE, PassThrough Entity Tax Credit; � Schedule CTIT Credit, Income Tax Credit Summary;
+
+� Schedule CTCHET, Connecticut Higher Education Trust (CHET) 529 College Savings Plan Contribution;
+� Schedule CTEITC, Connecticut Earned Income Tax Credit;
+� Schedule CTDependent, Connecticut Resident Dependent Information; and
+� Form CT6251, Connecticut Alternative Minimum Tax Return - Individuals.
+You do not need to attach a copy of your previouslyfiled Form CT1040 EXT.
+Filing Your Return Keep a copy of this return and all attachments for your records. Attach to this return any required schedules and forms. Do not attach copies of your federal income tax return or federal schedules.
+DRS does not provide return envelopes for mailing completed forms. See Mailing Addresses for Form CT-1040, at portal. ct.gov/DRS/Individuals/Resident-Income-Tax/TaxInformation for the correct address to use for returns with payments, returns with refunds, or payments only.
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 6 of 28
+
+Form CT-1040 Schedules
+The following modifications to federal adjusted gross income are provided in Conn. Gen. Stat. � 12-701(a)(20). Your federal adjusted gross income may not be further modified in determining your Connecticut adjusted gross income except as expressly provided by Conn. Gen. Stat. � 12-701(a)(20).
+Schedule 1 - Modifications to Federal Adjusted Gross Income Additions to Federal Adjusted Gross Income
+Enter all amounts as positive numbers.
+Line 31: Interest on State and Local Government Obligations Other Than Connecticut Enter the total amount of interest income derived from state and municipal government obligations (other than obligations of the State of Connecticut or its municipalities) which is not taxed for federal income tax purposes. Do not enter interest income derived from government obligations of Puerto Rico, Guam, American Samoa, or U.S. Virgin Islands.
+Line 32: Exempt-Interest Dividends From a Mutual Fund Derived From State or Municipal Government Obligations Other Than Connecticut Enter the total amount of exempt-interest dividends received from a mutual fund that are derived from state and municipal government obligations other than obligations of the State of Connecticut or its municipalities. If the exempt-interest dividends are derived from obligations of Connecticut and other states, enter only the percentage derived from non-Connecticut obligations. Do not enter exempt-interest dividends derived from government obligations of Puerto Rico, Guam, American Samoa, or U.S. Virgin Islands.
+Example: A fund invests in obligations of many states including Connecticut. Assuming that 20% of the distribution is from Connecticut obligations, the remaining 80% would be added back on this line.
+Line 33: Taxable Amount of Lump-Sum Distributions From Qualified Plans Not Included in Federal AGI If you filed federal Form 4972, Tax on LumpSum Distributions, with your federal Form 1040, or federal Form 1040SR, to compute the tax on any part of a distribution from a qualified plan, enter that part of the distribution on Line 33. Do not enter any part of the distribution reported on federal Form 1040, Line 5a, or federal Form 1040SR, Line 5a, or federal Form 1040, Schedule D, or federal Form 1040SR, Schedule D.
+Line 34: Beneficiary's Share of Connecticut Fiduciary Adjustment If you have any income from an estate or trust, your share of any Connecticut modifications (that is, your share of the
+
+Connecticut fiduciary adjustment) that applies to the income will be shown on Form CT1041, Connecticut Income Tax Return for Trusts and Estates, Schedule CT1041B, Part 1, Column 5. Your share of these modifications should be provided to you by the fiduciary on Schedule CT1041 K1. If your share of these modifications is an amount greater than zero, enter the amount on Line 34. If the amount is less than zero, enter the amount on Line 46.
+If you are a beneficiary of more than one trust or estate, enter the net amount of all modifications, if greater than zero, on Line 34 or, if less than zero, on Line 46.
+Line 35: Loss on Sale of Connecticut State and Local Government Bonds Enter the total losses from the sale or exchange of notes, bonds, or other obligations of the State of Connecticut or its municipalities used to determine gain (loss) for federal income tax purposes whether or not the entire loss is used in computing federal adjusted gross income.
+Line 36: Section 168(k) Federal Bonus Depreciation Deduction Enter 100% of the amount of � 168(k) bonus depreciation reported for federal income tax purposes for this taxable year, provided such amount is deducted in determining the federal AGI for the taxable year.
+Line 36a: Section 179 Federal Deduction Enter 80% of the � 179 amount deducted in determining the federal AGI for the taxable year.
+Line 37: Other Use Line 37 to report any of the following modifications:
+1. Add back any treaty income reported on federal Form 1040NR if a nonresident alien. Enter the words "treaty income" in the space provided.
+2. Add back any loss or deduction of an enrolled member of the Mashantucket Pequot Tribe who resides in Indian country of such tribe or any loss or deduction of an enrolled member of the Mohegan Tribe who resides in Indian country of such tribe where the loss or deduction is derived from or connected with Indian country of the tribe. Enter the words "Mashantucket Pequot Tribe enrolled member" or "Mohegan Tribe enrolled member," as the case may be.
+3. Add back any Connecticut income tax deducted on the federal income tax return to arrive at federal adjusted gross income. Do not add back any Connecticut income tax deducted on federal Form 1040, Schedule A, or federal Form 1040SR, Schedule A.
+4. Add back any expenses paid or incurred for the production (including management, conservation, and maintenance of property held for the production) or collection of income exempt from Connecticut income tax which were deducted on the federal return to arrive at federal adjusted gross income.
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 7 of 28
+
+5. Add back any amortizable bond premium on bonds producing interest income exempt from Connecticut income tax which premiums were deducted on the federal return to arrive at federal adjusted gross income.
+6. Add back any interest or dividend income on obligations or securities of any authority, commission, or instrumentality of the United States which federal law exempts from federal income tax but does not exempt from state income taxes.
+7. Add back to the extent deductible in determining federal adjusted gross income, any interest expenses on indebtedness incurred or continued to purchase or carry obligations or securities (the income from which is exempt from Connecticut income tax).
+8. Add back the following distributions from an MRA established pursuant to Conn. Gen. Stat. � 32-9zz:
+� 100% of any distribution from such MRA not used to purchase machinery or equipment for use in Connecticut or manufacturing facilities, as defined in Conn. Gen. Stat. � 12-81(72), or for workforce training, development or expansion in Connecticut; and
+� 100% of any return of money remaining in the MRA at the end of the five-year period after such account's creation or organization, including any interest earned.
+See Special Notice 2012(6), 2012 Legislative Changes Affecting the Income Tax.
+9. Add back, to the extent not properly includible in gross income for federal income tax purposes, any compensation required to be recognized under 26 U.S.C. � 457A that is attributable to services performed within Connecticut.
+10. Also use Line 37 to report any additions to federal adjusted gross income required for Connecticut income tax purposes which are not listed on Lines 31 through 36.
+Line 38: Total Additions Add Lines 31 through 37 and enter the total.
+Subtractions From Federal Adjusted Gross Income
+Enter all amounts as positive numbers.
+Line 39: Interest on U.S. Government Obligations Enter the total amount of interest income (to the extent includible in federal adjusted gross income) derived from U.S. government obligations, which federal law prohibits states from taxing (for example, U.S. government bonds such as Saving Bonds Series EE or Series HH and U.S. Treasury bills or notes).
+For Series EE U.S. Savings Bonds, you are entitled to include on Line 39 only the amount of interest subject to federal
+
+income tax after exclusion of the amounts reported on federal Form 8815. In general, you will report the net taxable amount on federal Form 1040, Schedule B, or federal Form 1040SR, Schedule B.
+Do not enter the amount of interest income derived from Federal National Mortgage Association (Fannie Mae) bonds, Government National Mortgage Association (Ginnie Mae) bonds, and Federal Home Loan Mortgage Corporation (Freddie Mac) securities. Federal law does not prohibit states from taxing interest income derived from these obligations and this interest income is taxable for Connecticut income tax purposes.
+Do not enter the amount of interest paid to you on any federal income tax refund.
+Line 40: Exempt Dividends From Certain Qualifying Mutual Funds Derived From U.S. Government Obligations
+Enter the total amount of exempt dividends received from a qualifying mutual fund that are derived from U.S. government obligations. A mutual fund is a qualifying fund if, at the close of each quarter of its taxable year, at least 50% of the value of its assets consists of U.S. government obligations. The percentage of dividends that are exempt dividends should be reported to you by the mutual fund.
+Do not enter the amount of dividend income derived from Federal National Mortgage Association (Fannie Mae) bonds, Government National Mortgage Association (Ginnie Mae) bonds, and Federal Home Loan Mortgage Corporation (Freddie Mac) securities. Federal law does not prohibit states from taxing income derived from these obligations, and this income is taxable for Connecticut income tax purposes.
+Example: A qualifying mutual fund pays a dividend of $100. Of the distribution, 55% is attributable to U.S. Treasury bills and 45% to other investments. The amount reported on Line 40 is $55.
+See Policy Statement 2005(2), Connecticut Income Tax on Bonds or Obligations Issued by the United States Government, by State Governments, or Municipalities.
+Line 41: Social Security Benefit Adjustment
+If you receive Social Security benefits subject to federal income tax, you may reduce or eliminate the amount of your benefits subject to Connecticut income tax.
+Your Social Security benefits are fully exempt from Connecticut income tax if your required filing status is single or married filing separately and the amount reported on Form CT1040, Line 1, is less than $75,000; or married filing jointly, qualifying surviving spouse, or head of household and the amount reported on Form CT1040, Line 1, is less than $100,000. If this is the case, enter on Line 41 the amount of federally taxable Social Security benefits reported on federal Form 1040, Line 6b, or federal Form 1040SR, Line 6b.
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 8 of 28
+
+Your Social Security benefits are partially exempt from
+Connecticut income tax if your federal adjusted gross income
+is above the threshold for your filing status.
+If you used the worksheets in the instructions to federal
+Forms 1040 and 1040SR to calculate the amount of taxable
+Social Security benefits, complete the Social Security Benefit
+Adjustment Worksheet, on Page 24, and enter the amount from
+Line F on Line 41.
+You may use the online Social Security Benefit Adjustment Calculator by visiting myconneCT at portal.ct.gov/DRS-myconneCT. Below the Individuals panel on the myconneCT homepage, select View Tax Calculators, then select Social Security Benefit Calculator.
+If you are using a worksheet not from a federal publication, such as one you printed from a tax preparation program on your computer or one given to you by your tax preparer, you should verify that the line references from these worksheets are the same as the equivalent federal publication to be certain
+you are using the proper amounts.
+Line 42: Refunds of State and Local Income Taxes
+Enter the amount of taxable refunds of state and local income
+taxes reported on federal Form 1040, Schedule 1, Line 1,
+or federal Form 1040SR, Schedule 1, Line 1. If federal
+Form 1040, Schedule 1, Line 1, or federal Form 1040SR,
+Schedule 1, Line 1, is blank, enter "0."
+Line 43: Tier 1 and Tier 2 Railroad Retirement Benefits and Supplemental Annuities
+If you received Tier 1 or Tier 2 (or both) railroad retirement benefits or supplemental annuities during 2025, you may deduct the amount included in your federal adjusted gross income, but only to the extent the benefits were not already subtracted on Line 41. Enter the amount of Tier 1 and Tier 2 railroad retirement benefits reported on federal Form 1040, Line 5b, or federal Form 1040-SR, Line 5b. Likewise, enter the amount of railroad unemployment benefits, including sickness benefits paid by the Railroad Retirement Board (RRB) in lieu of unemployment benefits, to the extent included in your federal adjusted gross income. However, do not enter sickness benefit paid by the RRB resulting from an on-the-job injury because these benefits
+are not included in your federal adjusted gross income.
+Line 44: Military Retirement Pay Subtract income received as military retirement pay, to the extent included in federal adjusted gross income, if you are a retired member of the armed forces of the United States or the National Guard (retired military member) or if you are a beneficiary receiving survivor benefits under an option or election made by a deceased retired military member.
+Payments received by a former spouse of a retired military member, under a final decree of divorce, dissolution, annulment, or legal separation or a court ordered, ratified, or approved property settlement incident to a decree dividing military retirement pay, do not qualify for the military retirement pay exclusion.
+
+Line 45: 50% of Connecticut Teachers' Retirement Pay
+Subtract 50% of the income received from the Connecticut Teachers' Retirement System, provided you properly included such income in federal adjusted gross income for federal income tax purposes. You must have received a Form 1099R from the Connecticut Teachers' Retirement Board to be eligible for the subtraction modification. See Special Notice 2022(4), 2022 Legislative Changes Affecting the Income Tax.
+Line 46: Beneficiary's Share of Connecticut Fiduciary Adjustment
+If you have any income from an estate or trust, your share of any Connecticut modifications (that is, your share of the Connecticut fiduciary adjustment) that applies to the income will be shown on Form CT1041, Schedule CT1041B, Part 1, Column 5. Your share of these modifications should be provided to you by the fiduciary on Schedule CT1041 K1. If your share of these modifications is an amount less than zero, enter the amount on this line. If the amount is greater than zero, enter the amount on Line 34.
+If you are a beneficiary of more than one trust or estate, and the net amount of all modifications is less than zero, then enter the net amount on this line.
+Line 47: Gain on Sale of Connecticut State and Local Government Bonds
+Enter the total of all gains from the sale or exchange of notes, bonds, or other obligations of the State of Connecticut or its municipalities used to determine gain (loss) for federal income tax purposes.
+Line 48: Connecticut Higher Education Trust (CHET) Contributions
+Enter your CHET contributions, the modification cannot exceed the maximum allowable contribution. The maximum CHET contribution that may be subtracted is the lesser of (1) the amount of contributions to all CHET accounts during the taxable year; or (2)(A) $5,000 for each individual taxpayer (including individuals whose filing status on their Connecticut income tax return is single, head of household, filing separately, or (B) $10,000 for individuals whose filing status on their Connecticut income tax return is filing jointly or qualifying surviving spouse.
+If your CHET contribution during the taxable year exceeds the maximum CHET contribution, the excess may be carried forward for the five succeeding taxable years. The CHET carryforward amount subtracted from federal adjusted gross income in the succeeding taxable years can not exceed the maximum CHET contribution limitations above. CHET contributions made in the current taxable year should be used before using any carryover from prior years.
+See Special Notice 2006(11), 2006 Legislative Changes Affecting the Income Tax.
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 9 of 28
+
+Line 48a: 25% of Section 168(k) Federal Bonus Depreciation Deduction Added Back in Preceding Four Years Enter 25% of the � 168(k) federal deduction that you added back on your Connecticut income tax return in the four preceding taxable years.
+Line 48b: Pension or Annuity Income If your filing status is single, married filing separately, or head of house hold with federal AGI for the taxable year of less than $100,000 or married filing jointly with federal AGI of less than $150,000, and you receive distributions from certain pensions and annuities, such as from a defined benefit plan, 401(k), 403(b) or 457(b) plans, or distributions from an IRA (other than a Roth IRA), you may qualify for this subtraction modification. Use the Pension and Annuity Worksheet on Pages 24-25 to determine the amount to enter on this line.
+The following amounts are not included in Line 4b or 5b of the federal income tax return and should not be added when calculating the pension and annuity amount for Line 48b of Form CT1040:
+� Disability pensions received before the recipient met the minimum retirement age set by his or her employer;
+� Corrective distributions of excess elective deferrals or other excess contributions to retirement plans; and
+� Distributions from Roth IRAs.
+On federal Form 1040, or federal Form 1040SR, IRA distributions and pensions and annuities are reported on separate lines.
+To determine the amount to enter on this line, begin with the amount reported on federal Form 1040, Line 5b, or federal Form 1040SR, Line 5b, Taxable amount of pensions and annuities. From the amount on Line 5b, subtract military retirement pay, Tier 1 and Tier 2 railroad retirement benefits, and Connecticut teachers' retirement pay. To the result, add 75% of the amount reported on federal Form 1040, Line 4b, or federal Form 1040 SR, Line 4b, Taxable amount of IRA distributions. Enter the amount on this line.
+Military retirement pay and Tier 1 and Tier 2 railroad retirement benefits are fully exempt from Connecticut income tax, and should not be included in this calculation. The subtraction modification for these benefits are reported on Lines 44 and 43, respectively, on the Connecticut return.
+A survivor or beneficiary of a plan participant may claim the 100% subtraction modification for Connecticut income tax purposes in the same manner as the plan participant would have been allowed to claim the modification, if such survivor or beneficiary is required to report the pension and annuity income on the federal income tax return in the same manner as the plan participant would have reported such income.
+Retired teachers may claim either the teachers' pension subtraction modification or the pension and annuity subtraction modification (if their federal adjusted gross income is below the applicable threshold) on the income they receive from the Connecticut Teachers' Retirement System.
+Connecticut law does not allow a double benefit for the same income.
+Example 1: Anna's filing status on her Connecticut resident return is single. She receives $30,000 from the Teachers' Retirement System and $38,000 in pension payments from XYZ Corporation for the taxable year. Both amounts are included in Anna's federal gross income, and her federal AGI is less than $75,000. On the Connecticut return for the taxable year, Anna may subtract $68,000 as a pension and annuity income subtraction modification on Line 48b, Schedule 1, Form CT1040. She is not entitled to subtract any amount on Line 45, Schedule 1, Form CT1040 as Connecticut doesn't allow a double benefit for the same income.
+Example 2: Aubrey's filing status on her Connecticut resident return is single. She receives $40,000 from the Teachers' Retirement System and $25,000 in pension payments from ABC Company for the taxable year. Both amounts are included in Aubrey's federal gross income, and her federal AGI is more than $100,000. On the Connecticut return for
+Form CT-1040 Instructions (Rev. 12/25)
+
+the taxable year, Aubrey may subtract $20,000 ($40,000 x 50%) on Line 45, Schedule 1, Form CT1040, and $0 as a pension and annuity income subtraction modification on Line 48b, Schedule 1, Form CT1040.
+Line 48c: Ordinary and necessary business expenses for taxpayers licensed under Chapter 420f or 420h that are not claimed for federal income tax purposes
+For taxpayers that are licensed under either Chapter 420f or 420h of the Connecticut General Statutes, enter the amount of ordinary and necessary business expenses allowed under IRC � 162 in determining the Connecticut income tax liability.
+Line 48d: ABLE (Achieving a Better Life Experience) Account Subtract the amount of your contributions made to an ABLE (Achieving a Better Life Experience) account. The modification cannot exceed the maximum allowable contribution. The maximum ABLE contribution that may be subtracted is the lesser of (1) the amount of contributions to all ABLE accounts during the taxable year; or (2)(A) $5,000 for each individual taxpayer, including individuals whose filing status on their Connecticut income tax return is single, head of household, filing separately, or (B) $10,000 for individuals whose filing status on their Connecticut income tax return is filing jointly or qualifying surviving spouse.
+Line 49: Other
+Use Line 49 to report any of the following modifications:
+1. Subtract any income or gain of an enrolled member of the Mashantucket Pequot Tribe who resides in Indian country of such tribe or any income or gain of an enrolled member of the Mohegan Tribe who resides in Indian country of such tribe where the income or gain is derived from or connected with Indian country of the tribe. Enter the words "Mashantucket Pequot Tribe enrolled member" or "Mohegan Tribe enrolled member," as the case may be.
+2. Subtract the amount of interest earned on funds deposited in a Connecticut individual development account to the extent included in federal adjusted gross income.
+3. Subtract any interest paid on indebtedness incurred to acquire investments that provide income taxable in Connecticut but exempt for federal purposes, that is not deductible in determining federal adjusted gross income, and is attributable to a trade or business of that individual.
+4. Subtract expenses paid or incurred for the production (including management, conservation, and maintenance of property held for production) or collection of income taxable in Connecticut but exempt from federal income tax, that are not deductible in determining federal adjusted gross income, and are attributable to a trade or business of that individual.
+5. Subtract the amount of any distributions you received from the CHET fund as a designated beneficiary to the extent includible in your federal adjusted gross income. Congress passed legislation excluding from federal gross income any distribution from a qualified state tuition program (such as CHET) to the extent the distribution is used to pay for qualified higher education expenses (Pub. L. No. 10716, � 402). To the extent any distribution from CHET is excluded from federal gross income, the amount should not be reported as a subtraction modification on Line 49.
+6. Subtract any amortizable bond premium on bonds that provide interest income taxable in Connecticut but exempt from federal income tax, which premiums were not deductible in determining federal adjusted gross income and are attributable to a trade or business of that individual.
+Page 10 of 28
+
+7. Subtract the amount of any interest income from notes, bonds, or other obligations of the State of Connecticut included in federal adjusted gross income. This modification includes any Build America Bond tax credit amount if the Build America Bond, as described in Section 1531 of the American Recovery and Reinvestment Act of 2009, was issued by the State of Connecticut or a Connecticut subdivision and only to the extent the credit amount is treated as interest includible in gross income for federal income tax purposes.
+8. Subtract the amount of any interest, dividends, or capital gains earned on contributions to accounts established for a designated beneficiary under the Connecticut Homecare Option Program for the Elderly to the extent the interest, dividends, or capital gains are properly included in the gross income of the designated beneficiary for federal income tax purposes.
+9. Subtract contributions made to an MRA established pursuant to Conn. Gen. Stat. � 32-9zz. See Special Notice 2012(6), 2012 Legislative Changes Affecting the Income Tax.
+10. Subtract 25% of the � 179 federal deduction that you added back on your Connecticut income tax return in the four preceding taxable years.
+11. Subtract the amount, to the extent included in federal adjusted gross income, of any financial assistance received from the Crumbling Foundations Assistance Fund; paid to or on behalf of the taxpayer under the Collapsing Foundations Credit Enhancements Program; or financial assistance received from a municipality by the taxpayer to repair concrete foundations that have deteriorated due to the presence of pyrrhotite.
+12. Subtract certain costs incurred by the taxpayer in connection with the donation to another person of human bone marrow, or all or part of a human liver, pancreas, kidney, intestine, or lung, for the purpose of organ transplantation. The costs include lost wages, medical expenses, travel expenses, and housing expenses. The subtraction can not exceed $10,000.
+13. Subtract the Bioscience Venture Capital amount as calculated on Schedule CTBIO, Bioscience Worksheet.
+14. Subtract the amount of any payments received from the Fallen Hero Fund to the extent included in your federal adjusted gross income. All payments from the Fallen Hero Fund shall be issued by the Comptroller to a surviving family member or beneficiary of a police officer, emergency medical technician (EMT), firefighter or paramedic killed in the line of duty.
+15. Subtract the amount, to the extent included in federal adjusted gross income, any payments received under the Connecticut Student Loan Reimbursement Program issued by the Connecticut Office of Higher Education.
+16. Subtract the amount, to the extent included in federal adjusted gross income, any common stock received during the taxable year under a share plan, as defined in Conn. Gen. Stat. � 12-217ss.
+Do not use Line 49 to subtract income subject to tax in a qualifying jurisdiction (see Schedule 2 - Credit for Income Taxes Paid to Qualifying Jurisdictions, below) or income of a nonresident spouse. See Special Rules for Married Individuals on Page 1.
+Line 50: Total Subtractions Add Lines 39 through 49 and enter the total.
+Schedule 2 - Credit for Income Taxes Paid to Qualifying Jurisdictions
+You must first complete Form CT1040, Schedule 3 - Credit for Property Taxes Paid on Your Primary Residence, Motor Vehicle, or Both, before completing Schedule 2. See the instructions for Schedule 3 - Property Tax Credit on Page 14.
+
+Am I Eligible for the Credit for Income Taxes Paid to Qualifying Jurisdictions? If you are a resident of Connecticut and if any part of your income was taxed by a qualifying jurisdiction, you may be able to claim a credit against your Connecticut income tax liability for qualifying income tax payments you have made.
+Taxpayers seeking a credit for alternative minimum taxes paid to another jurisdiction must complete Form CT6251, Connecticut Alternative Minimum Tax Return - Individuals, to calculate their alternative minimum tax credit.
+Qualifying Jurisdiction A qualifying jurisdiction includes another state of the United States, a local government within another state, or the District of Columbia. A qualifying jurisdiction does not include the State of Connecticut, the United States, or a foreign country or its provinces (for example, Canada and Canadian provinces).
+Qualifying Income Tax Payments Qualifying income tax payments are income taxes you actually paid on income:
+� Derived from or connected with sources within the qualifying jurisdiction; and
+� Subject to tax in the qualifying jurisdiction.
+Qualifying income tax payments include direct and indirect pro rata share of taxes paid to a qualifying jurisdiction by a passthrough entity if such passthrough entity is subject to a passthrough entity tax substantially similar to the PE Tax imposed in Connecticut.
+Certain qualifying jurisdictions impose on electing employers a tax on wages. The tax is calculated based on your (the employee) wages. The qualifying jurisdiction allows you to take a credit for the tax paid by your employer. Although the tax is paid on your behalf, it is not income tax withholding. This type of tax is generally referred to as an employer compensation expense tax.
+For Connecticut income tax purposes, qualifying income tax payments include the amount of the employer compensation expense tax credit allowed by the qualifying jurisdiction.
+Income Derived From or Connected With Sources Within a Qualifying Jurisdiction
+� Compensation received for personal services performed in a qualifying jurisdiction;
+� Compensation received as an employee for personal services performed from a home office in Connecticut for an employer in a qualifying jurisdiction that applies a convenience of the employer test in determining whether nonresident compensation is derived from or connected with sources within the qualifying jurisdiction;
+� Income from a business, trade, or profession carried on in a qualifying jurisdiction;
+� Gambling winnings from a state-conducted lottery. See Informational Publication 2015(23), Connecticut Income Tax Treatment of State Lottery Winnings Received by Residents and Nonresidents of Connecticut; or
+� Income from real or tangible personal property situated in a qualifying jurisdiction.
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 11 of 28
+
+Income from intangibles, such as stocks and bonds, is not considered derived from or connected with sources within a qualifying jurisdiction unless the income is from property employed in a business, trade, or profession carried on in that jurisdiction.
+What Payments Do Not Qualify � Income tax payments made to a qualifying jurisdiction on
+income not derived from or connected with sources within the qualifying jurisdiction (such as wages not derived from or connected with sources within the qualifying jurisdiction);
+� Income tax payments made to a qualifying jurisdiction on income not included in your Connecticut adjusted gross income;
+� Income tax paid to a jurisdiction that is not a qualifying jurisdiction, including a foreign country or its provinces (for example, Canada and Canadian provinces);
+� Alternative minimum tax paid to a qualifying jurisdiction;
+� Income tax paid to a qualifying jurisdiction if you claimed credit on that jurisdiction's income tax return for income tax paid to Connecticut; or
+� Penalties or interest on income taxes you paid to a qualifying jurisdiction.
+Limitations to the Credit The total credit is limited to whichever of the following amounts is least:
+� The amount of income tax paid to the qualifying jurisdiction;
+� The portion of Connecticut income tax due on the Connecticut adjusted gross income sourced in the qualifying jurisdiction; or
+� The amount of your Connecticut income tax entered on Form CT1040, Line 6.
+How to Calculate the Credit You must first complete your income tax return(s) for the qualifying jurisdiction(s). Then complete the Schedule 2 Worksheet on Page 26 to determine the amount to enter on Schedule 2, Line 53.
+The allowed credit must be separately computed for each qualifying jurisdiction. Use separate columns for each qualifying jurisdiction for which you are claiming a credit.
+Attach a copy of all income tax returns filed with qualifying jurisdictions to your Connecticut income tax return or the credit will be disallowed.
+Taxpayers filing Form CT1040 electronically should retain copies of all income tax returns filed with qualifying jurisdictions for three years from the date of filing. The forms must be provided to DRS upon request.
+Schedule 2 provides two columns, A and B, to compute the credit for two jurisdictions. If you need more than two columns, create a worksheet identical to Schedule 2 and attach it to the back of your Form CT1040.
+If you are claiming credit for income taxes paid to another state and to one of its political subdivisions, follow these rules to determine your credit.
+Form CT-1040 Instructions (Rev. 12/25)
+
+A. If the same amount of income is taxed by both the city and state (see example for Line 56 on Page 13): 2. Use only one column on Form CT1040, Schedule 2, to calculate your credit; 3. Enter the same income taxed by both city and state in that column on Schedule 2; and 4. Combine the amounts of tax paid to the city and the state and enter the total on Line 57 of that column.
+B. If the amounts of income taxed by both the city and state are not the same: 3. Use two columns on Form CT1040, Schedule 2; 4. Include only the same income taxed by both jurisdictions in the first column; and 5. Include the excess income taxed by only one of the jurisdictions in the next column.
+Schedule 2 - Worksheet Instructions Complete the Schedule 2 - Worksheet to determine the portion of your Connecticut adjusted gross income derived from a qualifying jurisdiction. For each line in Column 2, enter the items of income from Column 1 that meet all of the following conditions listed below.
+� The income is derived from or connected with sources within a qualifying jurisdiction;
+� The income is reported on an income tax return filed with that qualifying jurisdiction and subject to income tax in the jurisdiction; and
+� You have paid income tax on the income to that qualifying jurisdiction.
+If you paid income tax to more than one qualifying jurisdiction, you must complete a separate worksheet for each jurisdiction. Keep the worksheet with your 2025 tax records. Do not attach it to your tax return.
+Column 1 Enter on Lines 1 through 15 of the worksheet the corresponding amounts entered on your federal income tax return, federal Form 1040, or federal Form 1040SR, and Schedule 1.
+Enter on Line 17 of the worksheet the amount entered on Line 26 of Schedule 1 of your federal income tax return.
+Enter on Line 19 of the worksheet the net amount of your Connecticut modifications to federal adjusted gross income. Subtract Form CT1040, Schedule 1, Line 50, from Line 38 to arrive at this amount.
+Column 2 For each line, enter that portion of the amount entered on the same line of Column 1 you reported on an income tax return filed with (and on which income tax was paid to) the qualifying jurisdiction. On Line 17, enter only the portion of the total federal adjustments to income directly related to income sourced in the qualifying jurisdiction. On Line 19, enter only the portion of Connecticut modifications directly related to income sourced in the qualifying jurisdiction. The fact that the qualifying jurisdiction may take into account your entire adjusted gross income (to compute the rate at which your income sourced in that jurisdiction will be taxed) does
+Page 12 of 28
+
+not mean you paid income tax to that jurisdiction on your entire adjusted gross income. Because you are a nonresident of the qualifying jurisdiction, you may be taxed by that jurisdiction only on your income sourced in that jurisdiction.
+Example 1: Amy, a Connecticut resident whose filing status is single, earned wages of $150,000 from a company located in the State of New York. Amy works inside and outside of New York and allocated her wage income based upon the days worked in New York. She determined $100,000 to be her New York State allocated wage income and reported and paid this amount on her New York nonresident income tax return. On her federal Form 1040, Line 1z, she entered $150,000. When completing the Schedule 2 - Worksheet, she enters $150,000 in Column 1, Line 1, and $100,000 in Column 2, Line 1. Amy also enters $100,000 on Form CT1040, Schedule 2, Line 53.
+Example 2: Luke and Lee file a joint federal Form 1040 and a joint Form CT1040. Lee's wages as an employee working in Rhode Island are $20,000 and Luke's wages as an employee working in Connecticut are $25,000. On their federal Form 1040, Line 1z, they enter $45,000. When completing the Schedule 2 - Worksheet, Luke and Lee enter $45,000 in Column 1, Line 1, and $20,000 in Column 2, Line 1. Luke and Lee also enter $20,000 on Form CT1040, Schedule 2, Line 53.
+Example 3: Linda is a sole proprietor of a business conducted at two locations: one in Connecticut and one in Massachusetts. On Linda's federal Form 1040, Schedule 1, Line 3, she entered $100,000. Of the $150,000 of gross income reported on federal Form 1040, Schedule C, $90,000 is derived from the Massachusetts location. Of the $50,000 of expenses reported on Schedule C, $35,000 is derived from the Massachusetts location. When completing the Schedule 2 - Worksheet, Linda enters $100,000 in Column 1, Line 6, and $55,000 ($90,000 $35,000) in Column 2, Line 6. Linda also enters $55,000 on Form CT1040, Schedule 2, Line 53.
+Schedule 2 - Line Instructions Line 51: Modified Connecticut Adjusted Gross Income
+Add to Connecticut adjusted gross income from Line 5 any net loss derived from or connected with sources in a qualifying jurisdiction(s) where you were subject to income taxation whether or not income tax was actually paid to the jurisdiction(s). The modified amount is entered on Line 51.
+Example: Fred's Connecticut adjusted gross income of $60,000 includes income of $15,000 from business activities conducted in Massachusetts and a net loss of $20,000 from a business conducted in Rhode Island. He must add the $20,000 net loss to the $60,000 and enter the $80,000 on Line 51.
+Line 52: Taxing Jurisdiction(s) If you claim credit for income taxes paid to a qualifying jurisdiction, enter the name and the twoletter code of each qualifying jurisdiction for which you are claiming credit. If you are claiming credit for income taxes paid to a political subdivision of another state, enter the name and two-letter code of the state.
+
+Standard Two-Letter Codes
+Alabama.....................AL Louisiana............ LA Arizona.......................AZ Maine..................ME Arkansas.................... AR Maryland........... MD California.................. CA Massachusetts.... MA Colorado.................... CO Michigan..............MI Delaware....................DE Minnesota.......... MN District of Columbia. DC Mississippi..........MS Georgia...................... GA Missouri............. MO Hawaii.........................HI Montana..............MT Idaho...........................ID Nebraska............. NE Illinois......................... IL New Jersey.......... NJ Indiana.........................IN New Mexico...... NM Iowa.............................IA New York...........NY Kansas........................KS North Carolina.... NC Kentucky................... KY North Dakota......ND
+
+Ohio.................... OH Oklahoma........... OK Oregon.................OR Pennsylvania....... PA Rhode Island......... RI South Carolina..... SC Tennessee............ TN Utah..................... UT Vermont............... VT Virginia.............. VA West Virginia.....WV Wisconsin............ WI
+
+Line 53: Non-Connecticut Income Complete the Schedule 2 - Worksheet on Page 26 to determine the total non-Connecticut income included in your Connecticut adjusted gross income and reported on a qualifying jurisdiction's income tax return. Enter the amount from Column 2, Line 20, of the Worksheet.
+Line 54 Divide the amount on Line 53 by the amount on Line 51. The result cannot exceed 1.0000. Round to four decimal places.
+Line 55: Income Tax Liability Subtract Line 11 from Line 6 and enter the result.
+Line 56 Multiply the percentage arrived at on Line 54 by the amount reported on Line 55.
+
+Example: Jen is a Connecticut resident who worked in City Y, a city in State X, during the taxable year. Jen's filing status is single and her Connecticut adjusted gross income is $160,000. The amount entered on Jen's Form CT1040, Line 55, is $8,850.
+
+Both State X and City Y impose an income tax. Her Connecticut adjusted gross income derived from State X is $80,000 as is her Connecticut adjusted gross income derived from City Y. Because the amounts of income taxed by both State X and City Y are the same, Jen uses one column on Form CT1040, Schedule 2. Jen pays an income tax of $6,000 to State X and an income tax of $360 to City Y. Since Jen's Form CT1040, Line 51, is $160,000, her Schedule 2 is completed as follows:
+
+Line 52 Line 53 Line 54 Line 55 Line 56 Line 57 Line 58 Line 59
+
+Column A
+State X, City Y 80,000 00 .5000 8,850 00 4,425 00 6,360 00 4,425 00
+Total Credit
+
+Column B
+00
+00 00 00 00 4,425 00
+
+Line 57: Income Tax Paid to a Qualifying Jurisdiction Enter the total amount of income tax paid to a qualifying jurisdiction.
+Income tax paid means the lesser of your income tax liability to the qualifying jurisdiction or the income tax paid to that jurisdiction as reported on a return filed with that jurisdiction, but not penalty or interest. Income tax paid includes the amount of employer compensation expense tax
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 13 of 28
+
+credit reported, if applicable, on a qualifying jurisdiction's return. Do not report the amount of tax withheld for that jurisdiction directly from your Form W2 or 1099. You must first complete a return for the qualifying jurisdiction to determine the amount of income tax paid.
+Line 58 Enter the lesser of the amounts reported on Line 56 or Line 57.
+Do not enter negative amounts. If zero or less, enter "0".
+Line 59: Total Credit for Income Taxes Paid to Qualifying Jurisdictions Add the amounts from Line 58, Column A, Line 58, Column B, and Line 58 of any additional worksheets. The amount on Line 59 cannot exceed the amount on Line 56. Enter the total here and on Form CT1040, Line 7.
+Taxpayers filing a paper Form CT1040 must attach a copy of all income tax returns filed with qualifying jurisdictions to your Connecticut income tax return or the credit will be disallowed.
+Taxpayers filing Form CT1040 electronically should retain copies of all income tax returns filed with qualifying jurisdictions for three years from the date of filing. The forms must be provided to DRS upon request.
+Schedule 3 - Property Tax Credit Connecticut residents must complete Schedule 3 to determine the amount of credit (if any) that may be taken against a Connecticut income tax liability. The credit is for property taxes paid during 2025 to a Connecticut political subdivision on a primary residence, privately owned or leased motor vehicle, or both. You must attach Schedule 3 to Form CT1040 or your credit will be disallowed. If you entered zero on Form CT1040, Line 10, do not complete this schedule. See Informational Publication 2017(23), Q & A: Income Tax Credit for Property Taxes Paid to a Connecticut Political Subdivision.
+Which Property Tax Bills Qualify
+You may take credit against your 2025 Connecticut income tax liability for qualifying property tax payments you made on your primary residence, privately owned or leased motor vehicle, or both, to a Connecticut political subdivision. Generally, property tax bills due and paid during 2025 qualify for this credit. This includes any installment payments you made during 2025 that were due in 2025 and any installments you prepaid during 2025 due in 2026. Supplemental property tax bills that were due during 2025 or 2026 also qualify if paid during 2025. However, the late payment of any property tax bills or the payment of any interest, fees, or charges related to the property tax bill do not qualify for the credit.
+Taxpayers who file a joint Connecticut income tax return may include property tax bills for which each spouse is individually or jointly liable.
+You may take credit for a leased motor vehicle if you had a written lease agreement for a term of more than one year, and the property tax became due and was paid during 2025 (either by the leasing company or by you). Refer to your January 2026 billing statement from the leasing company to determine the amount of property taxes that may be eligible for the credit. Your statement will either indicate the amount of property taxes paid on your leased motor vehicle or provide you with a tollfree number you may call to obtain the necessary information. If you do not receive a billing
+Form CT-1040 Instructions (Rev. 12/25)
+
+statement in January 2026, contact your leasing company for the appropriate property tax information.
+Example 1: Lisa received a property tax bill for a motor vehicle listed on her town's October 1, 2023, grand list. The bill was payable in two installments, July 1, 2024, and January 1, 2025. If Lisa paid the January 1, 2025, installment on January 1, 2025, she is eligible to claim it on her 2025 income tax return. If she prepaid it during 2024, she is not eligible to take credit for it on her 2025 return, but she may have been eligible to take credit for it on her 2024 return.
+Example 2: Mary received a property tax bill for a motor vehicle listed on her town's October 1, 2024, grand list. The bill was payable in two installments, July 1, 2025, and January 1, 2026. Mary is eligible to take credit for both installments on her 2025 income tax return if she paid both installments during 2025. If Mary waited until January 1, 2026, to pay her second installment, she is not eligible to take credit on her 2025 return for this installment, but she may be eligible to take credit for it on her 2026 return.
+Maximum Credit Allowed
+The maximum credit allowed (on your primary residence, motor vehicle, or both) is $300 per return regardless of filing status.
+This maximum property tax credit cannot exceed the amount of qualifying property taxes paid or the amount of tax entered on Form CT1040, Line 10, and is phased out depending upon your Connecticut adjusted gross income. To be allowed this credit, you must complete Schedule 3 in its entirety and attach it to your return.
+Motor Vehicle Credit Restrictions The number of motor vehicles eligible for this credit depends on your filing status as shown on the front of your Connecticut income tax return. Any individual whose filing status is single, filing separately, or head of household is limited to the property tax paid on one motor vehicle even if the individual sells a motor vehicle and purchases a replacement motor vehicle during the taxable year and only owns one motor vehicle at anytime during the taxable year. Individuals whose filing status is filing jointly or qualifying surviving spouse are limited to the property taxes paid on two motor vehicles.
+You may also use the online Property Tax Credit Calculator by visiting myconneCT at portal.ct.gov/DRS-myconneCT. Below the Individuals panel on the myconneCT homepage, select View Tax Calculators, then select Property Tax Credit Calculator. If you choose to use the online calculator, you must complete Lines 60 through 63 of Schedule 3, Property Tax Credit found on Form CT1040, Page 4, or your credit will be denied.
+Schedule 3 - Line Instructions Name of Connecticut Tax Town or District Enter the Connecticut town or taxing district to which the qualifying property tax was paid.
+Description of Property Enter the description of the property. If a primary residence, enter the street address. If a motor vehicle, enter the year, make, and model.
+Page 14 of 28
+
+Date(s) Paid Enter the date(s) you paid qualifying property tax.
+Line 60: Primary Residence Enter the total amount of property tax paid on your primary residence.
+Line 61: Auto 1 Enter the total amount of property tax paid on your motor vehicle.
+Line 62: Filing Jointly or Qualifying Surviving Spouse Only - Auto 2 Enter the total amount of property tax paid on your second motor vehicle.
+
+Line 63 Add Lines 60, 61, and 62 and enter the total.
+Line 64 The maximum property tax credit allowed is $300. Line 65 Enter the lesser of Line 63 or Line 64.
+Line 66 Enter "0" on Line 66 and enter amount from Line 65 on Line 68 if your:
+Filing status is: Connecticut adjusted gross income is:
+
+Single
+Married filing jointly or qualifying surviving spouse
+Married filing separately
+Head of household
+
+$ 49,500 or less
+$ 70,500 or less $ 35,250 or less $ 54,500 or less
+
+Otherwise, go to the Property Tax Credit Table on Page 27 or visit portal.ct.gov/DRS to use the Property Tax Credit Calculator. Enter the decimal amount from the Property Tax Credit Table on Form CT1040, Line 66.
+Line 67 Multiply Line 65 by Line 66.
+Line 68 Subtract Line 67 from Line 65. Enter here and on the front of Form CT1040, Line 11.
+
+Schedule 4 - Individual Use Tax In general, goods or services purchased outofstate that would be subject to the Connecticut sales tax if those goods or services were purchased from a Connecticut seller are subject to the Connecticut use tax if the outofstate seller did not charge and collect sales tax on the sale. Generally, this includes purchases of goods by mail order, telephone, or online when the goods are shipped or delivered to Connecticut and when the purchaser brings goods back into Connecticut.
+Use tax is due when taxable purchases are made but Connecticut sales tax is not paid. Any individual or business purchasing taxable goods or services for use in Connecticut without paying Connecticut sales tax must pay use tax. The general use tax rate is 6.35%. However, the following items are subject to a 7.75% use tax rate:
+
+� Most motor vehicles exceeding $50,000;
+� Each piece of jewelry exceeding $5,000;
+� Each piece of clothing or pair of footwear exceeding $1,000; and
+� A handbag, luggage, umbrella, wallet, or watch exceeding $1,000.
+Computer and data processing services are subject to a 1% use tax rate.
+Vessels, motors for vessels, and trailers to transport vessels are subject to a 2.99% use tax rate.
+Use the Connecticut Individual Use Tax Worksheet, on Page 28, to calculate your use tax liability. Keep the worksheet for your records. You must provide the worksheet to DRS upon request. See Informational Publication 2020(10), Q&A on the Connecticut Individual Use Tax.
+Report only those purchases subject to use tax you have not previously reported on Form OP186, Connecticut Individual Use Tax Return.
+The Sample Use Tax Table on Page 28 illustrates the use tax due only for various levels of purchases subject to the 6.35% and 7.75% use tax rates.
+Line 69 Complete the Connecticut Individual Use Tax Worksheet on Page 28. Enter the totals from Column 7 of each section on Lines 69a, 69b, 69c and 69d. Add the amounts on Lines 69a, 69b, 69c and 69d, and enter the total on Line 69. Also enter on Form CT1040, Line 15.
+If no Connecticut use tax is due, you must enter "0" on Form CT1040, Line 15. If you do not make an entry on Line 15, you will not have filed a use tax return. Failure to file a use tax return and to remit use tax due will subject you to a 10% penalty of the total use tax due plus a 1% interest per month or a fraction of a month. You also may be subject to a penalty of up to $5,000, imprisonment for up to 5 years, or both, for willfully submitting a false return.
+Connecticut Individual Use Tax Worksheet Section Instructions Complete the following sections for purchases subject to each tax rate:
+� Section A for purchases of computer and data processing services subject to the 1% tax rate.
+� Section B for purchases subject to the 6.35% tax rate. � Section C for purchases subject to the 7.75% tax rate.
+� Section D for purchases subject to the 2.99% tax rate.
+Column Instructions Column 1 Enter the month and day of the purchase.
+Column 2 Enter a brief description of the taxable item or service purchased (jewelry, computer, etc.).
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 15 of 28
+
+Column 3 Enter the name of the retailer the item or service was purchased from.
+Column 4 Enter the purchase price. List separately any individual item with a purchase price of $300 or more. Although you do not need to list separately any individual item with a purchase price of less than $300, the items are subject to tax and the total of the purchase price of these items should be reported.
+Column 5 Multiply the purchase price in Column 4 by the applicable tax rate and enter the result.
+Column 6 If you paid sales tax to another state, the District of Columbia, or a U.S. territory, enter the amount paid.
+Column 7 Subtract the amount entered in Column 6 from the amount entered in Column 5 and enter the difference in Column 7.
+Add Column 7 amounts and enter total. Do not enter negative amounts. If zero or less, enter "0."
+Enter the total tax for each Section on Schedule 4, Lines 69a through 69d.
+Schedule CT-EITC - Connecticut Earned Income Tax Credit
+Who qualifies? To qualify for the Connecticut earned income tax credit (CT EITC) you must: 1. Have claimed and been allowed the 2025 federal earned
+income credit (EIC); and 2. Be a full-year resident of the State of Connecticut.
+Part-year residents and nonresidents do not qualify for the CT EITC and must file Form CT1040NR/PY.
+How to Claim the Connecticut Earned Income Tax Credit Complete Schedule CTEITC, Connecticut Earned Income Tax Credit, using the information from your federal return, worksheets, and, if applicable, federal EIC line instructions. Attach Schedule CTEITC to the back of Form CT1040.
+Protect Yourself DRS wants to make it easy for qualified residents to receive their CT EITC, but also reminds taxpayers to take steps to prevent identity theft. Taxpayers need to protect Social Security Numbers and other taxpayer identity information to prevent others from improperly claiming the credit.
+Do not let others prepare your Schedule CTEITC with false information to get more money back for themselves. Avoid predatory tax preparers who charge high fees or claim they can get you a larger tax refund for a percentage of the
+Form CT-1040 Instructions (Rev. 12/25)
+
+refund. These activities are crimes and should be reported to DRS, at 8558421441.
+Eligibility Reviews DRS reviews CT EITC requests to determine if taxpayers qualify for the credit. Approval of the federal earned income credit does not guarantee eligibility for the CT EITC. DRS may request additional information to determine if a credit claim is valid. You must keep accurate records to support all items reported on Schedule CTEITC.
+Schedule CT-EITC - Line instructions Line 1 You must have claimed the 2025 federal earned income credit to claim the CT EITC.
+Line 2 You cannot claim the CT EITC if your investment income is more than $11,950. Investment income is the total amount of: � Taxable interest (federal Form 1040, Line 2b, or federal
+Form 1040SR, Line 2b); � Tax-exempt interest (federal Form 1040, Line 2a, or
+federal Form 1040SR, Line 2a); � Ordinary dividends income (federal Form 1040, Line 3b,
+or federal Form 1040SR, Line 3b); and � Capital gain net income from federal Form 1040,
+Line 7a, or federal Form 1040SR, Line 7a (if more than zero).
+For additional information on what qualifies as investment income, see federal Publication 596, Earned Income Credit.
+Line 3 File Schedule CTEITC with Form CT1040. If Form CT1040 was already filed, you must file a 2025 Form CT1040X to claim the credit.
+Schedule CTEITC cannot be filed by itself. Schedule CTEITC must be attached to a completed Form CT1040 or Form CT1040X.
+Line 4 If claiming qualifying children on federal Schedule EIC, mark an X in the Yes box and then complete Line 5. Otherwise, mark an X in the No box and go to Line 6.
+Line 5 If claiming qualifying children on federal Schedule EIC, list the same children (up to three) in the spaces provided. If claiming more than three qualifying children on federal Schedule EIC, enter the required information for three qualifying children in the spaces provided on the schedule and attach a statement with the required identifying information for each additional child. Include taxpayer name and social security number (SSN) on the attachment.
+To be eligible to claim the CT EITC, you (and your spouse if filing a joint return) must have a valid SSN issued by the Social Security Administration (SSA) by the due date of your
+Page 16 of 28
+
+2025 return (including extensions). Any qualifying child listed on Schedule CTEITC must have a valid SSN by the due date of your 2025 return (including extensions).
+If an SSN for you or your spouse is missing from your return because either you or your spouse did not have a valid SSN by the due date or extended due date of your 2025 return, and you later get a valid SSN, you cannot file an amended return to claim the CT EITC.
+If a social security number has been applied for by filing federal Form SS5 with the Social Security Administration, but has not been received by the return due date you may file Form CT1040 EXT, to request an extension of time to file. Form CT1040 EXT does not extend the time to pay your income tax. You must pay the amount of tax that you expect to owe on or before the original due date of the return (see Form CT1040 EXT).
+Mark an X in the box confirming each child who was identified on federal Schedule EIC, box 4a, as a full-time student.
+Mark an X in the box confirming each child who was identified on federal Schedule EIC, box 4b as disabled.
+Line 6
+If you did not claim Connecticut withholding on Form CT1040, Line 18, and Wages, tips, and other compensation was reported on Forms W2 or 1099, mark an X in the Yes box and enter the following information (from up to three jobs) on Lines 6a, 6b, and 6c. Otherwise, mark an X in the No box and go to Line 7.
+Column A Enter the employer's federal identification number (EIN) from Form W2 or the payer's federal identification number from Form 1099.
+Column B Enter the employer's state identification number from Form W2 or Form 1099.
+Column C Enter your wages, tips, and other compensation from Form W2 or Form 1099.
+Line 7 You are self-employed if you:
+� Carry on a trade or business as a sole proprietor;
+� Are an independent contractor;
+� Are a member of a partnership;
+� Are a member of a limited liability company; or
+� Are in business for yourself in any other way.
+Self-employment can include work in addition to your regular, full-time job. This could include part-time work you do in or outside your home.
+
+If you were self-employed then you had business income or loss that you reported on your federal Form 1040, or federal Form 1040SR. If you claimed income or loss from one or more businesses, mark an X in the Yes box and enter the following information (for up to three primary business activities) on Lines 7a, 7b, and 7c. Otherwise, mark an X in the No box and go to Line 8.
+See Informational Publication 2015(20), Recordkeeping Suggestions for Self-Employed Persons, or visit the DRS CT EITC website at portal.ct.gov/DRS.
+Column A Enter your federal employer identification number (EIN) for your business. If any primary business activity does not have an EIN, enter your SSN.
+Column B Enter the Connecticut Tax Registration Number for your business.
+Column C Enter the amount of business income or loss. Use a minus sign to show a loss or a negative amount.
+Line 8 Enter the federal EIC claimed for tax year 2025 from federal Form 1040, Line 27a, or federal Form 1040SR, Line 27a.
+Line 9 For the tax year 2025, the CT EITC is 40% (.40) of the federal EIC.
+Line 11 If your filing status was married filing jointly on your federal income tax return but you are required to file as married filing separately on your Connecticut Form CT1040, mark an X in the Yes box and complete Lines 12 through 15. See Taxpayer Information on Page 1.
+Otherwise, mark an X in the No box and skip Lines 12 through 15.
+Line 15a This is the expansion of the Earned Income Tax Credit. If you list a qualifying child on Line 5, enter $250. Otherwise, enter $0 or leave blank.
+Line 16 This is your Connecticut Earned Income Tax Credit. Enter the amount from Line 10 and Line 15a or Line 15 and 15a. Enter the amount from Line 16 on Form CT-1040, Line 20a, or Form CT-1040X, Line 22a.
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 17 of 28
+
+Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+Connecticut Organ Donor (Y)
+Give the gift of hope by registering to become an organ and tissue donor. Information about organ donation and various organ donor programs is available from the following websites.
+
+Donate Life Connecticut www.ctorganandtissuedonation.org/
+
+United Network for Organ Sharing (UNOS) www.unos.org/
+
+Organ Donation www.organdonor.gov/
+
+New England Donor Services www.NEDS.org/
+
+National Marrow Donor Program Be The Match Registry www.bethematch.org/
+Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+
+Contributions to Designated Charities
+Below is a list of charities for which you may use your tax return to contribute all or a portion of your refund. Enter your total contributions on Form CT1040, Connecticut Resident Income Tax Return, Schedule 5, Line 70. Your contribution is irrevocable. To contribute directly, send your contribution to the address shown below.
+
+Designated Charity:
+
+Mailing Address:
+
+Make checks payable to:
+
+Aids Research Education Fund
+
+Assists research, education, and community service programs related to Acquired Immune Deficiency Syndrome (AIDS).
+
+Department of Public Health - HIV Prevention Program MS #11APV PO Box 340308 Hartford CT 06134-0308
+
+Treasurer, State of Connecticut/AIDS Fund
+
+Breast Cancer Research and Education Fund
+
+Assists research, education, and community service programs related to breast cancer.
+
+Department of Public Health - Community Health and Prevention Section MS #11 CCS PO Box 340308 Hartford CT 06134-0308
+
+Treasurer, State of Connecticut/Breast Cancer Fund
+
+Connecticut Baby Bond Trust
+
+Invests up to $3,200 on behalf of every child born into poverty in CT on or after July 1, 2023 to put toward wealth-building purposes between the ages of 18 to 30.
+
+Office of the State Treasurer CT Baby Bond Trust, 2nd Floor 165 Capitol Avenue Hartford, CT 06106
+
+Treasurer, State of Connecticut/CT Baby Bond Trust
+
+Endangered Species, Natural Area Preserves, and Watchable Wildlife Fund Military Relief Fund
+Organ Transplant Fund
+
+Helps preserve, protect, and manage Connecticut's endangered plants and animals, wildlife and their habitats.
+Makes grants to the immediate family members of service members domiciled in Connecticut for essential goods and services when military service creates family financial hardship.
+Assists Connecticut residents in paying for the unmet medical and ancillary needs of organ transplant candidates and recipients.
+
+Department of Energy & Environmental Protection Bureau of Administration Financial Management 79 Elm Street Hartford CT 06106-1591
+Military Department, Military Relief Fund Fiscal Office 360 Broad St Hartford CT 06105-3795
+Department of Social Services Accounts Receivable 55 Farmington Ave Hartford CT 06105
+
+DEEP-Endangered Species/ Wildlife Fund
+Treasurer, State of Connecticut/Military Relief Fund
+Commissioner of Social Services/Organ Transplant Fund
+
+Safety Net Services Fund
+
+Protects the children of families who are no longer eligible for public assistance benefits.
+
+Department of Social Services Accounts Receivable 55 Farmington Ave Hartford CT 06105
+
+Commissioner of Social Services/Safety Net Fund
+
+Mental Health Community Investment Account
+
+Funds mental health prevention, treatment and recovery services delivered by private not for profit agencies in local communities.
+
+Department of Mental Health and Addiction Services, Fiscal Division MS#14FIS PO Box 341431 Hartford, CT 06134
+
+Treasurer, State of Connecticut/Mental Health Community Investment Account
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 18 of 28
+
+Tax Calculation Schedule
+
+TIP!
+
+Calculate your tax liability instantly by visiting myconneCT at portal.ct.gov/DRS-myconneCT. Below the Individuals panel on the myconneCT homepage, select View Tax Calculators,
+then select Income Tax Calculator.
+
+1. Enter Connecticut adjusted gross income (AGI) from Form CT-1040, Line 5.
+
+1.
+
+00
+
+2. Enter the exemption amount from Table A, Personal Exemptions. If zero, enter "0."
+
+2.
+
+00
+
+3. Connecticut Taxable Income: Subtract Line 2 from Line 1. If less than zero, enter "0."
+
+3.
+
+00
+
+4. Enter amount from Table B, Initial Tax Calculation.
+
+4.
+
+00
+
+5. Enter amount from Table C, 2% Tax Rate Phase-Out Add-Back. If zero, enter "0."
+
+5.
+
+00
+
+6. Enter amount from Table D, Tax Recapture. If zero, enter "0."
+
+6.
+
+00
+
+7. Add Lines 4, 5, and 6.
+
+7.
+
+00
+
+8. Enter the decimal amount from Table E, Personal Tax Credits. If zero, enter "0." 9. Multiply amount on Line 7 by the decimal amount on Line 8.
+
+8.
+
+.
+
+9.
+
+00
+
+10. Connecticut Income Tax: Subtract Line 9 from Line 7. Enter here and on Form CT-1040, Line 6.
+
+10.
+
+00
+
+Table A - Personal Exemptions
+Enter the exemption amount on the Tax Calculation Schedule, Line 2 and continue to Line 3.
+Use the filing status shown on the front of your return and your Connecticut AGI (Tax Calculation Schedule, Line 1) to determine your personal exemption.
+
+Single
+
+Connecticut AGI
+
+More Than
+
+Less Than or
+Equal To
+
+$
+
+0
+
+$30,000
+
+$31,000
+
+$32,000
+
+$33,000
+
+$34,000
+
+$35,000
+
+$36,000
+
+$37,000
+
+$38,000
+
+$39,000
+
+$40,000
+
+$41,000
+
+$42,000
+
+$43,000
+
+$44,000
+
+$30,000 $31,000 $32,000 $33,000 $34,000 $35,000 $36,000 $37,000 $38,000 $39,000 $40,000 $41,000 $42,000 $43,000 $44,000 and up
+
+Exemption
+
+$15,000
+
+$14,000
+
+$13,000
+
+$12,000
+
+$11,000
+
+$10,000
+
+$ 9,000
+
+$ 8,000
+
+$ 7,000
+
+$ 6,000
+
+$ 5,000
+
+$ 4,000
+
+$ 3,000
+
+$ 2,000
+
+$ 1,000
+
+$
+
+0
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Married Filing Jointly or Qualified Surviving Spouse
+
+Connecticut AGI
+
+More Than
+
+Less Than or
+Equal To
+
+Exemption
+
+$
+
+0
+
+$48,000
+
+$49,000
+
+$50,000
+
+$51,000
+
+$52,000
+
+$53,000
+
+$54,000
+
+$55,000
+
+$56,000
+
+$57,000
+
+$58,000
+
+$59,000
+
+$60,000
+
+$61,000
+
+$62,000
+
+$63,000
+
+$64,000
+
+$65,000
+
+$66,000
+
+$67,000
+
+$68,000
+
+$69,000
+
+$70,000
+
+$71,000
+
+$48,000 $49,000 $50,000 $51,000 $52,000 $53,000 $54,000 $55,000 $56,000 $57,000 $58,000 $59,000 $60,000 $61,000 $62,000 $63,000 $64,000 $65,000 $66,000 $67,000 $68,000 $69,000 $70,000 $71,000 and up
+
+$24,000
+
+$23,000
+
+$22,000
+
+$21,000
+
+$20,000
+
+$19,000
+
+$18,000
+
+$17,000
+
+$16,000
+
+$15,000
+
+$14,000
+
+$13,000
+
+$12,000
+
+$11,000
+
+$10,000
+
+$ 9,000
+
+$ 8,000
+
+$ 7,000
+
+$ 6,000
+
+$ 5,000
+
+$ 4,000
+
+$ 3,000
+
+$ 2,000
+
+$ 1,000
+
+$
+
+0
+
+Married Filing Separately
+
+Connecticut AGI
+
+More Than
+
+Less Than or
+Equal To
+
+$
+
+0
+
+$24,000
+
+$25,000
+
+$26,000
+
+$27,000
+
+$28,000
+
+$29,000
+
+$30,000
+
+$31,000
+
+$32,000
+
+$33,000
+
+$34,000
+
+$35,000
+
+$24,000 $25,000 $26,000 $27,000 $28,000 $29,000 $30,000 $31,000 $32,000 $33,000 $34,000 $35,000 and up
+
+Exemption
+
+$12,000
+
+$11,000
+
+$10,000
+
+$ 9,000
+
+$ 8,000
+
+$ 7,000
+
+$ 6,000
+
+$ 5,000
+
+$ 4,000
+
+$ 3,000
+
+$ 2,000
+
+$ 1,000
+
+$
+
+0
+
+Head of Household
+
+Connecticut AGI
+
+More Than
+
+Less Than or
+Equal To
+
+$
+
+0
+
+$38,000
+
+$39,000
+
+$40,000
+
+$41,000
+
+$42,000
+
+$43,000
+
+$44,000
+
+$45,000
+
+$46,000
+
+$47,000
+
+$48,000
+
+$49,000
+
+$50,000
+
+$51,000
+
+$52,000
+
+$53,000
+
+$54,000
+
+$55,000
+
+$56,000
+
+$38,000 $39,000 $40,000 $41,000 $42,000 $43,000 $44,000 $45,000 $46,000 $47,000 $48,000 $49,000 $50,000 $51,000 $52,000 $53,000 $54,000 $55,000 $56,000 and up
+
+Exemption
+
+$19,000
+
+$18,000
+
+$17,000
+
+$16,000
+
+$15,000
+
+$14,000
+
+$13,000
+
+$12,000
+
+$11,000
+
+$10,000
+
+$ 9,000
+
+$ 8,000
+
+$ 7,000
+
+$ 6,000
+
+$ 5,000
+
+$ 4,000
+
+$ 3,000
+
+$ 2,000
+
+$ 1,000
+
+$
+
+0
+
+Page 19 of 28
+
+Table B - Initial Tax Calculation
+Enter the initial tax calculation amount on the Tax
+
+TIP!
+
+Calculation Schedule, Line 4 and continue to Line 5.
+
+Complete all lines of the Tax Calculation Schedule on Page 19 to correctly calculate your 2025 Connecticut income tax.
+
+Use the filing status shown on the front of your return.
+
+Calculate your tax liability instantly by visiting myconneCT at portal.ct.gov/DRS-myconneCT. Below the Individuals panel on the myconneCT homepage, select View Tax Calculators,
+then select Income Tax Calculator.
+
+Single or Married Filing Separately
+If the amount on Line 3 of the Tax Calculation Schedule is: Less than or equal to:...................................................... $ 10,000................ 2.00% More than $10,000, but less than or equal to.................. $ 50,000................ $200 plus 4.5% of the excess over $10,000 More than $50,000, but less than or equal to.................. $100,000............... $2,000 plus 5.5% of the excess over $50,000 More than $100,000, but less than or equal to................ $200,000............... $4,750 plus 6.0% of the excess over $100,000 More than $200,000, but less than or equal to................ $250,000............... $10,750 plus 6.5% of the excess over $200,000 More than $250,000, but less than or equal to................ $500,000............... $14,000 plus 6.9% of the excess over $250,000 More than $500,000......................................................................................$31,250 plus 6.99% of the excess over $500,000
+t Enter result on Tax Calculation Schedule, Line 4 (on Page 19) and continue to Line 5. u
+
+Single or Married Filing Separately Examples:
+
+Line 3 is $13,000, Line 4 is $335
+
+Line 3 is $525,000, Line 4 is $32,998
+
+$13,000 - $10,000 $3,000 X .045 $200 + $135
+
+= $3,000
+
+=
+
+$135
+
+=
+
+$335
+
+$525,000 - $500,000 $25,000 x .0699 $31,250 + $1,748
+
+= $25,000 = $1,748 = $32,998
+
+Married Filing Jointly/Qualifying Surviving Spouse
+If the amount on Line 3 of the Tax Calculation Schedule is:
+Less than or equal to:...................................................... $ 20,000................ 2.00% More than $20,000, but less than or equal to.................. $100,000............... $400 plus 4.5% of the excess over $20,000 More than $100,000, but less than or equal to................ $200,000............... $4,000 plus 5.5% of the excess over $100,000 More than $200,000, but less than or equal to................ $400,000............... $9,500 plus 6.0% of the excess over $200,000 More than $400,000, but less than or equal to................ $500,000............... $21,500 plus 6.5% of the excess over $400,000 More than $500,000, but less than or equal to................ $1,000,000............ $28,000 plus 6.9% of the excess over $500,000 More than $1,000,000...................................................................................$62,500 plus 6.99% of the excess over $1,000,000
+t Enter result on Tax Calculation Schedule, Line 4 (on Page 19) and continue to Line 5. u
+
+Married Filing Jointly/Qualifying Surviving Spouse Examples:
+
+Line 3 is $22,500, Line 4 is $513
+
+Line 3 is $1,100,000, Line 4 is $69,490
+
+$22,500 - $20,000 $2,500 x .045 $400 + $113
+
+= $2,500
+
+=
+
+$113
+
+=
+
+$513
+
+$1,100,000 - $1,000,000 $100,000 x .0699 $62,500 + $6,990
+
+= $100,000 = $6,990 = $69,490
+
+Head of Household
+If the amount on Line 3 of the Tax Calculation Schedule is:
+Less than or equal to:...................................................... $ 16,000................ 2.00% More than $16,000, but less than or equal to.................. $ 80,000................ $320 plus 4.5% of the excess over $16,000 More than $80,000, but less than or equal to.................. $160,000............... $3,200 plus 5.5% of the excess over $80,000 More than $160,000, but less than or equal to................ $320,000............... $7,600 plus 6.0% of the excess over $160,000 More than $320,000, but less than or equal to................ $400,000............... $17,200 plus 6.5% of the excess over $320,000 More than $400,000, but less than or equal to................ $800,000............... $22,400 plus 6.9% of the excess over $400,000 More than $800,000......................................................................................$50,000 plus 6.99% of the excess over $800,000
+t Enter result on Tax Calculation Schedule, Line 4 (on Page 19) and continue to Line 5. u
+
+Line 3 is $20,000, Line 4 is $500
+
+$20,000 - $16,000
+
+=
+
+$4,000 x .045
+
+=
+
+$320 + $180
+
+=
+
+Head of Household Examples: Line 3 is $825,000, Line 4 is $51,748
+
+$4,000 $180 $500
+
+$825,000 - $800,000 $25,000 x .0699 $50,000 + $1,748
+
+= $25,000 = $1,748 = $51,748
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 20 of 28
+
+TIP!
+
+Calculate your tax liability instantly by visiting myconneCT at portal.ct.gov/DRS-myconneCT. Below the Individuals panel on the myconneCT homepage, select View Tax Calculators,
+then select Income Tax Calculator.
+
+Table C - 2% Phase-Out Add-Back Enter the phase-out amount on the Tax Calculation Schedule, Line 5 and continue to Line 6.
+Use the filing status shown on the front of your return and your Connecticut AGI * (Tax Calculation Schedule, Line 1) to determine your phase-out level and the additional amount of tax you are required to include in your tax calculation.
+
+Single
+Connecticut AGI * More Than Less Than
+or Equal To
+
+2%
+Phase-Out Add-Back
+
+Married Filing Jointly or Qualifying Surviving Spouse
+
+Connecticut AGI *
+
+2%
+
+More Than Less Than Phase-Out or Equal To Add-Back
+
+Married Filing Separately
+
+Connecticut AGI *
+More Than Less Than or Equal To
+
+2%
+Phase-Out Add-Back
+
+Head of Household
+
+Connecticut AGI *
+More Than Less Than or Equal To
+
+2%
+Phase-Out Add-Back
+
+$
+
+0
+
+$ 56,500
+
+$ 61,500
+
+$ 66,500
+
+$ 71,500
+
+$ 56,500 $ 61,500 $ 66,500 $ 71,500 $ 76,500
+
+$ 0 $ 25 $ 50 $ 75 $100
+
+$
+
+0
+
+$100,500
+
+$105,500
+
+$110,500
+
+$115,500
+
+$100,500 $105,500 $110,500 $115,500 $120,500
+
+$ 0 $ 50 $100 $150 $200
+
+$
+
+0
+
+$50,250
+
+$52,750
+
+$55,250
+
+$57,750
+
+$50,250 $52,750 $55,250 $57,750 $60,250
+
+$ 0 $ 25 $ 50 $ 75 $100
+
+$
+
+0
+
+$ 78,500
+
+$ 82,500
+
+$ 86,500
+
+$ 90,500
+
+$ 78,500 $ 82,500 $ 86,500 $ 90,500 $ 94,500
+
+$ 0 $ 40 $ 80 $120 $160
+
+$ 76,500 $ 81,500 $ 86,500 $ 91,500 $ 96,500 $101,500
+
+$ 81,500 $ 86,500 $ 91,500 $ 96,500 $101,500
+and up
+
+$125 $150 $175 $200 $225 $250
+
+$120,500 $125,500 $130,500 $135,500 $140,500 $145,500
+
+$125,500 $130,500 $135,500 $140,500 $145,500
+and up
+
+$250 $300 $350 $400 $450 $500
+
+$60,250 $62,750 $65,250 $67,750 $70,250 $72,750
+
+$62,750 $65,250 $67,750 $70,250 $72,750
+and up
+
+$125 $150 $175 $200 $225 $250
+
+$ 94,500 $ 98,500 $102,500 $106,500 $110,500 $114,500
+
+$ 98,500 $102,500 $106,500 $110,500 $114,500
+and up
+
+$200 $240 $280 $320 $360 $400
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 21 of 28
+
+Table D - Tax Recapture
+
+TIP!
+
+Calculate your tax liability instantly by visiting myconneCT at portal.ct.gov/DRS-myconneCT. Below the Individuals panel on the myconneCT homepage, select View Tax Calculators,
+then select Income Tax Calculator.
+
+Enter the recapture amount on the Tax Calculation Schedule, Line 6 and continue to Line 7.
+
+Use the filing status shown on the front of your return Connecticut income tax return and your Connecticut AGI * (Tax Calculation
+
+Schedule, Line 1) to determine your recapture amount.
+
+Single or Married Filing Separately
+
+Connecticut AGI
+
+More Than
+
+Less Than or
+Equal To
+
+Recapture Amount
+
+Married Filing Jointly or Qualifying Surviving Spouse
+
+Connecticut AGI *
+
+More Than
+
+Less Than or
+Equal To
+
+Recapture Amount
+
+Head of Household
+
+Connecticut AGI *
+
+More Than
+
+Less Than or
+Equal To
+
+Recapture Amount
+
+$ 0 $105,000 $110,000 $115,000 $120,000 $125,000 $130,000 $135,000 $140,000 $145,000 $150,000 $200,000 $205,000 $210,000 $215,000 $220,000 $225,000 $230,000 $235,000 $240,000 $245,000 $250,000 $255,000 $260,000 $265,000 $270,000 $275,000 $280,000 $285,000 $290,000 $295,000 $300,000 $305,000 $310,000 $315,000 $320,000 $325,000 $330,000 $335,000 $340,000 $345,000 $500,000 $505,000 $510,000 $515,000 $520,000 $525,000 $530,000 $535,000 $540,000
+
+$105,000 $110,000 $115,000 $120,000 $125,000 $130,000 $135,000 $140,000 $145,000 $150,000 $200,000 $205,000 $210,000 $215,000 $220,000 $225,000 $230,000 $235,000 $240,000 $245,000 $250,000 $255,000 $260,000 $265,000 $270,000 $275,000 $280,000 $285,000 $290,000 $295,000 $300,000 $305,000 $310,000 $315,000 $320,000 $325,000 $330,000 $335,000 $340,000 $345,000 $500,000 $505,000 $510,000 $515,000 $520,000 $525,000 $530,000 $535,000 $540,000
+and up
+
+$ 0 $ 25 $ 50 $ 75 $ 100 $ 125 $ 150 $ 175 $ 200 $ 225 $ 250 $ 340 $ 430 $ 520 $ 610 $ 700 $ 790 $ 880 $ 970 $1,060 $1,150 $1,240 $1,330 $1,420 $1,510 $1,600 $1,690 $1,780 $1,870 $1,960 $2,050 $2,140 $2,230 $2,320 $2,410 $2,500 $2,590 $2,680 $2,770 $2,860 $2,950 $3,000 $3,050 $3,100 $3,150 $3,200 $3,250 $3,300 $3,350 $3,400
+
+$ 0 $210,000 $220,000 $230,000 $240,000 $250,000 $260,000 $270,000 $280,000 $290,000 $300,000 $400,000 $410,000 $420,000 $430,000 $440,000 $450,000 $460,000 $470,000 $480,000 $490,000 $500,000 $510,000 $520,000 $530,000 $540,000 $550,000 $560,000 $570,000 $580,000 $590,000 $600,000 $610,000 $620,000 $630,000 $640,000 $650,000 $660,000 $670,000 $680,000 $690,000 $1,000,000 $1,010,000 $1,020,000 $1,030,000 $1,040,000 $1,050,000 $1,060,000 $1,070,000 $1,080,000
+
+$210,000 $220,000 $230,000 $240,000 $250,000 $260,000 $270,000 $280,000 $290,000 $300,000 $400,000 $410,000 $420,000 $430,000 $440,000 $450,000 $460,000 $470,000 $480,000 $490,000 $500,000 $510,000 $520,000 $530,000 $540,000 $550,000 $560,000 $570,000 $580,000 $590,000 $600,000 $610,000 $620,000 $630,000 $640,000 $650,000 $660,000 $670,000 $680,000 $690,000 $1,000,000 $1,010,000 $1,020,000 $1,030,000 $1,040,000 $1,050,000 $1,060,000 $1,070,000 $1,080,000
+and up
+
+$ 0 $ 50 $ 100 $ 150 $ 200 $ 250 $ 300 $ 350 $ 400 $ 450 $ 500 $ 680 $ 860 $1,040 $1,220 $1,400 $1,580 $1,760 $1,940 $2,120 $2,300 $2,480 $2,660 $2,840 $3,020 $3,200 $3,380 $3,560 $3,740 $3,920 $4,100 $4,280 $4,460 $4,640 $4,820 $5,000 $5,180 $5,360 $5,540 $5,720 $5,900 $6,000 $6,100 $6,200 $6,300 $6,400 $6,500 $6,600 $6,700 $6,800
+
+$ 0 $168,000 $176,000 $184,000 $192,000 $200,000 $208,000 $216,000 $224,000 $232,000 $240,000 $320,000 $328,000 $336,000 $344,000 $352,000 $360,000 $368,000 $376,000 $384,000 $392,000 $400,000 $408,000 $416,000 $424,000 $432,000 $440,000 $448,000 $456,000 $464,000 $472,000 $480,000 $488,000 $496,000 $504,000 $512,000 $520,000 $528,000 $536,000 $544,000 $552,000 $800,000 $808,000 $816,000 $824,000 $832,000 $840,000 $848,000 $856,000 $864,000
+
+$168,000 $176,000 $184,000 $192,000 $200,000 $208,000 $216,000 $224,000 $232,000 $240,000 $320,000 $328,000 $336,000 $344,000 $352,000 $360,000 $368,000 $376,000 $384,000 $392,000 $400,000 $408,000 $416,000 $424,000 $432,000 $440,000 $448,000 $456,000 $464,000 $472,000 $480,000 $488,000 $496,000 $504,000 $512,000 $520,000 $528,000 $536,000 $544,000 $552,000 $800,000 $808,000 $816,000 $824,000 $832,000 $840,000 $848,000 $856,000 $864,000
+and up
+
+$ 0 $ 40 $ 80 $ 120 $ 160 $ 200 $ 240 $ 280 $ 320 $ 360 $ 400 $ 540 $ 680 $ 820 $ 960 $1,100 $1,240 $1,380 $1,520 $1,660 $1,800 $1,940 $2,080 $2,220 $2,360 $2,500 $2,640 $2,780 $2,920 $3,060 $3,200 $3,340 $3,480 $3,620 $3,760 $3,900 $4,040 $4,180 $4,320 $4,460 $4,600 $4,680 $4,760 $4,840 $4,920 $5,000 $5,080 $5,160 $5,240 $5,320
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 22 of 28
+
+TIP!
+
+Calculate your tax liability instantly by visiting myconneCT at portal.ct.gov/DRS-myconneCT. Below the Individuals panel on the myconneCT homepage, select View Tax Calculators,
+then select Income Tax Calculator.
+
+Table E - Personal Tax Credits
+Enter the decimal amount on the Tax Calculation Schedule, Line 8 and continue to Line 9.
+Use the filing status shown on the front of your return and your Connecticut AGI (Tax Calculation Schedule, Line 1) to determine your personal credit decimal amount.
+
+Single
+
+Connecticut AGI
+
+More Than
+
+Less Than or
+Equal To
+
+$15,000 $18,800 $19,300 $19,800
+
+$18,800 $19,300 $19,800 $20,300
+
+$20,300 $20,800 $21,300 $21,800
+
+$20,800 $21,300 $21,800 $22,300
+
+$22,300 $25,000 $25,500 $26,000
+
+$25,000 $25,500 $26,000 $26,500
+
+$26,500 $31,300 $31,800 $32,300
+
+$31,300 $31,800 $32,300 $32,800
+
+$32,800 $33,300 $60,000 $60,500
+
+$33,300 $60,000 $60,500 $61,000
+
+$61,000 $61,500 $62,000 $62,500
+
+$61,500 $62,000 $62,500 $63,000
+
+$63,000 $63,500 $64,000 $64,500
+
+$63,500 $64,000 $64,500 and up
+
+Decimal Amount
+.75 .70 .65 .60 .55 .50 .45 .40 .35 .30 .25 .20 .15 .14 .13 .12 .11 .10 .09 .08 .07 .06 .05 .04 .03 .02 .01 .00
+
+Married Filing Jointly or Qualifying Surviving Spouse
+
+Connecticut AGI
+
+More Than Less Than or
+Equal To
+
+$24,000 $30,000 $30,500 $31,000
+
+$30,000 $30,500 $31,000 $31,500
+
+$31,500 $32,000 $32,500 $33,000
+
+$32,000 $32,500 $33,000 $33,500
+
+$33,500 $40,000 $40,500 $41,000
+
+$40,000 $40,500 $41,000 $41,500
+
+$41,500 $50,000 $50,500 $51,000
+
+$50,000 $50,500 $51,000 $51,500
+
+$51,500 $52,000 $96,000 $96,500
+
+$52,000 $96,000 $96,500 $97,000
+
+$97,000 $97,500 $98,000 $98,500
+
+$97,500 $98,000 $98,500 $99,000
+
+$99,000 $99,500 $100,000 $100,500
+
+$99,500 $100,000 $100,500
+and up
+
+Decimal Amount
+.75 .70 .65 .60 .55 .50 .45 .40 .35 .30 .25 .20 .15 .14 .13 .12 .11 .10 .09 .08 .07 .06 .05 .04 .03 .02 .01 .00
+
+Married Filing Separately
+
+Connecticut AGI
+
+More Than Less Than or
+Equal To
+
+$12,000 $15,000 $15,500 $16,000
+
+$15,000 $15,500 $16,000 $16,500
+
+$16,500 $17,000 $17,500 $18,000
+
+$17,000 $17,500 $18,000 $18,500
+
+$18,500 $20,000 $20,500 $21,000
+
+$20,000 $20,500 $21,000 $21,500
+
+$21,500 $25,000 $25,500 $26,000
+
+$25,000 $25,500 $26,000 $26,500
+
+$26,500 $27,000 $48,000 $48,500
+
+$27,000 $48,000 $48,500 $49,000
+
+$49,000 $49,500 $50,000 $50,500
+
+$49,500 $50,000 $50,500 $51,000
+
+$51,000 $51,500 $52,000 $52,500
+
+$51,500 $52,000 $52,500 and up
+
+Decimal Amount
+.75 .70 .65 .60 .55 .50 .45 .40 .35 .30 .25 .20 .15 .14 .13 .12 .11 .10 .09 .08 .07 .06 .05 .04 .03 .02 .01 .00
+
+Head of Household
+
+Connecticut AGI
+
+More Than Less Than or
+Equal To
+
+$19,000 $24,000 $24,500 $25,000
+
+$24,000 $24,500 $25,000 $25,500
+
+$25,500 $26,000 $26,500 $27,000
+
+$26,000 $26,500 $27,000 $27,500
+
+$27,500 $34,000 $34,500 $35,000
+
+$34,000 $34,500 $35,000 $35,500
+
+$35,500 $44,000 $44,500 $45,000
+
+$44,000 $44,500 $45,000 $45,500
+
+$45,500 $46,000 $74,000 $74,500
+
+$46,000 $74,000 $74,500 $75,000
+
+$75,000 $75,500 $76,000 $76,500
+
+$75,500 $76,000 $76,500 $77,000
+
+$77,000 $77,500 $78,000 $78,500
+
+$77,500 $78,000 $78,500 and up
+
+Decimal Amount
+.75 .70 .65 .60 .55 .50 .45 .40 .35 .30 .25 .20 .15 .14 .13 .12 .11 .10 .09 .08 .07 .06 .05 .04 .03 .02 .01 .00
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 23 of 28
+
+Social Security Benefit Adjustment Worksheet - Line 41
+Enter the amount from Form CT-1040, Line 1......................................................................................
+
+If your filing status is single or married filing separately, is the amount on Line 1 $75,000 or more?
+ Yes: Complete this worksheet.
+ No: Do not complete this worksheet. Enter on Form CT-1040, Line 41, the amount of federally taxable Social Security benefits you
+reported on federal Form 1040, Line 6b, or federal Form 1040SR, Line 6b.
+
+If your filing status is married filing jointly, qualifying surviving spouse, or head of household, is the amount on Line 1 $100,000 or more?
+ Yes: Complete this worksheet.
+ No: Do not complete this worksheet. Enter on Form CT-1040, Line 41, the amount of federally taxable Social Security benefits you
+reported on federal Form 1040, Line 6b, or federal Form 1040SR, Line 6b.
+
+A. Enter the amount reported on your 2025 federal Social Security Benefits Worksheet, Line 1.
+
+A.
+
+If Line A is zero or less, stop here and enter "0" on Line 41. Otherwise, go to Line B.
+
+B. Enter the amount reported on your 2025 federal Social Security Benefits Worksheet, Line 9.
+
+However, if filing separately and you lived with your spouse at any time during 2025,
+
+enter the amount reported on Line 7 of your federal Social Security Benefits Worksheet.
+
+B.
+
+If Line B is zero or less, stop here. Otherwise, go to Line C.
+
+C. Enter the lesser of Line A or Line B.
+
+C.
+
+D. Multiply Line C by 25% (.25).
+
+D.
+
+E. Taxable amount of Social Security benefits reported on your 2025 federal Social Security
+
+Benefits Worksheet, Line 18.
+
+E.
+
+F. Social Security Benefit Adjustment - Subtract Line D from Line E. Enter the amount here
+
+and on Form CT-1040, Line 41. If Line D is greater than or equal to Line E, enter "0."
+
+F.
+
+Pension and Annuity Worksheet
+
+Line 1: Enter your federal adjusted gross income the amount reported on Line 1 of Form CT-1040. .....................................................................
+
+.............................................................................................................................................................. Line 1.
+
+.00
+
+If your filing status is single, married filing separately or head of household, is the amount on Line 1 $75,000 or more?
+Yes: Complete this worksheet.
+No: Do not complete this worksheet. *
+If your filing status is married filing jointly, is the amount on Line 1 $100,000 or more?
+Yes: Complete this worksheet.
+No: Do not complete this worksheet. *
+* If you answered No to either question and you are an IRA recipient (other than a Roth IRA), enter as a subtraction modification 75% of the amount of such distribution, reported on federal Form 1040, or federal Form 1040 SR, Line 4b. * If you answered No to either question and you are a pension or annuity recipient (other than an IRA recipient), enter as a subtraction modification the amount of pension and annuity reported on federal Form 1040 or federal Form 1040 SR, Line 5b. From the amount on Line 5b, subtract military retirement pay, Tier 1 and Tier 2 railroad retirement benefits, and Connecticut teachers' retirement pay.
+
+Line 2: Enter 75% of the amount of IRA (other than a Roth IRA), reported on federal Form 1040 or
+
+federal Form 1040 SR, Line 4b. Enter 100% of the amount of pensions and annuities reported on
+
+federal Form 1040 or federal Form 1040-SR, Line 5b. From the amount on Line 5b, subtract military
+
+retirement pay, Tier 1 and Tier 2 railroad retirement benefits, and Connecticut teachers' retirement
+
+pay, as applicable. ................................................................................................................................ Line 2.
+
+.00
+
+Line 3: Enter the decimal amount from the Pension and Annuity Phase-Out Table below. .............. Line 3.
+
+.
+
+Line 4: Multiply Line 2 by Line 3. Enter the amount here and as a subtraction on
+
+Form CT-1040, Schedule 1, Line 48b. .......................................................................................... Line 4.
+
+.00
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 24 of 28
+
+Pension and Annuity Phase-Out Table
+
+Single, Married Filing Separately or Head of Household
+
+Federal AGI
+
+Greater Than or Equal To
+
+Less Than or Equal To
+
+PhaseOut
+
+$0
+
+$74,999
+
+1
+
+$75,000
+
+$77,499
+
+.85
+
+$77,500
+
+$79,999
+
+.70
+
+$80,000
+
+$82,499
+
+.55
+
+$82,500
+
+$84,999
+
+.40
+
+$85,000
+
+$87,499
+
+.25
+
+$87,500
+
+$89,999
+
+.10
+
+$90,000
+
+$94,999
+
+.05
+
+$95,000
+
+$99,999
+
+.025
+
+$100,000
+
+and up
+
+0
+
+Married Filing Jointly
+
+Federal AGI
+
+Greater Than or Equal To
+
+Less Than or Equal To
+
+$0 $100,000 $105,000 $110,000 $115,000 $120,000 $125,000 $130,000 $140,000 $150,000
+
+$99,999 $104,999 $109,999 $114,999 $119,999 $124,999 $129,999 $139,999 $149,999
+and up
+
+PhaseOut
+1 .85 .70 .55 .40 .25 .10 .05 .025 0
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 25 of 28
+
+Schedule 2 - Worksheet
+
+Complete this worksheet and enter the amount from Line 20, Column 2, on Form CT1040, Schedule 2, Line 53. Complete a separate worksheet for each qualifying jurisdiction if you paid income tax to more than one qualifying jurisdiction.
+
+1. Wages, salaries, tips, etc.
+
+1.
+
+2. Taxable interest
+
+2.
+
+3. Ordinary dividends
+
+3.
+
+4. Taxable refunds, credits, or offsets of state and local income taxes
+
+4.
+
+5. Alimony received
+
+5.
+
+6. Business income or (loss)
+
+6.
+
+7. Capital gain or (loss)
+
+7.
+
+8. Other gains or (losses)
+
+8.
+
+9. Taxable amount of IRA distributions
+
+9.
+
+10. Taxable amounts of pensions and annuities
+
+10.
+
+11. Rental real estate, royalties, partnerships, S corporations, trusts, etc. 11.
+
+12. Farm income or (loss)
+
+12.
+
+13. Unemployment compensation
+
+13.
+
+14. Taxable amount of social security benefits
+
+14.
+
+15. Other income (including lump-sum distributions)
+
+15.
+
+16. Add Lines 1 through 15.
+
+16.
+
+17. Total federal adjustments to income
+
+17.
+
+18. Federal adjusted gross income: Subtract Line 17 from Line 16.
+
+18.
+
+19. Connecticut modifications: See instructions.
+
+19.
+
+20. Connecticut adjusted gross income: Add Line 18 and Line 19. Enter the amount from Column 2 on Form CT1040, Schedule 2, Line 53. 20.
+
+Column 1
+
+Column 2 Amount Taxable in Qualifying
+Jurisdiction
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 26 of 28
+
+Property Tax Credit Table
+Enter the amount from Form CT-1040, Schedule 3 - Property Tax Credit, Line 65, on Line 68 and Line 11, if your filing status is: Single and your Connecticut AGI is....................................................................................................$49,500 or less Married filing jointly or qualifying surviving spouse and your Connecticut AGI is......................$70,500 or less Married filing separately and your Connecticut AGI is....................................................................$35,250 or less Head of household and your Connecticut AGI is...............................................................................$54,500 or less
+Otherwise, enter the decimal amount from the Property Tax Credit Table below on Form CT-1040, Schedule 3, Line 66.
+Use your filing status on the front of your tax return and your Connecticut AGI - Form CT-1040, Line 5.
+
+Single If you are single and your Connecticut AGI is:
+
+More Than
+$ 0 $49,500 $59,500 $69,500 $79,500 $89,500 $99,500 $109,500
+
+Less Than or Equal To
+$49,500 $59,500 $69,500 $79,500 $89,500 $99,500 $109,500 and up
+
+Decimal Amount
+0 .15 .30 .45 .60 .75 .90 1.00
+
+Married Filing Jointly or Qualifying Surviving Spouse
+If you are married filing jointly, or qualifying surviving spouse and your Connecticut AGI is:
+
+More Than
+$ 0 $70,500 $80,500 $90,500 $100,500 $110,500 $120,500 $130,500
+
+Less Than or Equal To
+$70,500 $80,500 $90,500 $100,500 $110,500 $120,500 $130,500 and up
+
+Decimal Amount
+0 .15 .30 .45 .60 .75 .90 1.00
+
+Married Filing Separately
+
+If you are married filing separately and your Connecticut
+
+AGI is:
+
+More
+
+Less Than
+
+Decimal
+
+Than
+
+or Equal To
+
+Amount
+
+$ 0
+
+$35,250
+
+0
+
+$35,250
+
+$40,250
+
+.15
+
+$40,250
+
+$45,250
+
+.30
+
+$45,250
+
+$50,250
+
+.45
+
+$50,250
+
+$55,250
+
+.60
+
+$55,250
+
+$60,250
+
+.75
+
+$60,250
+
+$65,250
+
+.90
+
+$65,250
+
+and up
+
+1.00
+
+Head of Household If you are head of household and your Connecticut AGI is:
+
+More Than
+$ 0 $54,500 $64,500 $74,500 $84,500 $94,500 $104,500 $114,500
+
+Less Than or Equal To
+$54,500 $64,500 $74,500 $84,500 $94,500 $104,500 $114,500 and up
+
+Decimal Amount
+0 .15 .30 .45 .60 .75 .90 1.00
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 27 of 28
+
+Connecticut Individual Use Tax Worksheet
+
+Section A - 1% Tax Rate: Computer and Data Processing Services
+
+Column 1
+
+Column 2
+
+Column 3
+
+Column 4
+
+Date of Purchase
+
+Description of Services
+
+Retailer or Service Provider
+
+Purchase Price
+
+Column 5
+CT Tax Due (Col. 4 X .01)
+
+Column 6 Taxes Paid
+
+Column 7
+Balance Due (Col. 5 minus Col. 6)
+
+Add Column 7 amounts and enter total here and on Form CT-1040, Schedule 4, Line 69a.
+
+Section B - 6.35% General Tax Rate
+
+Column 1
+
+Column 2
+
+Date of Purchase
+
+Description of Goods or Services
+
+Column 3
+Retailer or Service Provider
+
+Column 4
+Purchase Price
+
+Column 5
+CT Tax Due (Col. 4 X .0635)
+
+Column 6 Taxes Paid
+
+Column 7
+Balance Due (Col. 5 minus Col. 6)
+
+Add Column 7 amounts and enter total here and on Form CT-1040, Schedule 4, Line 69b.
+
+Section C - 7.75% Luxury Tax Rate
+
+Column 1
+
+Column 2
+
+Date of Purchase
+
+Description of Goods
+
+Column 3 Retailer
+
+Column 4
+Purchase Price
+
+Column 5
+CT Tax Due (Col. 4 X .0775)
+
+Column 6 Taxes Paid
+
+Column 7
+Balance Due (Col. 5 minus Col. 6)
+
+Add Column 7 amounts and enter total here and on Form CT-1040, Schedule 4, Line 69c.
+
+Section D - 2.99% Tax Rate
+
+Column 1
+
+Column 2
+
+Date of Purchase
+
+Description of Goods
+
+Column 3 Retailer
+
+Column 4
+Purchase Price
+
+Column 5
+CT Tax Due (Col. 4 X .0299)
+
+Column 6 Taxes Paid
+
+Column 7
+Balance Due (Col. 5 minus Col. 6)
+
+Add Column 7 amounts and enter total here and on Form CT-1040, Schedule 4, Line 69d.
+
+Sample
+Total Purchases
+Subject
+to Use Tax
+$25 50 75
+100 150 200 250 300 350 400 450 500 550 600 650 700 750 800 850 900
+
+Use Tax Table
+
+Use Tax Due at:
+
+6.35%
+
+7.75%
+
+Total Purchases Subject
+to Use Tax
+
+1.59
+
+
+
+$1,000
+
+3.18
+
+
+
+1,100
+
+4.76
+
+
+
+1,200
+
+6.35
+
+
+
+1,300
+
+9.53
+
+
+
+1,400
+
+12.70
+
+
+
+15.88
+
+
+
+19.05
+
+
+
+22.23
+
+
+
+25.40
+
+
+
+1,500 1,600 1,700 1,800 1,900
+
+28.58
+
+
+
+31.75
+
+
+
+34.93
+
+
+
+38.10
+
+
+
+41.28
+
+
+
+2,000 2,100 2,200 2,300 2,400
+
+44.45
+
+
+
+47.63
+
+
+
+50.80
+
+
+
+53.98
+
+
+
+57.15
+
+
+
+2,500 2,600 2,700 2,800 2,900
+
+Use Tax Due at:
+
+6.35%
+63.50 69.85 76.20 82.55 88.90 95.25 101.60 107.95 114.30 120.65 127.00 133.35 139.70 146.05 152.40 158.75 165.10 171.45 177.80 184.15
+
+7.75%
+ 85.25 93.00 100.75 108.50 116.25 124.00 131.75 139.50 147.25 155.00 162.75 170.50 178.25 186.00 193.75 201.50 209.25 217.00 224.75
+
+Total Purchases
+Subject
+to Use Tax
+$3,000 3,100 3,200 3,300 3,400 3,500 3,600 3,700 3,800 3,900 4,000 4,100 4,200 4,300 4,400 4,500 4,600 4,700 4,800 4,900 5,000
+
+Use Tax Due at:
+
+6.35%
+190.50 196.85 203.20 209.55 215.90 222.25 228.60 234.95 241.30 247.65 254.00 260.35 266.70 273.05 279.40 285.75 292.10 298.45 304.80 311.15 317.50
+
+7.75%
+232.50 240.25 248.00 255.75 263.50 271.25 279.00 286.75 294.50 302.25 310.00 317.75 325.50 333.25 341.00 348.75 356.50 364.25 372.00 379.75 387.50
+
+Form CT-1040 Instructions (Rev. 12/25)
+
+Page 28 of 28
+
+

@@ -13,12 +13,13 @@ export const HONESTY_CAN: readonly string[] = [
   "Ties the W-2, 1099, 1098 and property-tax documents you verified to the lines they feed.",
   "Lists the choices still open and the printed lines the app does not model, so nothing is left unsaid.",
   "Checks that every form the return needs is in the package and that the final package can be built.",
+  "Has an AI model read the computed return and the printed forms and raise questions. It can only add findings; each legal claim is checked by code against the pinned IRS and Connecticut text, or shown as unverified.",
 ];
 
 export const HONESTY_CANNOT: readonly string[] = [
   "It only sees what is in this app: the documents you uploaded and verified, your answers and the books. It cannot know about income, assets or events that were never entered.",
   "It cannot tell whether a document is complete or genuine, or whether a figure read from it matches the paper. You confirmed that when you verified each document.",
-  "Until the independent recalculation and the AI review passes have run, the arithmetic with tax rates and the legal positions are not independently checked.",
+  "Until the independent recalculation and the AI review passes have run for this exact state of the return, the arithmetic with tax rates and the legal positions are not independently checked. The AI model can be wrong or miss something, and its sources are the dated pages shown on this page.",
   "Choices the law leaves to you, such as the home-office method, are listed for you to decide. It does not decide them.",
   "A passed result means that no unresolved flagged item remained. It does not mean the return is right.",
   "You prepared the return and you also accept the findings, so this is an audit trail and a discipline, not an independent control.",
