@@ -9,6 +9,8 @@
 //
 // PURE: no DB, no network, no clock.
 
+import { invisibleTolerant } from "@/lib/tax-review/redact";
+
 export interface ScrubEntity {
   name: string;
   label: string;
@@ -44,9 +46,9 @@ function escapeRegExp(s: string): string {
 }
 
 function wordRegex(phrase: string): RegExp {
-  // spaces in the phrase match any run of whitespace; boundaries are "not a letter or digit" on both sides
-  const body = phrase.trim().split(/\s+/).map(escapeRegExp).join("\\s+");
-  return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, "giu");
+  // spaces in the phrase match any run of whitespace; boundaries are "not a letter or digit" on both sides; zero-width and other invisible characters
+  // written inside the phrase or around its spaces do not hide it (invisibleTolerant)
+  return new RegExp(`(?<![\\p{L}\\p{N}])${invisibleTolerant(phrase)}(?![\\p{L}\\p{N}])`, "giu");
 }
 
 const LEGAL_SUFFIX = /[\s,]*\b(?:L\.?L\.?C\.?|Inc\.?|Incorporated|Corp\.?|Corporation|Co\.?|Ltd\.?|L\.?P\.?)\s*$/i;
@@ -98,7 +100,7 @@ export function buildScrubber(config: ScrubConfig): Scrubber {
   const addressRules = config.addresses
     .flatMap((a) => addressVariants(a.address).map((v) => ({ re: wordRegex(v), label: a.label, len: v.length })))
     .sort((a, b) => b.len - a.len);
-  return (text: string): string => {
+  const once = (text: string): string => {
     let out = text.normalize("NFKC");
     for (const r of entityRules) out = out.replace(r.re, r.label);
     for (const r of addressRules) out = out.replace(r.re, r.label);
@@ -107,6 +109,7 @@ export function buildScrubber(config: ScrubConfig): Scrubber {
     for (const t of tails) out = out.replace(t, "$1");
     return out.replace(STATE_ZIP, "");
   };
+  return once;
 }
 
 /** Applies `scrub` to every string VALUE (and every key) of a JSON-safe value. Numbers, booleans and null pass through. */

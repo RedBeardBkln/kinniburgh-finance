@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildOutgoingJson, findRedactionIssues, labelHouseholdMembers, maskEin, scrubPeople } from "@/lib/tax-review/redact";
-import { buildScrubber } from "@/lib/tax-review/llm/scrub";
+import { buildScrubber, scrubDeep } from "@/lib/tax-review/llm/scrub";
 import { verifyQuote } from "@/lib/tax-review/llm/sources";
 import { loadSourcePack } from "@/lib/tax-review-sources";
 
@@ -53,13 +53,29 @@ const MUST_FLAG: [string, string][] = [
 ];
 
 // inputs that SHOULD be refused but the guard (shape-based) does not catch today
+// still not caught (spelled-out numbers): asserted as they behave today so a fix flips them loudly
 const GAPS_REDACTION: [string, string][] = [
-  ["single digits spaced", "1 2 3 4 5 6 7 8 9"],
-  ["ein with a space", "12 3456789"],
-  ["card number in 4-4-4-4", "4111 1111 1111 1111"],
-  ["account number in 4-4-4", "1234 5678 9012"],
   ["ssn words", "one two three four five six seven eight nine"],
+  ["account number in 4-4-4 (12 numerals; years are exempt from a card shape, so 3 groups are left alone)", "1234 5678 9012"],
+];
+
+// the gaps the integration tester found, now closed (redact.ts: spaced numerals, split EIN, card shapes, EIN glued to a word)
+const FIXED_REDACTION: [string, string][] = [
+  ["single digits spaced", "1 2 3 4 5 6 7 8 9"],
+  ["single digits spaced, 12 of them", "1 2 3 4 5 6 7 8 9 0 1 2"],
+  ["single digits with dashes", "1-2-3-4-5-6-7-8-9"],
+  ["single digits with commas", "1,2,3,4,5,6,7,8,9"],
+  ["ein with a space", "12 3456789"],
+  ["ein with a dot", "12.3456789"],
+  ["ein with an underscore", "12_3456789"],
   ["ein glued to a word (no word boundary before the digits)", "EIN12-3456789"],
+  ["ein after a colon", "ein:12-3456789"],
+  ["ein glued with en dash", "EIN12\u20133456789"],
+  ["card number in 4-4-4-4", "4111 1111 1111 1111"],
+  ["card number with dashes", "4111-1111-1111-1111"],
+  ["card number with dots", "4111.1111.1111.1111"],
+  ["15-digit card 4-6-5", "3782 822463 10005"],
+  ["card number with a short last group", "4111 1111 1111 111"],
 ];
 
 const MUST_PASS: [string, string][] = [
@@ -79,6 +95,18 @@ const MUST_PASS: [string, string][] = [
 describe("tester: redactor refuses identifier-shaped text", () => {
   for (const [name, text] of MUST_FLAG) it(`refuses: ${name}`, () => expect(flagged(text), name).toBe(true));
   for (const [name, text] of MUST_PASS) it(`allows: ${name}`, () => expect(flagged(text), name).toBe(false));
+});
+
+describe("tester: redactor gaps closed by the final integration", () => {
+  for (const [name, text] of FIXED_REDACTION) it(`refuses: ${name}`, () => expect(flagged(text), name).toBe(true));
+  it("a sentence that merely holds small numbers, years or amounts still passes", () => {
+    for (const ok of ["lines 1 2 3 and 4 of the form", "tax years 2022 2023 2024 2025", "tax years 2023 2024 2025", "Schedule A line 5a 25018 and line 17 44001", "Form 8949 box A 1 2 3 4 5", "$1,138 4 5,557", "1, 2, 3, 4, 5, 6, 7, 8, 9"]) expect(flagged(ok), ok).toBe(false);
+  });
+  it("the EIN is still masked to its last four, also when glued to a word", () => {
+    expect(maskEin("EIN12-3456789")).toBe("EIN**-***6789");
+    expect(maskEin("ein:12-3456789")).toBe("ein:**-***6789");
+    expect(maskEin("a 123-3456789 b")).toBe("a 123-3456789 b"); // three numerals before the dash: not an EIN shape
+  });
 });
 
 describe("tester: redactor GAPS (shape-based guard; asserted as they behave today)", () => {
@@ -164,11 +192,19 @@ const MUST_SCRUB: [string, string][] = [
   ["name in a possessive entity", "Kinniburgh's consulting"],
 ];
 
+// adversarial spellings the scrubber now handles (zero-width characters are stripped before matching)
+const FIXED_SCRUB: [string, string][] = [
+  ["zero-width inside a surname", "Kinni\u200Bburgh"],
+  ["zero-width inside a first name", "Er\u200Bic"],
+  ["zero-width inside a known street", "56 Ar\u200Bbor Rd"],
+  ["zero-width joiner, soft hyphen and BOM inside names", "Kin\u200Dniburgh and Ra\u00ADmirez and Wisi\uFEFFackas"],
+  ["zero-width inside an entity name", "Eric Kinni\u200Bburgh Consulting, LLC"],
+  ["zero-width inside an alias", "EK\u200B Consulting"],
+  ["zero-width inside the full address", "56 Arbor Rd, My\u200Bstic, CT 06355"],
+];
+
 // adversarial spellings the scrubber does not handle today
 const SCRUB_GAPS: [string, string, string][] = [
-  ["zero-width inside a surname", "Kinni​burgh", "kinni"],
-  ["zero-width inside a first name", "Er​ic", "er"],
-  ["zero-width inside a known street", "56 Ar​bor Rd", "arbor"],
   ["street name alone (no number)", "the Arbor Rd property", "arbor"],
   ["street with a different suffix, lower case", "56 arbor road", "arbor"],
   ["unknown lower-case address", "14 elm street", "elm"],
@@ -185,6 +221,20 @@ describe("tester: names, streets and entities are replaced before anything is se
       expect(leaks(out), `${name}: ${out}`).toEqual([]);
     });
   }
+});
+
+describe("tester: zero-width characters inside names and streets no longer hide them", () => {
+  for (const [name, text] of FIXED_SCRUB) {
+    it(`scrubs: ${name}`, () => {
+      const out = full(text);
+      expect(leaks(out), `${name}: ${out}`).toEqual([]);
+      expect(out).not.toMatch(/[\u200B\u200D\u00AD\uFEFF]/);
+    });
+  }
+  it("the same through the full payload path (scrubDeep with the scrubber, then buildOutgoingJson)", () => {
+    const out = buildOutgoingJson(scrubDeep({ "Kinni\u200Bburgh": ["Er\u200Bic at 56 Ar\u200Bbor Rd"] }, SCRUB), PEOPLE, "t");
+    expect(leaks(out)).toEqual([]);
+  });
 });
 
 describe("tester: scrubber GAPS (asserted as they behave today)", () => {

@@ -13,7 +13,7 @@
 
 import { containsSsnLikeText } from "@/lib/tax-extraction-schema";
 
-export type RedactionIssue = "ssn_like" | "nine_digit_run" | "long_digit_run" | "ein_like";
+export type RedactionIssue = "ssn_like" | "nine_digit_run" | "long_digit_run" | "ein_like" | "spaced_digit_run" | "card_like";
 
 /**
  * A hex digest token. Only WHOLE tokens of exactly 12 / 16 / 32 / 40 / 64 hex characters containing at least one letter a-f can be
@@ -23,17 +23,41 @@ export type RedactionIssue = "ssn_like" | "nine_digit_run" | "long_digit_run" | 
 const HEX_TOKEN = /(?<![0-9a-z_])(?:[0-9a-f]{64}|[0-9a-f]{40}|[0-9a-f]{32}|[0-9a-f]{16}|[0-9a-f]{12})(?![0-9a-z_])/gi;
 /** A UUID (document ids appear in review text); its last group can be twelve digits by chance. */
 const UUID_TOKEN = /(?<![0-9a-z_])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-z_])/gi;
-/** NN-NNNNNNN (an employer identification number as printed). */
-const EIN_LIKE = /\b\d{2}[-‐-―−]\d{7}\b/;
-const EIN_ALL = /\b(\d{2})[-‐-―−](\d{3})(\d{4})\b/g;
+/**
+ * NN-NNNNNNN (an employer identification number as printed). No word boundary BEFORE the digits: "EIN12-3456789" and "ein:12-3456789" are
+ * EINs too (there is no \b between a letter and a number); only a number directly before or after makes it a longer number.
+ */
+const EIN_LIKE = /(?<!\d)\d{2}[-‐-―−]\d{7}(?!\d)/;
+const EIN_ALL = /(?<!\d)(\d{2})[-‐-―−](\d{3})(\d{4})(?!\d)/g;
 /** Separators people put between the groups of an identifier. */
 const SEP = "[-\\s.,/_\\u2010-\\u2015\\u2212]";
+/** An EIN whose two groups are split by something other than the usual dash: "12 3456789", "12.3456789", "12_3456789" (one or two separator characters). */
+const EIN_SPLIT = new RegExp(`(?<!\\d)\\d{2}${SEP}{1,2}\\d{7}(?!\\d)`);
+/** Nine or more single numerals with ONE separator between each ("1 2 3 4 5 6 7 8 9", "1-2-3-4-5-6-7-8-9"): a number spelled out numeral by numeral. */
+const SPACED_SINGLES = new RegExp(`(?<!\\d)\\d(?:${SEP}\\d){8,}(?!\\d)`);
+/** A card or account number written in groups: 4-4-4-(1 to 4) or 4-6-5 (American Express), at least one separator between the groups. */
+const CARD_4444 = new RegExp(`(?<!\\d)(\\d{4})${SEP}{1,3}(\\d{4})${SEP}{1,3}(\\d{4})${SEP}{1,3}(\\d{1,4})(?!\\d)`);
+const CARD_465 = new RegExp(`(?<!\\d)\\d{4}${SEP}{1,3}\\d{6}${SEP}{1,3}\\d{5}(?!\\d)`);
+/** Four tax years in a row ("2022 2023 2024 2025") have the card shape but are years, not a card. */
+const isYear = (g: string): boolean => g.length === 4 && Number(g) >= 1990 && Number(g) <= 2100;
 /** 3-2-4 (SSN) and 3-3-3 grouping with up to three separator characters between groups. */
 const GROUPED_ID = new RegExp(`(?<!\\d)(?:\\d{3}${SEP}{0,3}\\d{2}${SEP}{0,3}\\d{4}|(?<!\\d[,.])\\d{3}${SEP}{1,3}\\d{3}${SEP}{1,3}\\d{3})(?!\\d)`);
 /** Invisible / format characters (zero-width, soft hyphen, bidi marks, BOM ...) that can split a digit run. */
 const INVISIBLE = /[\p{Cf}­͏؜ᅟᅠ឴឵᠎ㅤﾠ]/gu;
 
-/** Text as it is scanned: NFKC, invisible characters removed, every Unicode decimal digit read as a digit (ASCII digits keep their value). */
+/**
+ * Source of a regular expression (flag "u" required) that matches `phrase` even when invisible / format characters (zero-width space or joiner,
+ * soft hyphen, bidi mark, BOM ...) are written between its characters or around its spaces: "Kinni" + U+200B + "burgh" still matches "Kinniburgh".
+ * An invisible character that SEPARATES two words ("Eric" + U+200B + "Kinniburgh") counts as the space of the phrase. Used by the name and
+ * street scrubbers, so an adversarial spelling cannot hide a name from them.
+ */
+export function invisibleTolerant(phrase: string): string {
+  const gap = `${INVISIBLE.source}*`;
+  const words = phrase.trim().split(/\s+/).map((word) => [...word].map(escapeRegExp).join(gap));
+  return words.join(`(?:\\s|${INVISIBLE.source})+`);
+}
+
+/** Text as it is scanned: NFKC, invisible characters removed, every Unicode decimal numeral read as a numeral (ASCII ones keep their value). */
 function scanText(text: string): string {
   return text
     .normalize("NFKC")
@@ -61,7 +85,10 @@ export function findRedactionIssues(text: string): RedactionIssue[] {
   // run's own stored config (found by the live read-only run of reviewer-all).
   const withoutDigests = t.replace(UUID_TOKEN, " ").replace(HEX_TOKEN, (m) => (exemptHex(m) ? " " : m));
   if (containsSsnLikeText(withoutDigests) || GROUPED_ID.test(withoutDigests)) issues.push("ssn_like");
-  if (EIN_LIKE.test(withoutDigests)) issues.push("ein_like");
+  if (EIN_LIKE.test(withoutDigests) || EIN_SPLIT.test(withoutDigests)) issues.push("ein_like");
+  if (SPACED_SINGLES.test(withoutDigests)) issues.push("spaced_digit_run");
+  const card = CARD_4444.exec(withoutDigests);
+  if ((card !== null && !card.slice(1, 5).every(isYear)) || CARD_465.test(withoutDigests)) issues.push("card_like");
   for (const m of withoutDigests.matchAll(/\d{9,}/g)) {
     issues.push(m[0].length === 9 ? "nine_digit_run" : "long_digit_run");
     break;
@@ -176,7 +203,7 @@ export function scrubPeople(text: string, people: readonly HouseholdPerson[], la
   const ordered = [...owners.entries()].sort((a, b) => b[0].length - a[0].length);
   for (const [token, set] of ordered) {
     const label = set.size === 1 ? [...set][0] ?? "" : "the Taxpayers";
-    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(token)}(?![\\p{L}\\p{N}])`, "giu"), label);
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${invisibleTolerant(token)}(?![\\p{L}\\p{N}])`, "giu"), label);
   }
   return out;
 }
