@@ -52,7 +52,7 @@ export const privacyGuardCheck: L1Check = {
           severity: einOnly ? "low" : "blocker",
           area: "privacy",
           ruleTag: s.name,
-          message: `${s.name[0]?.toUpperCase() ?? ""}${s.name.slice(1)} contains text that looks like ${[...issues].map((i) => ({ ssn_like: "a Social Security number", nine_digit_run: "a 9-digit number", long_digit_run: "a long account-type number", ein_like: "an employer ID in full (the Connecticut withholding list prints employer IDs on purpose)" })[i]).join(", ")}. The text is not shown here.`,
+          message: `${s.name[0]?.toUpperCase() ?? ""}${s.name.slice(1)} contains text that looks like ${[...issues].map((i) => ({ ssn_like: "a Social Security number", nine_digit_run: "a 9-digit number", long_digit_run: "a long account-type number", spaced_digit_run: "a long number written one numeral at a time", card_like: "a card or account number written in groups", ein_like: "an employer ID in full (the Connecticut withholding list prints employer IDs on purpose)" })[i]).join(", ")}. The text is not shown here.`,
           evidence: [{ ref: `check:privacy.${s.name.replace(/[^a-z]+/gi, "-").slice(0, 40)}`, amount: issues.size, status: [...issues].join(",") }],
           recommendedAction: einOnly
             ? "Keep this output private: do not post it or send it to anyone you do not trust with your employers' IDs."
