@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 import { listTaxReturnOverrideHistory } from "@/actions/tax-return-overrides";
+import { BUSINESS_USE_TARGET_PREFIX } from "@/lib/tax2025/business-use";
 import { formatOverrideHistoryRow, reasonCounterText, sortHistoryNewestFirst } from "@/lib/tax2025/override-input";
 import type { OverrideAuthority, OverrideHistoryRow, OverrideTargetKind } from "@/lib/tax2025/overrides";
 
@@ -145,7 +146,7 @@ export function HistorySection({ taxYear, targetKind, targetKey }: { taxYear: 20
         {state.kind === "ok" && state.rows.length === 0 ? <p className="text-muted-foreground">Nothing has been recorded here yet.</p> : null}
         {state.kind === "ok"
           ? state.rows.map((r) => {
-              const t = formatOverrideHistoryRow(r);
+              const t = formatOverrideHistoryRow(r, { percent: targetKey.startsWith(BUSINESS_USE_TARGET_PREFIX) });
               return (
                 <div key={r.id} className="rounded border p-2 text-xs" data-testid="history-row">
                   <p className="font-medium">

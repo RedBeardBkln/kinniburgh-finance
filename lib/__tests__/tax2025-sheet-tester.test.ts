@@ -353,12 +353,12 @@ describe("tester: P4 decisions show only the engine's alternatives, side by side
     });
   }
 
-  it("placeholders: engine did not raise X1/X2/X3/X5 -> shown with a note; none duplicate a raised decision", () => {
+  it("placeholders: engine did not raise X1/X2/X3/X5/X6 -> shown with a note; none duplicate a raised decision", () => {
     for (const { ret } of FIXTURES) {
       const m = sheet(ret);
       const raised = new Set(m.decisions.map((d) => d.id));
       for (const p of m.decisionPlaceholders) expect(raised.has(p.id)).toBe(false);
-      expect(new Set([...raised, ...m.decisionPlaceholders.map((p) => p.id)])).toEqual(new Set(["X1", "X2", "X3", "X5"]));
+      expect(new Set([...raised, ...m.decisionPlaceholders.map((p) => p.id)])).toEqual(new Set(["X1", "X2", "X3", "X5", "X6"]));
     }
   });
 

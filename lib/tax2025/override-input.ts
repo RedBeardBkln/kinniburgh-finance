@@ -9,6 +9,14 @@
 // formatters and TYPES.
 
 import {
+  BUSINESS_USE_DEFAULT_TENTHS,
+  formatBusinessUsePercent,
+  formatCentsText,
+  parseBusinessUsePercent,
+  roundMilliCentsToDollars,
+  shareCents,
+} from "@/lib/tax2025/business-use";
+import {
   OVERRIDE_MAX_ABS_DOLLARS,
   REASON_MAX_LENGTH,
   REASON_MIN_LENGTH,
@@ -115,6 +123,59 @@ export function checkDecisionForm(state: DecisionFormState): { canSave: boolean;
   };
 }
 
+// ── Business-use percentage (decision X6 ...) ─────────────────────────────────
+
+export interface BusinessUseFormState {
+  percentText: string;
+  reasonText: string;
+  busy: boolean;
+}
+
+export interface BusinessUseFormCheck {
+  canSave: boolean;
+  percentError: string | null;
+  reasonError: string | null;
+  /** The typed percentage in tenths of a percent (0..1000), null while it is not valid. */
+  tenths: number | null;
+}
+
+/** An untouched (empty) field shows no error yet; Save stays disabled until the percentage (0 to 100, one decimal) and the reason are valid. */
+export function checkBusinessUseForm(state: BusinessUseFormState): BusinessUseFormCheck {
+  const pct = parseBusinessUsePercent(state.percentText);
+  const reason = checkReasonInput(state.reasonText);
+  return {
+    canSave: !state.busy && pct.ok && reason.ok,
+    percentError: state.percentText.trim() === "" ? null : pct.ok ? null : pct.error,
+    reasonError: state.reasonText.trim() === "" ? null : reason.ok ? null : reason.error,
+    tenths: pct.ok ? pct.tenths : null,
+  };
+}
+
+export interface BusinessUsePreview {
+  /** The whole line (the mixed-use account at the percentage plus the line's other accounts), one rounding, whole dollars. */
+  lineDollars: number;
+  /** The same line at 100%, whole dollars. */
+  atFullDollars: number;
+  /** Booked to the mixed-use account minus its deductible share, integer cents. */
+  personalCents: number;
+  /** "At 70%: Schedule C line 25 would be about $1,827; personal portion $783.05; at 100% it is $2,610." */
+  text: string;
+}
+
+/** Live preview for the dialog from integers only (cents x tenths of a percent; the line total is rounded once). */
+export function previewBusinessUse(input: { flaggedCents: number; otherCents: number; tenths: number; lineLabel: string }): BusinessUsePreview {
+  const { flaggedCents, otherCents, tenths } = input;
+  const lineDollars = roundMilliCentsToDollars(flaggedCents * tenths + otherCents * BUSINESS_USE_DEFAULT_TENTHS);
+  const atFullDollars = roundMilliCentsToDollars((flaggedCents + otherCents) * BUSINESS_USE_DEFAULT_TENTHS);
+  const personalCents = flaggedCents - shareCents(flaggedCents, tenths);
+  return {
+    lineDollars,
+    atFullDollars,
+    personalCents,
+    text: `At ${formatBusinessUsePercent(tenths)}: ${input.lineLabel} would be about ${formatCentsText(lineDollars * 100)}; personal portion ${formatCentsText(personalCents)}; at 100% it is ${formatCentsText(atFullDollars * 100)}.`,
+  };
+}
+
 // ── Server results ────────────────────────────────────────────────────────────
 
 /** Plain text for a failed action result. */
@@ -139,14 +200,14 @@ export interface HistoryRowText {
   state: "current" | "superseded" | "cleared";
 }
 
-function valueOfRow(r: OverrideHistoryRow): string {
+function valueOfRow(r: OverrideHistoryRow, percent: boolean): string {
   if (r.valueKind === "money_cents" && r.valueCents !== null) return formatDollars(r.valueCents / 100);
-  if (r.valueKind === "choice" && r.valueText !== null) return `choice: ${r.valueText}`;
+  if (r.valueKind === "choice" && r.valueText !== null) return percent ? `${r.valueText}% business use` : `choice: ${r.valueText}`;
   return "acknowledged";
 }
 
 /** One history row, in words (dates are America/New_York). */
-export function formatOverrideHistoryRow(r: OverrideHistoryRow): HistoryRowText {
+export function formatOverrideHistoryRow(r: OverrideHistoryRow, opts: { percent?: boolean } = {}): HistoryRowText {
   const state: HistoryRowText["state"] = r.archivedAt === null ? "current" : r.archiveKind === "cleared" ? "cleared" : "superseded";
   const when = r.archivedAt === null ? "" : formatOverrideDate(r.archivedAt);
   const title =
@@ -157,7 +218,7 @@ export function formatOverrideHistoryRow(r: OverrideHistoryRow): HistoryRowText 
         : `Version ${r.version} (replaced on ${when})`;
   return {
     title,
-    valueText: valueOfRow(r),
+    valueText: valueOfRow(r, opts.percent === true),
     authorityLabel: r.authority === "cpa" ? "Advisor (recorded earlier)" : "Owner (Eric/Eva)",
     setText: `Set by ${r.setByName} on ${formatOverrideDate(r.setAt)}`,
     reasonText: r.reason,

@@ -16,6 +16,7 @@ const CLIENT = [
   "components/tax/forms/override-dialog.tsx",
   "components/tax/forms/override-line-button.tsx",
   "components/tax/forms/override-decision-button.tsx",
+  "components/tax/forms/override-business-use-button.tsx",
 ];
 const ALL = [...CLIENT, "components/tax/forms/overrides-panel.tsx"];
 
@@ -83,7 +84,7 @@ describe("override UI source checks", () => {
   });
 
   it("success refreshes the page inside startTransition; failures show a plain message", () => {
-    for (const f of ["components/tax/forms/override-dialog.tsx", "components/tax/forms/override-decision-button.tsx"]) {
+    for (const f of ["components/tax/forms/override-dialog.tsx", "components/tax/forms/override-decision-button.tsx", "components/tax/forms/override-business-use-button.tsx"]) {
       const src = read(f);
       expect(src, f).toContain("startTransition(() => router.refresh())");
       expect(src, f).toContain("describeActionFailure");
@@ -106,6 +107,7 @@ describe("override UI source checks", () => {
     expect(sheet).toContain("<OverridesPanel summary={s.overrides} />");
     expect(sheet).toContain("<OverrideLineButton");
     expect(sheet).toContain("<OverrideDecisionButton");
+    expect(sheet).toContain("<OverrideBusinessUseButton");
     expect(sheet).toContain('data-testid="override-note"');
     expect(sheet).toContain('data-testid="depends-on-override"');
     expect(sheet).toContain("{line.canOverride ? (");

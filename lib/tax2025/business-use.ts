@@ -114,3 +114,21 @@ export function roundMilliCentsToDollars(milliCents: number): number {
   const whole = (abs - rem) / BUSINESS_USE_CENTS_TENTHS_PER_DOLLAR;
   return sign * (rem * 2 >= BUSINESS_USE_CENTS_TENTHS_PER_DOLLAR ? whole + 1 : whole);
 }
+
+/** A share of integer cents at `tenths` tenths of a percent, rounded half up to whole cents (non-negative cents). Integer math only. */
+export function shareCents(cents: number, tenths: number): number {
+  const n = cents * tenths;
+  const rem = n % BUSINESS_USE_MAX_TENTHS;
+  const whole = (n - rem) / BUSINESS_USE_MAX_TENTHS;
+  return rem * 2 >= BUSINESS_USE_MAX_TENTHS ? whole + 1 : whole;
+}
+
+/** Whole dollars or dollars and cents from integer cents, e.g. "$2,610" / "$783.05" / "-$0.50" (the engine's `fmt` convention). */
+export function formatCentsText(cents: number): string {
+  const abs = cents < 0 ? -cents : cents;
+  const c = abs % 100;
+  const dollars = (abs - c) / 100;
+  const body = String(dollars).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const sign = cents < 0 ? "-" : "";
+  return c === 0 ? `${sign}$${body}` : `${sign}$${body}.${c < 10 ? "0" : ""}${c}`;
+}

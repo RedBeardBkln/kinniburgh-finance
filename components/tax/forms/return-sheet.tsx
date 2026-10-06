@@ -15,6 +15,7 @@ import {
   type SheetOpenItem,
   type SheetStatus,
 } from "@/lib/tax2025-sheet";
+import { OverrideBusinessUseButton } from "@/components/tax/forms/override-business-use-button";
 import { OverrideDecisionButton } from "@/components/tax/forms/override-decision-button";
 import { OverrideLineButton } from "@/components/tax/forms/override-line-button";
 import { OverridesPanel } from "@/components/tax/forms/overrides-panel";
@@ -399,7 +400,35 @@ function Decision({ d, taxYear, canRecord }: { d: SheetDecision; taxYear: 2025; 
           {d.override.note}
         </p>
       ) : null}
-      {canRecord && d.decisionKey !== null ? (
+      {d.percent !== null ? (
+        <p className="rounded border bg-muted/40 px-2 py-1 text-xs" data-testid="personal-portion">
+          {d.percent.personalText}
+        </p>
+      ) : null}
+      {canRecord && d.decisionKey !== null && d.percent !== null ? (
+        <div>
+          <OverrideBusinessUseButton
+            taxYear={taxYear}
+            data={{
+              id: d.id,
+              label: d.label,
+              decisionKey: d.decisionKey,
+              percent: {
+                currentText: d.percent.currentText,
+                bookedCents: d.percent.bookedCents,
+                otherLineCents: d.percent.otherLineCents,
+                lineLabel: d.percent.lineLabel,
+                accountText: d.percent.accountText,
+              },
+              override:
+                d.override === null
+                  ? null
+                  : { id: d.override.id, version: d.override.version, authority: d.override.authority, choice: d.override.choice, note: d.override.note },
+            }}
+          />
+        </div>
+      ) : null}
+      {canRecord && d.decisionKey !== null && d.percent === null ? (
         <div>
           <OverrideDecisionButton
             taxYear={taxYear}

@@ -17,6 +17,7 @@
 //   - every owner-visible string leaves buildSheetModel through ownerWordingDeep (lib/tax-wording.ts), so engine prose
 //     that still says "the CPA decides" is reworded at this boundary and the identifiers (status, who) stay as they are.
 
+import { BUSINESS_USE_ACCOUNTS, businessUseDefByDecisionId, businessUseTargetKey, formatCentsText, type BusinessUseAccount } from "@/lib/tax2025/business-use";
 import { allConstants } from "@/lib/tax2025/constants";
 import { ownerWordingDeep } from "@/lib/tax-wording";
 import {
@@ -219,12 +220,36 @@ export interface SheetDecisionChoice {
   inForce: boolean;
 }
 
+/**
+ * The business-use percentage part of a decision card (decision X6 ...): what the dialog needs (the numbers behind its live preview) and
+ * the personal-portion text the card prints. Everything is integer cents; the engine's own line amounts are not recomputed here.
+ */
+export interface SheetBusinessUse {
+  /** The recorded percentage as typed text ("70", "70.5"), null while none is recorded (the dialog then starts empty). */
+  currentText: string | null;
+  /** What is in force when nothing is recorded. */
+  defaultText: "100";
+  /** Booked to the shared account(s), integer cents. */
+  bookedCents: number;
+  /** The Schedule C line's other accounts as they are in force (a mixed-use one at its own percentage), integer cents. */
+  otherLineCents: number;
+  /** "Schedule C line 25". */
+  lineLabel: string;
+  /** What the account is, in plain words ("the shared household internet and phone service ..."). */
+  accountText: string;
+  /** "Personal portion: $783.05 (not deducted; informational, not a Schedule C amount; nothing is booked)". */
+  personalText: string;
+  personalCents: number;
+}
+
 export interface SheetDecision {
   id: string;
   label: string;
   chosen: string;
-  /** The overrides-table key for this decision (null when the id is not a recordable decision). */
+  /** The overrides-table key for this decision (null when the id is not a recordable decision). A business-use decision's key is `businessUse.<key>`. */
   decisionKey: string | null;
+  /** Set for a business-use percentage decision (X6 ...): the percent dialog is used instead of the choice dialog. */
+  percent: SheetBusinessUse | null;
   /** The recorded override, when the decision was made through the overrides table. */
   override: SheetDecisionOverride | null;
   /** Choices a user may record (alternatives that are valid decision choices). */
@@ -715,17 +740,45 @@ function toSheetDecisionOverride(o: AppliedDecisionOverride): SheetDecisionOverr
   };
 }
 
-function toSheetDecision(r: RuleResult, applied: ReadonlyMap<string, AppliedDecisionOverride>): SheetDecision | null {
+/** The numbers and wording of a business-use decision card, from the engine's own Schedule C detail (integer cents). */
+function businessUseData(def: BusinessUseAccount, sc: Ty2025Return["scheduleC"], applied: AppliedDecisionOverride | undefined): SheetBusinessUse {
+  const rows = (sc?.businessUse ?? []).filter((b) => b.decisionId === def.decisionId);
+  const lineId = rows[0]?.lineId ?? "25";
+  const accounts = sc?.lines.find((l) => l.lineId === lineId)?.accounts ?? [];
+  const mine = (a: { businessUseDecisionId?: string }) => a.businessUseDecisionId === def.decisionId;
+  const personalCents = rows.reduce((n, b) => n + b.personalCents, 0);
+  const decided = rows.some((b) => b.status === "decided");
+  const personalText =
+    personalCents === 0
+      ? decided
+        ? "Personal portion: $0 (all of it is deducted as business use)."
+        : "Personal portion: $0 at the default (100% business use)."
+      : `Personal portion: ${formatCentsText(personalCents)} (not deducted; informational, not a Schedule C amount; nothing is booked).`;
+  return {
+    currentText: applied === undefined ? null : applied.choice,
+    defaultText: "100",
+    bookedCents: rows.reduce((n, b) => n + b.rawCents, 0),
+    otherLineCents: accounts.filter((a) => !mine(a)).reduce((n, a) => n + (a.businessUseDecisionId === undefined ? a.rawCents : a.deductibleCents), 0),
+    lineLabel: `Schedule C line ${lineId}`,
+    accountText: def.what,
+    personalText,
+    personalCents,
+  };
+}
+
+function toSheetDecision(r: RuleResult, applied: ReadonlyMap<string, AppliedDecisionOverride>, sc: Ty2025Return["scheduleC"]): SheetDecision | null {
   const d = r.decision;
   if (d === undefined) return null;
   const undecided = d.status === "default_undecided";
-  const decisionKey = decisionKeyFor(d.id);
+  const businessUse = businessUseDefByDecisionId(d.id);
+  const registryKey = businessUse === null ? decisionKeyFor(d.id) : null;
+  const decisionKey = businessUse !== null ? businessUseTargetKey(businessUse) : registryKey;
   const appliedOverride = applied.get(d.id);
   const choices: SheetDecisionChoice[] =
-    decisionKey === null
+    registryKey === null
       ? []
       : (r.alternatives ?? [])
-          .filter((a) => isValidDecisionChoice(decisionKey, a.id))
+          .filter((a) => isValidDecisionChoice(registryKey, a.id))
           .map((a) => ({ id: a.id, label: a.label, effectText: altEffectText(a), isDefault: a.isDefault, inForce: a.inForce }));
   const alts = (r.alternatives ?? []).map((a): SheetAlternative => {
     const marker = undecided
@@ -764,6 +817,7 @@ function toSheetDecision(r: RuleResult, applied: ReadonlyMap<string, AppliedDeci
     label: d.label,
     chosen: d.chosen,
     decisionKey,
+    percent: businessUse === null ? null : businessUseData(businessUse, sc, appliedOverride),
     override: appliedOverride === undefined ? null : toSheetDecisionOverride(appliedOverride),
     choices,
     statusText: undecided ? "default, undecided" : "decided",
@@ -832,6 +886,12 @@ const KNOWN_DECISIONS: readonly { id: string; label: string; notRaised: (ret: Ty
         ? "Not decided: the property tax bills are not all classified or answered yet, so it is not known whether a non-primary property (Arbor Rd) decision arises."
         : "Not raised for this return: the engine raises it only when a property tax bill is classified as non-primary real estate (Arbor Rd).",
   },
+  // one placeholder per mixed-use account of the list (X6 ...): raised only when the account has a booked amount on a plain expense line
+  ...BUSINESS_USE_ACCOUNTS.map((def) => ({
+    id: def.decisionId as string,
+    label: def.label,
+    notRaised: (): string => `Not raised for this return: nothing is booked to ${def.what} for 2025 (or the account is not a plain Schedule C expense line), so there is no share to decide.`,
+  })),
 ];
 
 // ── Open items, conflicts, homework ───────────────────────────────────────────
@@ -1156,7 +1216,7 @@ function buildSheetModelRaw(input: BuildSheetInput): SheetModel {
   // The effective open items (acknowledged / resolved blocking items moved out, override items added) when overrides are applied.
   const openItems = toSheetOpenItems(effective?.openItems ?? ret.openItems);
   const appliedDecisions = new Map((effective?.applied.decisions ?? []).map((d) => [d.decisionId, d]));
-  const decisions = ret.results.map((r) => toSheetDecision(r, appliedDecisions)).filter((d): d is SheetDecision => d !== null);
+  const decisions = ret.results.map((r) => toSheetDecision(r, appliedDecisions, ret.scheduleC)).filter((d): d is SheetDecision => d !== null);
   const raised = new Set(decisions.map((d) => d.id));
   const placeholders: SheetDecisionPlaceholder[] = KNOWN_DECISIONS.filter((k) => !raised.has(k.id)).map((k) => ({
     id: k.id,
