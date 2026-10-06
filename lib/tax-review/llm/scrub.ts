@@ -10,6 +10,7 @@
 // PURE: no DB, no network, no clock.
 
 import { invisibleTolerant } from "@/lib/tax-review/redact";
+import { addressPatternSource } from "@/lib/tax-review/llm/address";
 
 export interface ScrubEntity {
   name: string;
@@ -36,8 +37,10 @@ const SUFFIXES = [
 ];
 const SUFFIX_ALT = [...SUFFIXES, ...SUFFIXES.map((s) => s.toUpperCase())].join("|");
 // "56 Arbor Rd", "27 Old Barry Rd.", "1200 N. Main Street Apt 4B": a number, up to four capitalised words, a street suffix, an optional unit.
+// A number straight followed by "CT" is not a street ("the 2025 CT income tax", "2025 CT-1040": Connecticut, not "Court"); the first live review
+// sent "[property address] income tax" and "[property address]-1040" in two constant notes because of it (ai-payload-fixes).
 const STREET_ADDRESS = new RegExp(
-  `\\b\\d{1,6}[A-Za-z]?\\s+(?:(?:[A-Z][A-Za-z0-9.'-]*|[NSEW]\\.?)\\s+){0,4}(?:${SUFFIX_ALT})\\b\\.?(?:\\s*(?:#|Apt\\.?|Unit|Ste\\.?|Suite)\\s*[A-Za-z0-9-]+)?`,
+  `\\b\\d{1,6}[A-Za-z]?(?!\\s+(?:CT|Ct)\\b)\\s+(?:(?:[A-Z][A-Za-z0-9.'-]*|[NSEW]\\.?)\\s+){0,4}(?:${SUFFIX_ALT})\\b\\.?(?:\\s*(?:#|Apt\\.?|Unit|Ste\\.?|Suite)\\s*[A-Za-z0-9-]+)?`,
   "g"
 );
 
@@ -88,22 +91,32 @@ export type Scrubber = (text: string) => string;
 const STATES = "CT|NY|MA|RI|NJ|PA|VT|NH|ME|FL|DE|MD|CA|TX|VA|NC|SC|GA|OH|IL|Connecticut";
 // "<Town words>, CT 06375" written after a street address that was just replaced by a label
 const TOWN_STATE_ZIP = `(?:,?\\s+[A-Za-z][A-Za-z.'-]*(?:\\s+[A-Za-z][A-Za-z.'-]*){0,2},?\\s+(?:${STATES})\\b\\.?\\s*\\d{5}(?:-\\d{4})?)`;
+// "<Town words>, CT" after a replaced street with NO zip: the comma before the town, a capitalised town and an upper-case state are all required
+// (the rule is case-sensitive), so ordinary words after a label ("the primary residence for me") are never taken for a town and state.
+const TOWN_STATE_NO_ZIP = `(?:,\\s+[A-Z][A-Za-z.'-]*(?:\\s+[A-Z][A-Za-z.'-]*){0,2},?\\s+(?:${STATES})\\b\\.?)`;
 // a state and zip left on their own ("CT 06375")
 const STATE_ZIP = new RegExp(`,?\\s*\\b(?:${STATES})\\b\\.?\\s+\\d{5}(?:-\\d{4})?\\b`, "gi");
 
 export function buildScrubber(config: ScrubConfig): Scrubber {
   const labels = [...new Set([GENERIC_ADDRESS_LABEL, ...config.addresses.map((a) => a.label)])];
-  const tails = labels.map((l) => new RegExp(`(${escapeRegExp(l)})${TOWN_STATE_ZIP}`, "gi"));
+  const tails = labels.flatMap((l) => [new RegExp(`(${escapeRegExp(l)})${TOWN_STATE_ZIP}`, "gi"), new RegExp(`(${escapeRegExp(l)})${TOWN_STATE_NO_ZIP}`, "g")]);
   const entityRules = config.entities
     .flatMap((e) => entityVariants(e).map((v) => ({ re: wordRegex(v), label: e.label, len: v.length })))
     .sort((a, b) => b.len - a.len);
   const addressRules = config.addresses
     .flatMap((a) => addressVariants(a.address).map((v) => ({ re: wordRegex(v), label: a.label, len: v.length })))
     .sort((a, b) => b.len - a.len);
+  // every written form of a known street line (Rd / Road, case, punctuation, a different town or zip after it) is the same property: one
+  // label for all of them, wherever the text came from (a document, a form, a rule reason, a finding)
+  const canonicalRules = config.addresses.flatMap((a) => {
+    const source = addressPatternSource(a.address);
+    return source === null ? [] : [{ re: new RegExp(source, "giu"), label: a.label }];
+  });
   const once = (text: string): string => {
     let out = text.normalize("NFKC");
     for (const r of entityRules) out = out.replace(r.re, r.label);
     for (const r of addressRules) out = out.replace(r.re, r.label);
+    for (const r of canonicalRules) out = out.replace(r.re, r.label);
     out = out.replace(STREET_ADDRESS, GENERIC_ADDRESS_LABEL);
     // whatever town / state / zip followed the street goes with it, then any state and zip left alone
     for (const t of tails) out = out.replace(t, "$1");

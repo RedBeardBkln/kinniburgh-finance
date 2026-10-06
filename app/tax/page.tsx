@@ -10,7 +10,7 @@ import { AddDeadlineForm } from "@/components/tax/add-deadline-form";
 import { AddPriorYearForm } from "@/components/tax/add-prior-year-form";
 import { TaxEntityWidget, type TaxWidgetData } from "@/components/tax/tax-entity-widget";
 import { computePL } from "@/lib/reports";
-import { entitiesForYear } from "@/lib/tax-entities";
+import { entitiesForYear, isEntityUnformed } from "@/lib/tax-entities";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -18,7 +18,7 @@ export default async function TaxPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const [workspaces, deadlines, allEntities] = await Promise.all([
+  const [workspaces, deadlines, allEntitiesRaw] = await Promise.all([
     db.taxWorkspace.findMany({
       include: { entity: true, checklistItems: true },
       orderBy: [{ taxYear: "desc" }, { createdAt: "asc" }],
@@ -30,6 +30,9 @@ export default async function TaxPage() {
       select: { id: true, name: true, type: true, foundedDate: true, slug: true, taxStatusNotes: true },
     }),
   ]);
+
+  // A business that has not been formed is left out of every tax picker and widget (lib/tax-entities.ts isEntityUnformed).
+  const allEntities = allEntitiesRaw.filter((e) => !isEntityUnformed(e));
 
   // Documents per entity+year for the widgets
   const docYearCounts = await db.document.groupBy({

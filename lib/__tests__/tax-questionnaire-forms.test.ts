@@ -194,9 +194,8 @@ describe("every needs-CPA-input card has a questionnaire", () => {
       const ct = s.entries.find((e) => e.id.endsWith("-ct-entity-filing"))!;
       expect(ct.questionnaire).toMatchObject({ questionnaireId: "entity-ct-filing", entityId: s.entityId });
     }
-    // Mezzo is not yet formed: only the "no filing" row, no questionnaire.
-    const mezzo = data.entities.find((s) => s.slug === "mezzo")!;
-    expect(mezzo.entries.every((e) => e.questionnaire === null)).toBe(true);
+    // Mezzo is not yet formed: it is left off the page entirely (ai-payload-fixes), so it has no questionnaire either.
+    expect(data.entities.find((s) => s.slug === "mezzo")).toBeUndefined();
   });
 
   it("household questionnaires are scoped to the Personal entity", () => {
