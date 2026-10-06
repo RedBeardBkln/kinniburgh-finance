@@ -169,6 +169,8 @@ const MUST_SCRUB: [string, string][] = [
   ["street word suffix", "56 Arbor Road"],
   ["street word suffix upper", "56 ARBOR ROAD"],
   ["street word suffix period", "56 Arbor Rd."],
+  ["street with a different suffix, lower case (fixed by ai-payload-fixes: a known street line matches in any written form)", "56 arbor road"],
+  ["the bill spelling of the street, town and state", "56 ARBOR ROAD, WATERFORD CT"],
   ["fullwidth number", "５６ Arbor Rd"],
   ["old barry", "27 Old Barry Rd"],
   ["old barry upper", "27 OLD BARRY RD"],
@@ -205,7 +207,6 @@ const FIXED_SCRUB: [string, string][] = [
 // adversarial spellings the scrubber does not handle today
 const SCRUB_GAPS: [string, string, string][] = [
   ["street name alone (no number)", "the Arbor Rd property", "arbor"],
-  ["street with a different suffix, lower case", "56 arbor road", "arbor"],
   ["unknown lower-case address", "14 elm street", "elm"],
   ["unknown address, one-letter suffix typo", "14 Elm Streeet", "elm"],
   ["town on its own", "in Mystic", "mystic"],
