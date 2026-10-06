@@ -1568,7 +1568,7 @@ function rcPersonNodes(): QNode[] {
         `ibasis_${k}`,
         `In ${P.name}'s most recent filed Form 8606 (for 2024), what is the amount on line 14 (${P.name}'s total basis in traditional IRAs)? (Enter 0 if ${P.name} had none or never filed one.)`,
         {
-          help: "The IRS says (2025 Form 8606 instructions, Line 2 and the Total Basis Chart) to start 2025 line 2 from line 14 of the last Form 8606 you filed. Form 8606 is filed with a tax return, so look in the 2024 return or ask whoever prepared it. If that form's Line 15c Worksheet was used (only in a year with an IRA distribution), the instructions add the worksheet's line 6 to this amount, and the app does not add it for you.",
+          help: "The IRS says (2025 Form 8606 instructions, Line 2 and the Total Basis Chart) to start 2025 line 2 from line 14 of the last Form 8606 you filed. Form 8606 is filed with a tax return, so look in the 2024 return or ask whoever prepared it. If that form's Line 15c Worksheet was used (only in a year with an IRA distribution), the instructions add the worksheet's line 6 to this amount, and the app does not add it for you. The instructions also change line 2 (even in a first year) for a return of excess traditional IRA contributions, an IRA transferred under a divorce, or the after-tax part of a workplace plan rolled into an IRA and not yet reported on Form 8606 line 2; the app does not figure those either, so if one applies, enter the adjusted amount.",
           sources: ["8606I"],
           showWhen: inn(`ira_${k}`, "some"),
         }

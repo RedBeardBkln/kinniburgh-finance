@@ -236,7 +236,7 @@ describe("computeForm8606: line 2 from the 2024 Form 8606 line 14 (the owner's a
   const eric = (prior: Ans<Decimal>, basis: boolean | null = true, dist: boolean | null = true, magi = 270980) => form(ira([ERIC(), EVA()], magi), basis, dist, ["Eric", "Eva"], { a: prior });
   const four = (f: RuleResult, slot: "a" | "b" = "a") => [1, 2, 3, 14].map((n) => amt(f, `f8606${slot}.${n}` as LineKey));
 
-  it("Eric's golden: 2025 contribution 7,000 + 7,300 from the 2024 line 14 (7,000 contributed in 2024 plus 300 earlier) = line 3 14,300 = line 14 14,300", () => {
+  it("Eric's golden: 2025 contribution 7,000 + 7,300 from the 2024 line 14 (the owner's figure) = line 3 14,300 = line 14 14,300", () => {
     const f = eric(answered(D(7300)));
     expect(four(f)).toEqual(["7000", "7300", "14300", "14300"]);
     expect([1, 2, 3, 14].map((n) => st(f, `f8606a.${n}` as LineKey))).toEqual(["computed", "computed", "computed", "computed"]);
