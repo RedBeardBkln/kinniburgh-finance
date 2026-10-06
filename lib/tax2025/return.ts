@@ -70,6 +70,7 @@ import { carryoverOutOpenItem, computeCapitalLossCarryoverOut, computeScheduleD,
 import { computeForm8959, computeScheduleSe } from "@/lib/tax2025/rules/se-medicare";
 import { computeAmtScreen } from "@/lib/tax2025/rules/screens";
 import { FORM_8960_KEYS, computeForm8960, type Form8960Lead } from "@/lib/tax2025/rules/form-8960";
+import { computeForm8606 } from "@/lib/tax2025/rules/form-8606";
 import { computeIncomeTax } from "@/lib/tax2025/rules/tax-calc";
 import {
   LINE_KEYS,
@@ -98,7 +99,7 @@ import {
 } from "@/lib/tax2025/types";
 
 /** Bumped whenever a rule, the constants or the line catalog changes (stale-output detection for stored overrides / PDFs). */
-export const TY2025_ENGINE_VERSION = "ty2025-1b.7";
+export const TY2025_ENGINE_VERSION = "ty2025-1b.8";
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
 
@@ -606,8 +607,26 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   seStated("sch1.17", facts.adjustments.seHealthInsurance);
   A.sum("sch1.25", ["sch1.24a", "sch1.24b", "sch1.24c", "sch1.24d", "sch1.24e", "sch1.24f", "sch1.24g", "sch1.24h", "sch1.24i", "sch1.24j", "sch1.24k", "sch1.24z"]);
   A.sum("f1040.9", ["f1040.1z", "f1040.2b", "f1040.3b", "f1040.4b", "f1040.5b", "f1040.6b", "f1040.7a", "f1040.8"]);
+  /** Provenance of one person's Form 8606 lines: their own answers, their W-2s and their retirement statement (Form 5498). */
+  const form8606Refs = (slot: "a" | "b"): Ref[] => {
+    const p = ra.people.find((x) => x.slot === slot);
+    if (p === undefined) return [];
+    const stmts = (facts.income.retirementStatements ?? []).filter((r) => p.userId !== null && r.personUserId === p.userId).flatMap((r) => r.refs);
+    return [...personRefs(p), ...w2sOf(p.userId).flatMap((w) => w.refs), ...stmts];
+  };
+  const ndKeyOf = { a: "ira.a.nd", b: "ira.b.nd" } as const;
   if (facts.adjustments.ira.value !== null) {
     A.stated("sch1.20", facts.adjustments.ira, { status: "missing_input", reason: "IRA deduction." });
+    // A STATED deduction replaces the IRA rule, so the part of a recorded traditional contribution that is not deducted (Form 8606 line 1)
+    // is not figured: blocked. A person with no recorded contribution (answered 0, or the question is unanswered while the deduction is
+    // stated, like the other per-person IRA lines) has no Form 8606 amount to figure.
+    for (const slot of ["a", "b"] as const) {
+      const p = ra.people.find((x) => x.slot === slot);
+      if (p === undefined) A.fixed(ndKeyOf[slot], ZERO, "not_applicable", "No second person on this return.", "ira-deduction", []);
+      else if (p.traditionalIraCents.value === null) A.fixed(ndKeyOf[slot], ZERO, "not_applicable", "The IRA deduction is stated and no traditional IRA contribution is recorded (the question is unanswered), so no Form 8606 amount is figured here.", "ira-deduction", form8606Refs(slot));
+      else if (p.traditionalIraCents.value === 0) A.fixed(ndKeyOf[slot], ZERO, "not_applicable", "No traditional IRA contribution for 2025 (owner answer), so no Form 8606.", "ira-deduction", form8606Refs(slot));
+      else A.blocked(ndKeyOf[slot], "needs_cpa_judgment", `${p.name}: the IRA deduction is stated, not computed, so the part of the contribution that is not deducted (Form 8606 line 1) is not figured. You decide it.`, "ira-deduction");
+    }
   } else {
     // Pub. 590-A Worksheet 1-1 / the 1040 IRA worksheet: Form 1040 line 9 minus Schedule 1 lines 11 through 19a, 23 and 25.
     const total = A.num("f1040.9");
@@ -641,7 +660,36 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
       magi: iraMagi,
       noSocialSecurityBenefits: facts.statedNone.retirement_ss_income?.value ?? null,
     });
-    A.register(ira, { refs: [...ra.people.flatMap(personRefs), ...facts.income.w2s.flatMap((w) => w.refs)] });
+    // Form 8606 line 1 (ira.<slot>.nd) cites the person's own answers, W-2s and retirement statement.
+    const iraWithRefs: RuleResult = {
+      ...ira,
+      lines: ira.lines.map((l) => (l.key === "ira.a.nd" ? { ...l, refs: form8606Refs("a") } : l.key === "ira.b.nd" ? { ...l, refs: form8606Refs("b") } : l)),
+    };
+    A.register(iraWithRefs, { refs: [...ra.people.flatMap(personRefs), ...facts.income.w2s.flatMap((w) => w.refs)] });
+  }
+  // Form 8606 (nondeductible IRAs), Part I: lines 1, 2, 3 and 14 per person (rules/form-8606.ts). The provisional pass assumes the unanswered statements.
+  {
+    let basis = facts.statedNone.ira_basis_other?.value ?? null;
+    let distNone = facts.statedNone.retirement_ss_income?.value ?? null;
+    if (fill && basis === null) {
+      basis = true;
+      A.assumedFacts.push("No earlier-year IRA basis and no IRA conversion, recharacterization or returned contribution (Form 8606 lines 2 and 4-18, not stated)");
+    }
+    if (fill && distNone === null) distNone = true;
+    const f8606 = computeForm8606({
+      people: ra.people.map((p) => ({
+        slot: p.slot,
+        name: p.name,
+        nondeductible: { amount: A.peek(ndKeyOf[p.slot]), status: A.statusOf(ndKeyOf[p.slot]), reason: A.lines.get(ndKeyOf[p.slot])?.reason ?? null },
+      })),
+      noEarlierBasisOrOtherIraEvent: basis,
+      noIraDistributions: distNone,
+    });
+    const f8606WithRefs: RuleResult = {
+      ...f8606,
+      lines: f8606.lines.map((l) => (l.key.startsWith("f8606a.") ? { ...l, refs: form8606Refs("a") } : l.key.startsWith("f8606b.") ? { ...l, refs: form8606Refs("b") } : l)),
+    };
+    A.register(f8606WithRefs);
   }
   A.sum("sch1.26", ["sch1.11", "sch1.12", "sch1.13", "sch1.14", "sch1.15", "sch1.16", "sch1.17", "sch1.18", "sch1.19a", "sch1.20", "sch1.21", "sch1.23", "sch1.25"]);
   A.copy("f1040.10", "sch1.26");
@@ -1433,6 +1481,12 @@ export function computeFormsRequired(
     : hsaKeys.some((k) => blockedStatus(k))
       ? { required: "blocking", reason: hasW ? "A W-2 shows box 12 code W (HSA contributions): Form 8889 cannot be ruled out until the HSA questions are answered." : "Cannot tell until the HSA questions are answered." }
       : { required: false, reason: "No HSA activity." };
+  const nd8606 = (["f8606a.1", "f8606b.1"] as LineKey[]).map((k) => amount(k));
+  out.f8606 = nd8606.some((v) => v !== null && v > 0)
+    ? { required: true, reason: `A nondeductible contribution was made to a traditional IRA (one Form 8606 per person; the IRS penalty for not filing is $${K.FORM_8606_NOT_FILED_PENALTY.value}).` }
+    : (["f8606a.1", "f8606b.1"] as LineKey[]).some((k) => blockedStatus(k))
+      ? { required: "blocking", reason: "Cannot tell until the IRA questions are answered." }
+      : { required: false, reason: "No nondeductible traditional IRA contribution." };
   const saver = amount("f8880.12");
   out.f8880 =
     saver !== null && saver > 0
@@ -1711,6 +1765,36 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
       lineKeys: [...(qbiLoss16 ? (["f8995.16"] as LineKey[]) : []), ...(qbiLoss17 ? (["f8995.17"] as LineKey[]) : [])],
       refs: [],
     });
+  }
+  // Form 8606: line 14 is next year's starting point; and a hint when the IRA already held money (so "no earlier basis" deserves a second look)
+  const basisKeys = (["f8606a.14", "f8606b.14"] as LineKey[]).filter((k) => (A.peek(k) ?? ZERO).greaterThan(0));
+  if (basisKeys.length > 0) {
+    openItems.push({
+      id: "f8606-basis-record",
+      severity: "advisory",
+      message: `Form 8606 line 14 (your total basis in traditional IRAs for 2025 and earlier years) is next year's starting point: it is 2026 Form 8606 line 2. ${basisKeys.map((k) => `${lineMeta(k).form}: ${fmt(A.peek(k) ?? ZERO)}`).join("; ")}.`,
+      action: "Check that you keep a copy of the filed Form 8606 with your tax records (2025 Form 8606 instructions, What Records Must I Keep).",
+      lineKeys: basisKeys,
+      refs: [],
+    });
+  }
+  if (facts.statedNone.ira_basis_other?.value === true) {
+    const heldMore = facts.returnAnswers.people.flatMap((p) => {
+      const trad = p.traditionalIraCents.value;
+      if (p.userId === null || trad === null || trad <= 0) return [];
+      const stmts = (facts.income.retirementStatements ?? []).filter((r) => r.personUserId === p.userId && (r.fairMarketValueCents ?? 0) > trad);
+      return stmts.map((r) => ({ p, r }));
+    });
+    if (heldMore.length > 0) {
+      openItems.push({
+        id: "f8606-prior-basis-check",
+        severity: "advisory",
+        message: `${heldMore.map(({ p, r }) => `${p.name}'s IRA already held more than this year's contribution at year end (Form 5498 box 5: ${fmt(centsToDollars(r.fairMarketValueCents ?? 0))}).`).join(" ")} Form 8606 line 2 is 0 because you stated there are no earlier nondeductible contributions or other IRA changes.`,
+        action: "Check your earlier returns: if any earlier contribution was not deducted and no Form 8606 was filed for it, answer Yes to the earlier-year IRA basis question and fill in Form 8606 lines 2 and 4-18 yourself.",
+        lineKeys: ["f8606a.2", "f8606b.2"],
+        refs: heldMore.flatMap(({ r }) => r.refs),
+      });
+    }
   }
   const blockingItemCount = openItems.filter((o) => o.severity === "blocking").length;
   const strictHeadline = buildHeadline(A, blockingItemCount, null, openItems);

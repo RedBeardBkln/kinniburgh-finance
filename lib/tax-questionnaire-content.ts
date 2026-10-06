@@ -1387,6 +1387,9 @@ const RC_GROUP_PROMPTS: Readonly<Record<RcNoneGroupId, string>> = {
   // Federal Form 8960 (net investment income tax) lines 6, 7 and 10: items the app cannot read from any document, so a Yes means you work them out.
   niit_other:
     "stock in a company based outside the United States that the IRS treats as a controlled foreign corporation or a passive foreign investment company, a payout from an estate or a trust (Schedule K-1 from Form 1041, box 14 code H), a net operating loss (a business loss carried over from another year) that applies to investment income, a deduction from an earlier year that you got back and that was counted against investment income, or a business that mainly trades stocks, bonds or commodities",
+  // Federal Form 8606 (nondeductible IRAs) lines 2 and 4-18: the app cannot see earlier returns, so a "No" is how line 2 becomes 0.
+  ira_basis_other:
+    "money in a traditional IRA (Individual Retirement Account) that you already paid tax on, for example a contribution for 2024 or an earlier year that you did not deduct on that year's tax return (a nondeductible contribution), after-tax money rolled over from a 401(k) or other workplace plan, or an inherited IRA that holds after-tax money; an IRA split or transferred because of a divorce; a conversion of a traditional IRA to a Roth IRA in 2025; moving a 2025 IRA contribution to a different kind of IRA (a recharacterization); or taking a 2025 IRA contribution back out",
 };
 
 /** Group id -> a short plain-language name used in the follow-up amount question. */
@@ -1416,6 +1419,7 @@ const RC_GROUP_LABELS: Readonly<Record<RcNoneGroupId, string>> = {
   ct_other_state_tax: "income taxed by another state",
   ct_other_credits: "other Connecticut credits",
   niit_other: "foreign company stock, estate or trust payouts and other net investment income tax items",
+  ira_basis_other: "earlier-year IRA basis and other IRA changes",
 };
 
 /** Every "stated none" group this flow asks about: NONE_GROUP_IDS plus the capital-gain groups (no duplicates). */

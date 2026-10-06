@@ -22,7 +22,15 @@
 // Not computed (needs_cpa_judgment): contributions above the limit (traditional plus
 // Roth), and any year with Social Security benefits when a spouse is covered (the
 // Pub. 590-A Appendix B worksheets). "Not sure" and unanswered inputs are never
-// guessed. Nondeductible contributions (Form 8606) are the CPA's.
+// guessed.
+//
+// The part of a traditional contribution that is NOT deducted is the Form 8606 line 1 amount
+// (`ira.<slot>.nd`; rules/form-8606.ts turns it into the form's lines). 2025 Form 8606
+// instructions, "Line 1": subtract the IRA Deduction Worksheet's line 12 (what is deducted) from
+// the smaller of its line 10 (compensation) or line 11 (the contribution). A contribution above
+// the compensation that counts is an excess contribution (Form 5329): the nondeductible amount
+// is blocked, never guessed. A person with no traditional contribution, or a fully deducted one,
+// has no Form 8606 amount (not_applicable).
 //
 // Pure. Constants from lib/tax2025/constants.ts only.
 
@@ -55,12 +63,35 @@ export interface IraInput {
 }
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
-type Out = { ok: true; deduction: Decimal; notes: string[]; line: RuleLine } | { ok: false; status: Blocked; reason: string; missing: string; line: RuleLine };
+/** The nondeductible part of one person's traditional contribution (Form 8606 line 1). */
+type Nd = { kind: "amount"; amount: Decimal; reason: string } | { kind: "blocked"; status: Blocked; reason: string; missing: string } | { kind: "none"; reason: string };
+type Out =
+  | { ok: true; deduction: Decimal; notes: string[]; line: RuleLine; nd: Nd }
+  | { ok: false; status: Blocked; reason: string; missing: string; line: RuleLine };
 
 const CITES = ["IRA_LIMIT", "IRA_LIMIT_AGE_50", "IRA_PHASEOUT_COVERED_MFJ", "IRA_PHASEOUT_SPOUSE_COVERED_MFJ", "IRA_WORKSHEET_REDUCTION_COVERED_MFJ", "IRA_WORKSHEET_REDUCTION_OTHER", "IRA_FULL_DEDUCTION_RANGE_COVERED_MFJ", "IRA_FULL_DEDUCTION_RANGE_OTHER", "IRA_REDUCED_MINIMUM", "IRA_ROUND_UP_TO"];
 const SLOT_KEY = { a: "ira.a.7", b: "ira.b.7" } as const;
 const SLOT_LABEL = { a: "IRA deduction, taxpayer A", b: "IRA deduction, taxpayer B" } as const;
 const SLOT_LINE = { a: "1-2 line 7 (A)", b: "1-2 line 7 (B)" } as const;
+const ND_KEY = { a: "ira.a.nd", b: "ira.b.nd" } as const;
+const ND_LABEL = { a: "Nondeductible traditional IRA contribution, taxpayer A", b: "Nondeductible traditional IRA contribution, taxpayer B" } as const;
+const ND_LINE = { a: "8606 line 1 (A)", b: "8606 line 1 (B)" } as const;
+
+/** Form 8606 line 1: the smaller of compensation and the contribution, minus what is deducted. */
+function nondeductibleOf(p: IraPersonInput, tradAmt: Decimal, comp5: Decimal, deduction: Decimal): Nd {
+  if (tradAmt.greaterThan(comp5)) {
+    const reason = `${p.name}: the traditional IRA contribution ${fmt(tradAmt)} is more than the compensation that counts for the IRA limit (${fmt(comp5)}). The extra is an excess contribution (Form 5329), which this app does not figure, so the nondeductible amount (Form 8606 line 1) is not figured either.`;
+    return { kind: "blocked", status: "needs_cpa_judgment", reason, missing: `IRA excess contribution (${p.name})` };
+  }
+  const amount = minD(comp5, tradAmt).minus(deduction);
+  return {
+    kind: "amount",
+    amount,
+    reason: amount.isZero()
+      ? `${p.name}: the whole contribution of ${fmt(tradAmt)} is deducted, so nothing is nondeductible (no Form 8606).`
+      : `${p.name}: contribution ${fmt(tradAmt)} less the deduction ${fmt(deduction)}: ${fmt(amount)} is nondeductible (Form 8606 line 1).`,
+  };
+}
 
 function stopOut(p: IraPersonInput, status: Blocked, reason: string, missing: string): Out {
   const text = `${p.name}: ${reason}`;
@@ -93,6 +124,7 @@ export function computeIraDeduction(input: IraInput): RuleResult {
         deduction: ZERO,
         notes: [`${p.name}: no traditional IRA contribution, so no IRA deduction.`],
         line: amountLine(SLOT_KEY[p.slot], SLOT_LABEL[p.slot], SLOT_LINE[p.slot], ZERO, "not_applicable", "No traditional IRA contribution for 2025 (owner answer)."),
+        nd: { kind: "none", reason: "No traditional IRA contribution for 2025 (owner answer), so no Form 8606." },
       };
     }
     const age = need(p.age50Plus, p, "whether age 50 or older at the end of 2025");
@@ -149,7 +181,8 @@ export function computeIraDeduction(input: IraInput): RuleResult {
       const line2 = input.magi;
       if (line2.greaterThanOrEqualTo(line1)) {
         notes.push(`${p.name}: modified AGI ${fmt(line2)} is ${fmt(line1)} or more${covered ? " and the owner is covered by a plan at work" : " and the spouse is covered by a plan at work"}: the contribution is not deductible.`);
-        return { ok: true, deduction: ZERO, notes, line: amountLine(SLOT_KEY[p.slot], SLOT_LABEL[p.slot], SLOT_LINE[p.slot], ZERO, "computed", notes[0]) };
+        const ndOver = nondeductibleOf(p, tradAmt, comp5, ZERO);
+        return { ok: true, deduction: ZERO, notes, line: amountLine(SLOT_KEY[p.slot], SLOT_LABEL[p.slot], SLOT_LINE[p.slot], ZERO, "computed", notes[0]), nd: ndOver };
       }
       const line3 = line1.minus(line2);
       const fullAt = D(covered ? K.IRA_FULL_DEDUCTION_RANGE_COVERED_MFJ.value : K.IRA_FULL_DEDUCTION_RANGE_OTHER.value);
@@ -170,15 +203,42 @@ export function computeIraDeduction(input: IraInput): RuleResult {
     if (reducedLimit !== null) candidates.push(reducedLimit);
     const ded = candidates.reduce((a, b) => (a.lessThan(b) ? a : b));
     notes.push(`${p.name}: deduction = smallest of compensation ${fmt(comp5)}, contribution ${fmt(line6)}${reducedLimit !== null ? `, reduced limit ${fmt(reducedLimit)}` : ""} = ${fmt(ded)}.`);
-    return { ok: true, deduction: ded, notes, line: amountLine(SLOT_KEY[p.slot], SLOT_LABEL[p.slot], SLOT_LINE[p.slot], ded, ded.isZero() ? "not_applicable" : "computed", notes.join(" ")) };
+    return {
+      ok: true,
+      deduction: ded,
+      notes,
+      line: amountLine(SLOT_KEY[p.slot], SLOT_LABEL[p.slot], SLOT_LINE[p.slot], ded, ded.isZero() ? "not_applicable" : "computed", notes.join(" ")),
+      nd: nondeductibleOf(p, tradAmt, comp5, ded),
+    };
   });
 
-  for (const o of outs) lines.push(o.line);
+  const ndReasons: string[] = [];
+  const ndMissing: string[] = [];
+  outs.forEach((o, i) => {
+    const p = people[i]!;
+    lines.push(o.line);
+    // Form 8606 line 1 (ira.<slot>.nd): a stop on the deduction (an unanswered question, an over-limit contribution, ...) stops it too.
+    if (!o.ok) {
+      lines.push(blockedLine(ND_KEY[p.slot], ND_LABEL[p.slot], ND_LINE[p.slot], o.status, o.reason));
+    } else if (o.nd.kind === "blocked") {
+      lines.push(blockedLine(ND_KEY[p.slot], ND_LABEL[p.slot], ND_LINE[p.slot], o.nd.status, o.nd.reason));
+      ndReasons.push(o.nd.reason);
+      ndMissing.push(o.nd.missing);
+    } else if (o.nd.kind === "none") {
+      lines.push(amountLine(ND_KEY[p.slot], ND_LABEL[p.slot], ND_LINE[p.slot], ZERO, "not_applicable", o.nd.reason));
+    } else {
+      lines.push(amountLine(ND_KEY[p.slot], ND_LABEL[p.slot], ND_LINE[p.slot], o.nd.amount, o.nd.amount.isZero() ? "not_applicable" : "computed", o.nd.reason));
+      if (!o.nd.amount.isZero()) ndReasons.push(o.nd.reason);
+    }
+  });
   const present = new Set(people.map((p) => p.slot));
   for (const slot of ["a", "b"] as const) {
-    if (!present.has(slot)) lines.push(amountLine(SLOT_KEY[slot], SLOT_LABEL[slot], SLOT_LINE[slot], ZERO, "not_applicable", "No second person on this return."));
+    if (!present.has(slot)) {
+      lines.push(amountLine(SLOT_KEY[slot], SLOT_LABEL[slot], SLOT_LINE[slot], ZERO, "not_applicable", "No second person on this return."));
+      lines.push(amountLine(ND_KEY[slot], ND_LABEL[slot], ND_LINE[slot], ZERO, "not_applicable", "No second person on this return."));
+    }
   }
-  const missing: string[] = [];
+  const missing: string[] = [...ndMissing];
   const blocked = outs.filter((o): o is Extract<Out, { ok: false }> => !o.ok);
   if (blocked.length > 0) {
     const status = worstBlocked(blocked.map((b) => b.status)) as Blocked;
@@ -201,6 +261,7 @@ export function computeIraDeduction(input: IraInput): RuleResult {
     );
     for (const o of oks) reasons.push(...o.notes);
   }
+  reasons.push(...ndReasons);
   return {
     ruleId: "ira-deduction",
     form: "Pub. 590-A worksheets / Schedule 1",

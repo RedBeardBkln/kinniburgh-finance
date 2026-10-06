@@ -270,8 +270,8 @@ describe("Return completeness questionnaire: tree integrity", () => {
   it("the all-none path is ~45 questions (the report says 45 of 107 nodes) and terminates", () => {
     const a = walk(noneOrNo);
     expect(Object.keys(a).length).toBeGreaterThanOrEqual(40);
-    expect(Object.keys(a).length).toBeLessThanOrEqual(64); // + the Form 8960 g_ question (ty2025-sch1a-8960-pdfs) + cgco, cgall, cgadj and two capital-gain stated-none groups (schedule-d-capture) + six CT Schedule 1 g_ questions (ty2025-mip-ct-schedule1) + two CT credit g_ questions (ty2025-ct1040-derived-lines)
-    expect(def.nodes.length).toBe(156); // + 2 (the Form 8960 lines 6, 7 and 10 group, g_ + ga_); 129 (round 6: other-income flow) + 9 capital-gain nodes (cgco/cgcos/cgcol/cgall/cgadj + 2 none groups g_ + ga_) + 12 (six CT Schedule 1 groups, g_ + ga_ each) + 4 (two CT credit groups, g_ + ga_ each)
+    expect(Object.keys(a).length).toBeLessThanOrEqual(65); // + the Form 8606 g_ question (form-8606) + the Form 8960 g_ question (ty2025-sch1a-8960-pdfs) + cgco, cgall, cgadj and two capital-gain stated-none groups (schedule-d-capture) + six CT Schedule 1 g_ questions (ty2025-mip-ct-schedule1) + two CT credit g_ questions (ty2025-ct1040-derived-lines)
+    expect(def.nodes.length).toBe(158); // + 2 (the Form 8606 earlier-year basis group, g_ + ga_); 156 = + 2 (the Form 8960 lines 6, 7 and 10 group, g_ + ga_); 129 (round 6: other-income flow) + 9 capital-gain nodes (cgco/cgcos/cgcol/cgall/cgadj + 2 none groups g_ + ga_) + 12 (six CT Schedule 1 groups, g_ + ga_ each) + 4 (two CT credit groups, g_ + ga_ each)
   });
   it("every showWhen references only EARLIER nodes (no dangling / forward reference) and the unsure option exists on every choice node", () => {
     const idx = new Map(def.nodes.map((n, i) => [n.id, i]));
@@ -304,12 +304,12 @@ describe("Return completeness questionnaire: tree integrity", () => {
       for (const o of n.options) expect(seen.has(`${n.id}:${o.id}`), `${n.id}:${o.id} unreachable`).toBe(true);
     }
   });
-  it("each of the 25 stated-none groups has exactly one g_ question and one ga_ amount node, and every NoneGroupId has line-catalog text", () => {
+  it("each of the 26 stated-none groups has exactly one g_ question and one ga_ amount node, and every NoneGroupId has line-catalog text", () => {
     // 16 line-gating groups (+ capital_gain_other and capital_special_rates for Schedule D) + the six CT Schedule 1 groups,
     // which gate no catalog line: rules/ct-schedule1.ts reads them itself; plus the two CT credit groups read by rules/ct-credits.ts
-    // and niit_other, read by rules/form-8960.ts (Form 8960 lines 6, 7 and 10)
-    const CT_GROUPS = ["ct_muni_bonds", "ct_us_gov_funds", "ct_chet_able", "ct_prior_addbacks", "ct_other_additions", "ct_other_subtractions", "ct_other_state_tax", "ct_other_credits", "niit_other"];
-    expect(NONE_GROUP_IDS).toHaveLength(25);
+    // and niit_other, read by rules/form-8960.ts (Form 8960 lines 6, 7 and 10), and ira_basis_other, read by rules/form-8606.ts (Form 8606 lines 2 and 4-18)
+    const CT_GROUPS = ["ct_muni_bonds", "ct_us_gov_funds", "ct_chet_able", "ct_prior_addbacks", "ct_other_additions", "ct_other_subtractions", "ct_other_state_tax", "ct_other_credits", "niit_other", "ira_basis_other"];
+    expect(NONE_GROUP_IDS).toHaveLength(26);
     const ids = new Set(def.nodes.map((n) => n.id));
     for (const g of NONE_GROUP_IDS) {
       expect(ids.has(`g_${g}`), g).toBe(true);

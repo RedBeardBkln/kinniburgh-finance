@@ -438,6 +438,8 @@ const ID_TO_FORM: Readonly<Record<string, FormId>> = {
   "Schedule 1-A": "sch1a",
   "Form 8889 (spouse A)": "f8889",
   "Form 8889 (spouse B)": "f8889",
+  "Form 8606 (taxpayer A)": "f8606",
+  "Form 8606 (taxpayer B)": "f8606",
   "Form 8880": "f8880",
   "Form 2210": "f2210",
   "CT-1040": "ct1040",

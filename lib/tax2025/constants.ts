@@ -54,6 +54,8 @@ export const VERIFIED_ON = "2026-10-03";
 export const VERIFIED_ON_SPEC09_FIRST_PASS = "2026-09-17";
 /** Date of the mortgage-insurance (Pub. 936) and CT-1040 Schedule 1 primary-source pass. */
 export const VERIFIED_ON_2026_10_04 = "2026-10-04";
+/** Date of the Form 8606 (2025) form and instructions primary-source pass. */
+export const VERIFIED_ON_2026_10_05 = "2026-10-05";
 
 const IRS = "https://www.irs.gov";
 const URL_1040_INSTR = `${IRS}/instructions/i1040gi`;
@@ -70,6 +72,7 @@ const URL_8995_INSTR = `${IRS}/instructions/i8995`;
 const URL_SCH_D_INSTR = `${IRS}/instructions/i1040sd`;
 const URL_8889_INSTR = `${IRS}/instructions/i8889`;
 const URL_PUB_590A = `${IRS}/publications/p590a`;
+const URL_8606_INSTR = `${IRS}/pub/irs-prior/i8606--2025.pdf`;
 const URL_8880_FORM = `${IRS}/pub/irs-pdf/f8880.pdf`;
 const URL_5695_INSTR = `${IRS}/instructions/i5695`;
 const URL_SCH_3_FORM = `${IRS}/pub/irs-pdf/f1040s3.pdf`;
@@ -428,6 +431,20 @@ export const CONSTANTS = {
     10000,
     URL_PUB_590A,
     "Worksheet 1-2 line 3: when line 1 minus MAGI is $10,000 or more (all others), the deduction is not reduced."
+  ),
+  FORM_8606_NOT_FILED_PENALTY: def(
+    "FORM_8606_NOT_FILED_PENALTY",
+    50,
+    URL_8606_INSTR,
+    "2025 Form 8606 instructions, Penalty for Not Filing: $50 for each failure to file Form 8606 when a nondeductible contribution was made to a traditional IRA, unless reasonable cause is shown.",
+    VERIFIED_ON_2026_10_05
+  ),
+  FORM_8606_OVERSTATEMENT_PENALTY: def(
+    "FORM_8606_OVERSTATEMENT_PENALTY",
+    100,
+    URL_8606_INSTR,
+    "2025 Form 8606 instructions, Overstatement Penalty: $100 for overstating the nondeductible contributions for a year, unless reasonable cause is shown.",
+    VERIFIED_ON_2026_10_05
   ),
   IRA_REDUCED_MINIMUM: def("IRA_REDUCED_MINIMUM", 200, URL_PUB_590A, "Worksheet 1-2 line 4: a reduced deduction under $200 is entered as $200."),
   IRA_ROUND_UP_TO: def("IRA_ROUND_UP_TO", 10, URL_PUB_590A, "Worksheet 1-2 line 4: a result that is not a multiple of $10 is rounded up to the next multiple of $10 (the Pub's own Example 1 prints $6,825; the written rule, repeated in the 1040 instructions, is followed)."),

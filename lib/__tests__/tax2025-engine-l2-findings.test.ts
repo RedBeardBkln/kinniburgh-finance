@@ -37,8 +37,8 @@ function lossFacts(): Ty2025Facts {
 }
 
 describe("engine version", () => {
-  it("is ty2025-1b.7", () => {
-    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.7");
+  it("is ty2025-1b.8 (1b.7 plus Form 8606)", () => {
+    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.8");
   });
 });
 

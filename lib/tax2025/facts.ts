@@ -94,6 +94,41 @@ export const w2FactSchema = z.object({
 });
 export type W2Fact = z.infer<typeof w2FactSchema>;
 
+/**
+ * A retirement contribution statement (Form 5498 or a custodian statement, docType retirement_contribution) for the tax year, read through
+ * lib/retirement-statement.ts. It CORROBORATES the owner's IRA answers (a conflict is raised when they differ) and is cited on Form 8606
+ * line 1; it never replaces the answer. All amounts are integer cents, null = the statement does not state that box.
+ */
+export const retirementStatementFactSchema = z.object({
+  docId: z.string(),
+  /** Document.subjectUserId; null = not assigned to a person (advisory open item). */
+  personUserId: z.string().nullable(),
+  basis: docBasisSchema,
+  legacyFormat: z.boolean(),
+  refs: z.array(refSchema),
+  issuer: z.string().nullable(),
+  /** Form 5498 box 1 (traditional IRA contributions for the form year, including those made through April 15 after it). */
+  traditionalIraCents: centsOrNull,
+  /** Box 10. */
+  rothIraCents: centsOrNull,
+  /** Box 8. */
+  sepCents: centsOrNull,
+  /** Box 9. */
+  simpleCents: centsOrNull,
+  /** Box 13a / 13b: a postponed or late contribution made this year for an earlier year. */
+  postponedCents: centsOrNull,
+  postponedForYear: z.number().int().nullable(),
+  /** Box 2. */
+  rolloverCents: centsOrNull,
+  /** Box 3. */
+  rothConversionCents: centsOrNull,
+  /** Box 4. */
+  recharacterizedCents: centsOrNull,
+  /** Box 5 (fair market value at year end): carried, NOT used by any line (Form 8606 line 6 is skipped when there is no distribution or conversion). */
+  fairMarketValueCents: centsOrNull,
+});
+export type RetirementStatementFact = z.infer<typeof retirementStatementFactSchema>;
+
 export const interestFactSchema = z.object({
   docId: z.string(),
   payer: z.string().nullable(),
@@ -472,6 +507,8 @@ export const ty2025FactsSchema = z.object({
   income: z.object({
     w2s: z.array(w2FactSchema),
     w2Unusable: z.array(z.object({ docId: z.string(), reason: z.string() })),
+    /** Retirement contribution statements for 2025 (Form 5498 ...). Optional: older stored facts and fixtures have none. */
+    retirementStatements: z.array(retirementStatementFactSchema).optional(),
     interest: z.array(interestFactSchema),
     /** Owner confirmed there is no interest income (no 1099-INT). */
     noInterestConfirmed: sourcedSchema(z.boolean()),

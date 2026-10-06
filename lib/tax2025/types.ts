@@ -421,6 +421,7 @@ export type FormId =
   | "f8829"
   | "schd"
   | "f8949"
+  | "f8606"
   | "ct1040";
 
 /** Whether a form belongs in the filing packet, derived from the computed return. */

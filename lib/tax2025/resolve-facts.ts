@@ -14,6 +14,7 @@
 // defaulted: null stays null and the rule says missing_input.
 
 import { sumCtWithholding } from "@/lib/tax-extraction-schema";
+import { retirementStatementSummary } from "@/lib/retirement-statement";
 import { readBrokerSummary } from "@/lib/tax-broker-summary";
 import { RC_PERSONS } from "@/lib/tax-questionnaire-content";
 import { matchPerson, uniquePersonMatch } from "@/lib/tax2025/answers";
@@ -30,6 +31,7 @@ import {
   type OtherIncomeBox,
   type PropertyBillKind,
   type PropertyTaxBill,
+  type RetirementStatementFact,
   type ReturnAnswers,
   type Ty2025Facts,
   type W2Fact,
@@ -155,6 +157,11 @@ type Rec = Record<string, unknown>;
 function dataOf(doc: RawDocument): Rec {
   const d = (doc.extractionData as { data?: unknown } | null)?.data;
   return typeof d === "object" && d !== null && !Array.isArray(d) ? (d as Rec) : {};
+}
+
+/** Cents as "$1,234.56" for open-item prose (display only). */
+function usd(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
 }
 
 function intOrNull(v: unknown): number | null {
@@ -417,6 +424,60 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       });
     }
   }
+
+  // ── Retirement contribution statements (Form 5498 ...) ──────────────────────
+  // They corroborate the owner's IRA answers (the conflict check below) and are cited on Form 8606 line 1. They never replace an answer.
+  const retirementStatements: RetirementStatementFact[] = [];
+  for (const doc of docsForYear.filter((d) => d.docType === "retirement_contribution")) {
+    const s = retirementStatementSummary(doc.extractionData);
+    if (!s.hasReading) continue;
+    // A statement read for another year than the return year is not this year's figure (the document's own year can lag the form year).
+    if (s.taxYear !== null && s.taxYear !== year) continue;
+    const personUserId = doc.subjectType === "person" ? doc.subjectUserId : null;
+    const issuer = s.issuerName;
+    const fact: RetirementStatementFact = {
+      docId: doc.id,
+      personUserId,
+      basis: docBasis(doc),
+      legacyFormat: doc.legacyFormat,
+      refs: [docRef(doc, `Retirement statement ${issuer ?? ""}`.trim())],
+      issuer,
+      traditionalIraCents: s.contributions.traditional_ira,
+      rothIraCents: s.contributions.roth_ira,
+      sepCents: s.contributions.sep_ira,
+      simpleCents: s.contributions.simple_ira,
+      postponedCents: s.postponed.amountCents,
+      postponedForYear: s.postponed.forYear,
+      rolloverCents: s.other.rolloverCents,
+      rothConversionCents: s.other.rothConversionCents,
+      recharacterizedCents: s.other.recharacterizedCents,
+      fairMarketValueCents: s.other.fairMarketValueCents,
+    };
+    retirementStatements.push(fact);
+    if (personUserId === null) {
+      addItem({
+        id: `retirement-doc-no-person:${doc.id}`,
+        severity: "advisory",
+        message: `The retirement statement${issuer === null ? "" : ` from ${issuer}`} is not assigned to a person, so it cannot be compared with the IRA answers for Eric or Eva or cited on a Form 8606.`,
+        action: "Set the person on the document (Documents screen).",
+        refs: fact.refs,
+      });
+    }
+    const events: string[] = [];
+    if ((fact.rothConversionCents ?? 0) > 0) events.push(`a Roth conversion (box 3: ${usd(fact.rothConversionCents ?? 0)})`);
+    if ((fact.recharacterizedCents ?? 0) > 0) events.push(`a recharacterized contribution (box 4: ${usd(fact.recharacterizedCents ?? 0)})`);
+    if ((fact.postponedCents ?? 0) > 0) events.push(`a postponed or late contribution (box 13a: ${usd(fact.postponedCents ?? 0)}${fact.postponedForYear === null ? "" : ` for ${fact.postponedForYear}`})`);
+    if (events.length > 0) {
+      addItem({
+        id: `retirement-doc-ira-event:${doc.id}`,
+        severity: "advisory",
+        message: `The retirement statement${issuer === null ? "" : ` from ${issuer}`} shows ${events.join(" and ")}. That changes Form 8606 beyond lines 1-3 and 14: the Return completeness question about earlier-year IRA basis and other IRA changes should be answered Yes, which stops those Form 8606 lines until you fill them in yourself.`,
+        action: "Check the statement against your IRA records and answer the earlier-year IRA basis question.",
+        refs: fact.refs,
+      });
+    }
+  }
+
   for (const person of raw.people) {
     const mine = w2s.filter((w) => w.personUserId === person.userId);
     if (mine.length > 1 && mine.some((w) => w.employerEin === null)) {
@@ -1067,6 +1128,30 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
     }
   }
 
+  // The owner's traditional IRA contribution versus the retirement statement's box 1 (which counts contributions made through April 15, 2026 for 2025).
+  for (const pa of returnAnswers.people) {
+    if (pa.userId === null || pa.traditionalIraCents.value === null) continue;
+    const mine = retirementStatements.filter((r) => r.personUserId === pa.userId && r.traditionalIraCents !== null);
+    if (mine.length === 0) continue;
+    const box1 = mine.reduce((s, r) => s + (r.traditionalIraCents ?? 0), 0);
+    if (box1 === pa.traditionalIraCents.value) continue;
+    conflicts.push({
+      factKey: `returnAnswers.${pa.slot}.traditionalIra`,
+      candidates: [
+        { basis: "answer_owner", label: `${pa.name}: owner answer (traditional IRA contribution for 2025)`, value: pa.traditionalIraCents.value, refs: pa.traditionalIraCents.refs },
+        {
+          basis: mine.every((r) => r.basis === "doc_verified") ? "doc_verified" : "doc_unverified",
+          label: `${pa.name}: retirement statement (Form 5498 box 1, traditional IRA contributions)`,
+          value: box1,
+          refs: mine.flatMap((r) => r.refs),
+        },
+      ],
+      chosen: `${pa.name}: owner answer (traditional IRA contribution for 2025)`,
+      reason:
+        "The owner's traditional IRA contribution differs from the retirement statement. Form 5498 box 1 includes contributions made through April 15, 2026 for 2025 and may miss one made at another custodian. The IRA deduction and Form 8606 line 1 use the owner answer; confirm which is right.",
+    });
+  }
+
   // 2024 return joint? The owner answer (Return completeness `pyjoint`) is the engine's input; the 2024 return document
   // is the cross-check. Nothing else compares the two, so a disagreement is surfaced here, never resolved silently.
   {
@@ -1092,6 +1177,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
   // ── Document provenance advisories ─────────────────────────────────────────
   const contributing = [
     ...w2s.map((w) => ({ id: w.docId, label: `W-2 ${w.employer ?? ""}`.trim(), basis: w.basis, legacy: w.legacyFormat })),
+    ...retirementStatements.map((r) => ({ id: r.docId, label: `Retirement statement ${r.issuer ?? ""}`.trim(), basis: r.basis, legacy: r.legacyFormat })),
     ...interest.map((i) => ({ id: i.docId, label: `1099 ${i.payer ?? ""}`.trim(), basis: i.basis, legacy: i.legacyFormat })),
     ...dividends.map((d) => ({ id: d.docId, label: `1099 ${d.payer ?? ""}`.trim(), basis: d.basis, legacy: d.legacyFormat })),
     ...mortgages.map((m) => ({ id: m.docId, label: `1098 ${m.lender ?? ""}`.trim(), basis: m.basis, legacy: m.legacyFormat })),
@@ -1138,6 +1224,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
     income: {
       w2s,
       w2Unusable,
+      retirementStatements,
       interest,
       noInterestConfirmed: answered(answers.noInterestConfirmed, "No interest income", "no_interest"),
       dividends,

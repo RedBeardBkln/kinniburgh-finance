@@ -32,6 +32,7 @@ export const ENGINE_FORM_TITLES: Readonly<Record<FormId, string>> = {
   f8829: "Form 8829 (Business Use of Your Home)",
   schd: "Schedule D (Form 1040), Capital Gains and Losses",
   f8949: "Form 8949 (Sales and Other Dispositions of Capital Assets)",
+  f8606: "Form 8606 (Nondeductible IRAs)",
   ct1040: "CT-1040",
 };
 

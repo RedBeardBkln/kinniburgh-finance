@@ -70,6 +70,9 @@ export const NONE_GROUP_TEXT = {
   // Form 8960 lines 6, 7 and 10 (rules/form-8960.ts reads it; no catalog line names it as its `group`).
   niit_other:
     "No stock in a foreign corporation (a controlled foreign corporation or a passive foreign investment company), no distribution from an estate or trust (Schedule K-1 (Form 1041) box 14 code H), no net operating loss that applies to net investment income, no recovery of a deduction counted against investment income in an earlier year, and no trading business (Form 8960 lines 6, 7 and 10).",
+  // Form 8606 lines 2 and 4-18 (rules/form-8606.ts reads it; no catalog line names it as its `group`). A Yes blocks those lines, never a guess.
+  ira_basis_other:
+    "No basis in traditional IRAs from earlier years and no other IRA event that changes Form 8606: no nondeductible contribution to a traditional IRA for 2024 or an earlier year, no after-tax (nontaxable) money rolled into an IRA from a workplace plan, no inherited IRA with basis, no IRA transferred under a divorce, no conversion of a traditional IRA to a Roth IRA in 2025, no recharacterization of an IRA contribution and no return of an IRA contribution (Form 8606 lines 2 and 4-18).",
 } as const;
 
 export type NoneGroupId = keyof typeof NONE_GROUP_TEXT;
@@ -586,6 +589,19 @@ const EXTRA = [
   ["ira.magi", "IRA worksheet", "1-1 line 7", "Modified AGI for the traditional IRA deduction"],
   ["ira.a.7", "IRA worksheet", "1-2 line 7 (A)", "IRA deduction, taxpayer A"],
   ["ira.b.7", "IRA worksheet", "1-2 line 7 (B)", "IRA deduction, taxpayer B"],
+  // Form 8606 (nondeductible IRAs), Part I, one form per person (a = first person in the Return completeness questionnaire, b = second).
+  // ira.<s>.nd is the Form 8606 line 1 amount (the contribution not deducted); lines 4-13 and 15-25c are completed only with an IRA
+  // distribution or a Roth conversion, which this engine blocks rather than figures (rules/form-8606.ts).
+  ["ira.a.nd", "IRA worksheet", "8606 line 1 (A)", "Nondeductible traditional IRA contribution, taxpayer A"],
+  ["ira.b.nd", "IRA worksheet", "8606 line 1 (B)", "Nondeductible traditional IRA contribution, taxpayer B"],
+  ["f8606a.1", "Form 8606 (taxpayer A)", "1", "Nondeductible contributions to traditional IRAs for 2025 (taxpayer A)"],
+  ["f8606a.2", "Form 8606 (taxpayer A)", "2", "Total basis in traditional IRAs from earlier years (taxpayer A)"],
+  ["f8606a.3", "Form 8606 (taxpayer A)", "3", "Lines 1 and 2 added (taxpayer A)"],
+  ["f8606a.14", "Form 8606 (taxpayer A)", "14", "Total basis in traditional IRAs for 2025 and earlier years (taxpayer A)"],
+  ["f8606b.1", "Form 8606 (taxpayer B)", "1", "Nondeductible contributions to traditional IRAs for 2025 (taxpayer B)"],
+  ["f8606b.2", "Form 8606 (taxpayer B)", "2", "Total basis in traditional IRAs from earlier years (taxpayer B)"],
+  ["f8606b.3", "Form 8606 (taxpayer B)", "3", "Lines 1 and 2 added (taxpayer B)"],
+  ["f8606b.14", "Form 8606 (taxpayer B)", "14", "Total basis in traditional IRAs for 2025 and earlier years (taxpayer B)"],
   // Phase 1b: Form 8880 (saver's credit; line 12 goes to Schedule 3 line 4)
   ["f8880.7", "Form 8880", "7", "Qualified contributions after the $2,000 cap per person"],
   ["f8880.8", "Form 8880", "8", "Adjusted gross income (Form 1040 line 11a)"],

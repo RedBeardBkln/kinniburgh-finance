@@ -47,7 +47,7 @@ const PAIRS: readonly (readonly [Keys, Keys])[] = [
   ["schc.28", "schc.29"],
   [["schc.29", "schc.30"], "schc.31"],
   // Net profit: Schedule 1 line 3, Schedule SE (line 2 -> line 3), Form 8995 line 1 and the IRA compensation limit.
-  ["schc.31", ["sch1.3", "se.2", "se.3", "f8995.1i", "ira.a.7", "ira.b.7"]],
+  ["schc.31", ["sch1.3", "se.2", "se.3", "f8995.1i", "ira.a.7", "ira.b.7", "ira.a.nd", "ira.b.nd"]],
 
   // ── Schedule SE ─────────────────────────────────────────────────────────────
   ["se.2", "se.3"],
@@ -104,8 +104,19 @@ const PAIRS: readonly (readonly [Keys, Keys])[] = [
     ["f1040.9", "sch1.11", "sch1.12", "sch1.13", "sch1.14", "sch1.15", "sch1.16", "sch1.17", "sch1.18", "sch1.19a", "sch1.23", "sch1.25"],
     "ira.magi",
   ],
-  ["ira.magi", ["ira.a.7", "ira.b.7"]],
+  ["ira.magi", ["ira.a.7", "ira.b.7", "ira.a.nd", "ira.b.nd"]],
   [["ira.a.7", "ira.b.7"], "sch1.20"],
+
+  // ── Form 8606 (nondeductible IRAs), Part I: one form per person ─────────────
+  // Line 1 = smaller of compensation and the contribution minus the IRA deduction (ira.<s>.nd); line 3 = 1 + 2; line 14 = line 3 (no distribution, no conversion).
+  ["ira.a.7", "ira.a.nd"],
+  ["ira.b.7", "ira.b.nd"],
+  ["ira.a.nd", "f8606a.1"],
+  ["ira.b.nd", "f8606b.1"],
+  [["f8606a.1", "f8606a.2"], "f8606a.3"],
+  [["f8606b.1", "f8606b.2"], "f8606b.3"],
+  ["f8606a.3", "f8606a.14"],
+  ["f8606b.3", "f8606b.14"],
 
   // ── Schedule 2 ──────────────────────────────────────────────────────────────
   [["sch2.1a", "sch2.1b", "sch2.1c", "sch2.1d", "sch2.1e", "sch2.1f", "sch2.1y"], "sch2.1z"],
