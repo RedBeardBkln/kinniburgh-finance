@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { GL_SCHEDULE_C_MAP, findGlMapEntry } from "@/lib/tax2025/gl-schedule-c-map";
+import { GL_MAP_ALIASES, GL_SCHEDULE_C_MAP, findGlMapEntry } from "@/lib/tax2025/gl-schedule-c-map";
 import { SCHEDULE_C_LINE_IDS } from "@/lib/tax2025/line-catalog";
 import { computeScheduleC, type ScheduleCInput } from "@/lib/tax2025/rules/schedule-c";
 import type { LineKey, RuleResult } from "@/lib/tax2025/types";
@@ -61,6 +61,58 @@ describe("GL-to-Schedule-C map (proposal)", () => {
     expect(findGlMapEntry("Mortgage interest")).toBeNull();
     expect(findGlMapEntry("Home office:Mortgage interest")?.target.kind).toBe("home_office_actual");
     expect(findGlMapEntry("Something not in the chart")).toBeNull();
+  });
+});
+
+describe("GL map aliases (documented renames of chart accounts)", () => {
+  const norm = (n: string) =>
+    n
+      .split(":")
+      .map((p) => p.trim().replace(/\s+/g, " ").toLowerCase())
+      .join(":");
+  const leaf = (n: string) => norm(n).split(":").pop() ?? "";
+
+  it("each alias targets an existing map entry", () => {
+    expect(GL_MAP_ALIASES.length).toBeGreaterThan(0);
+    for (const a of GL_MAP_ALIASES) {
+      expect(GL_SCHEDULE_C_MAP.some((e) => e.account === a.of), a.alias).toBe(true);
+      expect(a.note.length, a.alias).toBeGreaterThan(0);
+    }
+  });
+
+  it("no alias collides with a map account, another alias, or an existing leaf (full name or leaf)", () => {
+    const fulls = [...GL_SCHEDULE_C_MAP.map((e) => norm(e.account)), ...GL_MAP_ALIASES.map((a) => norm(a.alias))];
+    expect(new Set(fulls).size).toBe(fulls.length);
+    const mapLeaves = GL_SCHEDULE_C_MAP.map((e) => leaf(e.account));
+    const aliasLeaves = GL_MAP_ALIASES.map((a) => leaf(a.alias));
+    expect(new Set(aliasLeaves).size).toBe(aliasLeaves.length);
+    for (const l of aliasLeaves) expect(mapLeaves, l).not.toContain(l);
+  });
+
+  it("the Internet & TV account renamed to Internet & Phone still maps to Schedule C line 25, by full name and by leaf; the old name still works", () => {
+    const line25 = { kind: "line", line: "25" };
+    expect(findGlMapEntry("Utilities:Internet & TV services")?.target).toEqual(line25);
+    expect(findGlMapEntry("Utilities:Internet & Phone")?.target).toEqual(line25);
+    expect(findGlMapEntry("  utilities : INTERNET  &  phone ")?.target).toEqual(line25);
+    expect(findGlMapEntry("Internet & Phone")?.target).toEqual(line25);
+    expect(findGlMapEntry("Utilities:Internet & Phone")?.account).toBe("Utilities:Internet & TV services");
+    // an unrelated near-name is still unmapped
+    expect(findGlMapEntry("Utilities:Internet & Phones")).toBeNull();
+  });
+
+  it("an alias never changes a map entry or a target: every other name resolves exactly as before", () => {
+    for (const e of GL_SCHEDULE_C_MAP) expect(findGlMapEntry(e.account), e.account).toBe(e);
+  });
+
+  it("a GlCode renamed 'Utilities:Internet & Phone' computes Schedule C identically to the old name (line 25 total, nothing unmapped)", () => {
+    const run = (name: string) => computeScheduleC(input({ glLines: [...input().glLines, gl("6100", name, "expense", 261_000)] }));
+    const before = run("Utilities:Internet & TV services");
+    const after = run("Utilities:Internet & Phone");
+    expect(amt(after.result, "schc.25")).toBe("3810"); // 1,200 (phone service in the fixture) + 2,610
+    expect(after.result.lines.map((l) => [l.key, l.status, l.amount?.toString() ?? null])).toEqual(
+      before.result.lines.map((l) => [l.key, l.status, l.amount?.toString() ?? null]),
+    );
+    expect(after.detail.unmapped).toEqual([]);
   });
 });
 

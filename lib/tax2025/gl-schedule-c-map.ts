@@ -198,6 +198,31 @@ export const GL_SCHEDULE_C_MAP: readonly GlMapEntry[] = [
 /** Lines the map may target (sanity-checked by a test against the catalog). */
 export const MAPPED_SCHEDULE_C_LINES: readonly string[] = SCHEDULE_C_LINE_IDS;
 
+/**
+ * Documented renames of chart accounts. The CPA's export (data/gl-accounts-ekc-2026.csv)
+ * is not edited, but the owner may relabel an account in the app's GL codes page; each
+ * entry here lets the renamed GlCode keep resolving to the SAME mapping entry (`of` is the
+ * exact `account` of an entry in GL_SCHEDULE_C_MAP) so a rename can never turn an account
+ * UNMAPPED. The old name stays in the map. An alias only adds a lookup name: it never
+ * changes a target. A test pins that each `of` exists and that no alias collides with a
+ * map name or another alias (full name or leaf).
+ */
+export interface GlMapAlias {
+  /** The new account name (a "Parent:Child" path, as stored in GlCode.name). */
+  alias: string;
+  /** The `account` of the existing GL_SCHEDULE_C_MAP entry it resolves to. */
+  of: string;
+  note: string;
+}
+
+export const GL_MAP_ALIASES: readonly GlMapAlias[] = [
+  {
+    alias: "Utilities:Internet & Phone",
+    of: "Utilities:Internet & TV services",
+    note: "Owner relabelled this account (there is no TV expense); still Schedule C line 25.",
+  },
+];
+
 function normalizeName(name: string): string {
   return name
     .split(":")
@@ -207,6 +232,16 @@ function normalizeName(name: string): string {
 
 const BY_FULL_NAME: ReadonlyMap<string, GlMapEntry> = new Map(GL_SCHEDULE_C_MAP.map((e) => [normalizeName(e.account), e]));
 
+const ENTRY_BY_ACCOUNT: ReadonlyMap<string, GlMapEntry> = new Map(GL_SCHEDULE_C_MAP.map((e) => [e.account, e]));
+
+/** Alias full / leaf name -> the entry the alias resolves to (a leaf is used only when exactly one alias or entry has it). */
+const ALIAS_BY_FULL_NAME: ReadonlyMap<string, GlMapEntry> = new Map(
+  GL_MAP_ALIASES.flatMap((a) => {
+    const e = ENTRY_BY_ACCOUNT.get(a.of);
+    return e ? [[normalizeName(a.alias), e] as const] : [];
+  }),
+);
+
 /** Leaf name -> entries having that leaf (a leaf match is only used when exactly one entry has it). */
 const BY_LEAF: ReadonlyMap<string, GlMapEntry[]> = (() => {
   const m = new Map<string, GlMapEntry[]>();
@@ -214,12 +249,19 @@ const BY_LEAF: ReadonlyMap<string, GlMapEntry[]> = (() => {
     const leaf = normalizeName(e.account).split(":").pop() ?? "";
     m.set(leaf, [...(m.get(leaf) ?? []), e]);
   }
+  for (const a of GL_MAP_ALIASES) {
+    const e = ENTRY_BY_ACCOUNT.get(a.of);
+    if (!e) continue;
+    const leaf = normalizeName(a.alias).split(":").pop() ?? "";
+    m.set(leaf, [...(m.get(leaf) ?? []), e]);
+  }
   return m;
 })();
 
 /**
  * Finds the proposed target for a GL code's stored name: full "Parent:Child" name
- * first, then the leaf name when exactly one account in the chart has that leaf.
+ * first (then a documented alias, see GL_MAP_ALIASES), then the leaf name when exactly
+ * one account in the chart (or alias) has that leaf.
  * Returns null when nothing (or an ambiguous leaf) matches: the caller reports it
  * as UNMAPPED.
  */
@@ -227,6 +269,8 @@ export function findGlMapEntry(name: string): GlMapEntry | null {
   const norm = normalizeName(name);
   const full = BY_FULL_NAME.get(norm);
   if (full) return full;
+  const aliased = ALIAS_BY_FULL_NAME.get(norm);
+  if (aliased) return aliased;
   if (!norm.includes(":")) {
     const leafMatches = BY_LEAF.get(norm) ?? [];
     if (leafMatches.length === 1) return leafMatches[0] ?? null;
