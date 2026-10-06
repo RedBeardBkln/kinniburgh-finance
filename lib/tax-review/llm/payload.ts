@@ -279,6 +279,7 @@ function documentsOf(facts: Ty2025Facts, docs: readonly PayloadDocumentInput[], 
   for (const x of facts.income.otherIncomeBoxes) mark(x.docId, "other_income");
   for (const x of facts.deductions.mortgages) mark(x.docId, "mortgage");
   for (const x of facts.deductions.propertyTaxBills) mark(x.docId, "property_tax");
+  for (const x of facts.income.retirementStatements ?? []) mark(x.docId, "retirement_statement");
   return docs.map((d): PayloadDocument => {
     const subject = d.subjectType === "joint" ? "joint" : labels.of(d.subjectUserId);
     const asRaw = { id: d.id, docType: d.docType, taxYear: d.taxYear, extractionStatus: d.extractionStatus, reextractIncomplete: d.reextractIncomplete ?? false };
@@ -521,6 +522,7 @@ const FILE_FORM_NAMES: Readonly<Record<string, string>> = {
   f8995: "Form 8995",
   f8959: "Form 8959",
   f8960: "Form 8960",
+  f8606: "Form 8606",
   ct1040: "CT-1040",
 };
 
@@ -548,6 +550,7 @@ const ENGINE_FORM_NAMES: Readonly<Record<string, string>> = {
   f5695: "Form 5695",
   f4562: "Form 4562",
   f8829: "Form 8829",
+  f8606: "Form 8606",
   ct1040: "CT-1040",
 };
 
@@ -655,6 +658,7 @@ export function buildReviewPayload(input: PayloadInput, people: readonly Househo
     ...facts.income.otherIncomeBoxes.map((x) => x.docId),
     ...facts.deductions.mortgages.map((x) => x.docId),
     ...facts.deductions.propertyTaxBills.map((x) => x.docId),
+    ...(facts.income.retirementStatements ?? []).map((x) => x.docId),
   ]);
   const h = ret.headline;
   const head = (a: { status: string; amount: number | null }): { status: string; amount: number | null } => ({ status: plainRuleStatus(a.status), amount: a.amount });

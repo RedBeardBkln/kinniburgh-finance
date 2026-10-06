@@ -4,7 +4,7 @@
 // retried alone):
 //   (a) income completeness   a1 documents vs income lines            a2 interest / dividends / sales / other income / books interest
 //   (b) deductions, credits   b1 Schedule A + itemizing                b2 Schedule 1-A, QBI, credits      b3 payments, penalty, Forms 8959 / 8960
-//   (c) form-by-form lines    c1 Form 1040 + Schedules 1-3             c2 Schedules A-D, SE, Form 8949    c3 Schedule 1-A, Forms 8959 / 8960 / 8995
+//   (c) form-by-form lines    c1 Form 1040 + Schedules 1-3 + Form 8606             c2 Schedules A-D, SE, Form 8949    c3 Schedule 1-A, Forms 8959 / 8960 / 8995
 //   (d) Connecticut           d1 CT-1040 lines and Schedule 1          d2 CT credits, payments, property tax
 //   (e) risk + register       e1 audit-risk flags                      e2 narration of the judgments register (existing entries only)
 //   (f) adversarial           f1 looks for what the other passes missed or got wrong
@@ -224,7 +224,7 @@ export const TASKS: readonly TaskDef[] = [
       "Look for: a printed value that does not belong on that printed line, two lines that must agree but do not, an implausible sign or magnitude, a line that should have a value given the other lines, a total that does not follow from its parts. Compare each printed value with the line data.",
       8
     ),
-    slice: (p) => ({ ...core(p), forms: formsOf(p, ["f1040", "f1040s1", "f1040s2", "f1040s3"]), lines: linesOn(p, ["Form 1040", "Schedule 1", "Schedule 2", "Schedule 3"]) }),
+    slice: (p) => ({ ...core(p), forms: formsOf(p, ["f1040", "f1040s1", "f1040s2", "f1040s3", "f8606"]), lines: linesOn(p, ["Form 1040", "Schedule 1", "Schedule 2", "Schedule 3", "Form 8606 (taxpayer A)", "Form 8606 (taxpayer B)"]) }),
   },
   {
     id: "c2",
