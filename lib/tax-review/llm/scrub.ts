@@ -91,12 +91,15 @@ export type Scrubber = (text: string) => string;
 const STATES = "CT|NY|MA|RI|NJ|PA|VT|NH|ME|FL|DE|MD|CA|TX|VA|NC|SC|GA|OH|IL|Connecticut";
 // "<Town words>, CT 06375" written after a street address that was just replaced by a label
 const TOWN_STATE_ZIP = `(?:,?\\s+[A-Za-z][A-Za-z.'-]*(?:\\s+[A-Za-z][A-Za-z.'-]*){0,2},?\\s+(?:${STATES})\\b\\.?\\s*\\d{5}(?:-\\d{4})?)`;
+// "<Town words>, CT" after a replaced street with NO zip: the comma before the town, a capitalised town and an upper-case state are all required
+// (the rule is case-sensitive), so ordinary words after a label ("the primary residence for me") are never taken for a town and state.
+const TOWN_STATE_NO_ZIP = `(?:,\\s+[A-Z][A-Za-z.'-]*(?:\\s+[A-Z][A-Za-z.'-]*){0,2},?\\s+(?:${STATES})\\b\\.?)`;
 // a state and zip left on their own ("CT 06375")
 const STATE_ZIP = new RegExp(`,?\\s*\\b(?:${STATES})\\b\\.?\\s+\\d{5}(?:-\\d{4})?\\b`, "gi");
 
 export function buildScrubber(config: ScrubConfig): Scrubber {
   const labels = [...new Set([GENERIC_ADDRESS_LABEL, ...config.addresses.map((a) => a.label)])];
-  const tails = labels.map((l) => new RegExp(`(${escapeRegExp(l)})${TOWN_STATE_ZIP}`, "gi"));
+  const tails = labels.flatMap((l) => [new RegExp(`(${escapeRegExp(l)})${TOWN_STATE_ZIP}`, "gi"), new RegExp(`(${escapeRegExp(l)})${TOWN_STATE_NO_ZIP}`, "g")]);
   const entityRules = config.entities
     .flatMap((e) => entityVariants(e).map((v) => ({ re: wordRegex(v), label: e.label, len: v.length })))
     .sort((a, b) => b.len - a.len);

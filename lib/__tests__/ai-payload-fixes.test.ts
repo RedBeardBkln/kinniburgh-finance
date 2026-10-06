@@ -7,7 +7,9 @@ vi.mock("@/lib/tax-review-build", () => ({ loadFormData: vi.fn(), loadReviewInpu
 
 import { acceptedFindingsOf, entityActiveInYear, recordedDecisionsOf, scrubAddressesFor, scrubEntitiesFor } from "@/lib/tax-review-l3";
 import { addressPatternSource, canonicalAddress, sameProperty } from "@/lib/tax-review/llm/address";
-import { buildOwnerStatements, OWNER_STATEMENTS_TY2025 } from "@/lib/tax-review/llm/owner-statements";
+import { buildOwnerStatements, neutralTarget, OWNER_STATEMENTS_TY2025 } from "@/lib/tax-review/llm/owner-statements";
+import { DECISION_KEYS, DECISION_REGISTRY } from "@/lib/tax2025/overrides";
+import { LINE_CATALOG } from "@/lib/tax2025/line-catalog";
 import { billRole, buildReviewPayload, mortgageRole, packetManifestOf, serializePayload, type ReviewPayload } from "@/lib/tax-review/llm/payload";
 import { buildScrubber } from "@/lib/tax-review/llm/scrub";
 import { PROMPT_VERSION, REVIEW_RULES, SYSTEM_PROMPT, TASKS, taskContentHash, userPrompt } from "@/lib/tax-review/llm/tasks";
@@ -194,7 +196,7 @@ describe("entities of the tax year", () => {
 });
 
 // A payload built from the rich fixture with real-shaped entities and addresses.
-async function payloadFor(): Promise<{ payload: ReviewPayload; json: string }> {
+async function payloadFor(ownerRecords?: NonNullable<Parameters<typeof buildReviewPayload>[0]["ownerRecords"]>): Promise<{ payload: ReviewPayload; json: string }> {
   const f = await richFixture();
   const facts = structuredClone(f.pipeline.ctx.facts);
   facts.deductions.primaryResidenceAddress = { value: FORM_1098, basis: "derived", refs: [] };
@@ -217,6 +219,7 @@ async function payloadFor(): Promise<{ payload: ReviewPayload; json: string }> {
       bindings,
       l1Findings: f.l1Findings,
       entityLabels: entities.labels,
+      ...(ownerRecords === undefined ? {} : { ownerRecords }),
     },
     PEOPLE
   );
@@ -294,7 +297,7 @@ describe("owner statements", () => {
     expect(o.label).toMatch(/do not ask the owner to confirm it again/);
     const text = o.confirmed.join("\n");
     for (const needle of [
-      "No information returns (Form 1099-NEC, 1099-MISC or 1099-K) were issued to the Consulting LLC",
+      "No other information returns (Form 1099-NEC, 1099-MISC or 1099-K) were issued to the Consulting LLC for 2025 beyond the ones among the documents",
       "no residential clean energy credit (Form 5695) carryforward from 2024",
       "No Connecticut estimated tax payments were made for 2025, and no 2024 Connecticut balance was paid in 2025",
       "No margin interest or investment interest was paid in 2025",
@@ -329,7 +332,8 @@ describe("owner statements", () => {
         { key: "L3.x.2", about: null, reason: "   " },
       ],
     });
-    expect(o.recordedDecisions).toEqual([{ kind: "decision", target: "homeOfficeMethod", value: "simplified", reason: "Simplified method: the barn office is small." }]);
+    // the decision is sent under the engine's decision id, never under its registry key
+    expect(o.recordedDecisions).toEqual([{ kind: "decision", target: "X1", value: "simplified", reason: "Simplified method: the barn office is small." }]);
     expect(o.acceptedFindings).toEqual([{ key: "L3.x.1", about: "Check the figure", reason: "Confirmed with the bank." }]);
   });
   it("leaves out an accepted finding or a reason that brings back a business that did not exist in 2025 (old generic labels, placeholders, names)", () => {
@@ -390,5 +394,97 @@ describe("the prompt rules", () => {
       expect(taskContentHash(t), t.id).toMatch(/^[0-9a-f]{64}$/);
     }
     expect(SYSTEM_PROMPT).not.toContain("ownerStatements");
+  });
+});
+
+// ── review round: a decision's registry key names a property ("arborRoadPropertyTax"); keys were never checked ──────────────────────
+// The search is case-insensitive over KEYS and values, camelCase-aware, and has NO word boundary for the long names (a \b never matches
+// inside "arborRoadPropertyTax"). The short names (eric, eva) are read per word of the camelCase / snake_case split, otherwise "generic" and
+// "evaluate" would hit. SAFE_HARBOR_* constant ids contain "arbor" and are the one known safe false hit.
+function leakingNames(value: unknown): string[] {
+  const parts: string[] = [];
+  const walk = (v: unknown): void => {
+    if (typeof v === "string") parts.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v !== null && typeof v === "object") {
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+        parts.push(k);
+        walk(x);
+      }
+    }
+  };
+  walk(value);
+  const raw = parts.join("\n").replace(/safe[_\s-]*harbor/gi, " ").replace(/harbor/gi, " ").toLowerCase();
+  const split = parts.join("\n").replace(/safe[_\s-]*harbor/gi, " ").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_.:/-]+/g, " ").toLowerCase();
+  const found: string[] = [];
+  for (const n of ["barry", "arbor", "waterford", "quaker", "kinniburgh", "mezzo", "sudden valley", "suddenvalley", "ramirez", "wisiackas"]) {
+    if (raw.includes(n) || split.includes(n)) found.push(n);
+  }
+  for (const n of ["eric", "eva", "laura"]) if (new RegExp(`\\b${n}\\b`).test(split)) found.push(n);
+  return found;
+}
+
+describe("recorded decisions are sent under the engine decision id, never under the registry key", () => {
+  it("every registry key maps to its decision id; unknown keys and odd shapes become neutral words", () => {
+    for (const [key, meta] of Object.entries(DECISION_REGISTRY)) expect(neutralTarget("decision", key), key).toBe(meta.decisionId);
+    expect(neutralTarget("decision", "arborRoadPropertyTax")).toBe("X5");
+    expect(neutralTarget("decision", "someFutureKey")).toBe("decision");
+    expect(neutralTarget("decision", "constructor")).toBe("decision");
+    expect(neutralTarget("line", "f1040.9a_Arbor")).toBe("line");
+    expect(neutralTarget("line", "Arbor Road line")).toBe("line");
+    expect(neutralTarget("rule_ack", "arborRoadRule")).toBe("rule");
+    expect(neutralTarget("anything", "arbor")).toBe("record");
+  });
+  it("every line key of the engine catalog survives unchanged (nothing useful is lost)", () => {
+    for (const m of LINE_CATALOG) expect(neutralTarget("line", m.key), m.key).toBe(m.key);
+  });
+  it("the real shape of the live leak: a decision on 56 Arbor Rd is X5 in the whole payload, keys and values", async () => {
+    const records = DECISION_KEYS.map((k) => ({ kind: "decision", target: k, value: "schedule_a", reason: "Chosen on the notice." }));
+    const { payload, json } = await payloadFor({ recordedDecisions: [...records, { kind: "line", target: "f1040.9", value: "100", reason: "Per the notice." }, { kind: "rule_ack", target: "arborRoadRule", value: null, reason: "Reviewed." }], acceptedFindings: [] });
+    expect(payload.ownerStatements.recordedDecisions.map((d) => d.target)).toEqual(["X1", "X2", "X3", "X5", "f1040.9", "rule"]);
+    expect(json).toContain("\"target\":\"X5\"");
+    expect(leakingNames(JSON.parse(json))).toEqual([]);
+  });
+  it("the leak check itself catches a camelCase key (it would have caught the live defect)", () => {
+    expect(leakingNames({ target: "arborRoadPropertyTax" })).toEqual(["arbor"]);
+    expect(leakingNames({ arborRoad: 1 })).toEqual(["arbor"]);
+    expect(leakingNames({ note: "Eric Smith, Sudden Valley" }).sort()).toEqual(["eric", "sudden valley"]);
+    expect(leakingNames({ id: "SAFE_HARBOR_100K", note: "a generic numeric evaluation" })).toEqual([]);
+  });
+});
+
+describe("tester gaps G1-G3 (address scrubber)", () => {
+  it("G1: zero-width characters inside a written address do not hide it, and do not make two spellings two properties", () => {
+    const scrub = buildScrubber({ entities: [], addresses: [{ address: FORM_1098, label: "the primary residence" }] });
+    for (const zw of ["​", "‌", "‍", "‎", "‏", "⁠", "﻿", "­"]) {
+      expect(scrub(`27${zw} Old${zw} Barry${zw} Rd`), `U+${zw.charCodeAt(0).toString(16)}`).toBe("the primary residence");
+      expect(scrub(`2${zw}7 Old${zw}Barry R${zw}oad, Waterford, CT 06385`), `U+${zw.charCodeAt(0).toString(16)}`).toBe("the primary residence");
+      expect(sameProperty("27 Old Barry Rd", `27 Old${zw}Barry Rd`)).toBe(true);
+      expect(sameProperty("27 Old Barry Rd", `27 Old Barry R${zw}oad`)).toBe(true);
+    }
+  });
+  it("G2: a street name that contains a suffix word keeps it; a different final suffix is a different property", () => {
+    expect(canonicalAddress("30 Pine Point Rd")).toEqual({ number: "30", name: "pine point", suffix: "rd" });
+    expect(sameProperty("30 Pine Point Rd", "30 Pine Point Ln")).toBe(false);
+    expect(sameProperty("100 Park Place Dr", "100 Park Place Ln")).toBe(false);
+    expect(sameProperty("30 Pine Point Rd", "30 PINE POINT ROAD, Waterford, CT 06385")).toBe(true);
+    expect(sameProperty("30 Pine Point Rd Quaker Hill CT 06375", "30 pine point road")).toBe(true);
+    // the state "CT" is still not the suffix when an earlier suffix word exists, and a street that ends in Ct still is
+    expect(canonicalAddress(FORM_1098)).toEqual({ number: "27", name: "old barry", suffix: "rd" });
+    expect(canonicalAddress("14 Pine Ct")).toEqual({ number: "14", name: "pine", suffix: "ct" });
+    expect(sameProperty("14 Pine Ct", "14 Pine Court, Town, CT 06375")).toBe(true);
+    expect(sameProperty("14 Pine Ct", "14 Pine St")).toBe(false);
+    // the pattern for a name that contains a suffix word finds the street and not the other one
+    const scrub = buildScrubber({ entities: [], addresses: [{ address: "30 Pine Point Rd", label: "the primary residence" }] });
+    expect(scrub("on 30 Pine Point Road")).toBe("on the primary residence");
+    expect(scrub("on 30 Pine Point Ln")).toBe("on [property address]");
+  });
+  it("G3: a town and state with no zip after a replaced known street are removed; ordinary words after a label are not", () => {
+    const scrub = buildScrubber({ entities: [], addresses: [{ address: FORM_1098, label: "the primary residence" }] });
+    expect(scrub("see 27 Old Barry Rd, Waterford, CT for details")).toBe("see the primary residence for details");
+    expect(scrub("27 OLD BARRY ROAD, Quaker Hill, CT.")).toBe("the primary residence");
+    expect(scrub("27 Old Barry Rd, East Lyme CT 06333 and more")).toBe("the primary residence and more");
+    expect(scrub("27 Old Barry Rd is the primary residence for me, Eric ME")).toBe("the primary residence is the primary residence for me, Eric ME");
+    expect(scrub("27 Old Barry Rd, the home, was sold in ct")).toBe("the primary residence, the home, was sold in ct");
   });
 });

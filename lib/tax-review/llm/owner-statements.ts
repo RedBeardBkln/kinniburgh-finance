@@ -13,6 +13,10 @@
 // PURE: no DB, no network, no clock.
 
 import { findRedactionIssues } from "@/lib/tax-review/redact";
+import { DECISION_REGISTRY } from "@/lib/tax2025/overrides";
+import { LINE_CATALOG } from "@/lib/tax2025/line-catalog";
+
+const LINE_KEYS: ReadonlySet<string> = new Set(LINE_CATALOG.map((m) => m.key));
 
 export const OWNER_STATEMENTS_VERSION = 1;
 
@@ -22,7 +26,7 @@ export const OWNER_STATEMENTS_LABEL =
 /** The TY2025 owner-confirmed facts that do not depend on a document: an explicit allow-list (a new one is added here, by hand, and nowhere else). */
 export const OWNER_STATEMENTS_TY2025: readonly string[] = [
   "No business other than the Consulting LLC existed or had activity in 2025.",
-  "No information returns (Form 1099-NEC, 1099-MISC or 1099-K) were issued to the Consulting LLC for 2025.",
+  "No other information returns (Form 1099-NEC, 1099-MISC or 1099-K) were issued to the Consulting LLC for 2025 beyond the ones among the documents.",
   "There is no residential clean energy credit (Form 5695) carryforward from 2024.",
   "No Connecticut estimated tax payments were made for 2025, and no 2024 Connecticut balance was paid in 2025.",
   "No margin interest or investment interest was paid in 2025.",
@@ -88,6 +92,20 @@ function clean(text: string, max: number): string | null {
   return t === "" || findRedactionIssues(t).length > 0 || RETIRED_ENTITY_TEXT.test(text) ? null : t;
 }
 
+/**
+ * What a recorded override is called in the payload. The raw decision key can name a property ("arborRoadPropertyTax" is the Arbor Road
+ * property), and keys are not covered by the street scrubber (they are camelCase identifiers, not spelled addresses), so a decision is sent
+ * under the engine's own decision id ("X5", the same id the payload's `decisions` carry) and never under its key. A key that is not in the
+ * registry is sent as a neutral word. A line target is kept only when it is a line of the engine's closed catalog ("f1040.9"); a rule id is
+ * kept only when it has the plain shape of an id (no camelCase word), otherwise both are replaced by a neutral word too.
+ */
+export function neutralTarget(kind: string, target: string): string {
+  if (kind === "decision") return (DECISION_REGISTRY as Record<string, { decisionId: string } | undefined>)[target]?.decisionId ?? "decision";
+  if (kind === "line") return LINE_KEYS.has(target) ? target : "line";
+  if (kind === "rule_ack") return /^[A-Za-z0-9]{1,16}(?:[._:-][A-Za-z0-9]{1,16}){0,5}$/.test(target) && !/[a-z][A-Z]/.test(target) ? target : "rule";
+  return "record";
+}
+
 /** The document the owner said is a 2026 document to be disregarded (uploaded as type "other"). */
 const DISREGARDED_2026_DOC = "c20de682";
 
@@ -99,7 +117,7 @@ export function buildOwnerStatements(input: OwnerStatementInput): OwnerStatement
   const recordedDecisions: RecordedDecision[] = [];
   for (const d of input.recordedDecisions.slice(0, MAX_DECISIONS)) {
     const reason = clean(d.reason, 240);
-    if (reason !== null) recordedDecisions.push({ kind: d.kind, target: d.target, value: d.value, reason });
+    if (reason !== null) recordedDecisions.push({ kind: d.kind, target: neutralTarget(d.kind, d.target), value: d.value, reason });
   }
   const acceptedFindings: AcceptedFinding[] = [];
   for (const f of input.acceptedFindings.slice(0, MAX_ACCEPTED)) {

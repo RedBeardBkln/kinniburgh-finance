@@ -59,7 +59,8 @@ export interface CanonicalAddress {
  */
 export function canonicalAddress(raw: string | null | undefined): CanonicalAddress | null {
   if (raw === null || raw === undefined) return null;
-  let s = raw.normalize("NFKC").toLowerCase();
+  // zero-width / format characters (U+200B-U+200F, U+2060, U+FEFF, soft hyphen ...) are not part of an address (tester gap G1)
+  let s = raw.normalize("NFKC").replace(/\p{Cf}/gu, "").toLowerCase();
   const comma = s.indexOf(",");
   if (comma >= 0) s = s.slice(0, comma);
   s = s
@@ -74,15 +75,22 @@ export function canonicalAddress(raw: string | null | undefined): CanonicalAddre
   const tokens = s.split(" ").filter((t) => t !== "");
   const number = tokens[0];
   if (number === undefined || !/^\d{1,6}[a-z]?$/.test(number) || tokens.length < 2) return null;
-  // the first suffix word that has at least one name word before it ("27 old barry rd quaker hill ct" -> "rd", not the state "ct")
+  // a trailing zip is not part of the street line
+  while (tokens.length > 2 && /^\d{5}(?:-\d{4})?$/.test(tokens[tokens.length - 1] ?? "")) tokens.pop();
+  // The street suffix is the LAST suffix word of the street line, so a street NAME that contains a suffix word keeps it
+  // ("30 Pine Point Rd" is "pine point" + "rd", not "pine" + "pt"; "30 Pine Point Ln" is a different property; tester gap G2).
+  // A trailing state "CT" (also the suffix "Ct") is not taken for the suffix when an earlier suffix word exists
+  // ("27 old barry rd quaker hill ct 06375" -> "rd").
+  const lastIsState = tokens.length > 3 && tokens[tokens.length - 1] === "ct" && tokens.slice(2, -1).some((t) => SUFFIX_CANON.has(t));
+  const limit = lastIsState ? tokens.length - 1 : tokens.length;
   let at = -1;
-  for (let i = 2; i < tokens.length; i += 1) {
+  for (let i = limit - 1; i >= 2; i -= 1) {
     if (SUFFIX_CANON.has(tokens[i] ?? "")) {
       at = i;
       break;
     }
   }
-  const nameTokens = (at >= 0 ? tokens.slice(1, at) : tokens.slice(1, 5)).filter((t) => !/^\d{5}(?:-\d{4})?$/.test(t));
+  const nameTokens = at >= 0 ? tokens.slice(1, at) : tokens.slice(1, 5);
   if (nameTokens.length === 0) return null;
   const name = nameTokens.map((t) => DIRECTION_CANON.get(t) ?? t).join(" ");
   return { number, name, suffix: at >= 0 ? (SUFFIX_CANON.get(tokens[at] ?? "") ?? null) : null };
@@ -97,7 +105,8 @@ export function sameProperty(a: string | null | undefined, b: string | null | un
     const flat = (x: string | null | undefined): string => (x ?? "").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
     return flat(a) !== "" && flat(a) === flat(b);
   }
-  if (ca.number !== cb.number || ca.name !== cb.name) return false;
+  // spaces inside the name do not tell two properties apart ("Old Barry" / "OldBarry": a zero-width character written between the words)
+  if (ca.number !== cb.number || ca.name.replace(/ /g, "") !== cb.name.replace(/ /g, "")) return false;
   return ca.suffix === null || cb.suffix === null || ca.suffix === cb.suffix;
 }
 
@@ -105,24 +114,31 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Zero-width / format characters a document may carry anywhere inside the address (they hide nothing from the pattern). */
+const FMT = "\\p{Cf}";
+const FMT_ANY = `${FMT}*`;
+/** One piece of text as a pattern: its characters in order, with format characters tolerated between them. */
+const spelled = (text: string): string => [...text].map(escapeRegExp).join(FMT_ANY);
+
 /** One name word as a pattern: its written variants (a direction word) and tolerant of an apostrophe or period inside it. */
 function wordPattern(token: string): string {
   const forms = DIRECTION_FORMS[token];
-  if (forms !== undefined) return `(?:${forms.map(escapeRegExp).join("|")})\\.?`;
-  return [...token].map(escapeRegExp).join("['’.`]?");
+  if (forms !== undefined) return `(?:${forms.map(spelled).join("|")})${FMT_ANY}\\.?`;
+  return [...token].map(escapeRegExp).join(`(?:['’.\`]|${FMT})*`);
 }
 
 /**
  * A case-insensitive pattern (flags "giu") that finds EVERY written form of this street line in free text: "27 Old Barry Rd",
- * "27 OLD BARRY ROAD", "27 old barry rd." The town, state and zip that may follow are removed by the scrubber's tail rule, not here.
- * Returns null when the address is not street-shaped.
+ * "27 OLD BARRY ROAD", "27 old barry rd." (zero-width characters inside it are tolerated). The town, state and zip that may follow are
+ * removed by the scrubber's tail rule, not here. Returns null when the address is not street-shaped.
  */
 export function addressPatternSource(raw: string): string | null {
   const c = canonicalAddress(raw);
   if (c === null) return null;
-  const words = c.name.split(" ").map(wordPattern).join("[\\s,.\\-–—]+");
+  const gap = `[\\s,.\\-–—${FMT}]+`;
+  const words = c.name.split(" ").map(wordPattern).join(gap);
   const anySuffix = Object.values(SUFFIX_FORMS).flat();
   const forms = c.suffix === null ? anySuffix : (SUFFIX_FORMS[c.suffix] ?? [c.suffix]);
-  const suffix = `(?:[\\s,.\\-–—]+(?:${forms.map(escapeRegExp).join("|")})\\b\\.?)${c.suffix === null ? "?" : ""}`;
-  return `(?<![\\p{L}\\p{N}])${escapeRegExp(c.number)}[\\s,.\\-–—]+${words}${suffix}(?![\\p{L}\\p{N}])`;
+  const suffix = `(?:${gap}(?:${forms.map(spelled).join("|")})\\b\\.?)${c.suffix === null ? "?" : ""}`;
+  return `(?<![\\p{L}\\p{N}])${spelled(c.number)}${gap}${words}${suffix}(?![\\p{L}\\p{N}])`;
 }
