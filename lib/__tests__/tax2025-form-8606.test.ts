@@ -112,6 +112,8 @@ describe("ira.<slot>.nd: the contribution that is not deducted (Form 8606 line 1
     expect(st(r, "ira.a.nd")).toBe("needs_cpa_judgment");
     expect(amt(r, "ira.a.nd")).toBeNull();
     expect(r.reasons.join(" ")).toContain("excess contribution (Form 5329)");
+    expect(r.reasons[0]).toContain("excess contribution (Form 5329)"); // the open item shows reasons[0]: the cause of the stop leads
+    expect(r.status).toBe("needs_cpa_judgment");
     expect(r.inputsMissing.join(" ")).toContain("excess contribution");
   });
 

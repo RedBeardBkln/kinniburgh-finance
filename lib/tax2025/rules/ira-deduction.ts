@@ -213,6 +213,7 @@ export function computeIraDeduction(input: IraInput): RuleResult {
   });
 
   const ndReasons: string[] = [];
+  const ndBlockedReasons: string[] = [];
   const ndMissing: string[] = [];
   outs.forEach((o, i) => {
     const p = people[i]!;
@@ -222,7 +223,7 @@ export function computeIraDeduction(input: IraInput): RuleResult {
       lines.push(blockedLine(ND_KEY[p.slot], ND_LABEL[p.slot], ND_LINE[p.slot], o.status, o.reason));
     } else if (o.nd.kind === "blocked") {
       lines.push(blockedLine(ND_KEY[p.slot], ND_LABEL[p.slot], ND_LINE[p.slot], o.nd.status, o.nd.reason));
-      ndReasons.push(o.nd.reason);
+      ndBlockedReasons.push(o.nd.reason);
       ndMissing.push(o.nd.missing);
     } else if (o.nd.kind === "none") {
       lines.push(amountLine(ND_KEY[p.slot], ND_LABEL[p.slot], ND_LINE[p.slot], ZERO, "not_applicable", o.nd.reason));
@@ -261,6 +262,8 @@ export function computeIraDeduction(input: IraInput): RuleResult {
     );
     for (const o of oks) reasons.push(...o.notes);
   }
+  // a nondeductible amount that is blocked is the reason the rule is blocked: it leads (the open item shows reasons[0])
+  reasons.unshift(...ndBlockedReasons);
   reasons.push(...ndReasons);
   return {
     ruleId: "ira-deduction",
