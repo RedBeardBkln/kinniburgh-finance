@@ -19,11 +19,13 @@ import { LINE_CATALOG } from "@/lib/tax2025/line-catalog";
 
 const LINE_KEYS: ReadonlySet<string> = new Set(LINE_CATALOG.map((m) => m.key));
 
-// 3 (estate-owner-statements-2): the estate facts of Taxpayer F's mother, as the owner corrected them on 2026-10-06 (a Form 1041 WAS filed for the
-// estate's 2024 tax year; the bonds the estate cashed were US savings bonds whose redemption record cannot be found; the deed made Taxpayer F a
-// joint tenant, undated; no income from the inheritance, the capital improvements to other property A, no energy improvements, no basis needed for 2025).
+// 4 (owner-statements-v4): the owner's confirmations of 2026-10-06 after the second live review: the estate's Form 1041 covers calendar 2024 and
+// reported no bond interest (the savings bonds were redeemed in late 2024, so any bond interest is a 2024 estate matter); no federal estimated tax
+// payments were made for 2025; the property tax on other property A was paid from personal funds; the Form 1098 loan bought the primary residence;
+// a motor vehicle property tax statement is on Schedule A line 5c; the deed was not a gift (owner's statement); the Internet & Phone share is decision X6.
+// Version 3 said the owner had not yet re-read the Form 1041 and carried an OPEN statement about the bonds: both are replaced by these facts.
 // Version 2 was the first version of the estate facts and said no Form 1041 filing was required: that was wrong.
-export const OWNER_STATEMENTS_VERSION = 3;
+export const OWNER_STATEMENTS_VERSION = 4;
 
 export const OWNER_STATEMENTS_LABEL =
   "Owner statements, NOT verified by documents: facts the owner confirmed himself. Treat each as given and do not ask the owner to confirm it again. You may still add a finding if a figure or a line contradicts a statement, if a statement does not carry the conclusion you would draw, or about anything a statement does not cover.";
@@ -38,14 +40,20 @@ export const OWNER_STATEMENTS_TY2025: readonly string[] = [
   "The software and apps expenses in the books are all for the Consulting LLC and cover tax year 2025.",
   "Taxpayer M materially participates in the Consulting LLC.",
   "The $7,000 traditional IRA contribution (Taxpayer M) was made in 2025.",
-  // ── the estate of Taxpayer F's mother (owner-confirmed 2026-10-06, corrected the same day; no names, addresses or entity names) ──
+  "No federal estimated tax payments were made for 2025, and no 2024 overpayment was applied to 2025.",
+  "The property tax on other property A was paid from Taxpayer M's and Taxpayer F's personal funds in 2025.",
+  "The mortgage loan reported on the Form 1098 was used to buy the primary residence, so the interest is home acquisition debt.",
+  "A motor vehicle property tax statement was uploaded and is included on Schedule A line 5c.",
+  "The Internet & Phone business-use share is recorded by the owner as decision X6 (see the recorded decisions); it is not repeated here.",
+  // ── the estate of Taxpayer F's mother (owner-confirmed 2026-10-06, updated the same day; no names, addresses or entity names) ──
   "Taxpayer F's mother died in August 2024. Taxpayer F was the sole beneficiary of her mother's estate, inherited the house (other property A) and the other assets from it, and is the executor. The estate is closed and all distributions were completed in 2025.",
-  "The estate had its own employer identification number, and a Form 1041 was filed for the estate's 2024 tax year; the owner has not yet re-read what it reported. The owner recalls the estate's bank interest as under $2 and saw no Form 1099-INT, 1099-DIV or 1099-B under the estate's number.",
+  "The estate had its own employer identification number, and its Form 1041 covers calendar 2024 (1 January 2024 to 31 December 2024). It reported no bond interest and issued no Schedule K-1. The owner recalls the estate's bank interest as under $2 and saw no Form 1099-INT, 1099-DIV or 1099-B under the estate's number.",
   "Taxpayer F received no Schedule K-1 (Form 1041) and no Form 1099 for 2025 from the estate, or from the estate of her mother's late husband.",
   "The inheritance itself is not reported as income. The estate's cash and proceeds were used to pay the decedent's debts and to renovate other property A. The renovations, about $90,000, were all in 2025. They are capital improvements and are not deducted.",
   "No energy-efficiency or solar improvements were made to other property A.",
-  "OPEN, not a confirmed fact: the bonds the estate cashed were US savings bonds, but the redemption record and any Form 1099-INT cannot be found (the bank requires an in-person visit with valid probate papers, and the executor's letter has expired), so the interest is unknown. That interest would be reported under the redeemer's number (the estate's), not Taxpayer F's. Do not assume an amount.",
-  "The deed made Taxpayer F a joint tenant with right of survivorship in other property A (the owner says it was not a gift). The deed is undated. OPEN, not a confirmed fact: whether a gift tax return was needed is unresolved; do not assume either way.",
+  "The US savings bonds the estate cashed were redeemed in late 2024 (the exact date is unknown). The redemption record and any Form 1099-INT still cannot be found. So the bond interest is a 2024 estate matter, not income of the 2025 return.",
+  "OPEN, not a confirmed fact: the amount of any bond interest is unknown. If a Form 1099-INT surfaces, the estate's 2024 Form 1041 may need to be amended; that is an estate and 2024 matter and does not change the 2025 return. Do not assume an amount.",
+  "The deed made Taxpayer F a joint tenant with right of survivorship in other property A, and was not a gift (the owner's statement). The deed is undated. OPEN, not a confirmed fact: whether a gift tax return was needed is unresolved; do not assume either way.",
   "The basis of other property A is not needed for 2025: there was no sale of it and no depreciation on it in 2025.",
 ];
 

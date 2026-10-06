@@ -292,7 +292,7 @@ describe("owner statements", () => {
   it("carries the owner-confirmed TY2025 facts, labelled as not verified by documents", async () => {
     const { payload } = await payloadFor();
     const o = payload.ownerStatements;
-    expect(o.version).toBe(3);
+    expect(o.version).toBe(4);
     expect(o.label).toMatch(/NOT verified by documents/);
     expect(o.label).toMatch(/do not ask the owner to confirm it again/);
     const text = o.confirmed.join("\n");
@@ -305,58 +305,78 @@ describe("owner statements", () => {
       "Taxpayer M materially participates in the Consulting LLC",
       "The $7,000 traditional IRA contribution (Taxpayer M) was made in 2025",
       "that property was not offered for rent in 2025",
-      // the estate facts (estate-owner-statements-2: the owner's correction of 2026-10-06)
+      // the owner's confirmations of 2026-10-06 (owner-statements-v4)
+      "No federal estimated tax payments were made for 2025, and no 2024 overpayment was applied to 2025",
+      "The property tax on other property A was paid from Taxpayer M's and Taxpayer F's personal funds in 2025",
+      "The mortgage loan reported on the Form 1098 was used to buy the primary residence, so the interest is home acquisition debt",
+      "A motor vehicle property tax statement was uploaded and is included on Schedule A line 5c",
+      "The Internet & Phone business-use share is recorded by the owner as decision X6 (see the recorded decisions); it is not repeated here",
+      // the estate facts
       "Taxpayer F's mother died in August 2024. Taxpayer F was the sole beneficiary",
       "inherited the house (other property A) and the other assets from it, and is the executor. The estate is closed and all distributions were completed in 2025",
-      "a Form 1041 was filed for the estate's 2024 tax year; the owner has not yet re-read what it reported",
+      "its Form 1041 covers calendar 2024 (1 January 2024 to 31 December 2024). It reported no bond interest and issued no Schedule K-1",
       "The owner recalls the estate's bank interest as under $2 and saw no Form 1099-INT, 1099-DIV or 1099-B under the estate's number",
       "Taxpayer F received no Schedule K-1 (Form 1041) and no Form 1099 for 2025 from the estate, or from the estate of her mother's late husband",
       "The inheritance itself is not reported as income",
       "to renovate other property A",
       "The renovations, about $90,000, were all in 2025. They are capital improvements and are not deducted",
       "No energy-efficiency or solar improvements were made to other property A",
-      "OPEN, not a confirmed fact: the bonds the estate cashed were US savings bonds, but the redemption record and any Form 1099-INT cannot be found",
-      "the bank requires an in-person visit with valid probate papers, and the executor's letter has expired), so the interest is unknown",
-      "That interest would be reported under the redeemer's number (the estate's), not Taxpayer F's. Do not assume an amount",
-      "The deed made Taxpayer F a joint tenant with right of survivorship in other property A (the owner says it was not a gift). The deed is undated",
+      "The US savings bonds the estate cashed were redeemed in late 2024 (the exact date is unknown). The redemption record and any Form 1099-INT still cannot be found. So the bond interest is a 2024 estate matter, not income of the 2025 return",
+      "OPEN, not a confirmed fact: the amount of any bond interest is unknown. If a Form 1099-INT surfaces, the estate's 2024 Form 1041 may need to be amended; that is an estate and 2024 matter and does not change the 2025 return. Do not assume an amount",
+      "The deed made Taxpayer F a joint tenant with right of survivorship in other property A, and was not a gift (the owner's statement). The deed is undated",
       "OPEN, not a confirmed fact: whether a gift tax return was needed is unresolved",
       "The basis of other property A is not needed for 2025: there was no sale of it and no depreciation on it in 2025",
     ]) expect(text, needle).toContain(needle);
     expect(text).toContain("doc:c68acecb");
   });
-  it("the estate statements carry no name, street, town, zip or identifier, never say no Form 1041 was required, mention the deed transfer only in statement 7, and state the open items as OPEN", async () => {
-    const estateList = OWNER_STATEMENTS_TY2025.slice(8);
-    expect(estateList).toHaveLength(8);
+  it("the estate statements carry no name, street, town, zip or identifier, never say no Form 1041 was required, mention the deed transfer only in the deed statement, state the open items as OPEN, and carry no legal conclusion nor the retired statements", async () => {
+    const generalList = OWNER_STATEMENTS_TY2025.slice(0, 13);
+    const estateList = OWNER_STATEMENTS_TY2025.slice(13);
+    expect(estateList).toHaveLength(9);
     const DEED_WORDS = /\bgift|joint tenan|survivorship|\bdeed\b/i;
-    // statement 7 (the deed) is the only statement that may use the deed-transfer words; every other statement, estate or not, must not
+    // the deed statement (the 8th estate statement) is the only statement that may use the deed-transfer words; every other statement, estate or not, must not
     const deedIdx = estateList.findIndex((t) => DEED_WORDS.test(t));
-    expect(deedIdx).toBe(6);
+    expect(deedIdx).toBe(7);
     expect(estateList[deedIdx]).toMatch(/joint tenant with right of survivorship/);
-    expect(estateList[deedIdx]).toMatch(/not a gift/);
+    expect(estateList[deedIdx]).toMatch(/was not a gift \(the owner's statement\)/);
     expect(estateList[deedIdx]).toMatch(/deed is undated/);
-    const elsewhere = [...OWNER_STATEMENTS_TY2025.slice(0, 8), ...estateList.filter((_, i) => i !== deedIdx)].join("\n");
+    const elsewhere = [...generalList, ...estateList.filter((_, i) => i !== deedIdx)].join("\n");
     expect(elsewhere).not.toMatch(DEED_WORDS);
     const estate = estateList.join("\n");
     expect(estate).not.toMatch(/barry|arbor|waterford|quaker|\bCT\b|0638\d|\bEIN\b|\bSSN\b|\bCPA\b|mezzo|sudden valley/i);
     // the first version said no Form 1041 was required: that was wrong and must never come back
     expect(OWNER_STATEMENTS_TY2025.join("\n")).not.toMatch(/no Form 1041 (?:filing )?was required|far less than \$600/i);
-    expect(estate).toMatch(/a Form 1041 was filed for the estate's 2024 tax year/);
+    expect(estate).toMatch(/Form 1041 covers calendar 2024 \(1 January 2024 to 31 December 2024\)/);
+    // the superseded v3 statements are gone: the owner has now re-read the 1041, and the bonds are no longer an open "who reports it" question
+    const everyStatement = OWNER_STATEMENTS_TY2025.join("\n");
+    expect(everyStatement).not.toMatch(/not yet re-read|executor's letter|in-person visit|redeemer's number|bonds the estate cashed were US savings bonds, but/i);
+    // the owner said nothing about W-2 box 13 or motor vehicle installment counts, and no statement draws a legal conclusion beyond the owner's own words
+    expect(everyStatement).not.toMatch(/box 13|installment|statutory employee|retirement plan box/i);
+    expect(everyStatement).not.toMatch(/no gift tax return (?:was |is )?(?:required|needed)|gift tax return (?:was|is) not (?:required|needed)|not taxable|no tax is (?:due|owed)|is not subject to|exempt from/i);
     expect(estate).not.toMatch(/\b\d{2}-\d{7}\b|\b\d{3}-\d{2}-\d{4}\b/);
     expect(findRedactionIssues(estate)).toEqual([]);
-    expect(estate).toMatch(/OPEN, not a confirmed fact: the bonds the estate cashed were US savings bonds/);
+    expect(estate).toMatch(/OPEN, not a confirmed fact: the amount of any bond interest is unknown/);
     expect(estate).toMatch(/OPEN, not a confirmed fact: whether a gift tax return was needed is unresolved/);
+    // OPEN rules: exactly two OPEN markers in the whole list (bond interest amount, gift tax return); the bond one starts its statement, the deed one is the only one embedded and is the last sentence of the deed statement
+    const withOpen = OWNER_STATEMENTS_TY2025.filter((t) => t.includes("OPEN"));
+    expect(withOpen).toHaveLength(2);
+    expect(withOpen.filter((t) => t.startsWith("OPEN, not a confirmed fact:"))).toHaveLength(1);
+    expect(estateList[deedIdx]).toMatch(/\. OPEN, not a confirmed fact: whether a gift tax return was needed is unresolved; do not assume either way\.$/);
+    // the bond fact (late 2024, an estate matter) is a plain statement; only its amount is OPEN, and the OPEN note keeps the "does not change the 2025 return" scope
+    expect(estate).toMatch(/redeemed in late 2024 \(the exact date is unknown\)/);
+    expect(estate).toMatch(/does not change the 2025 return\. Do not assume an amount/);
     // the whole payload (with the real scrubbers) still carries them and still leaks nothing
     const { json } = await payloadFor();
     expect(json).toContain("sole beneficiary");
-    // in the whole payload the deed-transfer words appear only in statement 7
+    // in the whole payload the deed-transfer words appear only in the deed statement
     expect(json.match(/joint tenan/gi)).toHaveLength(1);
-    // (the charity wording of the return, "gifts to charity", is not a deed transfer: only the two gift phrases of statement 7 are counted)
+    // (the charity wording of the return, "gifts to charity", is not a deed transfer: only the two gift phrases of the deed statement are counted)
     expect(json.match(/not a gift\b|\bgift tax return/gi)).toHaveLength(2);
     expect(json.match(/\bdeed\b/gi)).toHaveLength(2);
     expect(json).not.toMatch(/\bbarry\b|\barbor\b|waterford|quaker|\bEric Sample\b|mezzo|sudden valley/i);
   });
   it("the allow-list is explicit and ties a statement to a document only when the document exists", () => {
-    expect(OWNER_STATEMENTS_TY2025).toHaveLength(16);
+    expect(OWNER_STATEMENTS_TY2025).toHaveLength(22);
     const none = buildOwnerStatements({ tdInterestAliases: [], otherPropertyBillAliases: [], documentAliases: new Set(), statedNone: [], recordedDecisions: [], acceptedFindings: [] });
     expect(none.confirmed).toEqual([...OWNER_STATEMENTS_TY2025]);
     const some = buildOwnerStatements({ tdInterestAliases: ["0cc0dce2"], otherPropertyBillAliases: [], documentAliases: new Set(["c20de682"]), statedNone: ["solar_credit"], recordedDecisions: [], acceptedFindings: [] });
