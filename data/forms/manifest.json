@@ -315,6 +315,19 @@
       "retrievedOn": "2026-10-03"
     },
     {
+      "formId": "f8606",
+      "title": "Form 8606, Nondeductible IRAs",
+      "taxYear": 2025,
+      "url": "https://www.irs.gov/pub/irs-prior/f8606--2025.pdf",
+      "sha256": "748a2bf2ef45918eac8d48fab8b1958c8c0c24102b7d2103c78f6f92a69486ae",
+      "bytes": 96165,
+      "pages": 2,
+      "fieldCount": 45,
+      "sourceKind": "acroform_hybrid_xfa",
+      "attachmentSeq": 48,
+      "retrievedOn": "2026-10-05"
+    },
+    {
       "formId": "ct1040",
       "title": "CT-1040, Connecticut Resident Income Tax Return (flat PDF, includes CT Schedules 1-5)",
       "taxYear": 2025,
