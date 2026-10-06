@@ -43,8 +43,15 @@ export interface L3StoreDb extends L3StoreTx {
   taxReviewRunEvent: L3StoreTx["taxReviewRunEvent"] & {
     findMany(args: { where: { runId: string }; orderBy: { createdAt: "asc" } }): Promise<EventDbRow[]>;
   };
-  $transaction<T>(fn: (tx: L3StoreTx) => Promise<T>): Promise<T>;
+  $transaction<T>(fn: (tx: L3StoreTx) => Promise<T>, options?: { maxWait?: number; timeout?: number }): Promise<T>;
 }
+
+/**
+ * Options of the interactive transaction of `append`. Prisma's defaults are 2 s to get a connection and 5 s to finish; the run start
+ * with reused tasks inserts the events and up to a few dozen finding rows through the pooler in one transaction, which a slow
+ * connection can push past 5 s (the whole start would then roll back and fail). Generous, but bounded: it fails closed either way.
+ */
+export const APPEND_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 function defaultDb(): L3StoreDb {
   return db as unknown as L3StoreDb;
@@ -126,7 +133,7 @@ export function dbAiRunStore(store: L3StoreDb = defaultDb()): AiRunStore {
             });
             if (fresh.length > 0) await tx.taxReviewFinding.createMany({ data: fresh.map((f) => toFindingRow(runId, f)) });
           }
-        });
+        }, APPEND_TRANSACTION_OPTIONS);
       } catch (err) {
         if (isUniqueViolation(err)) throw new DuplicateEventError();
         throw err;

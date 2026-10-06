@@ -31,10 +31,12 @@ export const RETRY_FACTOR = 1.75;
 /**
  * No request of the review ever asks for more output than this, retry included. Two bounds: it is far below the output limit of the
  * review model family (64,000 tokens), so a request is never refused for asking too much; and the model writes about 75 to 100 tokens a
- * second (measured: 5,795 tokens in 56 s, 6,000 in 60 s), so a request at the ceiling takes 240 to 320 s, which is all one serverless call
- * (page maxDuration 300 s, request timeout 280 s) can give. It also bounds what one task can cost.
+ * second (measured: 5,795 tokens in 56 s, 6,000 in 60 s), so a request at the ceiling must finish inside the action's 280 s request
+ * timeout (page maxDuration 300 s) with margin: 18,000 tokens take 180 to 240 s at 100 to 75 tokens a second (the largest first budget,
+ * 16,000, takes 160 to 213 s). A ceiling of 24,000 would need 240 to 320 s and could be cut off by the timeout. It also bounds what one
+ * task can cost.
  */
-export const HARD_CEILING_TOKENS = 24_000;
+export const HARD_CEILING_TOKENS = 18_000;
 
 export const TASK_IDS = ["a1", "a2", "b1", "b2", "b3", "c1", "c2", "c3", "d1", "d2", "e1", "e2", "f1"] as const;
 export type TaskId = (typeof TASK_IDS)[number];

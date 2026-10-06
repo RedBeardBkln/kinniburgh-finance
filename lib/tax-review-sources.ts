@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -31,13 +32,34 @@ export function sourcePackDir(): string {
   return path.join(process.cwd(), "data", "tax-sources", "2025");
 }
 
-/** The committed source pack (read once per process). Throws if a file is missing or malformed: the review must not run without it. */
+/** A text file of the pack does not hash to the value the manifest pins: it was edited (or re-issued) without re-pinning. */
+export class SourcePackIntegrityError extends Error {
+  readonly sourceIds: readonly string[];
+  constructor(sourceIds: readonly string[]) {
+    super(`source pack text differs from the manifest: ${sourceIds.join(", ")}`);
+    this.name = "SourcePackIntegrityError";
+    this.sourceIds = sourceIds;
+  }
+}
+
+/**
+ * The committed source pack (read once per process). Throws if a file is missing or malformed, or if a text file does not hash to the
+ * sha256 the manifest pins (same formula as scripts/tax-sources/fetch.ts: the text without carriage returns): the review must not run
+ * without the pinned law text, and the reuse of an earlier review's results identifies the pack by the manifest hashes, so a hand-edited
+ * text with an unchanged manifest must never be accepted as that pack.
+ */
 export function loadSourcePack(dir: string = sourcePackDir()): SourcePack {
   if (cache !== null && dir === sourcePackDir()) return cache;
   const manifest = manifestSchema.parse(JSON.parse(readFileSync(path.join(dir, "manifest.json"), "utf8")));
   const topics = topicsSchema.parse(JSON.parse(readFileSync(path.join(dir, "topics.json"), "utf8")));
   const texts: Record<string, string> = {};
-  for (const s of manifest.sources) texts[s.id] = readFileSync(path.join(dir, `${s.id}.txt`), "utf8").replace(/\r/g, "");
+  const mismatched: string[] = [];
+  for (const s of manifest.sources) {
+    const text = readFileSync(path.join(dir, `${s.id}.txt`), "utf8").replace(/\r/g, "");
+    if (createHash("sha256").update(text, "utf8").digest("hex") !== s.textSha256) mismatched.push(s.id);
+    texts[s.id] = text;
+  }
+  if (mismatched.length > 0) throw new SourcePackIntegrityError(mismatched);
   const pack: SourcePack = {
     version: 1,
     taxYear: 2025,

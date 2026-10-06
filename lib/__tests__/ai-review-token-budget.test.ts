@@ -63,8 +63,9 @@ describe("budgets against what the live run measured", () => {
   });
   it("the ceiling is far below the model's output limit and bounded by what one serverless call can wait for", () => {
     expect(HARD_CEILING_TOKENS).toBeLessThanOrEqual(32_000);
-    // 75 tokens a second (the slowest measured) must still finish inside the 280 s request timeout set by the action
-    expect(HARD_CEILING_TOKENS / 75).toBeLessThanOrEqual(330);
+    // 75 tokens a second (the slowest measured) must still finish inside the 280 s request timeout set by the action, with margin
+    // (the exact duration check against the action's timeout is in ai-review-review-fixes.test.ts)
+    expect(HARD_CEILING_TOKENS / 75).toBeLessThanOrEqual(250);
   });
   it("escalatedBudget: x1.75, bounded by the ceiling, null at the ceiling", () => {
     expect(RETRY_FACTOR).toBe(1.75);
