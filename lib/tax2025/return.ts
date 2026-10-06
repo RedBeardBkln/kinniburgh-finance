@@ -45,6 +45,7 @@ import { computeCtPayments, computeExcessSocialSecurity, computeFederalPayments 
 import { computeCtBalance, computeCtPropertyTaxCredit, computeCtTax } from "@/lib/tax2025/rules/ct";
 import { CT_CREDIT_LINES, computeCtOtherCredits } from "@/lib/tax2025/rules/ct-credits";
 import { computeCtSettlement } from "@/lib/tax2025/rules/ct-settlement";
+import { computeFederalOverpayment, federalPenaltyExceedsOverpayment } from "@/lib/tax2025/rules/overpayment-federal";
 import {
   CT_SCH1_ADDITION_KEYS,
   CT_SCH1_GROUPS,
@@ -99,7 +100,7 @@ import {
 } from "@/lib/tax2025/types";
 
 /** Bumped whenever a rule, the constants or the line catalog changes (stale-output detection for stored overrides / PDFs). */
-export const TY2025_ENGINE_VERSION = "ty2025-1b.9";
+export const TY2025_ENGINE_VERSION = "ty2025-1b.10";
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
 
@@ -140,6 +141,8 @@ class Assembly {
   scheduleC: ScheduleCDetail | null = null;
   scheduleD: ScheduleDDetail | null = null;
   scheduleDItems: OpenItem[] = [];
+  /** Advisory items raised by the overpayment rule (a printed penalty above the overpayment). */
+  overpaymentItems: OpenItem[] = [];
   /** The Schedule D Tax Worksheet would be needed (not implemented): Form 1040 line 16 is blocked with this. */
   scheduleDTaxBlock: ScheduleDOutput["taxBlock"] = null;
 
@@ -972,8 +975,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   A.sum("f1040.32", ["f1040.27a", "f1040.28", "f1040.29", "f1040.30", "f1040.31"]);
   A.derive("f1040.34", ["f1040.33", "f1040.24"], (v) => maxD(ZERO, v[0]!.minus(v[1]!)));
   A.derive("f1040.37", ["f1040.24", "f1040.33"], (v) => maxD(ZERO, v[0]!.minus(v[1]!)));
-  A.blocked("f1040.35a", "not_yet_computed", "How much of an overpayment to refund or apply to 2026 is a choice for the owner / CPA.", "election", true);
-  A.blocked("f1040.36", "not_yet_computed", "How much of an overpayment to apply to 2026 estimated tax is a choice for the owner / CPA.", "election", true);
+  // Lines 35a and 36 (the split of line 34): the owner's decision X7, registered after line 38 below
   {
     const sumKeys = (keys: LineKey[]): Decimal | null => {
       let t = ZERO;
@@ -1009,6 +1011,25 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     // Line 38 is informational: the estimate when it can be computed, otherwise an explicit "not estimated" (the IRS figures it)
     if (A.peek("f2210.19") !== null) A.copy("f1040.38", "f2210.19", penRefs);
     else A.blocked("f1040.38", "not_yet_computed", `The Form 2210 estimate is not available (${A.lines.get("f2210.19")?.reason ?? "inputs missing"}); the IRS figures any underpayment penalty itself.`, "election", true);
+    // Lines 35a / 36: decision X7 (rules/overpayment-federal.ts). "Lines 35a, 36, and 38 must equal line 34": the penalty printed on line 38 is taken out first.
+    const over34 = A.peek("f1040.34");
+    if (over34 === null) {
+      // informational, as before: the split cannot be figured until line 34 is (and the owner records decision X7)
+      for (const key of ["f1040.35a", "f1040.36"] as const) A.blocked(key, "not_yet_computed", "Depends on Form 1040 line 34, which is not computed yet; the owner then records decision X7 (refund or apply to 2026).", "derive", true);
+    } else {
+      const printed38 = A.peek("f1040.38");
+      A.register(computeFederalOverpayment({ line34: over34, line38: printed38, ...(decisions.federalOverpayment ? { decision: decisions.federalOverpayment } : {}) }));
+      if (federalPenaltyExceedsOverpayment(over34, printed38) && !fill) {
+        A.overpaymentItems.push({
+          id: "overpayment-penalty-exceeds",
+          severity: "advisory",
+          message: `The line 38 penalty estimate (${fmt(printed38 ?? ZERO)}) is more than the line 34 overpayment (${fmt(over34)}): the Form 1040 instructions say to enter -0- on lines 35a and 36 and to subtract line 34 from line 38 and enter the result on line 37. This return prints 0 on lines 35a and 36 and does not add the penalty to line 37.`,
+          action: "Check line 37 by hand, or leave line 38 blank and let the IRS figure the penalty.",
+          lineKeys: ["f1040.34", "f1040.38", "f1040.35a", "f1040.36", "f1040.37"],
+          refs: [],
+        });
+      }
+    }
     A.register(
       computeSchedule3Summary({
         foreignTax: A.peek("sch3.1"),
@@ -1151,11 +1172,11 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   const settleDeps: LineKey[] = ["ct1040.14", "ct1040.18", "ct1040.20c", "ct1040.22", "ct1040.26"];
   const settleVals = settleDeps.map((k) => A.num(k));
   if (settleVals.every((v) => v !== null)) {
-    A.register(computeCtSettlement({ line14: settleVals[0] ?? ZERO, line18: settleVals[1] ?? ZERO, line20c: settleVals[2] ?? ZERO, line22: settleVals[3] ?? ZERO, line26: settleVals[4] ?? ZERO }));
+    A.register(computeCtSettlement({ line14: settleVals[0] ?? ZERO, line18: settleVals[1] ?? ZERO, line20c: settleVals[2] ?? ZERO, line22: settleVals[3] ?? ZERO, line26: settleVals[4] ?? ZERO, ...(decisions.ctOverpayment ? { decision: decisions.ctOverpayment } : {}) }));
   } else {
     const open = settleDeps.filter((_, i) => settleVals[i] === null);
     const status = worstBlocked(open.map((k) => A.statusOf(k))) ?? "missing_input";
-    for (const key of ["ct1040.25", "ct1040.27", "ct1040.28", "ct1040.29", "ct1040.30"] as const) {
+    for (const key of ["ct1040.23", "ct1040.25", "ct1040.27", "ct1040.28", "ct1040.29", "ct1040.30"] as const) {
       A.blocked(key, status, `Depends on lines not computed yet: ${open.map((k) => `${lineMeta(k).form} ${lineMeta(k).formLine}`).join(", ")}.`, "derive");
     }
   }
@@ -1667,6 +1688,7 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
     ...(extras.openItems ?? []),
     ...ruleOpenItems(A),
     ...A.scheduleDItems,
+    ...A.overpaymentItems,
     ...attestationOpenItems(attestations),
     ...informationalOpenItems(A),
     ...stateRefundOpenItems(A),

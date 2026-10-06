@@ -131,7 +131,7 @@ describe("(a) undecided: today's numbers, flagged default, undecided", () => {
     expect(r?.alternatives?.[0]?.effect?.amount?.toNumber()).toBe(2610);
     expect(undecided.results.filter((x) => x.decision !== undefined).map((x) => x.decision?.id)).toEqual(["X1", "X6"].filter((id) => undecided.decisions.some((d) => d.id === id)));
   });
-  it("detail.businessUse carries the split; duplicate emissions stay empty; the engine version is 1b.9", () => {
+  it("detail.businessUse carries the split; duplicate emissions stay empty; the engine version is 1b.10", () => {
     expect(undecided.scheduleC?.businessUse).toEqual([
       {
         decisionId: "X6",
@@ -147,8 +147,8 @@ describe("(a) undecided: today's numbers, flagged default, undecided", () => {
         lineDollars: 2610,
       },
     ]);
-    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.9");
-    expect(undecided.engineVersion).toBe("ty2025-1b.9");
+    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.10");
+    expect(undecided.engineVersion).toBe("ty2025-1b.10");
   });
   it("the alias name and the original chart name both resolve to the same list entry", () => {
     for (const name of [INTERNET, "Utilities:Internet & TV services", "  utilities : INTERNET & phone "]) {

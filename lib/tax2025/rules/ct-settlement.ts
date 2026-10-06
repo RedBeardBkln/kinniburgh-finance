@@ -1,9 +1,11 @@
 // CT-1040 lines 25, 27, 28, 29 and 30 (the settlement of the return), TY2025. Form text: specs/09 "CT-1040 lines 3-30".
 //
-//   25  refund = line 22 less lines 23, 24 and 24a. Lines 23 (applied to 2026 estimated tax), 24 (CHET) and 24a
-//       (charities) are the owner's irrevocable elections: never computed, never guessed. Line 25 is informational
-//       (not_yet_computed) whenever there is an overpayment, with the reason stating line 22 and the rule, so the
-//       relationship stays visible; it is not_applicable 0 when there is none.
+//   23 / 25  line 23 (applied to 2026 estimated tax) and line 25 (refund = line 22 less lines 23, 24 and 24a) follow the owner's
+//       decision X8 (rules/overpayment-split.ts): refund all, apply all, or a stated whole-dollar amount. Lines 24 (CHET) and
+//       24a (charities) are the owner's own irrevocable contributions and are NEVER modelled or printed; recording X8 is the
+//       owner's statement that none is made (line 25 = line 22 less line 23). With no decision both lines are blank
+//       (not_yet_computed, informational); line 22 = 0 gives not_applicable 0 on both and raises no decision. Bank lines
+//       25a-25d are never filled.
 //   27 / 28  late payment penalty (10% of line 26) and interest (1% per month): a not_applicable 0 when line 26 is 0
 //       (nothing is due, nothing to multiply); otherwise informational needs_cpa_rule_unverified (the month counting
 //       and the minimum are not verified, specs/09).
@@ -19,7 +21,8 @@ import type { Decimal } from "@prisma/client/runtime/library";
 import { K } from "@/lib/tax2025/constants";
 import { D, ZERO, amountLine, blockedLine, fmt } from "@/lib/tax2025/money";
 import { lineMeta, type LineKey } from "@/lib/tax2025/line-catalog";
-import { aggregateStatus, type RuleLine, type RuleResult } from "@/lib/tax2025/types";
+import { buildOverpaymentSplit } from "@/lib/tax2025/rules/overpayment-split";
+import { aggregateStatus, type DecidedOverpayment, type RuleLine, type RuleResult } from "@/lib/tax2025/types";
 
 export interface CtSettlementInput {
   /** CT-1040 line 14 (CT income tax after credits). */
@@ -30,6 +33,8 @@ export interface CtSettlementInput {
   /** CT-1040 line 22 (overpayment) and line 26 (tax due); at most one is non-zero. */
   line22: Decimal;
   line26: Decimal;
+  /** Decision X8 (lines 23 and 25); absent = undecided. */
+  decision?: DecidedOverpayment;
 }
 
 const CITATIONS = ["CT_ESTIMATED_TAX_INTEREST_MIN", "CT_LATE_PAYMENT_PENALTY_RATE", "CT_INTEREST_RATE_PER_MONTH"];
@@ -47,18 +52,7 @@ export function computeCtSettlement(input: CtSettlementInput): RuleResult {
     informational: true,
   });
 
-  // Line 25: the refund (owner's elections on lines 23, 24 and 24a)
-  if (input.line22.isZero()) {
-    lines.push(na("ct1040.25", "There is no overpayment (line 22 is 0), so there is no refund."));
-  } else {
-    lines.push(
-      info(
-        "ct1040.25",
-        "not_yet_computed",
-        `Refund = line 22 less lines 23, 24 and 24a. With no election the refund is ${fmt(input.line22)} (line 22). Line 23 (apply to 2026 estimated tax), line 24 (CHET, Schedule CT-CHET) and line 24a (charities, Schedule 5) are the owner's irrevocable choices and are left blank; bank lines 25a-25d are never filled.`
-      )
-    );
-  }
+  // Lines 23 and 25 are built after line 29 (a pending interest on underpayment may reduce the refund): see below.
 
   // Lines 27 and 28
   if (input.line26.isZero()) {
@@ -84,6 +78,41 @@ export function computeCtSettlement(input: CtSettlementInput): RuleResult {
     );
   }
 
+  // Lines 23 and 25: the owner's decision X8 (line 22 = 0: nothing to split)
+  let decision: RuleResult["decision"];
+  let alternatives: RuleResult["alternatives"];
+  let split: ReturnType<typeof buildOverpaymentSplit> | null = null;
+  const head: RuleLine[] = [];
+  if (input.line22.isZero()) {
+    head.push(na("ct1040.23", "There is no overpayment (line 22 is 0), so nothing is applied to 2026 estimated tax."));
+    head.push(na("ct1040.25", "There is no overpayment (line 22 is 0), so there is no refund."));
+  } else {
+    const line29Open = lines.some((l) => l.key === "ct1040.29" && l.amount === null);
+    split = buildOverpaymentSplit({
+      decisionId: "X8",
+      refundKey: "ct1040.25",
+      appliedKey: "ct1040.23",
+      overpaymentWhere: "CT-1040 line 22",
+      overpayment: input.line22,
+      penaltyPrinted: null,
+      penaltyWhere: null,
+      decision: input.decision,
+      formula: "Refund = line 22 less lines 23, 24 and 24a (CT-1040 instructions, line 25).",
+      refundName: "line 25",
+      appliedName: "line 23",
+      byHandNote:
+        "Lines 24 (CHET) and 24a (charities) are left blank: no CHET or charity contribution is made. Bank lines 25a-25d are never filled and are entered by hand.",
+      irrevocableNote: "The request to apply an amount to 2026 estimated income tax is irrevocable (CT-1040 instructions, line 23).",
+      refundExtra: line29Open
+        ? "Line 29 (interest on underpayment of estimated tax) is not estimated and may reduce the refund; the Department of Revenue Services adjusts it."
+        : "",
+    });
+    head.push(split.applied, split.refunded);
+    decision = split.decision;
+    alternatives = split.alternatives;
+  }
+  lines.unshift(...head);
+
   // Line 30 = 26 + 27 + 28 + 29 once every part has an amount
   const parts = lines.filter((l) => l.key === "ct1040.27" || l.key === "ct1040.28" || l.key === "ct1040.29");
   if (parts.every((l) => l.amount !== null)) {
@@ -98,5 +127,14 @@ export function computeCtSettlement(input: CtSettlementInput): RuleResult {
     );
   }
   // Informational lines never decide the rule status (aggregateStatus ignores them).
-  return { ...base, status: aggregateStatus(lines), lines, reasons: [], inputsMissing: [] };
+  const tooMuch = split !== null && split.tooMuch;
+  return {
+    ...base,
+    status: tooMuch ? "missing_input" : aggregateStatus(lines),
+    lines,
+    reasons: tooMuch ? [split?.refunded.reason ?? ""] : [],
+    inputsMissing: tooMuch ? ["a new X8 choice: the amount to apply is more than the overpayment now available"] : [],
+    ...(decision === undefined ? {} : { decision }),
+    ...(alternatives === undefined ? {} : { alternatives }),
+  };
 }

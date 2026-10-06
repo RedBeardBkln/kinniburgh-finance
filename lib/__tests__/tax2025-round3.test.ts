@@ -250,7 +250,12 @@ describe("S1: complete is not 'nothing left to check'", () => {
     expect(ret.headline.complete).toBe(true);
     expect(ret.headline.blockingItemCount).toBe(0);
     const ids = ret.openItems.filter((o) => o.severity === "advisory").map((o) => o.id);
-    for (const id of ["info:f1040.38", "info:ct1040.27", "info:ct1040.28", "info:f1040.7b", "info:f1040.35a", "info:f1040.36"]) expect(ids).toContain(id);
+    for (const id of ["info:f1040.38", "info:ct1040.27", "info:ct1040.28", "info:f1040.7b"]) expect(ids).toContain(id);
+    // this fixture owes tax (line 34 = 0): there is no overpayment to split, so lines 35a / 36 are not applicable 0, not informational blanks (decision X7 is not raised)
+    for (const key of ["f1040.35a", "f1040.36"] as const) {
+      expect(ret.lines[key]?.status).toBe("not_applicable");
+      expect(ids).not.toContain(`info:${key}`);
+    }
     expect(ret.lines["f1040.38"]?.status).toBe("not_yet_computed");
     expect(ret.lines["f1040.38"]?.informational).toBe(true);
     expect(ret.headline.caveats.join(" ")).toContain("Estimated tax penalty");

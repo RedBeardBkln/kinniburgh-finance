@@ -143,7 +143,7 @@ describe("L1.D5 blank-not-zero", () => {
   });
   it("a sheet line without an amount shown as $0 is a blocker", async () => {
     const sheet = structuredClone(clean.sheet);
-    const l = sheet.federal.flatMap((g) => g.lines).find((x: SheetLine) => x.key === "f1040.35a");
+    const l = sheet.federal.flatMap((g) => g.lines).find((x: SheetLine) => x.key === "f1040.38");
     if (!l) throw new Error("line missing on the sheet");
     l.amountText = "$0";
     expect(has(await run(blankNotZeroCheck, { ...clean, sheet }), "L1.D5.sheet", "blocker")).toBe(true);
@@ -159,7 +159,7 @@ describe("L1.D5 blank-not-zero", () => {
   });
   it("an informational line with no advisory item that names it is medium", async () => {
     const view = structuredClone(clean.view);
-    view.openItems = view.openItems.filter((i) => !i.lineKeys.includes("f1040.35a"));
+    view.openItems = view.openItems.filter((i) => !i.lineKeys.includes("f1040.38"));
     expect(has(await run(blankNotZeroCheck, { ...clean, view }), "L1.D5.informational", "medium")).toBe(true);
   });
 });

@@ -10,7 +10,10 @@ import {
   decisionSnapshot,
   isAckableStatus,
   isSupportedOverrideTaxYear,
+  isOverpaymentDecisionKey,
   isValidDecisionChoice,
+  canonicalDecisionChoice,
+  overpaymentAvailable,
   lineSnapshot,
   OVERRIDE_AUTHORITIES,
   OVERRIDE_MAX_ABS_CENTS,
@@ -28,6 +31,7 @@ import {
   type OverrideValueKind,
 } from "@/lib/tax2025/overrides";
 import { businessUseKeyOf, parseBusinessUsePercent } from "@/lib/tax2025/business-use";
+import { OVERPAYMENT_CHOICE_ERROR, formatWholeDollars, parseOverpaymentChoice } from "@/lib/tax2025/overpayment";
 import { containsSsnLikeText } from "@/lib/tax-extraction-schema";
 import { loadBaseAndActive, loadOverrideHistory, resolvePersonalEntityId } from "@/lib/tax2025-overrides-build";
 import { LINE_KEYS } from "@/lib/tax2025/types";
@@ -189,12 +193,28 @@ export async function setTaxReturnOverride(input: z.input<typeof setSchema>): Pr
     const dKey = decisionKeyOf(v.targetKey);
     if (!dKey) return { ok: false, error: "Unknown decision." };
     if (!isValidDecisionChoice(dKey, v.choice)) {
+      if (isOverpaymentDecisionKey(dKey)) {
+        // the parser says why (cents, zero, a bare "apply_amount" ...); nothing is written
+        const why = parseOverpaymentChoice(v.choice);
+        return { ok: false, error: why.ok ? OVERPAYMENT_CHOICE_ERROR : why.error };
+      }
       return { ok: false, error: `"${v.choice}" is not a valid choice for ${DECISION_REGISTRY[dKey].label}.` };
     }
     const decision = base.decisions.find((d) => d.id === DECISION_REGISTRY[dKey].decisionId);
     if (!decision) return { ok: false, error: "That decision is not on the computed return." };
+    if (isOverpaymentDecisionKey(dKey)) {
+      // a stated amount is checked against the overpayment of the BASE return the server rebuilt (never a client number)
+      const parsedChoice = parseOverpaymentChoice(v.choice);
+      if (parsedChoice.ok && parsedChoice.mode === "apply_amount") {
+        const available = overpaymentAvailable(base, dKey);
+        if (available === null) return { ok: false, error: "The overpayment is not computed yet." };
+        if ((parsedChoice.appliedDollars ?? 0) > available) {
+          return { ok: false, error: `That is more than the overpayment (${formatWholeDollars(available)}).` };
+        }
+      }
+    }
     valueKind = "choice";
-    valueText = v.choice;
+    valueText = canonicalDecisionChoice(dKey, v.choice);
     snapshot = decisionSnapshot(decision, engineVersion);
   } else {
     const result = base.results.find((r) => r.ruleId === v.targetKey);

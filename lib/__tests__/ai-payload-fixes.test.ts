@@ -508,7 +508,7 @@ describe("recorded decisions are sent under the engine decision id, never under 
   it("the real shape of the live leak: a decision on 56 Arbor Rd is X5 in the whole payload, keys and values", async () => {
     const records = DECISION_KEYS.map((k) => ({ kind: "decision", target: k, value: "schedule_a", reason: "Chosen on the notice." }));
     const { payload, json } = await payloadFor({ recordedDecisions: [...records, { kind: "line", target: "f1040.9", value: "100", reason: "Per the notice." }, { kind: "rule_ack", target: "arborRoadRule", value: null, reason: "Reviewed." }], acceptedFindings: [] });
-    expect(payload.ownerStatements.recordedDecisions.map((d) => d.target)).toEqual(["X1", "X2", "X3", "X5", "f1040.9", "rule"]);
+    expect(payload.ownerStatements.recordedDecisions.map((d) => d.target)).toEqual(["X1", "X2", "X3", "X5", "X7", "X8", "f1040.9", "rule"]);
     expect(json).toContain("\"target\":\"X5\"");
     expect(leakingNames(JSON.parse(json))).toEqual([]);
   });

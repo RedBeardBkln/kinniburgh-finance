@@ -174,9 +174,9 @@ describe("computeCtSettlement (lines 25, 27, 28, 29, 30)", () => {
     line22: D(over.line22 ?? 982),
     line26: D(over.line26 ?? 0),
   });
-  const keys: LineKey[] = ["ct1040.25", "ct1040.27", "ct1040.28", "ct1040.29", "ct1040.30"];
+  const keys: LineKey[] = ["ct1040.23", "ct1040.25", "ct1040.27", "ct1040.28", "ct1040.29", "ct1040.30"];
 
-  it("Eric's overpayment: 25 informational with line 22's amount and the rule; 27-29 are 0; 30 is 0", () => {
+  it("Eric's overpayment (no decision X8 recorded): 23 and 25 informational with line 22's amount and the rule; 27-29 are 0; 30 is 0", () => {
     const r = computeCtSettlement(input());
     expect(r.lines.map((l) => l.key).sort()).toEqual([...keys].sort());
     const l25 = line(r, "ct1040.25");
@@ -184,13 +184,20 @@ describe("computeCtSettlement (lines 25, 27, 28, 29, 30)", () => {
     expect(l25.informational).toBe(true);
     expect(l25.reason).toContain("$982");
     expect(l25.reason).toContain("line 22 less lines 23, 24 and 24a");
+    expect(line(r, "ct1040.23").status).toBe("not_yet_computed");
+    expect(line(r, "ct1040.23").informational).toBe(true);
+    expect(r.decision?.id).toBe("X8");
+    expect(r.decision?.status).toBe("default_undecided");
     for (const k of ["ct1040.27", "ct1040.28", "ct1040.29"] as const) expect(line(r, k).status, k).toBe("not_applicable");
     expect(amt(r, "ct1040.30")).toBe("0");
     expect(r.status).toBe("computed");
   });
 
-  it("no overpayment: 25 is a not_applicable 0", () => {
-    expect(line(computeCtSettlement(input({ line22: 0, line26: 100 })), "ct1040.25").status).toBe("not_applicable");
+  it("no overpayment: 23 and 25 are a not_applicable 0 and no decision X8 is raised", () => {
+    const none = computeCtSettlement(input({ line22: 0, line26: 100 }));
+    expect(line(none, "ct1040.25").status).toBe("not_applicable");
+    expect(line(none, "ct1040.23").status).toBe("not_applicable");
+    expect(none.decision).toBeUndefined();
   });
 
   it("tax due: 27 / 28 are informational needs_cpa_rule_unverified; 30 waits (informational)", () => {

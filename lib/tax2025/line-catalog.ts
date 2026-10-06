@@ -694,6 +694,7 @@ const EXTRA = [
   ["ct1040.20d", "CT-1040", "20d", "Historic home credit"],
   ["ct1040.21", "CT-1040", "21", "Total payments and refundable credits (lines 18 through 20d)"],
   ["ct1040.22", "CT-1040", "22", "Overpayment (line 21 more than line 17)"],
+  ["ct1040.23", "CT-1040", "23", "Amount of line 22 applied to 2026 estimated tax"],
   ["ct1040.25", "CT-1040", "25", "Refund (line 22 less lines 23, 24 and 24a)"],
   ["ct1040.26", "CT-1040", "26", "Tax due (line 17 more than line 21)"],
   ["ct1040.27", "CT-1040", "27", "Late payment penalty"],

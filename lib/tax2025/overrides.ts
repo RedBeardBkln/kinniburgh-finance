@@ -32,6 +32,7 @@ import { z } from "zod";
 import { businessUseKeyOf, formatBusinessUsePercent, parseBusinessUsePercent } from "@/lib/tax2025/business-use";
 import { downstreamOf } from "@/lib/tax2025/line-flow";
 import { dollarsToCents } from "@/lib/tax2025/money";
+import { OVERPAYMENT_LABELS, overpaymentChoiceLabel, parseOverpaymentChoice, type ParsedOverpaymentChoice } from "@/lib/tax2025/overpayment";
 import {
   OVERRIDE_MAX_ABS_DOLLARS,
   REASON_MAX_LENGTH,
@@ -45,6 +46,7 @@ import {
   type Headline,
   type LineKey,
   scheduleCLineKey,
+  type DecidedOverpayment,
   type DecidedPercent,
   type OpenItem,
   type ReturnLine,
@@ -107,9 +109,26 @@ export const DECISION_REGISTRY: { [K in DecisionKey]-?: DecisionMeta<K> } = {
     label: "56 Arbor Rd 2025 property tax",
     choices: ["schedule_a", "capitalize"],
   },
+  // X7 / X8: the stored choice is "refund_all", "apply_all" or "apply_amount:<whole dollars>" (lib/tax2025/overpayment.ts). `choices`
+  // holds the BARE modes the sheet lists as radio buttons; what may be STORED is decided by isValidDecisionChoice (a bare "apply_amount" is not storable).
+  federalOverpayment: {
+    decisionId: "X7",
+    label: OVERPAYMENT_LABELS.X7,
+    choices: ["refund_all", "apply_all", "apply_amount"],
+  },
+  ctOverpayment: {
+    decisionId: "X8",
+    label: OVERPAYMENT_LABELS.X8,
+    choices: ["refund_all", "apply_all", "apply_amount"],
+  },
 };
 
 export const DECISION_KEYS = Object.keys(DECISION_REGISTRY) as DecisionKey[];
+
+/** The two overpayment decisions (X7, X8): their choice is a parametric text, not just a registry id. */
+export function isOverpaymentDecisionKey(key: DecisionKey): key is "federalOverpayment" | "ctOverpayment" {
+  return key === "federalOverpayment" || key === "ctOverpayment";
+}
 
 export function decisionKeyOf(raw: string): DecisionKey | null {
   return DECISION_KEYS.find((k) => k === raw) ?? null;
@@ -120,8 +139,45 @@ export function decisionChoices(key: DecisionKey): readonly string[] {
   return DECISION_REGISTRY[key].choices;
 }
 
+/** What may be STORED for a decision: a registry id, or for X7 / X8 a parseable overpayment choice (a bare "apply_amount" is refused). */
 export function isValidDecisionChoice(key: DecisionKey, choice: string): boolean {
+  if (isOverpaymentDecisionKey(key)) return parseOverpaymentChoice(choice).ok;
   return decisionChoices(key).includes(choice);
+}
+
+/** What the sheet may LIST as a radio choice: the registry's bare ids (for X7 / X8 "apply_amount" is listed and takes an amount). */
+export function isListableDecisionChoice(key: DecisionKey, id: string): boolean {
+  return decisionChoices(key).includes(id);
+}
+
+/** The canonical stored text of a valid choice ("apply_amount:$5,000" -> "apply_amount:5000"); any other text is returned unchanged. */
+export function canonicalDecisionChoice(key: DecisionKey, choice: string): string {
+  if (!isOverpaymentDecisionKey(key)) return choice;
+  const p = parseOverpaymentChoice(choice);
+  return p.ok ? p.canonical : choice;
+}
+
+/**
+ * The overpayment available to split under X7 / X8 (whole dollars) from a computed return: line 34 less the penalty printed on
+ * line 38 (blank = 0) for X7, line 22 for X8. Null when the overpayment line has no amount yet. The server action checks a stated
+ * amount against this (the BASE return it rebuilt itself) and the sheet shows it as the dialog's limit.
+ */
+export function overpaymentAvailable(ret: Pick<Ty2025Return, "lines">, key: "federalOverpayment" | "ctOverpayment"): number | null {
+  const amountOf = (k: LineKey): number | null => {
+    const l = ret.lines[k];
+    return l !== undefined && hasAmount(l.status) && l.amount !== null ? l.amount : null;
+  };
+  if (key === "ctOverpayment") {
+    const c = amountOf("ct1040.22");
+    return c === null ? null : Math.max(0, c);
+  }
+  const o = amountOf("f1040.34");
+  if (o === null) return null;
+  return Math.max(0, o - (amountOf("f1040.38") ?? 0));
+}
+
+function decidedOverpayment(p: Extract<ParsedOverpaymentChoice, { ok: true }>, meta: { by: string; at: string }): DecidedOverpayment {
+  return { chosen: p.mode, ...(p.appliedDollars === null ? {} : { appliedDollars: p.appliedDollars }), ...meta };
 }
 
 function pick<T extends string>(choices: readonly T[], v: string): T | null {
@@ -427,6 +483,17 @@ export function decisionsFromOverrides(rows: readonly OverrideRow[]): Ty2025Deci
         if (chosen) out.arborRoadPropertyTax = { chosen, ...meta };
         break;
       }
+      case "federalOverpayment": {
+        // an unparseable stored value is ignored here and reported by applyOverrides as an orphan
+        const p = parseOverpaymentChoice(o.choice);
+        if (p.ok) out.federalOverpayment = decidedOverpayment(p, meta);
+        break;
+      }
+      case "ctOverpayment": {
+        const p = parseOverpaymentChoice(o.choice);
+        if (p.ok) out.ctOverpayment = decidedOverpayment(p, meta);
+        break;
+      }
       default:
         assertNever(key);
     }
@@ -637,6 +704,12 @@ export function formatOverrideNote(o: AppliedOverride): string {
       return `${tag} acknowledged rule ${o.ruleId} (reviewed; accepts as shown or will handle outside the app), ${tail}`;
   }
 }
+
+/** The printed lines each overpayment decision (X7, X8) fills: a pin on one of them hides the decision's effect. */
+const OVERPAYMENT_DECISION_LINES: Partial<Record<DecisionId, readonly LineKey[]>> = {
+  X7: ["f1040.35a", "f1040.36"],
+  X8: ["ct1040.23", "ct1040.25"],
+};
 
 function lineWhere(line: ReturnLine): string {
   return `${line.form} line ${line.formLine}`;
@@ -868,12 +941,16 @@ export function applyOverrides(
       // is never blocking-stale; an engine version change is an advisory note only.
       const versionChanged =
         o.snapshot.engineVersion !== undefined && o.snapshot.engineVersion !== engineVersion;
+      // X7 / X8: the engine's decision carries the canonical text ("apply_amount:5000"); people read "Apply $5,000 to 2026"
+      const choice = canonicalDecisionChoice(dKey, o.choice);
+      const shownChoice = isOverpaymentDecisionKey(dKey) ? overpaymentChoiceLabel(choice) : null;
       const applied: AppliedDecisionOverride = {
         ...common(o),
         targetKind: "decision",
         decisionId: meta.decisionId,
         label: meta.label,
-        choice: o.choice,
+        choice,
+        ...(shownChoice === null ? {} : { display: shownChoice }),
         stale: null,
       };
       target.override = applied;
@@ -887,12 +964,12 @@ export function applyOverrides(
           "The decision is applied as recorded."
         );
       }
-      if (target.chosen !== o.choice || target.status !== "decided") {
+      if (target.chosen !== choice || target.status !== "decided") {
         extraItems.push(
           openItem(
             `override-decision-not-reflected:${dKey}`,
             "blocking",
-            `The ${meta.label} decision (${o.choice}) is recorded but the computed return does not reflect it.`,
+            `The ${meta.label} decision (${choice}) is recorded but the computed return does not reflect it.`,
             "Recompute the return with the recorded decisions (decisionsFromOverrides) before relying on these numbers.",
             []
           )
@@ -962,6 +1039,25 @@ export function applyOverrides(
         `Schedule C line ${lineId} is pinned by an override, so the business-use percentage (decision ${d.decisionId}, ${d.display ?? d.choice}) does not change the printed line.`,
         "Clear the pin on that line, or clear the decision.",
         [scheduleCLineKey(lineId)]
+      )
+    );
+  }
+
+  // A pin on a line an overpayment decision (X7 / X8) prints hides the decision's effect on the printed line (advisory).
+  const whereOf = (k: LineKey): string => {
+    const b = lines[k]?.base;
+    return b === undefined ? k : lineWhere(b);
+  };
+  for (const d of appliedDecisions) {
+    const shadowed = OVERPAYMENT_DECISION_LINES[d.decisionId]?.filter((k) => lines[k]?.override !== undefined) ?? [];
+    if (shadowed.length === 0) continue;
+    extraItems.push(
+      openItem(
+        `override-decision-shadowed:${d.decisionId}`,
+        "advisory",
+        `${shadowed.map((k) => whereOf(k)).join(" and ")} ${shadowed.length === 1 ? "is" : "are"} pinned by an override, so the overpayment decision ${d.decisionId} (${d.display ?? d.choice}) does not change the printed line.`,
+        "Clear the pin on that line, or clear the decision.",
+        shadowed
       )
     );
   }

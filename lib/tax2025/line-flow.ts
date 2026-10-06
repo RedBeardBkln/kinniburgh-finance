@@ -302,6 +302,8 @@ const PAIRS: readonly (readonly [Keys, Keys])[] = [
   [["f1040.18", "f1040.21"], "f1040.22"],
   [["f1040.22", "f1040.23"], "f1040.24"],
   [["f1040.24", "f1040.33"], ["f1040.34", "f1040.37"]],
+  // Lines 35a and 36 split the overpayment on line 34 (less the line 38 penalty printed) per decision X7 (rules/overpayment-federal.ts)
+  [["f1040.34", "f1040.38"], ["f1040.35a", "f1040.36"]],
   [["f1040.25a", "f1040.25b", "f1040.25c"], ["f1040.25d", "f1040.33"]],
   ["f1040.25d", "f1040.33"],
   ["f1040.26", "f1040.33"],
@@ -364,7 +366,9 @@ const PAIRS: readonly (readonly [Keys, Keys])[] = [
   [["ct1040.17", "ct1040.21"], "ct1040.26"],
   [["ct1040.17", "ct1040.21"], "ct1040.balance"],
   // Settlement lines read the withholding, credits, overpayment and tax due
-  [["ct1040.14", "ct1040.18", "ct1040.20c", "ct1040.22", "ct1040.26"], ["ct1040.25", "ct1040.27", "ct1040.28", "ct1040.29", "ct1040.30"]],
+  [["ct1040.14", "ct1040.18", "ct1040.20c", "ct1040.22", "ct1040.26"], ["ct1040.23", "ct1040.25", "ct1040.27", "ct1040.28", "ct1040.29", "ct1040.30"]],
+  // Line 25 (refund) = line 22 less line 23 (decision X8)
+  ["ct1040.23", "ct1040.25"],
 ];
 
 function asList(k: Keys): readonly LineKey[] {

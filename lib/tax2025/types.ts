@@ -165,7 +165,7 @@ export interface RuleAlternative {
   reasons: string[];
 }
 
-export type DecisionId = "X1" | "X2" | "X3" | "X5" | BusinessUseDecisionId;
+export type DecisionId = "X1" | "X2" | "X3" | "X5" | "X7" | "X8" | BusinessUseDecisionId;
 
 export interface RuleDecision {
   id: DecisionId;
@@ -225,7 +225,7 @@ export function aggregateStatus(lines: readonly RuleLine[], fallback: RuleStatus
   return statuses.every((s) => s === "not_applicable") ? "not_applicable" : "computed";
 }
 
-// ── Decisions (CPA / owner choices, X1-X8) ────────────────────────────────────
+// ── Decisions (owner choices, X1-X8) ────────────────────────────────────
 
 export interface Decided<T extends string> {
   chosen: T;
@@ -254,6 +254,15 @@ export interface Ty2025Decisions {
    * An absent entry = undecided: 100% flagged "default, undecided". Not a registry decision (the list is data), see overrides.ts.
    */
   businessUse?: Readonly<Record<string, DecidedPercent>>;
+  /** X7: Form 1040 line 34 overpayment: refund / apply to 2026 (lines 35a and 36). Undecided: both lines print blank. */
+  federalOverpayment?: DecidedOverpayment;
+  /** X8: CT-1040 line 22 overpayment: refund / apply to 2026 (lines 23 and 25). Undecided: both lines print blank. */
+  ctOverpayment?: DecidedOverpayment;
+}
+
+/** A recorded overpayment choice. `appliedDollars` (whole dollars) is set only for `apply_amount`. */
+export interface DecidedOverpayment extends Decided<"refund_all" | "apply_all" | "apply_amount"> {
+  appliedDollars?: number;
 }
 
 /** A recorded business-use percentage in tenths of a percent (0..1000), with who and when. */

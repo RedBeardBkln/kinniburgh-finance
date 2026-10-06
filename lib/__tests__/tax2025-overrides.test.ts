@@ -445,8 +445,8 @@ describe("decisions", () => {
     expect(d).toEqual({});
   });
 
-  it("covers all four engine decisions and keeps the highest version", () => {
-    expect([...DECISION_KEYS].sort()).toEqual(["arborRoadPropertyTax", "depreciationElection", "homeOfficeMethod", "qbiForm"]);
+  it("covers all six registry decisions (X1, X2, X3, X5, X7, X8) and keeps the highest version", () => {
+    expect([...DECISION_KEYS].sort()).toEqual(["arborRoadPropertyTax", "ctOverpayment", "depreciationElection", "federalOverpayment", "homeOfficeMethod", "qbiForm"]);
     expect(DECISION_REGISTRY.qbiForm.decisionId).toBe("X3");
     const d = decisionsFromOverrides([
       row({ targetKind: "decision", targetKey: "depreciationElection", valueText: "bonus", version: 1 }),

@@ -879,6 +879,7 @@ export const OPEN_ITEM_RULES: readonly OpenItemRule[] = [
   { match: /^schedule-c-owner-(unknown|derived)$/, note: "who owns the consulting business: Schedule C", extras: { form: "f1040sc" } },
   { match: /^(ekc-uncoded-transactions|gl-sign-flip:)/, note: "bookkeeping of the consulting business: the GL accounts", extras: { books: true } },
   { match: /^return-completeness-(not-started|stale)$|^rc-person-unmatched:/, note: "the Return completeness questions", extras: { question: "completeness" } },
+  { match: /^overpayment-penalty-exceeds$/, note: "a printed penalty above the overpayment: lines 34, 35a, 36, 37 and 38 and the form", extras: {} },
   { match: /^override-/, note: "an override on the sheet: the overrides panel", extras: { sections: ["overrides"] } },
 ];
 
