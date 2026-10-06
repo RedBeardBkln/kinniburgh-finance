@@ -30,7 +30,7 @@ export const BUSINESS_USE_ACCOUNTS = [
     decisionId: "X6",
     mapAccount: "Utilities:Internet & TV services",
     label: "Business-use share of the shared internet and phone service (Schedule C line 25)",
-    what: "the shared household internet and phone service booked in the EK Consulting books",
+    what: "the shared household internet and phone service in the EK Consulting books",
   },
 ] as const satisfies readonly BusinessUseAccountDef[];
 

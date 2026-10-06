@@ -187,7 +187,7 @@ describe("sheet model: the X6 card", () => {
     const m = sheet([], facts(false));
     expect(m.decisions.some((d) => d.id === "X6")).toBe(false);
     const p = m.decisionPlaceholders.find((x) => x.id === "X6");
-    expect(p?.note).toMatch(/^Not raised for this return: nothing is booked to the shared household internet and phone service/);
+    expect(p?.note).toMatch(/^Not raised for this return: nothing is booked for 2025 to the shared household internet and phone service/);
     expect(p?.label).toBe(BUSINESS_USE_ACCOUNTS[0].label);
   });
   it("every decision the sheet shows or lists is X1 / X2 / X3 / X5 / X6", () => {

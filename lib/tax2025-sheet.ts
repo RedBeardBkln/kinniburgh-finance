@@ -890,7 +890,7 @@ const KNOWN_DECISIONS: readonly { id: string; label: string; notRaised: (ret: Ty
   ...BUSINESS_USE_ACCOUNTS.map((def) => ({
     id: def.decisionId as string,
     label: def.label,
-    notRaised: (): string => `Not raised for this return: nothing is booked to ${def.what} for 2025 (or the account is not a plain Schedule C expense line), so there is no share to decide.`,
+    notRaised: (): string => `Not raised for this return: nothing is booked for 2025 to ${def.what} (or the account is not a plain Schedule C expense line), so there is no share to decide.`,
   })),
 ];
 
