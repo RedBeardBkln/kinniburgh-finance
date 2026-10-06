@@ -26,10 +26,13 @@ import { isUsableFor2025, unusableReason } from "@/lib/tax-review/l1/source-docs
 import { roundCentsHalfUp } from "@/lib/tax-review/l1/helpers";
 import { buildOutgoingJson, labelHouseholdMembers, type HouseholdPerson } from "@/lib/tax-review/redact";
 import { buildScrubber, scrubDeep, type ScrubConfig } from "@/lib/tax-review/llm/scrub";
+import { sameProperty } from "@/lib/tax-review/llm/address";
+import { buildOwnerStatements, type OwnerStatements, type OwnerStatementInput, type RecordedDecision, type AcceptedFinding } from "@/lib/tax-review/llm/owner-statements";
 import { ownerWordingDeep } from "@/lib/tax-wording";
 import type { Ty2025Return } from "@/lib/tax2025/types";
 
-export const PAYLOAD_SCHEMA_VERSION = 1;
+// 2 (ai-payload-fixes): meta.packetManifest, ownerStatements, documentRole on bills / mortgages, role on documents, name on forms.
+export const PAYLOAD_SCHEMA_VERSION = 2;
 
 export interface PayloadLine {
   key: string;
@@ -71,10 +74,14 @@ export interface PayloadDocument {
   usedBy: string[];
   /** Why the document is not used by the return, or null. */
   notUsedReason: string | null;
+  /** What the engine classified the document as, for a Form 1098 or a property tax bill ("primary residence property tax bill" ...). */
+  role?: string;
 }
 
 export interface PayloadForm {
   formId: string;
+  /** The form's name as a person says it ("Schedule C", "CT-1040"). */
+  name: string;
   file: string;
   /** Printed (non-blank) money / answer cells: [line, label, printed text]. */
   rows: { line: string; label: string; printed: string }[];
@@ -84,7 +91,16 @@ export interface PayloadForm {
 
 export interface ReviewPayload {
   schemaVersion: typeof PAYLOAD_SCHEMA_VERSION;
-  meta: { taxYear: 2025; engineVersion: string; filingStatus: string; persons: string[]; entities: string[] };
+  meta: {
+    taxYear: 2025;
+    engineVersion: string;
+    filingStatus: string;
+    persons: string[];
+    /** ONLY the business entities that existed and could have activity in the tax year (never an unformed, archived or not-yet-existing one). */
+    entities: string[];
+    /** One line naming EVERY form of the printed packet, whichever step of the review is reading it. */
+    packetManifest: string;
+  };
   headline: Record<string, { status: string; amount: number | null }>;
   headlineNotes: { complete: boolean; blockingItemCount: number; unverifiedDocumentCount: number; derivedInputCount: number; undecidedDecisionCount: number; caveats: string[] };
   lines: PayloadLine[];
@@ -112,6 +128,8 @@ export interface ReviewPayload {
   constants: { id: string; value: string; note: string }[];
   forms: PayloadForm[];
   l1: { findings: { key: string; check: string; severity: string; message: string }[] };
+  /** Advisory context for the model only (never read by the engine): see owner-statements.ts. */
+  ownerStatements: OwnerStatements;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -224,7 +242,29 @@ function makeAliasOf(ids: readonly string[]): AliasOf {
   return (id) => ((count.get(id.slice(0, 8))?.size ?? 0) > 1 ? id : id.slice(0, 8));
 }
 
+const BILL_ROLE: Readonly<Record<string, string>> = {
+  primary_residence: "primary residence property tax bill",
+  other_real_estate: "property tax bill for other real estate (not the primary residence)",
+  motor_vehicle: "motor vehicle property tax bill",
+  other_personal_property: "personal property tax bill (not real estate)",
+  unclassified: "property tax bill, not yet classified",
+};
+
+/** The engine's classification of a property tax bill, in words the model can read next to the bill. */
+export function billRole(kind: string): string {
+  return BILL_ROLE[kind] ?? "property tax bill";
+}
+
+/** A Form 1098 is for the primary residence when its property address is the same street line as the primary residence. */
+export function mortgageRole(propertyAddress: string | null, primaryAddress: string | null): string {
+  if (propertyAddress === null || primaryAddress === null) return "mortgage interest statement (Form 1098), property not identified";
+  return sameProperty(propertyAddress, primaryAddress) ? "mortgage interest statement (Form 1098) for the primary residence" : "mortgage interest statement (Form 1098) for a property that is not the primary residence";
+}
+
 function documentsOf(facts: Ty2025Facts, docs: readonly PayloadDocumentInput[], labels: PersonLabels, aliasOf: AliasOf): PayloadDocument[] {
+  const roles = new Map<string, string>();
+  for (const b of facts.deductions.propertyTaxBills) roles.set(b.docId, billRole(b.kind));
+  for (const m of facts.deductions.mortgages) roles.set(m.docId, mortgageRole(m.propertyAddress, facts.deductions.primaryResidenceAddress.value));
   const used = new Map<string, Set<string>>();
   const mark = (docId: string, kind: string): void => {
     const set = used.get(docId) ?? new Set<string>();
@@ -244,6 +284,7 @@ function documentsOf(facts: Ty2025Facts, docs: readonly PayloadDocumentInput[], 
     const asRaw = { id: d.id, docType: d.docType, taxYear: d.taxYear, extractionStatus: d.extractionStatus, reextractIncomplete: d.reextractIncomplete ?? false };
     const why = unusableReason(asRaw as Parameters<typeof unusableReason>[0]);
     const usable = isUsableFor2025(asRaw as Parameters<typeof isUsableFor2025>[0]);
+    const role = roles.get(d.id);
     return {
       alias: aliasOf(d.id),
       type: d.docType,
@@ -253,6 +294,7 @@ function documentsOf(facts: Ty2025Facts, docs: readonly PayloadDocumentInput[], 
       person: subject,
       usedBy: [...(used.get(d.id) ?? [])].sort(),
       notUsedReason: why ?? (d.taxYear === 2025 && !usable ? "its extraction did not complete" : null),
+      ...(role !== undefined ? { role } : {}),
     };
   });
 }
@@ -357,8 +399,8 @@ function incomeOf(facts: Ty2025Facts, ret: Ty2025Return, labels: PersonLabels, a
 function deductionsOf(facts: Ty2025Facts, aliasOf: AliasOf): ReviewPayload["deductions"] {
   const d = facts.deductions;
   return {
-    mortgages: d.mortgages.map((m) => ({ doc: aliasOf(m.docId), verified: m.basis === "doc_verified", interest: dollars(m.interestCents), principal: dollars(m.principalCents), originationYear: m.originationDate === null ? null : clip(m.originationDate, 4), mortgageInsurance: dollars(m.mortgageInsuranceCents), points: dollars(m.pointsCents), address: clip(m.propertyAddress, 80) })),
-    propertyTaxBills: d.propertyTaxBills.map((b) => ({ doc: aliasOf(b.docId), verified: b.basis === "doc_verified", kind: b.kind, kindBasis: b.kindBasis, taxType: clip(b.taxType, 40), billed: dollars(b.billedCents), paidInYear: dollars(b.paidInYearCents), address: clip(b.address, 80) })),
+    mortgages: d.mortgages.map((m) => ({ doc: aliasOf(m.docId), documentRole: mortgageRole(m.propertyAddress, d.primaryResidenceAddress.value), verified: m.basis === "doc_verified", interest: dollars(m.interestCents), principal: dollars(m.principalCents), originationYear: m.originationDate === null ? null : clip(m.originationDate, 4), mortgageInsurance: dollars(m.mortgageInsuranceCents), points: dollars(m.pointsCents), address: clip(m.propertyAddress, 80) })),
+    propertyTaxBills: d.propertyTaxBills.map((b) => ({ doc: aliasOf(b.docId), documentRole: billRole(b.kind), verified: b.basis === "doc_verified", kind: b.kind, kindBasis: b.kindBasis, taxType: clip(b.taxType, 40), billed: dollars(b.billedCents), paidInYear: dollars(b.paidInYearCents), address: clip(b.address, 80) })),
     donations: d.donations.map((x) => ({ kind: x.kind, date: x.dateIso.slice(0, 7), amount: dollars(x.amountCents), substantiation: clip(x.substantiation, 40), hasReceipt: x.receiptDocumentId !== null })),
     noDonationsConfirmed: sourcedValue(d.noDonationsConfirmed),
     noPropertyTaxConfirmed: sourcedValue(d.noPropertyTaxConfirmed),
@@ -458,9 +500,113 @@ function formsOf(bindings: readonly FileBinding[]): PayloadForm[] {
         if (cells.length > 0) rows.push({ line: `${t.table}[${i + 1}]`, label: t.table, printed: clip(cells.join("; "), 200) });
       });
     }
-    out.push({ formId: b.file.formId, file: b.file.name, rows, checked, blankMoneyFields: blank });
+    out.push({ formId: b.file.formId, name: formName(b.file.formId), file: b.file.name, rows, checked, blankMoneyFields: blank });
   }
   return out;
+}
+
+/** The names of the printed files, by file form id (lib/tax2025/pdf/maps/*.ts). */
+const FILE_FORM_NAMES: Readonly<Record<string, string>> = {
+  f1040: "Form 1040",
+  f1040s1: "Schedule 1",
+  f1040s1a: "Schedule 1-A",
+  f1040s2: "Schedule 2",
+  f1040s3: "Schedule 3",
+  f1040sa: "Schedule A",
+  f1040sb: "Schedule B",
+  f1040sc: "Schedule C",
+  f1040sd: "Schedule D",
+  f1040sse: "Schedule SE",
+  f8949: "Form 8949",
+  f8995: "Form 8995",
+  f8959: "Form 8959",
+  f8960: "Form 8960",
+  ct1040: "CT-1040",
+};
+
+/** The names of the forms the engine decides on (Ty2025Return.formsRequired keys). */
+const ENGINE_FORM_NAMES: Readonly<Record<string, string>> = {
+  f1040: "Form 1040",
+  sch1: "Schedule 1",
+  sch1a: "Schedule 1-A",
+  sch2: "Schedule 2",
+  sch3: "Schedule 3",
+  scha: "Schedule A",
+  schb: "Schedule B",
+  schc: "Schedule C",
+  schd: "Schedule D",
+  schse: "Schedule SE",
+  f8949: "Form 8949",
+  f8995: "Form 8995",
+  f8959: "Form 8959",
+  f8960: "Form 8960",
+  f6251: "Form 6251",
+  f8283: "Form 8283",
+  f2210: "Form 2210",
+  f8889: "Form 8889",
+  f8880: "Form 8880",
+  f5695: "Form 5695",
+  f4562: "Form 4562",
+  f8829: "Form 8829",
+  ct1040: "CT-1040",
+};
+
+/** The file form id (lib/tax2025/pdf/maps) of an engine form id, where the two differ. */
+const ENGINE_TO_FILE_ID: Readonly<Record<string, string>> = {
+  sch1: "f1040s1",
+  sch1a: "f1040s1a",
+  sch2: "f1040s2",
+  sch3: "f1040s3",
+  scha: "f1040sa",
+  schb: "f1040sb",
+  schc: "f1040sc",
+  schd: "f1040sd",
+  schse: "f1040sse",
+};
+
+/** The first sentence of a reason, at most `max` characters, cut at a word (never mid-word). */
+function firstSentence(text: string, max: number): string {
+  const one = text.replace(/\s+/g, " ").trim();
+  const end = /[.!?](?:\s|$)/.exec(one);
+  const s = end === null ? one : one.slice(0, end.index + 1);
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 20))}...`;
+}
+
+export function formName(fileFormId: string): string {
+  return FILE_FORM_NAMES[fileFormId] ?? fileFormId;
+}
+
+/**
+ * ONE line naming every form of the printed packet (the flat CT-1040 included) and the forms the engine decided are not needed. EVERY task
+ * carries it: each task is shown the printed text of only the forms of its own area, and a form absent from a task's data is not absent
+ * from the packet (the first live review reported "no CT-1040 in the printed package" and "no Schedule 1-A / Forms 8959 and 8960").
+ */
+export function packetManifestOf(bindings: readonly FileBinding[], ret: Ty2025Return): string {
+  const count = new Map<string, number>();
+  for (const b of bindings) count.set(b.file.formId, (count.get(b.file.formId) ?? 0) + 1);
+  const inPacket = [...count.entries()].map(([id, n]) => `${formName(id)}${id === "ct1040" ? " (printed as a flat form with overlaid fields)" : ""}${n > 1 ? ` (${n} copies)` : ""}`);
+  const present = new Set<string>();
+  for (const b of bindings) {
+    present.add(b.file.formId);
+    if (b.map?.engineFormId !== undefined) present.add(b.map.engineFormId);
+  }
+  const notNeeded: string[] = [];
+  const missing: string[] = [];
+  for (const [id, req] of Object.entries(ret.formsRequired)) {
+    if (req === undefined || present.has(id) || present.has(ENGINE_TO_FILE_ID[id] ?? id)) continue;
+    const name = ENGINE_FORM_NAMES[id] ?? id;
+    if (req.required === false) notNeeded.push(`${name} (${firstSentence(plainIdentifiers(req.reason), 110)})`);
+    else missing.push(`${name} (${req.required === "blocking" ? "cannot be told until an open item is resolved" : "required but not printed in this packet"})`);
+  }
+  if (bindings.length === 0) return "The printed packet could not be read for this review: do not report a form as missing from the packet.";
+  const parts = [
+    `PRINTED PACKET, all ${inPacket.length} forms (each step is shown the printed text of only the forms of its own area; a form that is missing from your data is NOT missing from the packet): ${inPacket.join("; ")}.`,
+  ];
+  if (notNeeded.length > 0) parts.push(`Forms the engine decided are not needed, so they are not in the packet: ${notNeeded.join("; ")}.`);
+  if (missing.length > 0) parts.push(`Forms that are required or undecided and not printed: ${missing.join("; ")}.`);
+  return parts.join(" ");
 }
 
 // ── builder ───────────────────────────────────────────────────────────────────
@@ -485,8 +631,13 @@ export interface PayloadInput {
   /** Filled forms read back from their PDF bytes (lib/tax-review/l1/pdf-read.ts bindFiles). May be empty. */
   bindings: readonly FileBinding[];
   l1Findings: readonly Finding[];
-  /** Generic labels of the business entities (their real names are scrubbed). */
+  /**
+   * Generic labels of the business entities that existed and could have activity in the tax year (their real names are scrubbed). An entity
+   * that was not formed yet, is archived or did not exist in the tax year is NOT in this list (lib/tax-review-l3.ts scrubEntitiesFor).
+   */
   entityLabels: readonly string[];
+  /** What the owner recorded (plain data read by the caller): the reasons behind decisions / overrides and behind accepted findings. */
+  ownerRecords?: { recordedDecisions: readonly RecordedDecision[]; acceptedFindings: readonly AcceptedFinding[] };
   /** Employer / payer names: kept as read (default) or replaced by "Employer A" / "Payer B" labels. */
   payerNames?: PayerNameMode;
 }
@@ -518,9 +669,18 @@ export function buildReviewPayload(input: PayloadInput, people: readonly Househo
     ctPayments: head(h.connecticut.totalPayments),
     ctBalance: head(h.connecticut.balance),
   };
+  const documents = documentsOf(facts, input.documents, labels, aliasOf);
+  const ownerInput: OwnerStatementInput = {
+    tdInterestAliases: facts.income.interest.filter((x) => /\btd\s+bank\b/i.test(x.payer ?? "")).map((x) => aliasOf(x.docId)),
+    otherPropertyBillAliases: facts.deductions.propertyTaxBills.filter((b) => b.kind === "other_real_estate").map((b) => aliasOf(b.docId)),
+    documentAliases: new Set(documents.map((d) => d.alias)),
+    statedNone: Object.entries(facts.statedNone).filter(([, v]) => v?.value === true).map(([k]) => k).sort(),
+    recordedDecisions: input.ownerRecords?.recordedDecisions ?? [],
+    acceptedFindings: input.ownerRecords?.acceptedFindings ?? [],
+  };
   return {
     schemaVersion: PAYLOAD_SCHEMA_VERSION,
-    meta: { taxYear: 2025, engineVersion: ret.engineVersion, filingStatus: "married filing jointly", persons: ["Taxpayer M", "Taxpayer F"], entities: [...input.entityLabels] },
+    meta: { taxYear: 2025, engineVersion: ret.engineVersion, filingStatus: "married filing jointly", persons: ["Taxpayer M", "Taxpayer F"], entities: [...input.entityLabels], packetManifest: packetManifestOf(input.bindings, ret) },
     headline,
     headlineNotes: { complete: h.complete, blockingItemCount: h.blockingItemCount, unverifiedDocumentCount: h.unverifiedDocumentCount, derivedInputCount: h.derivedInputCount, undecidedDecisionCount: h.undecidedDecisionCount, caveats: h.caveats.map((c) => clip(c, 240)) },
     lines: linesOf(view),
@@ -528,7 +688,7 @@ export function buildReviewPayload(input: PayloadInput, people: readonly Househo
     decisions: ret.decisions.map((d) => ({ id: d.id, label: clip(d.label, 120), chosen: d.chosen, status: d.status })),
     openItems: ret.openItems.map((o) => ({ id: o.id, severity: o.severity, message: clip(o.message, 300), action: clip(o.action, 200), lineKeys: [...o.lineKeys] })),
     conflicts: ret.conflicts.map((c) => ({ factKey: c.factKey, chosen: c.chosen, reason: clip(c.reason, 240) })),
-    documents: documentsOf(facts, input.documents, labels, aliasOf),
+    documents,
     income: incomeOf(facts, ret, labels, aliasOf, makePayerNames(input.payerNames ?? "keep")),
     deductions: deductionsOf(facts, aliasOf),
     payments: paymentsOf(facts),
@@ -537,6 +697,7 @@ export function buildReviewPayload(input: PayloadInput, people: readonly Househo
     constants: constantsOf(ret),
     forms: formsOf(input.bindings),
     l1: { findings: input.l1Findings.filter((f) => f.severity !== "info").map((f) => ({ key: f.key, check: f.check, severity: f.severity, message: clip(f.message, 220) })) },
+    ownerStatements: buildOwnerStatements(ownerInput),
   };
 }
 

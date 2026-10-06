@@ -16,16 +16,17 @@ describe("entity names to generic labels", () => {
     { name: "Personal", slug: "personal" },
     { name: "Sudden Valley Property Management, LLC", slug: "sudden-valley" },
     { name: "Eric Kinniburgh Consulting, LLC", slug: "ek-consulting" },
-    { name: "Mezzo", slug: "mezzo" },
+    // a row with no formation facts is taken as active, so it gets a numbered label (Mezzo is covered in ai-payload-fixes.test.ts)
+    { name: "Another Venture", slug: "mezzo-like" },
     { name: "Some New Venture Inc.", slug: "new-venture" },
     { name: "Unslugged Co", slug: null },
   ];
   it("labels the known businesses by slug, the unknown ones by number, and leaves the personal entity alone", () => {
     const { entities, labels } = scrubEntitiesFor(rows);
-    expect(entities.map((e) => e.label)).toEqual(["the Property Management LLC", "the Consulting LLC", "the third business entity", "business entity 1", "business entity 2"]);
+    expect(entities.map((e) => e.label)).toEqual(["the Property Management LLC", "the Consulting LLC", "business entity 1", "business entity 2", "business entity 3"]);
     expect(labels).toHaveLength(5);
     const scrub = buildScrubber({ entities, addresses: [] });
-    expect(scrub("Schedule C of Eric Kinniburgh Consulting, LLC and EKC and Sudden Valley and Mezzo and Some New Venture")).toBe("Schedule C of the Consulting LLC and the Consulting LLC and the Property Management LLC and the third business entity and business entity 1");
+    expect(scrub("Schedule C of Eric Kinniburgh Consulting, LLC and EKC and Sudden Valley and Another Venture and Some New Venture")).toBe("Schedule C of the Consulting LLC and the Consulting LLC and the Property Management LLC and business entity 1 and business entity 2");
     expect(scrub("Personal finances")).toBe("Personal finances");
   });
 });

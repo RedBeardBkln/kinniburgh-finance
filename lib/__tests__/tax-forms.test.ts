@@ -373,14 +373,11 @@ describe("Sudden Valley and Mezzo", () => {
     expect(d2025.entities.find((s) => s.slug === "sudden-valley")).toBeUndefined();
   });
 
-  it("Mezzo never gets a form — only a not-applicable 'not yet formed' row", () => {
+  it("Mezzo (not formed) is left off the page entirely: no section, no row, no form, in any year (ai-payload-fixes)", () => {
     for (const year of [2025, 2026]) {
-      const sec = buildFormsPageData(input({ taxYear: year })).entities.find((s) => s.slug === "mezzo");
-      expect(sec?.activeForYear).toBe(false);
-      expect(sec?.entries).toHaveLength(1);
-      expect(sec?.entries[0]?.applicability).toBe("not_applicable");
-      expect(sec?.entries[0]?.reason).toMatch(/not yet formed/i);
-      expect(sec?.reportedOn).toEqual([]);
+      const data = buildFormsPageData(input({ taxYear: year }));
+      expect(data.entities.find((s) => s.slug === "mezzo")).toBeUndefined();
+      expect(JSON.stringify(data)).not.toMatch(/mezzo/i);
     }
   });
 
