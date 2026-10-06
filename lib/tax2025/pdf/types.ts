@@ -339,6 +339,12 @@ export interface FormCopy {
   answers: Readonly<Record<string, PdfAnswer>>;
   /** Replaces the same keys of view.tables for this copy (the rows that belong on it). */
   tables: Partial<Record<TableKey, PdfTableRow[]>>;
+  /**
+   * Replaces the same keys of view.lines for this copy. For a form filed once PER PERSON (Form 8606): the map is written against one
+   * person's line keys and each copy supplies the lines of the person it belongs to under those keys. The PdfLine objects keep their
+   * own `key`, so open items and the cover still name the real line.
+   */
+  lines?: Partial<Record<LineRef, PdfLine>>;
 }
 
 export interface FormMap {

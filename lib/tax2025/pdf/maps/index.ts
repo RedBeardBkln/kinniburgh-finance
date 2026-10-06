@@ -5,6 +5,7 @@
 import type { FormMap } from "@/lib/tax2025/pdf/types";
 import { ct1040Map } from "@/lib/tax2025/pdf/maps/ct1040";
 import { f1040Map } from "@/lib/tax2025/pdf/maps/f1040";
+import { f8606Map } from "@/lib/tax2025/pdf/maps/f8606";
 import { f8949Map } from "@/lib/tax2025/pdf/maps/f8949";
 import { f8960Map } from "@/lib/tax2025/pdf/maps/f8960";
 import { f8959Map } from "@/lib/tax2025/pdf/maps/f8959";
@@ -35,4 +36,5 @@ export const FORM_MAPS: readonly FormMap[] = [
   ct1040Map,
   sch1aMap,
   f8960Map,
+  f8606Map,
 ];

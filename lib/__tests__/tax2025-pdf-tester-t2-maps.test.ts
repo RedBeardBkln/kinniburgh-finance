@@ -28,7 +28,7 @@ import geometry from "./fixtures/tester-pdf-line-geometry-2025.json";
 const FORMS = ["f1040", "f1040s1", "f1040s2", "f1040s3", "f1040sa", "f1040sc", "f1040sse"] as const;
 // Integration (T9): the registry now also holds the MVP-2 / CT maps. This file keeps testing the seven T2 maps
 // (the later maps have their own map tests); the registry itself is pinned below so a new map is a deliberate change.
-const LATER_FORMS = ["f1040sb", "f1040sd", "f8949", "f8995", "f8959", "ct1040", "f1040s1a", "f8960"] as const;
+const LATER_FORMS = ["f1040sb", "f1040sd", "f8949", "f8995", "f8959", "ct1040", "f1040s1a", "f8960", "f8606"] as const;
 const T2_MAPS: readonly FormMap[] = FORM_MAPS.filter((m) => (FORMS as readonly string[]).includes(m.formId));
 
 function mapOf(formId: string): FormMap {

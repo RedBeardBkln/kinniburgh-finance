@@ -39,6 +39,9 @@ const ANSWERED_FIXTURE_ANSWERS = {
   // is NOT ticked (schdNotRequired false); it stated "none" for the special-rate sales (QOF "no").
   schdNotRequired: false,
   "schd.qof": "no",
+  // Form 8606 is one form per person: the household name of each Return completeness person (the form prints only that spouse's name)
+  "f8606.a.name": "Eric",
+  "f8606.b.name": "Eva",
 } as const;
 
 function build(facts: Ty2025Facts, decisions: Parameters<typeof computeTy2025Return>[1] = {}) {
@@ -664,7 +667,7 @@ describe("the adapter feeds the real packet builder", () => {
   // With the engine's verdict wired (view.formsRequired), the packet holds exactly the forms the engine says
   // the return needs: for the golden fixture the standard deduction wins (no Schedule A), interest and
   // dividends are under the Schedule B threshold, there is no Schedule 3 amount, no Form 8959 and the MAGI is under the Form 8960 threshold (Schedule 1-A stays in, undecided: the fixture STATES line 13b, so the engine cannot rule the schedule out).
-  const GOLDEN_OMITTED = ["f1040s3", "f1040sa", "f1040sb", "f1040sd", "f8949", "f8959", "f8960"];
+  const GOLDEN_OMITTED = ["f1040s3", "f1040sa", "f1040sb", "f1040sd", "f8606", "f8949", "f8959", "f8960"];
 
   it("fills every INCLUDED map from the fixture view: each computed mapped line is written once with its formatted amount", async () => {
     const f = fullFacts();

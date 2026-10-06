@@ -22,6 +22,7 @@ const FORM_LABELS: Readonly<Record<string, string>> = {
   f1040sse: "Schedule SE",
   f8959: "Form 8959",
   f8960: "Form 8960",
+  f8606: "Form 8606",
   f8995: "Form 8995",
   ct1040: "CT-1040",
 };

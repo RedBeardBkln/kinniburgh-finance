@@ -17,12 +17,13 @@ export function copiesOf(map: FormMap, view: PdfReturnView): FormCopy[] {
   return copies;
 }
 
-/** The base view with the copy's answers merged in and its tables replacing the same keys. */
+/** The base view with the copy's answers merged in and its tables and lines replacing the same keys. */
 export function viewForCopy(view: PdfReturnView, copy: FormCopy): PdfReturnView {
   return {
     ...view,
     answers: { ...view.answers, ...copy.answers },
     tables: { ...view.tables, ...copy.tables },
+    ...(copy.lines === undefined ? {} : { lines: { ...view.lines, ...copy.lines } }),
   };
 }
 

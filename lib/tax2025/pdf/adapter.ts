@@ -19,6 +19,7 @@ import { centsToDollars, roundLine } from "@/lib/tax2025/money";
 import { ctPropertyTaxRows } from "@/lib/tax2025/pdf/ct-property-tax";
 import { F8949_BOX_CELL, F8949_TOTAL_COLUMNS } from "@/lib/tax2025/pdf/f8949-layout";
 import { fingerprintOf } from "@/lib/tax2025/pdf/format";
+import { f8606NameAnswerOf } from "@/lib/tax2025/pdf/maps/f8606";
 import { ownerWordingDeep } from "@/lib/tax-wording";
 import type {
   PdfAnswer,
@@ -561,6 +562,15 @@ function buildHeader(facts: Ty2025Facts, ekcName: string | null): HeaderBuild {
 
 // ── Answers ───────────────────────────────────────────────────────────────────
 
+/** The household name of the Return completeness person in this slot (matched by user id); null when no person matches. */
+function f8606NameOf(facts: Ty2025Facts, slot: "a" | "b"): string | null {
+  const pa = facts.returnAnswers.people.find((x) => x.slot === slot);
+  if (pa === undefined || pa.userId === null) return null;
+  const person = facts.household.people.find((h) => h.userId === pa.userId);
+  const name = person?.name.trim() ?? "";
+  return name === "" ? null : name;
+}
+
 /**
  * Answers the maps read (checkboxes and text boxes). Only what the engine/facts already carry
  * is derived; everything else stays undefined (unchecked + an advisory "answer needed" item):
@@ -598,6 +608,11 @@ function buildAnswers(ret: Ty2025Return, facts: Ty2025Facts, extra: Readonly<Rec
     answers["foreignAccounts"] = "no";
     answers["foreignTrust"] = "no";
     answers["fincenRequired"] = "no";
+  }
+  // Form 8606 is one form per person: the name printed on each copy is that person's household name (never the household names).
+  for (const slot of ["a", "b"] as const) {
+    const name = f8606NameOf(facts, slot);
+    if (name !== null) answers[f8606NameAnswerOf(slot)] = name;
   }
   // Line 12d age / blind boxes, per person.
   const { taxpayer, spouse } = householdOrder(facts);
@@ -797,6 +812,20 @@ function toPdfReturnViewRaw(
   const answers = buildAnswers(ret, facts, opts.answers);
   const header = buildHeader(facts, opts.ekcName ?? null);
   openItems.push(...header.items);
+  // A Form 8606 for a person whose name cannot be matched prints no name: say so (nothing is guessed).
+  for (const slot of ["a", "b"] as const) {
+    const l1 = lines[`f8606${slot}.1` as LineKey];
+    if (formsRequired.f8606?.required === false || l1 === undefined || l1.status === "not_applicable") continue;
+    if (answers[f8606NameAnswerOf(slot)] !== undefined) continue;
+    openItems.push({
+      id: `adapter:f8606.name-unknown:${slot}`,
+      severity: "advisory",
+      formLabel: "Form 8606",
+      lineKeys: [],
+      message: `The name on Form 8606 (taxpayer ${slot.toUpperCase()}) could not be matched to a household person, so the name box is left blank.`,
+      action: "Write the name of the spouse the form is for on the printed form (Form 8606 asks for that spouse's name and Social Security number only).",
+    });
+  }
 
   // Fingerprint of the return state (never `results`: it carries Decimals and rule internals).
   // It also covers the table rows (Schedule B payers, CT withholding / property tax, Part V) and the forms verdicts,
