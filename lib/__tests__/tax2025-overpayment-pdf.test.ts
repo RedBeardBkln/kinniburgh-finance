@@ -138,11 +138,16 @@ describe("byHandItems: the two overpayment bullets follow the decisions", () => 
   const FED = "Form 1040 lines 35a and 36";
   const CT = "CT-1040 lines 23, 24 and 24a";
   const has = (items: readonly string[], prefix: string): boolean => items.some((t) => t.startsWith(prefix));
-  it("undecided keeps both bullets (with the way to have the app fill them); decided drops them; no decision (no overpayment) drops them", () => {
-    const u = byHandItems([{ id: "X7", status: "default_undecided" }, { id: "X8", status: "default_undecided" }]);
+  it("undecided keeps both bullets with their ORIGINAL text (the hint exists only with withPageHints); decided drops them; no decision (no overpayment) drops them", () => {
+    const undecided = [{ id: "X7", status: "default_undecided" as const }, { id: "X8", status: "default_undecided" as const }];
+    const u = byHandItems(undecided);
     expect(has(u, FED) && has(u, CT)).toBe(true);
-    expect(u.find((t) => t.startsWith(FED))).toContain("record decision X7");
-    expect(u.find((t) => t.startsWith(CT))).toContain("record decision X8");
+    expect(u).toEqual(BY_HAND.filter((t) => true)); // nothing added, nothing removed: the original neutral list
+    const page = byHandItems(undecided, { withPageHints: true });
+    expect(page.find((t) => t.startsWith(FED))).toContain("record decision X7");
+    expect(page.find((t) => t.startsWith(CT))).toContain("record decision X8");
+    // the hint changes only those two bullets
+    expect(page.filter((t) => !t.startsWith(FED) && !t.startsWith(CT))).toEqual(BY_HAND.filter((t) => !t.startsWith(FED) && !t.startsWith(CT)));
     const d = byHandItems([{ id: "X7", status: "decided" }, { id: "X8", status: "decided" }]);
     expect(has(d, FED) || has(d, CT)).toBe(false);
     const none = byHandItems([]);
@@ -158,10 +163,20 @@ describe("byHandItems: the two overpayment bullets follow the decisions", () => 
     expect(d.some((t) => t.startsWith("Bank routing and account numbers"))).toBe(true);
     expect(byHandItems()).toBe(BY_HAND);
   });
+  it("S1: 'decisions not supplied' (undefined or null) is the FULL list, and is not the same as an empty list (no overpayment)", () => {
+    expect(byHandItems(undefined)).toBe(BY_HAND);
+    expect(byHandItems(null)).toBe(BY_HAND);
+    expect(byHandItems(null, { withPageHints: true })).toBe(BY_HAND);
+    expect(byHandItems([]).length).toBe(BY_HAND.length - 2);
+    expect(has(byHandItems(null), FED) && has(byHandItems(null), CT)).toBe(true);
+  });
   it("every variant passes the final-package banned-wording scan", () => {
     for (const ds of [[{ id: "X7", status: "default_undecided" as const }, { id: "X8", status: "default_undecided" as const }], []]) {
       for (const t of byHandItems(ds)) expect(findFinalPackageBannedWording(t), t).toEqual([]);
     }
+    // the page-only hint says "app" (it never reaches the package): that is exactly why the index must not use it
+    const hinted = byHandItems([{ id: "X7", status: "default_undecided" }], { withPageHints: true }).join(" ");
+    expect(hinted).toMatch(/\bapp\b/);
   });
   it("the package index prints the same list: undecided has the bullets, decided does not, and the index scan is clean", async () => {
     const lines = async (decisions: Ty2025Decisions): Promise<string> => {
@@ -173,6 +188,10 @@ describe("byHandItems: the two overpayment bullets follow the decisions", () => 
     const u = await lines({});
     expect(u).toContain(FED);
     expect(u).toContain(CT);
+    // B1: the undecided index keeps the neutral original bullets: no "app", no decision id, clean under the final-package scan
+    expect(u).toContain("(your choice; left blank)");
+    expect(u).not.toMatch(/\bapp\b|decision X|\bX7\b|\bX8\b|Or record/i);
+    expect(findFinalPackageBannedWording(u)).toEqual([]);
     const d = await lines({ federalOverpayment: refund(), ctOverpayment: refund() });
     expect(d).not.toContain(FED);
     expect(d).not.toContain(CT);

@@ -124,10 +124,19 @@ describe("buildReviewState", () => {
     expect(approvalInForce([{ ...withdrawn, at: "2026-10-05T10:00:00.000Z" }, approved])?.id).toBe("a1");
   });
 
+  it("S1: supplied decisions pass through (id and status only); an empty supplied list stays an empty list, distinct from not supplied", () => {
+    const some = buildReviewState({ ...base, latest: null, decisions: [{ id: "X7", status: "decided" }] });
+    expect(some.decisions).toEqual([{ id: "X7", status: "decided" }]);
+    expect(buildReviewState({ ...base, latest: null, decisions: [] }).decisions).toEqual([]);
+    expect(buildReviewState({ ...base, latest: null }).decisions).toBeNull();
+  });
+
   it("the state is JSON-safe (no Date) and holds no value of the return beyond the findings' own text", () => {
     const s = buildReviewState({ ...base, latest: { run: run({ startedAt: new Date("2026-10-05T10:00:00Z") }), findings: [finding("L1.x")] } });
     const round = JSON.parse(JSON.stringify(s)) as typeof s;
     expect(round.latestRun?.startedAt).toBe("2026-10-05T10:00:00.000Z");
+    // S1: decisions not supplied is null (the by-hand list then shows everything), never an empty list
+    expect(s.decisions).toBeNull();
     expect(Object.keys(s).sort()).toEqual(["ai", "approval", "approver", "canApproveNow", "currentFingerprint12", "decisions", "findings", "gate", "latestRun", "notRunNotice", "register", "registerNarrated", "runIsStale", "runs", "totals", "year"]);
   });
 });

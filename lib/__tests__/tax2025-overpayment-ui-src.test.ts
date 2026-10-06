@@ -19,6 +19,7 @@ import { applyOverrides, decisionsFromOverrides, type OverrideHistoryRow, type O
 import { TY2025_ENGINE_VERSION, computeTy2025Return } from "@/lib/tax2025/return";
 import { buildSheetModel, type SheetModel } from "@/lib/tax2025-sheet";
 import { ReturnSheet } from "@/components/tax/forms/return-sheet";
+import { ByHandChecklist } from "@/components/tax/review/by-hand-checklist";
 import { fullFacts1b } from "./tax2025-fixtures";
 
 (globalThis as { React?: typeof React }).React = React;
@@ -204,6 +205,26 @@ describe("server render of the decision cards", () => {
     const html = renderToStaticMarkup(createElement(ReturnSheet, { model }));
     expect(html).toContain("Change decision");
     expect(html).toContain("set to Refund all");
+  });
+});
+
+describe("ByHandChecklist (server render)", () => {
+  const render = (props: { decisions?: readonly { id: string; status: "decided" | "default_undecided" }[] | null }): string => renderToStaticMarkup(createElement(ByHandChecklist, props));
+  it("S1: decisions not supplied (omitted or null) shows the FULL list, both overpayment bullets included", () => {
+    for (const html of [render({}), render({ decisions: null })]) {
+      expect(html).toContain("Form 1040 lines 35a and 36");
+      expect(html).toContain("CT-1040 lines 23, 24 and 24a");
+      expect(html).toContain("Bank routing and account numbers");
+    }
+  });
+  it("an empty supplied list (no overpayment) drops them; undecided keeps them with the page-only hint; decided drops them", () => {
+    expect(render({ decisions: [] })).not.toContain("Form 1040 lines 35a and 36");
+    const u = render({ decisions: [{ id: "X7", status: "default_undecided" }, { id: "X8", status: "default_undecided" }] });
+    expect(u).toContain("record decision X7");
+    expect(u).toContain("record decision X8");
+    const d = render({ decisions: [{ id: "X7", status: "decided" }, { id: "X8", status: "decided" }] });
+    expect(d).not.toContain("Form 1040 lines 35a and 36");
+    expect(d).not.toContain("CT-1040 lines 23, 24 and 24a");
   });
 });
 

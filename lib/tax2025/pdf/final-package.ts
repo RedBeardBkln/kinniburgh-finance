@@ -221,19 +221,25 @@ const CT_ELECTION_PREFIX = "CT-1040 lines 23, 24 and 24a";
 /**
  * BY_HAND for a return: the two overpayment bullets (Form 1040 lines 35a and 36; CT-1040 lines 23, 24 and 24a) are the owner's choice until
  * decision X7 / X8 is recorded. Once it is recorded the app prints those lines and the bullet goes; with no overpayment there is nothing to
- * choose and the bullet goes too. While the decision is still undecided the bullet stays, with the way to have the app fill it. Every other
- * bullet is unchanged. BY_HAND itself stays the full catalogue (its link targets and tests iterate it).
+ * choose and the bullet goes too. While the decision is still undecided the bullet stays with its original neutral text (the package index
+ * prints exactly that: a final package never mentions this app or a decision id). Only the Final review page asks for `withPageHints`, which
+ * adds the way to have the app fill the lines. Every other bullet is unchanged. BY_HAND itself stays the full catalogue (its link targets and
+ * tests iterate it). `decisions` undefined or null means "not supplied": the FULL list, never an empty one.
  */
-export function byHandItems(decisions?: readonly { id: string; status: "decided" | "default_undecided" }[]): readonly string[] {
+export function byHandItems(
+  decisions?: readonly { id: string; status: "decided" | "default_undecided" }[] | null,
+  opts: { withPageHints?: boolean } = {},
+): readonly string[] {
   // callers that do not know the decisions get the full catalogue (nothing is hidden by accident)
-  if (decisions === undefined) return BY_HAND;
+  if (decisions === undefined || decisions === null) return BY_HAND;
   const undecided = (id: string): boolean => decisions.some((d) => d.id === id && d.status === "default_undecided");
+  const hints = opts.withPageHints === true;
   const out: string[] = [];
   for (const t of BY_HAND) {
     if (t.startsWith(FEDERAL_ELECTION_PREFIX)) {
-      if (undecided("X7")) out.push(`${t}. Or record decision X7 on the return sheet of the Forms page and the app fills them.`);
+      if (undecided("X7")) out.push(hints ? `${t}. Or record decision X7 on the return sheet of the Forms page and the app fills them.` : t);
     } else if (t.startsWith(CT_ELECTION_PREFIX)) {
-      if (undecided("X8")) out.push(`${t}. Or record decision X8 on the return sheet of the Forms page and the app fills lines 23 and 25 (lines 24 and 24a stay blank).`);
+      if (undecided("X8")) out.push(hints ? `${t}. Or record decision X8 on the return sheet of the Forms page and the app fills lines 23 and 25 (lines 24 and 24a stay blank).` : t);
     } else {
       out.push(t);
     }

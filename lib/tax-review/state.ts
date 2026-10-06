@@ -219,7 +219,8 @@ export interface ReviewStateDto {
   register: RegisterEntry[];
   registerNarrated: boolean;
   /** The engine's decisions and whether each is recorded (id and status only): the "To do by hand" list drops the lines a recorded decision prints. */
-  decisions: { id: string; status: "decided" | "default_undecided" }[];
+  /** null = the decisions were not supplied (the "To do by hand" list then shows everything). */
+  decisions: { id: string; status: "decided" | "default_undecided" }[] | null;
 }
 
 export function toRunDto(run: RunRowLike, currentFingerprint: string): RunDto {
@@ -348,7 +349,7 @@ export function buildReviewState(input: ReviewStateInput): ReviewStateDto {
     ai: toAiDto(ai),
     register: [...(ai.narratedRegister ?? input.register ?? [])],
     registerNarrated: ai.narratedRegister !== null,
-    decisions: (input.decisions ?? []).map((d) => ({ id: d.id, status: d.status })),
+    decisions: input.decisions === undefined ? null : input.decisions.map((d) => ({ id: d.id, status: d.status })),
   };
 }
 

@@ -12,7 +12,8 @@ export function ByHandChecklist({
   decisions,
 }: {
   links?: LinkContext;
-  decisions?: readonly { id: string; status: "decided" | "default_undecided" }[];
+  /** undefined or null = not supplied: the full list is shown (never an empty one). */
+  decisions?: readonly { id: string; status: "decided" | "default_undecided" }[] | null;
 }) {
   return (
     <section id={REVIEW_ANCHORS.byHand} aria-labelledby="byhand-heading" className="anchor-target space-y-2 rounded-lg border p-4" data-testid="review-byhand">
@@ -23,7 +24,7 @@ export function ByHandChecklist({
         The app never stores or fills these. Complete them on the printed forms, and keep the broker&apos;s Form 1099-B detail pages with the return (the Form 8949 statement in the package is a summary only).
       </p>
       <ul className="list-disc space-y-1 pl-5 text-sm">
-        {byHandItems(decisions).map((t) => (
+        {byHandItems(decisions, { withPageHints: true }).map((t) => (
           <li key={t}>
             {t}
             <LinkList links={byHandLinks(t, links)} />
