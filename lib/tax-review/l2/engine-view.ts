@@ -5,7 +5,7 @@ import type { LineKey } from "@/lib/tax2025/line-catalog";
 import type { EffectiveReturn } from "@/lib/tax2025/overrides";
 import type { RuleDecision, Ty2025Return } from "@/lib/tax2025/types";
 import type { OracleDecisions } from "@/lib/tax-review/l2/ledger";
-import type { Maybe } from "@/lib/tax-review/l2/money";
+import { tenthsOfPercent, type Maybe } from "@/lib/tax-review/l2/money";
 
 export interface EngineLineView {
   /** The amount that is (or would be) printed, whole dollars; null when the line carries no amount. */
@@ -42,9 +42,15 @@ export function decisionsOf(ret: Ty2025Return, effective: EffectiveReturn | null
   const x1 = pick("X1");
   const x3 = pick("X3");
   const x5 = pick("X5");
+  // a business-use percentage (X6 ...): the decision's `chosen` is "70%" / "70.5%"; the registry decisions' choices are words
+  const businessUse: Record<string, Maybe<number>> = {};
+  for (const d of list) {
+    if (/^X\d+$/.test(d.id) && d.chosen.endsWith("%")) businessUse[d.id] = tenthsOfPercent(d.chosen);
+  }
   return {
     homeOffice: x1 === "actual" ? "actual" : "simplified",
     qbiForm: x3 === "8995a" ? "8995a" : "8995",
     arbor: x5 === "capitalize" ? "capitalize" : "schedule_a",
+    businessUse,
   };
 }

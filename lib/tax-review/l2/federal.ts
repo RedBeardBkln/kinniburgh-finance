@@ -229,7 +229,27 @@ export function computeFederal(inp: OracleInputs): Ledger {
           L.put(key, null);
         } else L.put(key, roundDivInt(tenthsOfCents, 1000));
       } else {
-        L.put(key, dollarsOfCents(lineCents(id)));
+        const accounts = det.lines.filter((l) => l.lineId === id).flatMap((l) => l.accounts);
+        if (accounts.some((a) => a.businessUseDecisionId !== undefined)) {
+          // A mixed-use account (decision X6 ...): booked cents x the owner's recorded percentage (tenths; 1000 = 100%), every other
+          // account at 100%, summed in cents x tenths and rounded to whole dollars ONCE (the IRS rule). No recorded decision = 100%.
+          let scaled = 0;
+          let unreadable = false;
+          for (const a of accounts) {
+            const decisionId = a.businessUseDecisionId;
+            const tenths = decisionId === undefined || !(decisionId in decisions.businessUse) ? 1000 : decisions.businessUse[decisionId] ?? null;
+            if (tenths === null) unreadable = true;
+            else scaled += a.rawCents * tenths;
+          }
+          if (unreadable) {
+            L.abstain(`Schedule C line ${id}`, "the recorded business-use percentage could not be read");
+            L.put(key, null);
+          } else {
+            L.put(key, roundDivInt(scaled, 100000), [], "business-use percentage applied to the mixed-use account(s)");
+          }
+        } else {
+          L.put(key, dollarsOfCents(lineCents(id)));
+        }
       }
     }
     // line 27b is Part V line 48

@@ -72,3 +72,11 @@ export function thousandthsOf(rate: string): Maybe<number> {
   const frac = (m[2] ?? "").padEnd(3, "0");
   return Number(m[1]) * 1000 + Number(frac);
 }
+
+/** A decision's percent text ("70%", "70.5%", "100%") to tenths of a percent (0..1000); null when it is anything else. */
+export function tenthsOfPercent(text: string): Maybe<number> {
+  const m = /^(\d{1,3})(?:\.(\d))?%$/.exec(text.trim());
+  if (m === null) return null;
+  const tenths = Number(m[1]) * 10 + Number(m[2] ?? "0");
+  return tenths <= 1000 ? tenths : null;
+}

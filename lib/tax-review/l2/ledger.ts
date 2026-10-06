@@ -7,7 +7,15 @@ import type { Maybe } from "@/lib/tax-review/l2/money";
 
 /** What the oracle reads from the engine's Schedule C classification (the GL-account to Schedule C line map is an INPUT, not recomputed). */
 export interface SchCDetailInput {
-  lines: readonly { lineId: string; amountCents: number; accounts: readonly { rawCents: number }[] }[];
+  lines: readonly {
+    lineId: string;
+    amountCents: number;
+    /**
+     * `businessUseDecisionId` marks a mixed-use account (the engine's CLASSIFICATION is an input, exactly like the GL map); the
+     * PERCENTAGE applied to it is read from the decision, independently (OracleDecisions.businessUse), never from the engine's amount.
+     */
+    accounts: readonly { rawCents: number; businessUseDecisionId?: string }[];
+  }[];
   otherExpenseItems: readonly { amountCents: number }[];
   unmapped: readonly unknown[];
   needsCpa: readonly unknown[];
@@ -22,6 +30,8 @@ export interface OracleDecisions {
   homeOffice: "simplified" | "actual";
   qbiForm: "8995" | "8995a";
   arbor: "schedule_a" | "capitalize";
+  /** Business-use percentages (decisions X6 ...): decision id -> tenths of a percent (1000 = 100%); null = the recorded value could not be read. */
+  businessUse: Readonly<Record<string, Maybe<number>>>;
 }
 
 export interface OracleInputs {
