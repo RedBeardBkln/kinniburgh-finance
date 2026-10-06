@@ -239,6 +239,17 @@ function duplicateKey(doc: RawDocument): string | null {
       if (amounts === "") return null;
       return ["1099", person, str("payerEIN") || str("payerName").toLowerCase(), str("formVariant"), amounts].join("|");
     }
+    case "retirement_contribution": {
+      // The same Form 5498 uploaded twice (same person, issuer, account kind, form year and every stated amount) is one form: counting both would
+      // double the contribution the owner's answer is checked against. Two different forms differ in at least one amount, issuer or year.
+      const amounts = Object.keys(data)
+        .filter((k) => k.endsWith("Cents") && intOrNull(data[k]) !== null)
+        .sort()
+        .map((k) => `${k}=${String(data[k])}`)
+        .join(",");
+      if (amounts === "") return null;
+      return ["retirement", person, str("issuerName").toLowerCase(), str("accountKind"), str("formVariant"), num("taxYear"), amounts].join("|");
+    }
     case "mortgage_interest":
     case "form_1098":
       if (num("interestCents") === "") return null;

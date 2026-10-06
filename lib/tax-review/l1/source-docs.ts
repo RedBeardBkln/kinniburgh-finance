@@ -68,6 +68,16 @@ export function docSignature(d: RawDocument, opts: { ignorePerson?: boolean } = 
       if (amounts === "") return null;
       return ["1099", person, issuer("payerEIN", "payerName"), str(data["formVariant"]) ?? "", amounts].join("|");
     }
+    case "retirement_contribution": {
+      // Same rule as resolve-facts.ts duplicateKey: the same Form 5498 uploaded twice is one form (a different amount, issuer, kind or form year is another).
+      const amounts = Object.keys(data)
+        .filter((k) => k.endsWith("Cents") && int(data[k]) !== null)
+        .sort()
+        .map((k) => `${k}=${String(data[k])}`)
+        .join(",");
+      if (amounts === "") return null;
+      return ["retirement", person, issuer("issuerName", "issuerName"), str(data["accountKind"]) ?? "", str(data["formVariant"]) ?? "", nums(["taxYear"]), amounts].join("|");
+    }
     case "mortgage_interest":
     case "form_1098":
       return int(data["interestCents"]) === null ? null : ["1098", issuer("servicerName", "servicerName"), nums(["interestCents", "principalBalanceCents"]), (str(data["propertyAddress"]) ?? "").toLowerCase()].join("|");

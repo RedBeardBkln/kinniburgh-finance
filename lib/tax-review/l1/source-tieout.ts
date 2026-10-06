@@ -364,7 +364,12 @@ function paymentFindings(ctx: L1Context): Finding[] {
  */
 function retirementFindings(ctx: L1Context, docs: readonly RawDocument[]): Finding[] {
   const out: Finding[] = [];
-  const stmts = uniqueDocs(docs, "retirement_contribution", { ignorePerson: true });
+  // The same Form 5498 uploaded twice is one form (the person is part of the signature, so two people with identical forms stay two); a form whose own
+  // form year is not 2025 (a 2024 5498 issued in 2025 carries the 2025 document year) is not this year's figure, as in resolve-facts.ts.
+  const stmts = uniqueDocs(docs, "retirement_contribution").filter((d) => {
+    const s = retirementStatementSummary(d.extractionData);
+    return s.taxYear === null || s.taxYear === YEAR;
+  });
   for (const p of ctx.facts.returnAnswers.people) {
     if (p.userId === null) continue;
     const mine = stmts.filter((d) => d.subjectType === "person" && d.subjectUserId === p.userId);

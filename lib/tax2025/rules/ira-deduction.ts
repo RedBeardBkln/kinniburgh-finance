@@ -100,7 +100,7 @@ function stopOut(p: IraPersonInput, status: Blocked, reason: string, missing: st
 
 function need<T>(a: Ans<T>, p: IraPersonInput, what: string): Out | null {
   if (a.state === "missing") return stopOut(p, "missing_input", `${what} has not been answered.`, `${what} (${p.name})`);
-  if (a.state === "unsure") return stopOut(p, "needs_cpa_judgment", `the owner is not sure about ${what}; the CPA decides.`, `${what} (${p.name})`);
+  if (a.state === "unsure") return stopOut(p, "needs_cpa_judgment", `the owner is not sure about ${what}; you decide.`, `${what} (${p.name})`);
   return null;
 }
 
@@ -142,7 +142,7 @@ export function computeIraDeduction(input: IraInput): RuleResult {
     const limit = D(age50 ? K.IRA_LIMIT_AGE_50.value : K.IRA_LIMIT.value);
     const rothAmt = (p.roth as { state: "answered"; value: Decimal }).value;
     if (tradAmt.plus(rothAmt).greaterThan(limit)) {
-      return stopOut(p, "needs_cpa_judgment", `traditional ${fmt(tradAmt)} plus Roth ${fmt(rothAmt)} contributions exceed the ${fmt(limit)} limit: excess contributions are the CPA's.`, `IRA excess contributions (${p.name})`);
+      return stopOut(p, "needs_cpa_judgment", `traditional ${fmt(tradAmt)} plus Roth ${fmt(rothAmt)} contributions exceed the ${fmt(limit)} limit: excess contributions (Form 5329) are not figured by this app.`, `IRA excess contributions (${p.name})`);
     }
     const covered = coverageOf(p) === true;
     const spouseCovered = coverageOf(other) === true;
