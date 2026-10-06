@@ -57,7 +57,7 @@ export function computeFederalOverpayment(input: FederalOverpaymentInput): RuleR
     refundName: "line 35a",
     appliedName: "line 36",
     byHandNote:
-      "Direct deposit (lines 35b to 35d) and Form 8888 are entered by hand; the IRS generally stops issuing paper checks (Form 1040 instructions, line 35a).",
+      "Direct deposit (lines 35b to 35d) and Form 8888 are entered by hand; the IRS generally stops issuing paper checks (Form 1040 instructions, lines 35a through 35d).",
     irrevocableNote: "Once the return is filed the choice to apply an amount to 2026 cannot be changed (Form 1040 instructions, line 36).",
     refundExtra: input.line38 !== null && input.line38.greaterThan(ZERO)
       ? `The penalty on line 38 (${fmt(input.line38)}) is a Form 2210 estimate; the IRS may figure a different amount.`

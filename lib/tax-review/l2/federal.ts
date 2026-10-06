@@ -12,7 +12,7 @@
 
 import { K } from "@/lib/tax2025/constants";
 import { Ledger, noneGroupOf, type OracleInputs } from "@/lib/tax-review/l2/ledger";
-import { addAll, bpOf, dollarsOfCents, max0, roundDivInt, roundMulCents, roundMulDollars, thousandthsOf, type Maybe } from "@/lib/tax-review/l2/money";
+import { addAll, bpOf, dollarsOfCents, max0, overpaymentSplitOf, roundDivInt, roundMulCents, roundMulDollars, thousandthsOf, type Maybe } from "@/lib/tax-review/l2/money";
 import { federalTaxCents, qdcgWorksheet, wholeDollars } from "@/lib/tax-review/l2/tables";
 
 /** Schedule D / 1040 line 7a: sum the exact cents of the cells and round the line once (see computeScheduleD). */
@@ -975,7 +975,29 @@ export function computeFederal(inp: OracleInputs): Ledger {
     const l8 = L.put("f2210.8", roundMulCents(prior, bpOf(fraction)));
     L.put("f2210.9", l8 === null ? null : Math.min(l5, l8), ["f2210.5", "f2210.8"]);
   }
-  L.put("f1040.34", t24 === null || p33 === null ? null : max0(p33 - t24), ["f1040.24", "f1040.33"]);
+  const l34 = L.put("f1040.34", t24 === null || p33 === null ? null : max0(p33 - t24), ["f1040.24", "f1040.33"]);
   L.put("f1040.37", t24 === null || p33 === null ? null : max0(t24 - p33), ["f1040.24", "f1040.33"]);
+
+  // ── Lines 35a and 36 (decision X7) ───────────────────────────────────────────
+  // "If you have an overpayment on line 34, subtract the penalty [line 38] from the amount you would otherwise enter on line 35a or line 36.
+  // Lines 35a, 36, and 38 must equal line 34. If the penalty is more than the overpayment on line 34, enter -0- on lines 35a and 36."
+  // The penalty is the amount printed on line 38 (a blank line counts as 0): the Form 2210 estimate is an input here, not recomputed twice.
+  // Nothing recorded: the engine prints both lines blank, so the oracle puts nothing (a blank is not a difference).
+  if (l34 !== null) {
+    const choice = decisions.federalOverpayment;
+    if (l34 === 0) {
+      L.put("f1040.35a", 0, ["f1040.34"], "no overpayment");
+      L.put("f1040.36", 0, ["f1040.34"], "no overpayment");
+    } else if (choice.kind === "unreadable") {
+      L.abstain("Form 1040 lines 35a and 36", "the recorded decision X7 is not a choice this oracle reads");
+    } else if (choice.kind !== "none") {
+      const penalty = inp.engineAmount("f1040.38") ?? 0;
+      const split = overpaymentSplitOf(max0(l34 - penalty), choice);
+      if (split !== null) {
+        L.put("f1040.35a", split[0], ["f1040.34", "f1040.38"], "line 34 less the penalty on line 38, less the amount applied");
+        L.put("f1040.36", split[1], ["f1040.34", "f1040.38"], "the amount applied to 2026 estimated tax");
+      }
+    }
+  }
   return L;
 }

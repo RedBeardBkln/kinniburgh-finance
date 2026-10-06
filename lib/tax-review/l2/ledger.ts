@@ -3,7 +3,7 @@
 
 import type { Ty2025Facts } from "@/lib/tax2025/facts";
 import { lineMeta, type LineKey } from "@/lib/tax2025/line-catalog";
-import type { Maybe } from "@/lib/tax-review/l2/money";
+import type { Maybe, OracleOverpayment } from "@/lib/tax-review/l2/money";
 
 /** What the oracle reads from the engine's Schedule C classification (the GL-account to Schedule C line map is an INPUT, not recomputed). */
 export interface SchCDetailInput {
@@ -32,6 +32,9 @@ export interface OracleDecisions {
   arbor: "schedule_a" | "capitalize";
   /** Business-use percentages (decisions X6 ...): decision id -> tenths of a percent (1000 = 100%); null = the recorded value could not be read. */
   businessUse: Readonly<Record<string, Maybe<number>>>;
+  /** Decision X7 (Form 1040 lines 35a / 36) and X8 (CT-1040 lines 23 / 25), read from the recorded choice text. */
+  federalOverpayment: OracleOverpayment;
+  ctOverpayment: OracleOverpayment;
 }
 
 export interface OracleInputs {

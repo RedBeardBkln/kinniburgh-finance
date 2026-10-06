@@ -5,7 +5,7 @@
 
 import { K } from "@/lib/tax2025/constants";
 import { Ledger, type OracleInputs } from "@/lib/tax-review/l2/ledger";
-import { addAll, dollarsOfCents, max0, type Maybe } from "@/lib/tax-review/l2/money";
+import { addAll, dollarsOfCents, max0, overpaymentSplitOf, type Maybe } from "@/lib/tax-review/l2/money";
 import { ctPropertyTaxDecimalHundredths, ctTaxCalculationSchedule } from "@/lib/tax-review/l2/tables";
 
 const CT_ADDITION_LINES = ["31", "32", "33", "34", "35", "36", "36a", "37"] as const;
@@ -158,4 +158,23 @@ export function computeCt(inp: OracleInputs, L: Ledger): void {
   const l22 = L.put("ct1040.22", l21 === null || l17 === null ? null : max0(l21 - l17), ["ct1040.21", "ct1040.17"]);
   const l26 = L.put("ct1040.26", l21 === null || l17 === null ? null : max0(l17 - l21), ["ct1040.17", "ct1040.21"]);
   L.put("ct1040.balance", l22 === null || l26 === null ? null : l26 - l22, ["ct1040.22", "ct1040.26"]);
+
+  // ── Lines 23 and 25 (decision X8) ────────────────────────────────────────────
+  // "Line 25: Refund. Subtract Lines 23, 24, and 24a from Line 22 and enter the result." Lines 24 and 24a are blank (no CHET or charity
+  // contribution), so line 25 = line 22 - line 23. Nothing recorded: the engine prints both blank, so the oracle puts nothing.
+  if (l22 !== null) {
+    const choice = inp.decisions.ctOverpayment;
+    if (l22 === 0) {
+      L.put("ct1040.23", 0, ["ct1040.22"], "no overpayment");
+      L.put("ct1040.25", 0, ["ct1040.22"], "no overpayment");
+    } else if (choice.kind === "unreadable") {
+      L.abstain("CT-1040 lines 23 and 25", "the recorded decision X8 is not a choice this oracle reads");
+    } else if (choice.kind !== "none") {
+      const split = overpaymentSplitOf(l22, choice);
+      if (split !== null) {
+        L.put("ct1040.25", split[0], ["ct1040.22", "ct1040.23"], "line 22 less line 23 (lines 24 and 24a are blank)");
+        L.put("ct1040.23", split[1], ["ct1040.22"], "the amount applied to 2026 estimated tax");
+      }
+    }
+  }
 }

@@ -527,6 +527,80 @@ function businessUseFindings(ctx: L1Context): Finding[] {
   return out;
 }
 
+// ── the overpayment decisions (X7 federal, X8 Connecticut): what is printed adds up to the overpayment ─────────────
+
+/**
+ * Only once the owner has RECORDED the decision (an undecided decision prints blank lines and L1.D2 already gates it). Federal: "Lines 35a,
+ * 36, and 38 must equal line 34" (Form 1040 instructions, line 38), so line 35a + line 36 + the penalty printed on line 38 (blank = 0) is line 34;
+ * when the printed penalty is more than line 34 the instruction says to enter -0- on lines 35a and 36 (the engine's own advisory covers line 37).
+ * Connecticut: "Subtract Lines 23, 24, and 24a from Line 22 and enter the result" with lines 24 and 24a left blank, so line 25 + line 23 is line 22.
+ * A line without an amount is skipped here (L1.D1 reports why). Read from the effective view: a pin that breaks the sum is a finding too.
+ */
+function refundSplitFindings(ctx: L1Context): Finding[] {
+  const out: Finding[] = [];
+  const decided = (id: string): boolean => ctx.view.decisions.some((d) => d.id === id && d.status === "decided");
+  if (decided("X7")) {
+    const over = lineState(ctx, "f1040.34");
+    const refunded = lineState(ctx, "f1040.35a");
+    const applied = lineState(ctx, "f1040.36");
+    const penalty = lineState(ctx, "f1040.38").amount ?? 0;
+    if (over.amount !== null && refunded.amount !== null && applied.amount !== null) {
+      const penaltyExceeds = penalty > over.amount;
+      const printedTotal = refunded.amount + applied.amount + (penaltyExceeds ? 0 : penalty);
+      const expected = penaltyExceeds ? 0 : over.amount;
+      if (printedTotal !== expected) {
+        out.push(
+          makeFinding({
+            layer: "L1",
+            check: "L1.C1.refund-split-federal",
+            severity: "blocker",
+            area: "payments",
+            lineKey: "f1040.35a",
+            ruleTag: "X7",
+            message: `Form 1040 lines 35a (${usd(refunded.amount)}), 36 (${usd(applied.amount)}) and the penalty on line 38 (${usd(penalty)}) add up to ${usd(printedTotal)}, but the instructions say they must equal line 34 (${usd(over.amount)}).`,
+            evidence: [
+              { ref: "f1040.34", amount: over.amount, status: over.status },
+              { ref: "f1040.35a", amount: refunded.amount, status: refunded.status },
+              { ref: "f1040.36", amount: applied.amount, status: applied.status },
+              { ref: "f1040.38", amount: penalty, status: lineState(ctx, "f1040.38").status },
+            ],
+            citation: { sources: [{ kind: "source_pack", id: "i1040gi", quote: "Lines 35a, 36, and 38 must equal line 34." }], sourceStatus: "verified" },
+            recommendedAction: "Do not file with this difference. Record decision X7 again, or remove the override that changed one of these lines, and run the review again.",
+            acceptable: false,
+          })
+        );
+      }
+    }
+  }
+  if (decided("X8")) {
+    const over = lineState(ctx, "ct1040.22");
+    const applied = lineState(ctx, "ct1040.23");
+    const refunded = lineState(ctx, "ct1040.25");
+    if (over.amount !== null && applied.amount !== null && refunded.amount !== null && applied.amount + refunded.amount !== over.amount) {
+      out.push(
+        makeFinding({
+          layer: "L1",
+          check: "L1.C1.refund-split-ct",
+          severity: "blocker",
+          area: "state",
+          lineKey: "ct1040.25",
+          ruleTag: "X8",
+          message: `CT-1040 line 25 (${usd(refunded.amount)}) and line 23 (${usd(applied.amount)}) add up to ${usd(applied.amount + refunded.amount)}, but line 25 is line 22 (${usd(over.amount)}) less lines 23, 24 and 24a (24 and 24a are blank).`,
+          evidence: [
+            { ref: "ct1040.22", amount: over.amount, status: over.status },
+            { ref: "ct1040.23", amount: applied.amount, status: applied.status },
+            { ref: "ct1040.25", amount: refunded.amount, status: refunded.status },
+          ],
+          citation: { sources: [{ kind: "source_pack", id: "ct1040i", quote: "Subtract Lines 23, 24, and 24a from Line 22 and enter the result." }], sourceStatus: "verified" },
+          recommendedAction: "Do not file with this difference. Record decision X8 again, or remove the override that changed one of these lines, and run the review again.",
+          acceptable: false,
+        })
+      );
+    }
+  }
+  return out;
+}
+
 export const sourceTieoutCheck: L1Check = {
   id: "L1.C1",
   description: "Verified source documents tie to the return (W-2, 1099, 1098, property tax, payments); nothing is left out",
@@ -534,6 +608,7 @@ export const sourceTieoutCheck: L1Check = {
     if (ctx.raw === null) {
       return [
         ...businessUseFindings(ctx),
+        ...refundSplitFindings(ctx),
         makeFinding({
           layer: "L1",
           check: "L1.C1.no-documents",
@@ -547,6 +622,6 @@ export const sourceTieoutCheck: L1Check = {
       ];
     }
     const docs = ctx.raw.documents;
-    return [...w2Findings(ctx, docs), ...f1099Findings(ctx, docs), ...deductionFindings(ctx, docs), ...retirementFindings(ctx, docs), ...paymentFindings(ctx), ...businessUseFindings(ctx), ...inventoryFindings(ctx, docs)];
+    return [...w2Findings(ctx, docs), ...f1099Findings(ctx, docs), ...deductionFindings(ctx, docs), ...retirementFindings(ctx, docs), ...paymentFindings(ctx), ...businessUseFindings(ctx), ...refundSplitFindings(ctx), ...inventoryFindings(ctx, docs)];
   },
 };

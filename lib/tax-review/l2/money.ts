@@ -73,6 +73,47 @@ export function thousandthsOf(rate: string): Maybe<number> {
   return Number(m[1]) * 1000 + Number(frac);
 }
 
+/**
+ * The overpayment decisions X7 / X8 as the oracle reads them (its own parser: no import of lib/tax2025/overpayment.ts). `none` = nothing is
+ * recorded (the engine prints the lines blank); `unreadable` = a text this parser does not know (the oracle abstains, never guesses).
+ */
+export type OracleOverpayment =
+  | { kind: "none" }
+  | { kind: "refund_all" }
+  | { kind: "apply_all" }
+  | { kind: "apply_amount"; dollars: number }
+  | { kind: "unreadable" };
+
+/** "refund_all", "apply_all", "apply_amount:5000"; "no_election" or no decision = none; anything else = unreadable. */
+export function overpaymentOfText(text: string | undefined): OracleOverpayment {
+  if (text === undefined || text === "no_election") return { kind: "none" };
+  if (text === "refund_all") return { kind: "refund_all" };
+  if (text === "apply_all") return { kind: "apply_all" };
+  const m = /^apply_amount:(\d{1,7})$/.exec(text);
+  if (m !== null) {
+    const dollars = Number(m[1]);
+    return dollars >= 1 ? { kind: "apply_amount", dollars } : { kind: "unreadable" };
+  }
+  return { kind: "unreadable" };
+}
+
+/**
+ * [refunded, applied] of an available overpayment (whole dollars) under a recorded choice; null when nothing is printed (no decision, or an
+ * amount to apply above what is available: the engine blocks that case).
+ */
+export function overpaymentSplitOf(available: number, choice: OracleOverpayment): Maybe<readonly [number, number]> {
+  switch (choice.kind) {
+    case "refund_all":
+      return [available, 0];
+    case "apply_all":
+      return [0, available];
+    case "apply_amount":
+      return choice.dollars <= available ? [available - choice.dollars, choice.dollars] : null;
+    default:
+      return null;
+  }
+}
+
 /** A decision's percent text ("70%", "70.5%", "100%") to tenths of a percent (0..1000); null when it is anything else. */
 export function tenthsOfPercent(text: string): Maybe<number> {
   const m = /^(\d{1,3})(?:\.(\d))?%$/.exec(text.trim());

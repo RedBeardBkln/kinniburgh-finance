@@ -5,7 +5,7 @@ import type { LineKey } from "@/lib/tax2025/line-catalog";
 import type { EffectiveReturn } from "@/lib/tax2025/overrides";
 import type { RuleDecision, Ty2025Return } from "@/lib/tax2025/types";
 import type { OracleDecisions } from "@/lib/tax-review/l2/ledger";
-import { tenthsOfPercent, type Maybe } from "@/lib/tax-review/l2/money";
+import { overpaymentOfText, tenthsOfPercent, type Maybe } from "@/lib/tax-review/l2/money";
 
 export interface EngineLineView {
   /** The amount that is (or would be) printed, whole dollars; null when the line carries no amount. */
@@ -52,5 +52,8 @@ export function decisionsOf(ret: Ty2025Return, effective: EffectiveReturn | null
     qbiForm: x3 === "8995a" ? "8995a" : "8995",
     arbor: x5 === "capitalize" ? "capitalize" : "schedule_a",
     businessUse,
+    // X7 / X8: the choice text is "refund_all" / "apply_all" / "apply_amount:<n>" / "no_election", never a percent, so the loop above leaves them alone
+    federalOverpayment: overpaymentOfText(pick("X7")),
+    ctOverpayment: overpaymentOfText(pick("X8")),
   };
 }
