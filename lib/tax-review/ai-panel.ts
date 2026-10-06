@@ -12,6 +12,7 @@ export const SEND_NOTICE =
   + "The names of the payers on your tax documents (employers, payroll companies, banks, lenders and brokerages) ARE sent as they are printed on the document, because they help the review recognise each form. "
   + "The server setting TAX_REVIEW_PAYER_NAMES=generic sends \"Employer A\" and \"Payer B\" instead. "
   + "The household appears only as \"Taxpayer M\" and \"Taxpayer F\". Household names, street addresses, the names of your own business entities, Social Security numbers and account numbers are removed, and employer identification numbers are cut to their last four digits, before anything leaves the app. "
+  + "It also sends a short list of facts you confirmed (so the review does not ask again), the decisions you recorded with the reasons you wrote, and the reasons you wrote when you accepted a finding. "
   + "Nothing is sent until you start.";
 
 export interface StartCheck {

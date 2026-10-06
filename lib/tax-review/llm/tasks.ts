@@ -24,7 +24,13 @@ import { adversarialJsonSchema, findingsJsonSchema, registerJsonSchema, SCHEMA_V
 // l3-prompts-2: output budgets raised (reasoning tokens count against max_tokens), a cap on findings and on their length added to the
 // instructions of c1-c3, d1, d2, e1, e2 and f1. The text of a1, a2, b1, b2, b3 and the system prompt are UNCHANGED from l3-prompts-1 on
 // purpose: their finished results from the first live run stay reusable (see reuse.ts and LEGACY_PROMPTS_1 there).
-export const PROMPT_VERSION = "l3-prompts-2";
+// l3-prompts-3 (ai-payload-fixes): REVIEW_RULES (entities of the year and the packet manifest, owner statements, document roles) is sent to
+// EVERY task between the instruction and the data. The system prompt and every task instruction are UNCHANGED (taskContentHash and the
+// LEGACY_PROMPTS_1 pins are unchanged); what changed is the request text of all 13 tasks: the rules, and the payload each task reads
+// (schema 2): every task carries meta.packetManifest and ownerStatements, c1-c3 read the forms by their real file ids (c1 used to get every
+// "f1040*" file and c2 only Form 8949), and a Form 1098 / property tax bill carries its documentRole. A result of an earlier prompt version
+// therefore never matches the new request (reuse compares the whole request text): expected.
+export const PROMPT_VERSION = "l3-prompts-3";
 
 /** A cut-off answer is retried ONCE (a later step) with this many times the budget, bounded by HARD_CEILING_TOKENS. */
 export const RETRY_FACTOR = 1.75;
@@ -83,7 +89,18 @@ How you work:
 - Keep each message to the facts: what is wrong or missing, where, and what to do. Plain language. No advice about investing.
 - Reply with JSON only, matching the schema you were given.`;
 
-const FIELD_HELP = `Each finding has: category (from the list), severity, area, form (the form it concerns, or null), lineKey (a line key from the data, or null), message, evidence (the lines, documents or headline rows it rests on, each with the exact amount from the data or null), sources, legalClaim, recommendedAction.`;
+/**
+ * Rules added in l3-prompts-3 (ai-payload-fixes) that apply to EVERY task. They are sent between the task instruction and the data, NOT in
+ * SYSTEM_PROMPT or in an instruction, so that the text of every task's instruction and the system prompt stay exactly what l3-prompts-1 /
+ * l3-prompts-2 sent (taskContentHash and the pinned LEGACY_PROMPTS_1 hashes are unchanged). They are part of taskPromptHash (the run's
+ * prompt hash), and reuse compares the whole request text, so a result produced without them can never be reused.
+ */
+export const REVIEW_RULES = `Rules for this review (they apply to every task):
+- "meta.entities" lists the only business entities that existed and could have activity in 2025: do not raise findings about any other entity. "meta.packetManifest" names EVERY form of the printed packet: each step is shown the text of only some forms, so never report a form as missing from the packet when the manifest lists it.
+- "ownerStatements" holds facts the owner confirmed himself, which are NOT verified by documents (plus the reasons he recorded for decisions and for findings he accepted). Treat them as given and do not ask him to confirm them again. You may still add a finding when a figure or line contradicts a statement, when a statement does not carry the conclusion you would draw, or about anything a statement does not cover.
+- A document's "documentRole" / "role" is how the engine classified it (for example the primary residence property tax bill): do not contradict it from an address label alone. The same property always carries the same label ("the primary residence", "other property A").`;
+
+const FIELD_HELP =`Each finding has: category (from the list), severity, area, form (the form it concerns, or null), lineKey (a line key from the data, or null), message, evidence (the lines, documents or headline rows it rests on, each with the exact amount from the data or null), sources, legalClaim, recommendedAction.`;
 
 function prompt(task: string, focus: string): string {
   return `${task}\n\n${focus}\n\n${FIELD_HELP}`;
@@ -109,11 +126,16 @@ function rulesOn(payload: ReviewPayload, pattern: RegExp): ReviewPayload["rules"
 }
 
 function core(payload: ReviewPayload): Record<string, unknown> {
-  return { meta: payload.meta, headline: payload.headline, headlineNotes: payload.headlineNotes };
+  // meta carries the packet manifest and the entities of the year; ownerStatements is advisory context (every task sees both)
+  return { meta: payload.meta, headline: payload.headline, headlineNotes: payload.headlineNotes, ownerStatements: payload.ownerStatements };
 }
 
+/**
+ * The printed forms of a task, by FILE form id (the ids of lib/tax2025/pdf/maps: "f1040", "f1040s1", "f1040sc", "ct1040" ...), exactly.
+ * l3-prompts-2 matched by prefix and with engine ids ("sch1", "scha"): c1 then received every "f1040*" file and c2 received only Form 8949.
+ */
 function formsOf(payload: ReviewPayload, ids: readonly string[]): ReviewPayload["forms"] {
-  return payload.forms.filter((f) => ids.some((id) => f.formId === id || f.formId.startsWith(id)));
+  return payload.forms.filter((f) => ids.includes(f.formId));
 }
 
 const CT_FORMS = ["CT-1040"];
@@ -202,7 +224,7 @@ export const TASKS: readonly TaskDef[] = [
       "Look for: a printed value that does not belong on that printed line, two lines that must agree but do not, an implausible sign or magnitude, a line that should have a value given the other lines, a total that does not follow from its parts. Compare each printed value with the line data.",
       8
     ),
-    slice: (p) => ({ ...core(p), forms: formsOf(p, ["f1040", "sch1", "sch2", "sch3"]), lines: linesOn(p, ["Form 1040", "Schedule 1", "Schedule 2", "Schedule 3"]) }),
+    slice: (p) => ({ ...core(p), forms: formsOf(p, ["f1040", "f1040s1", "f1040s2", "f1040s3"]), lines: linesOn(p, ["Form 1040", "Schedule 1", "Schedule 2", "Schedule 3"]) }),
   },
   {
     id: "c2",
@@ -217,7 +239,7 @@ export const TASKS: readonly TaskDef[] = [
       "Look for: a printed value that does not belong on that printed line, an implausible entry, a Schedule C line that looks misclassified, Schedule D and Form 8949 columns that do not follow from each other, totals that do not follow from their parts.",
       8
     ),
-    slice: (p) => ({ ...core(p), forms: formsOf(p, ["scha", "schb", "schc", "schse", "schd", "f8949"]), lines: linesOn(p, ["Schedule A", "Schedule B", "Schedule C", "Schedule D", "Schedule SE"]), scheduleC: p.income.scheduleC }),
+    slice: (p) => ({ ...core(p), forms: formsOf(p, ["f1040sa", "f1040sb", "f1040sc", "f1040sd", "f1040sse", "f8949"]), lines: linesOn(p, ["Schedule A", "Schedule B", "Schedule C", "Schedule D", "Schedule SE"]), scheduleC: p.income.scheduleC }),
   },
   {
     id: "c3",
@@ -232,7 +254,7 @@ export const TASKS: readonly TaskDef[] = [
       "Look for: a printed value that does not belong on that printed line, lines that must agree but do not, an implausible entry, a total that does not follow from its parts, a phase-out that was not applied when the income says it should be.",
       8
     ),
-    slice: (p) => ({ ...core(p), forms: formsOf(p, ["sch1a", "f8959", "f8960", "f8995"]), lines: linesOn(p, ["Schedule 1-A", "Form 8959", "Form 8960", "Form 8995"]) }),
+    slice: (p) => ({ ...core(p), forms: formsOf(p, ["f1040s1a", "f8959", "f8960", "f8995"]), lines: linesOn(p, ["Schedule 1-A", "Form 8959", "Form 8960", "Form 8995"]) }),
   },
   {
     id: "d1",
@@ -343,7 +365,7 @@ export function taskContentHash(task: TaskDef): string {
 
 /** Hash of one task's complete prompt text, schema and budget: any change of a word, a category, the schema or the budget changes it. */
 export function taskPromptHash(task: TaskDef): string {
-  return sha256Hex([PROMPT_VERSION, String(SCHEMA_VERSION), SYSTEM_PROMPT, task.id, task.instruction, task.categories.join(","), JSON.stringify(jsonSchemaFor(task)), String(task.maxTokens)].join("\u0000"));
+  return sha256Hex([PROMPT_VERSION, String(SCHEMA_VERSION), SYSTEM_PROMPT, task.id, task.instruction, task.categories.join(","), JSON.stringify(jsonSchemaFor(task)), String(task.maxTokens), REVIEW_RULES].join("\u0000"));
 }
 
 /** Hash of every prompt together (stored on the run). */
@@ -352,5 +374,5 @@ export function promptHash(): string {
 }
 
 export function userPrompt(task: TaskDef, dataJson: string, sourcesText: string): string {
-  return `${task.instruction}\n\n<data>\n${dataJson}\n</data>\n\n<sources>\n${sourcesText === "" ? "(no source text is provided for this task: a law claim cannot be quoted, so it will be shown as unverified)" : sourcesText}\n</sources>`;
+  return `${task.instruction}\n\n${REVIEW_RULES}\n\n<data>\n${dataJson}\n</data>\n\n<sources>\n${sourcesText === "" ? "(no source text is provided for this task: a law claim cannot be quoted, so it will be shown as unverified)" : sourcesText}\n</sources>`;
 }

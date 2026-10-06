@@ -7,6 +7,12 @@ import { reviewModelId, priceFromEnv, type EnvLike, type RunEstimate } from "@/l
 import { buildReviewPayload, serializePayload, type SerializedPayload } from "@/lib/tax-review/llm/payload";
 import { buildRegister, type RegisterEntry } from "@/lib/tax-review/llm/register";
 import type { ScrubConfig } from "@/lib/tax-review/llm/scrub";
+import { sameProperty } from "@/lib/tax-review/llm/address";
+import type { AcceptedFinding, RecordedDecision } from "@/lib/tax-review/llm/owner-statements";
+import type { DispositionRow } from "@/lib/tax-review/gate";
+import type { OverrideRow } from "@/lib/tax2025/overrides";
+import { isEntityActiveForYear, isEntityUnformed } from "@/lib/tax-entities";
+import { getRunWithFindings, listDispositions, listRuns } from "@/lib/tax-review-store";
 import type { SourcePack } from "@/lib/tax-review/llm/sources";
 import type { Finding } from "@/lib/tax-review/types";
 import type { Ty2025Facts } from "@/lib/tax2025/facts";
@@ -21,63 +27,141 @@ import { RedactionError } from "@/lib/tax-review/redact";
 // (actions/tax-review.ts) call requireAuth() first. Only the redacted payload, the estimate and counts leave this module, never `raw` or
 // `facts`.
 
+// Only the entity that is ACTIVE in the tax year keeps a name-like label; every other business (not yet formed, formed after the tax
+// year, archived) is scrubbed to a neutral placeholder if its name appears in a document, so the model never learns of it.
 const ENTITY_LABELS: Record<string, { label: string; aliases: string[] }> = {
   "ek-consulting": { label: "the Consulting LLC", aliases: ["EK Consulting", "EKC"] },
   "sudden-valley": { label: "the Property Management LLC", aliases: ["Sudden Valley"] },
-  mezzo: { label: "the third business entity", aliases: [] },
 };
+const PRIMARY_LABEL = "the primary residence";
+const INACTIVE_ENTITY_LABEL = "[business name removed]";
+const INACTIVE_ENTITY_ALIASES: Record<string, string[]> = { "sudden-valley": ["Sudden Valley"] };
 
 export interface EntityNameRow {
   name: string;
   slug: string | null;
+  /** The facts that say whether the entity existed in the tax year (lib/tax-entities.ts); absent = taken as active. */
+  type?: string;
+  foundedDate?: Date | null;
+  taxStatusNotes?: string | null;
+  archivedAt?: Date | null;
 }
 
-/** Generic labels for the business entities (the personal entity's name is a generic word and is left alone). */
-export function scrubEntitiesFor(rows: readonly EntityNameRow[]): { entities: NonNullable<ScrubConfig["entities"]>; labels: string[] } {
+/** True when the business could have had activity in the tax year: not archived, not unformed, not formed after the year (lib/tax-entities.ts). */
+export function entityActiveInYear(row: EntityNameRow, year: number): boolean {
+  if (row.archivedAt !== undefined && row.archivedAt !== null) return false;
+  const facts = { type: row.type ?? "business", foundedDate: row.foundedDate ?? null, taxStatusNotes: row.taxStatusNotes ?? null };
+  return !isEntityUnformed(facts) && isEntityActiveForYear(facts, year);
+}
+
+/**
+ * Generic labels for the business entities (the personal entity's name is a generic word and is left alone). `labels` (what the payload
+ * lists as the entities of the year) holds ONLY the entities active in `year`: an unformed, archived or not-yet-existing entity is scrubbed
+ * to a neutral placeholder and never listed.
+ */
+export function scrubEntitiesFor(rows: readonly EntityNameRow[], year: number = 2025): { entities: NonNullable<ScrubConfig["entities"]>; labels: string[] } {
   const entities: { name: string; label: string; aliases?: string[] }[] = [];
+  const labels: string[] = [];
   let other = 0;
   for (const r of rows) {
-    if (r.slug === "personal" || r.name.trim().toLowerCase() === "personal") continue;
+    if (r.slug === "personal" || r.name.trim().toLowerCase() === "personal" || r.type === "personal") continue;
+    if (!entityActiveInYear(r, year)) {
+      entities.push({ name: r.name, label: INACTIVE_ENTITY_LABEL, aliases: r.slug === null ? [] : (INACTIVE_ENTITY_ALIASES[r.slug] ?? []) });
+      continue;
+    }
     const known = r.slug === null ? undefined : ENTITY_LABELS[r.slug];
-    if (known !== undefined) entities.push({ name: r.name, label: known.label, aliases: known.aliases });
-    else {
+    if (known !== undefined) {
+      entities.push({ name: r.name, label: known.label, aliases: known.aliases });
+      labels.push(known.label);
+    } else {
       other += 1;
-      entities.push({ name: r.name, label: `business entity ${other}` });
+      const label = `business entity ${other}`;
+      entities.push({ name: r.name, label });
+      labels.push(label);
     }
   }
-  return { entities, labels: [...new Set(entities.map((e) => e.label))] };
+  return { entities, labels: [...new Set(labels)] };
 }
 
-/** Known street addresses (primary residence, mortgaged and taxed properties) mapped to generic property labels. */
+/**
+ * Known street addresses (primary residence, mortgaged and taxed properties) mapped to generic property labels. The SAME property gets the
+ * SAME label however it is written (Rd / Road, case, punctuation, a different town or zip: lib/tax-review/llm/address.ts), and a property tax
+ * bill the engine classified as the primary residence's is labelled "the primary residence" even if its address reads differently.
+ */
 export function scrubAddressesFor(facts: Ty2025Facts, primaryResidence: string | null): ScrubConfig["addresses"] {
   const out: { address: string; label: string }[] = [];
-  const seen = new Map<string, string>();
+  const groups: { rep: string; label: string }[] = [];
   let n = 0;
+  const record = (a: string, label: string): void => {
+    if (!out.some((o) => o.address === a && o.label === label)) out.push({ address: a, label });
+  };
   const add = (address: string | null | undefined, primary: boolean): void => {
     const a = (address ?? "").trim();
     if (a === "") return;
-    // the same street line is the same property, however much of the town / state / zip follows it
-    const key = (a.split(",")[0] ?? a).toLowerCase().replace(/\s+/g, " ").trim();
-    if (seen.has(key)) {
-      // the longer written form (with town and zip) is scrubbed too, under the same label
-      const label = seen.get(key) ?? "";
-      if (!out.some((o) => o.address === a)) out.push({ address: a, label });
+    const group = groups.find((g) => sameProperty(g.rep, a));
+    if (group !== undefined) {
+      record(a, group.label);
       return;
     }
     let label: string;
-    if (primary) label = "the primary residence";
+    if (primary) label = PRIMARY_LABEL;
     else {
       n += 1;
       label = `other property ${String.fromCharCode(64 + n)}`;
     }
-    seen.set(key, label);
-    out.push({ address: a, label });
+    groups.push({ rep: a, label });
+    record(a, label);
   };
+  // the primary residence first, so that no other property can take its label, whatever order the documents come in
   add(primaryResidence, true);
   add(facts.deductions.primaryResidenceAddress.value, true);
+  for (const b of facts.deductions.propertyTaxBills) if (b.kind === "primary_residence") add(b.address, true);
   for (const m of facts.deductions.mortgages) add(m.propertyAddress, false);
   for (const b of facts.deductions.propertyTaxBills) add(b.address, false);
   return out;
+}
+
+const dollarText = (cents: number): string => String(Math.round(cents / 100));
+
+/** The owner's recorded decisions / overrides (active rows only) with the reason given for each, as plain data for the payload. */
+export function recordedDecisionsOf(rows: readonly OverrideRow[]): RecordedDecision[] {
+  return rows
+    .filter((r) => r.archivedAt === null)
+    .map((r) => ({ kind: r.targetKind, target: r.targetKey, value: r.targetKind === "line" ? (r.valueCents === null ? null : dollarText(r.valueCents)) : r.valueText, reason: r.reason }));
+}
+
+/**
+ * The findings the owner accepted (the latest disposition of the finding key is "accepted") with the reason he gave, and what the finding said
+ * when a stored finding of that key is known.
+ */
+export function acceptedFindingsOf(dispositions: readonly DispositionRow[], messageByKey: ReadonlyMap<string, string>): AcceptedFinding[] {
+  const latest = new Map<string, DispositionRow>();
+  for (const d of dispositions) {
+    const have = latest.get(d.findingKey);
+    if (have === undefined || new Date(d.at).getTime() >= new Date(have.at).getTime()) latest.set(d.findingKey, d);
+  }
+  return [...latest.values()].filter((d) => d.action === "accepted").map((d) => ({ key: d.findingKey, about: messageByKey.get(d.findingKey) ?? null, reason: d.reason }));
+}
+
+/**
+ * READ-ONLY: the findings the owner accepted, with the reason he gave and what the finding said (from the newest stored runs, or from the
+ * deterministic findings of this run). A failure to read them is not an error: the payload simply carries no accepted findings.
+ */
+async function loadAcceptedFindings(year: 2025, entityId: string, l1Findings: readonly Finding[]): Promise<AcceptedFinding[]> {
+  try {
+    const dispositions = await listDispositions(year, entityId);
+    if (!dispositions.some((d) => d.action === "accepted")) return [];
+    const messageByKey = new Map<string, string>();
+    for (const f of l1Findings) messageByKey.set(f.key, f.message);
+    for (const run of await listRuns(year, entityId, 5)) {
+      const stored = await getRunWithFindings(run.id, entityId);
+      for (const f of stored?.findings ?? []) if (!messageByKey.has(f.key)) messageByKey.set(f.key, f.message);
+    }
+    return acceptedFindingsOf(dispositions, messageByKey);
+  } catch (err) {
+    console.error("tax review: accepted findings could not be read for the AI review:", err instanceof Error ? err.name : "unknown error");
+    return [];
+  }
 }
 
 export interface AiPrep {
@@ -126,8 +210,9 @@ export async function prepareAiReview(
   });
   const read = await readPacketFiles(ctx.packet.files);
   const bindings = bindFiles(ctx, read);
-  const entityRows = await db.entity.findMany({ select: { name: true, slug: true } });
-  const scrubEntities = scrubEntitiesFor(entityRows);
+  const entityRows = await db.entity.findMany({ select: { name: true, slug: true, type: true, foundedDate: true, taxStatusNotes: true, archivedAt: true } });
+  const scrubEntities = scrubEntitiesFor(entityRows, year);
+  const ownerRecords = { recordedDecisions: recordedDecisionsOf(inputs.built.overrideRows), acceptedFindings: await loadAcceptedFindings(year, inputs.entityId, l1Findings) };
   const people = inputs.raw.people.map((p) => ({ userId: p.userId, name: p.name }));
   const facts = inputs.built.facts;
   const ret = inputs.built.ret;
@@ -140,6 +225,7 @@ export async function prepareAiReview(
       bindings,
       l1Findings,
       entityLabels: scrubEntities.labels,
+      ownerRecords,
       // TAX_REVIEW_PAYER_NAMES=generic sends "Employer A" / "Payer B" instead of the names read from the documents
       payerNames: env["TAX_REVIEW_PAYER_NAMES"] === "generic" ? "generic" : "keep",
     },

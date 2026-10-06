@@ -111,7 +111,7 @@ describe("capped prompts", () => {
     expect(taskContentHash(bigger)).toBe(taskContentHash(t));
     expect(taskContentHash({ ...t, instruction: `${t.instruction} x` })).not.toBe(taskContentHash(t));
     expect(promptHash()).toMatch(/^[0-9a-f]{64}$/);
-    expect(PROMPT_VERSION).toBe("l3-prompts-2");
+    expect(PROMPT_VERSION).toBe("l3-prompts-3"); // ai-payload-fixes: rules added to every request (REVIEW_RULES), instructions unchanged
   });
 });
 
