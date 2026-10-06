@@ -14,6 +14,7 @@
 //
 // Pure: no I/O, no clock (the caller supplies generatedAt / generatedBy).
 
+import { formatBusinessUsePercent, formatCentsText } from "@/lib/tax2025/business-use";
 import type { Ty2025Facts } from "@/lib/tax2025/facts";
 import { centsToDollars, roundLine } from "@/lib/tax2025/money";
 import { ctPropertyTaxRows } from "@/lib/tax2025/pdf/ct-property-tax";
@@ -23,6 +24,7 @@ import { f8606NameAnswerOf } from "@/lib/tax2025/pdf/maps/f8606";
 import { ownerWordingDeep } from "@/lib/tax-wording";
 import type {
   PdfAnswer,
+  PdfBusinessUse,
   PdfDecision,
   PdfFormRequirement,
   PdfLine,
@@ -38,6 +40,7 @@ import {
   LINE_KEYS,
   hasAmount,
   lineMeta,
+  scheduleCLineKey,
   type LineKey,
   type OpenItem,
   type RuleAlternative,
@@ -167,6 +170,24 @@ function toPdfDecision(d: RuleDecision, results: Ty2025Return["results"], overri
   if (parts.length > 0) out.effectNote = parts.join(" ");
   if (overrideNote !== undefined) out.overrideNote = overrideNote;
   return out;
+}
+
+/** The shared-use accounts (decisions X6 ...) for the cover: read from the engine's own Schedule C detail, the printed line from the view. */
+function businessUseOf(ret: Ty2025Return, lines: Partial<Record<LineKey, PdfLine>>): PdfBusinessUse[] {
+  return (ret.scheduleC?.businessUse ?? []).map((b) => {
+    const printed = lines[scheduleCLineKey(b.lineId)]?.amount ?? null;
+    return {
+      decisionId: b.decisionId,
+      accountName: b.accountName,
+      bookedText: formatCentsText(b.rawCents),
+      percentText: formatBusinessUsePercent(b.percentTenths),
+      deductibleText: formatCentsText(b.deductibleCents),
+      personalText: formatCentsText(b.personalCents),
+      lineText: `Schedule C line ${b.lineId}`,
+      lineAmountText: formatCentsText((printed ?? b.lineDollars) * 100),
+      status: b.status,
+    };
+  });
 }
 
 /**
@@ -854,6 +875,7 @@ function toPdfReturnViewRaw(
     tables: built.tables,
     openItems,
     decisions,
+    ...(ret.scheduleC !== null && ret.scheduleC.businessUse.length > 0 ? { businessUse: businessUseOf(ret, lines) } : {}),
     overrides: overrideEntries,
     overrideNotice: parts.notice,
     resolvedByOverride: parts.resolved,

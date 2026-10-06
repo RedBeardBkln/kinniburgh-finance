@@ -73,6 +73,28 @@ export interface PdfDecision {
   overrideNote?: string;
 }
 
+/**
+ * A shared (mixed-use) account with the owner's business-use percentage (decision X6 ...): pre-formatted text, so the cover prints it
+ * without reading engine shapes. The percentage is the owner's statement, not verified by any document.
+ */
+export interface PdfBusinessUse {
+  decisionId: string;
+  accountName: string;
+  /** "$2,610.17". */
+  bookedText: string;
+  /** "70%" (100% while undecided). */
+  percentText: string;
+  /** The account's share to the cent, "$1,827.12". */
+  deductibleText: string;
+  /** Booked minus the share, "$783.05": not deducted, informational, never booked. */
+  personalText: string;
+  /** "Schedule C line 25". */
+  lineText: string;
+  /** What the line prints, "$1,827" (the line total, rounded once). */
+  lineAmountText: string;
+  status: "decided" | "default_undecided";
+}
+
 export interface PdfOverrideEntry {
   key: string;
   formLabel: string;
@@ -179,6 +201,8 @@ export interface PdfReturnView {
   tables: Partial<Record<TableKey, PdfTableRow[]>>;
   openItems: PdfOpenItem[];
   decisions: PdfDecision[];
+  /** Shared-use accounts with a business-use percentage; absent or empty when none is booked (the cover then has no such section). */
+  businessUse?: PdfBusinessUse[];
   overrides: PdfOverrideEntry[];
   /** Totals-not-recomputed notice, dependent lines, headline marks (empty / false when nothing is overridden). */
   overrideNotice: PdfOverrideNotice;

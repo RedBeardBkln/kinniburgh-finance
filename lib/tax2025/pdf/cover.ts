@@ -305,6 +305,20 @@ export function buildCoverModel(input: CoverInput): CoverModel {
     }
   }
 
+  // Shared-use accounts (decision X6 ...): only when one is booked (the cover is unchanged otherwise).
+  const shared = view.businessUse ?? [];
+  if (shared.length > 0) {
+    b.push({ kind: "heading", text: "Shared-use accounts (the business share is the owner's decision, not verified by documents)" });
+    for (const s of shared) {
+      const decision = view.decisions.find((d) => d.id === s.decisionId);
+      const how =
+        s.status === "decided"
+          ? `${s.percentText} business = ${s.deductibleText}; ${s.lineText} prints ${s.lineAmountText} (the line total, rounded once) (decision ${s.decisionId}${decision?.overrideNote ? `: ${decision.overrideNote}` : ""}); personal portion ${s.personalText} not deducted (informational only; nothing is booked)`
+          : `${s.percentText} business use in force (default, undecided; decision ${s.decisionId}); ${s.lineText} prints ${s.lineAmountText}; personal portion ${s.personalText} until a percentage is recorded (informational only)`;
+      b.push({ kind: "bullet", text: `${s.accountName}: ${s.bookedText} booked; ${how}` });
+    }
+  }
+
   // Left blank by design.
   b.push({ kind: "heading", text: "Left blank by design" });
   b.push({
