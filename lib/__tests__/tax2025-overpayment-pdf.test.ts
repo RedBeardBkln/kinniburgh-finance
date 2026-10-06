@@ -91,7 +91,8 @@ describe("refund all on both: 35a and CT 25 print; 36, CT 23, 24, 24a stay blank
     const p = await print({ federalOverpayment: refund(), ctOverpayment: refund() });
     const bank = fieldBlanks(f1040Map).filter((b) => b.reason === "bank");
     expect(bank.length).toBeGreaterThan(0);
-    for (const b of bank) expect(p.f1040.get(b.field) ?? "", b.field).toBe("");
+    // text fields read "" and checkboxes false when untouched
+    for (const b of bank) expect(["", false], b.field).toContain(p.f1040.get(b.field) ?? "");
     // the Form 8888 box next to line 35a is not ticked either
     for (const b of fieldBlanks(f1040Map).filter((x) => /8888/.test(x.note ?? ""))) expect(p.f1040.get(b.field) ?? false, b.field).toBeFalsy();
   });

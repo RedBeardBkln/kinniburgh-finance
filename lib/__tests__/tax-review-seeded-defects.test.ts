@@ -196,9 +196,9 @@ describe("S10 stray SSN-like text", () => {
 
 describe("S11 blank printed as 0", () => {
   it("L1.B1: a line with no amount printed as 0", async () => {
-    // 1040 line 38 (the penalty estimate) carries no amount (informational): a 0 there reads as "penalty of $0" (line 35a now has an amount: decision X7)
+    // 1040 line 7b carries no amount (informational): a 0 there reads as an amount of $0 (line 35a no longer works as the example: decision X7 gives it an amount on an overpaying return, a not-applicable 0 on a balance-due one)
     const { result } = await runPipeline(cleanScenario(), {
-      hooks: { afterPacket: (packet) => editPacketFile(packet, "01-f1040.pdf", (form) => setText(form, fieldOfLine(f1040Map, "f1040.38"), "0")) },
+      hooks: { afterPacket: (packet) => editPacketFile(packet, "01-f1040.pdf", (form) => setText(form, fieldOfLine(f1040Map, "f1040.7b"), "0")) },
     });
     expectFinding(result, "L1.B1.money", "blocker", false);
     expect(result.findings.some((f) => f.check === "L1.B1.money" && /no amount/.test(f.message))).toBe(true);

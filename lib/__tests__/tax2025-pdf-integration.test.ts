@@ -434,12 +434,12 @@ describe("B2: a blank line is never read as a zero unless it is one", () => {
     expect(text).not.toContain("A blank form line with no open item is a computed zero");
   });
 
-  it("the CT-1040 not-modeled lines (18f, 23 / 24 / 24a, 69a / 69c / 69d) are listed on the cover; lines 20a-20d, 25, 29, 30, 63/65/67 and 69b are engine lines now (ty2025-ct1040-derived-lines)", async () => {
+  it("the CT-1040 not-modeled lines (18f, 24 / 24a, 69a / 69c / 69d) are listed on the cover; lines 20a-20d, 23, 25, 29, 30, 63/65/67 and 69b are engine lines now (ty2025-ct1040-derived-lines; line 23 with decision X8, ty2025-1b.10)", async () => {
     const { view } = build();
     const res = await fillForm("ct1040", view, ct1040Map, DEFAULT_FILL_OPTIONS);
     const joined = res.blankNotes.join(" | ");
-    for (const needle of ["18f", "23, 24, 24a", "69a, 69c, 69d"]) expect(joined, needle).toContain(needle);
-    for (const gone of ["20a-20d", "lines 29, 30", "63, 65, 67", "69a-69d", "Schedule 1 detail"]) expect(joined, gone).not.toContain(gone);
+    for (const needle of ["18f", "lines 24 and 24a", "69a, 69c, 69d"]) expect(joined, needle).toContain(needle);
+    for (const gone of ["20a-20d", "23, 24, 24a", "lines 29, 30", "63, 65, 67", "69a-69d", "Schedule 1 detail"]) expect(joined, gone).not.toContain(gone);
   });
 });
 
