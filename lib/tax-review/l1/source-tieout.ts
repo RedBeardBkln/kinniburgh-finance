@@ -15,7 +15,8 @@ import type { L1Check, L1Context } from "@/lib/tax-review/l1/context";
 import { formIsFiled, lineState, lineTitle, roundCentsHalfUp, usd } from "@/lib/tax-review/l1/helpers";
 import { retirementStatementSummary } from "@/lib/retirement-statement";
 import { YEAR, dataOf, int, isAmountDoc, isUsableFor2025, list, str, sumCents, uniqueDocs, unusableReason } from "@/lib/tax-review/l1/source-docs";
-import type { LineKey } from "@/lib/tax2025/line-catalog";
+import { BUSINESS_USE_DEFAULT_TENTHS, formatBusinessUsePercent, formatCentsText, parseBusinessUsePercent, roundMilliCentsToDollars } from "@/lib/tax2025/business-use";
+import { scheduleCLineKey, type LineKey } from "@/lib/tax2025/line-catalog";
 import type { RawDocument } from "@/lib/tax2025/resolve-facts";
 
 const DOC_CITATION = { sources: [{ kind: "engine" as const, id: "source-documents" }], sourceStatus: "not_applicable" as const };
@@ -453,12 +454,86 @@ function inventoryFindings(ctx: L1Context, docs: readonly RawDocument[]): Findin
 
 const AMOUNT_TYPES_FOR_INVENTORY = ["w2", "1099", "mortgage_interest", "form_1098", "property_tax", "retirement_contribution"];
 
+// ── the books -> Schedule C line with the business-use percentage (decision X6 ...) ─────────────────────────────
+
+const BOOKS_CITATION = { sources: [{ kind: "engine" as const, id: "business-use-percentage" }], sourceStatus: "not_applicable" as const };
+
+/**
+ * A shared (mixed-use) account's line must equal the booked cents of every account on the line, the shared ones at the recorded
+ * percentage (read here from the decision as the sheet and the cover show it, integer math, rounded to whole dollars ONCE), the others at
+ * 100%. A recorded percentage below 100% also raises a LOW, non-gating finding so the owner re-confirms the basis. A line pinned by an
+ * override is skipped (the override check reports pins).
+ */
+function businessUseFindings(ctx: L1Context): Finding[] {
+  const out: Finding[] = [];
+  const sc = ctx.ret.scheduleC;
+  const rows = sc?.businessUse ?? [];
+  for (const lineId of [...new Set(rows.map((r) => r.lineId))]) {
+    const key: LineKey = scheduleCLineKey(lineId);
+    const state = lineState(ctx, key);
+    const accounts = sc?.lines.find((l) => l.lineId === lineId)?.accounts ?? [];
+    let scaled = 0;
+    let readable = true;
+    for (const a of accounts) {
+      if (a.businessUseDecisionId === undefined) {
+        scaled += a.rawCents * BUSINESS_USE_DEFAULT_TENTHS;
+        continue;
+      }
+      const decision = ctx.view.decisions.find((d) => d.id === a.businessUseDecisionId);
+      const pct = decision === undefined ? null : parseBusinessUsePercent(decision.chosen);
+      if (pct === null || !pct.ok) readable = false;
+      else scaled += a.rawCents * pct.tenths;
+    }
+    if (state.amount !== null && state.status !== "overridden" && readable) {
+      const expected = roundMilliCentsToDollars(scaled);
+      if (state.amount !== expected) {
+        out.push(
+          makeFinding({
+            layer: "L1",
+            check: `L1.C1.books-line${lineId}`,
+            severity: "blocker",
+            area: "deductions",
+            lineKey: key,
+            ruleTag: `line${lineId}`,
+            message: `The books, with the business-use percentage applied to the shared account(s), add up to ${usd(expected)} but ${lineTitle(key)} shows ${usd(state.amount)} (difference ${usd(state.amount - expected)}).`,
+            evidence: [{ ref: key, amount: state.amount, status: state.status }, { ref: "check:books-business-use", amount: expected, status: "books" }],
+            citation: BOOKS_CITATION,
+            recommendedAction: "Do not file with this difference. Compare the line with the books and the recorded business-use percentage, find which one is wrong, and run the review again.",
+            acceptable: false,
+          })
+        );
+      }
+    }
+  }
+  for (const r of rows) {
+    if (r.status !== "decided" || r.personalCents <= 0) continue;
+    out.push(
+      makeFinding({
+        layer: "L1",
+        check: "L1.C1.business-use-share",
+        severity: "low",
+        area: "deductions",
+        lineKey: scheduleCLineKey(r.lineId),
+        ruleTag: r.decisionId,
+        message: `Business-use share ${formatBusinessUsePercent(r.percentTenths)} (decision ${r.decisionId}): ${formatCentsText(r.personalCents)} of the shared account is treated as personal and is not deducted. The percentage is your own statement; no document supports it.`,
+        evidence: [{ ref: `check:decision.${r.decisionId}`, amount: roundMilliCentsToDollars(r.personalCents * BUSINESS_USE_DEFAULT_TENTHS), status: "personal portion" }],
+        citation: BOOKS_CITATION,
+        recommendedAction:
+          "Re-read the basis you recorded and keep what supports it (a bill split, a usage log). The Schedule C instructions do not allow the base rate of the first phone line into your home even if you use it for business; accept this finding once you are satisfied.",
+        acceptable: true,
+      })
+    );
+  }
+  return out;
+}
+
 export const sourceTieoutCheck: L1Check = {
   id: "L1.C1",
   description: "Verified source documents tie to the return (W-2, 1099, 1098, property tax, payments); nothing is left out",
   run(ctx: L1Context): Finding[] {
     if (ctx.raw === null) {
       return [
+        ...businessUseFindings(ctx),
         makeFinding({
           layer: "L1",
           check: "L1.C1.no-documents",
@@ -472,6 +547,6 @@ export const sourceTieoutCheck: L1Check = {
       ];
     }
     const docs = ctx.raw.documents;
-    return [...w2Findings(ctx, docs), ...f1099Findings(ctx, docs), ...deductionFindings(ctx, docs), ...retirementFindings(ctx, docs), ...paymentFindings(ctx), ...inventoryFindings(ctx, docs)];
+    return [...w2Findings(ctx, docs), ...f1099Findings(ctx, docs), ...deductionFindings(ctx, docs), ...retirementFindings(ctx, docs), ...paymentFindings(ctx), ...businessUseFindings(ctx), ...inventoryFindings(ctx, docs)];
   },
 };

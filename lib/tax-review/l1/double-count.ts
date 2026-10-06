@@ -99,6 +99,26 @@ export const doubleCountCheck: L1Check = {
         );
       }
     }
+    // a shared (mixed-use) account on Schedule C next to the actual-expense home office method (Form 8829, which this app does not compute):
+    // Form 8829 would also take utilities, so the same service must not be claimed twice
+    const shared = ctx.ret.scheduleC?.businessUse ?? [];
+    const x1 = ctx.view.decisions.find((d) => d.id === "X1");
+    if (shared.length > 0 && x1?.chosen === "actual") {
+      out.push(
+        makeFinding({
+          layer: "L1",
+          check: "L1.C2.business-use-home-office",
+          severity: "medium",
+          area: "deductions",
+          ruleTag: shared[0]?.decisionId ?? "X6",
+          message:
+            "A shared internet or phone account is deducted on Schedule C at your business-use percentage, and the home office uses the actual-expense method (Form 8829). Form 8829 also takes utilities. This app does not compute Form 8829, so it cannot tell whether the same service is counted in both places.",
+          evidence: [{ ref: "check:decision.X1", amount: null, status: "actual method" }, { ref: `check:decision.${shared[0]?.decisionId ?? "X6"}`, amount: null, status: "business-use percentage" }],
+          recommendedAction: "When you prepare Form 8829, leave the shared internet and phone service out of its utilities (it is already on Schedule C line 25), or accept this finding with the reason it is not counted twice.",
+          acceptable: true,
+        })
+      );
+    }
     return out;
   },
 };
