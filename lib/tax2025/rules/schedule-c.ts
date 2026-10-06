@@ -701,7 +701,7 @@ export function computeScheduleC(input: ScheduleCInput): {
         lines: [atRecorded],
         effect: {
           amount: recordedAmount,
-          note: `${lineWhere} is ${fmt(recordedAmount)}${alsoNote}: ${pct} of the ${fmt(centsToDollars(rawCents))} booked. The other ${fmt(centsToDollars(personalCents))} is personal: not deducted, not a Schedule C amount (informational; an owner draw in the books' terms, nothing is booked).`,
+          note: `${lineWhere} is ${fmt(recordedAmount)}${alsoNote}: ${pct} of the ${fmt(centsToDollars(rawCents))} booked. The other ${fmt(centsToDollars(personalCents))} is personal: not deducted, not a Schedule C amount (informational; nothing is changed in the books).`,
         },
         reasons: [`${pct} is the owner's own statement of the business share; no document supports it.`],
       });

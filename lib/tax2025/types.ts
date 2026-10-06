@@ -408,7 +408,7 @@ export interface ScheduleCBusinessUse {
   percentTenths: number;
   /** rawCents x percent, half-up cents (informational; the printed line rounds the line TOTAL once). */
   deductibleCents: number;
-  /** rawCents - deductibleCents: not deducted, not a Schedule C amount (an owner draw in the books' terms; nothing is booked). */
+  /** rawCents - deductibleCents: not deducted, not a Schedule C amount (informational; nothing is changed in the books). */
   personalCents: number;
   status: "decided" | "default_undecided";
   decidedBy?: string;

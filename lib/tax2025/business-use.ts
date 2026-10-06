@@ -75,9 +75,9 @@ export type ParsedBusinessUsePercent =
   | { ok: true; tenths: number; canonical: string }
   | { ok: false; error: string };
 
-const PERCENT_SHAPE = /^\s*(\d{1,3})(?:\.(\d))?\s*%?\s*$/;
+const PERCENT_SHAPE = /^\s*(\d{1,3})(?:\.(\d)0*)?\s*%?\s*$/;
 
-/** "70", "70.5", " 70 ", "70%" -> tenths (0..1000) and the canonical text ("70", "70.5"). Anything else is refused. */
+/** "70", "70.5", "62.50" (a trailing zero is not a second decimal), " 70 ", "70%" -> tenths (0..1000) and the canonical text ("70", "70.5", "62.5"). Anything else (two significant decimals like 70.55) is refused. */
 export function parseBusinessUsePercent(text: string): ParsedBusinessUsePercent {
   const m = PERCENT_SHAPE.exec(text);
   if (!m) return { ok: false, error: BUSINESS_USE_PERCENT_ERROR };
