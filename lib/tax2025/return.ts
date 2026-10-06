@@ -99,7 +99,7 @@ import {
 } from "@/lib/tax2025/types";
 
 /** Bumped whenever a rule, the constants or the line catalog changes (stale-output detection for stored overrides / PDFs). */
-export const TY2025_ENGINE_VERSION = "ty2025-1b.8";
+export const TY2025_ENGINE_VERSION = "ty2025-1b.9";
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
 
@@ -486,6 +486,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     fixedAssets: sc.fixedAssets,
     fixedAssetsNoneConfirmed: fill ? sc.fixedAssetsNoneConfirmed || sc.fixedAssets.length === 0 : sc.fixedAssetsNoneConfirmed,
     ...(decisions.homeOfficeMethod ? { homeOfficeDecision: decisions.homeOfficeMethod } : {}),
+    ...(decisions.businessUse ? { businessUseDecisions: decisions.businessUse } : {}),
   };
   if (fill) {
     if (sc.mileageNoneConfirmed.value === null && sc.mileage.length === 0) A.assumedFacts.push("No business mileage (not stated)");
@@ -498,6 +499,8 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
   const schedC = computeScheduleC(schedCInput);
   A.scheduleC = schedC.detail;
   A.register(schedC.result, { refs: bookRefs });
+  // Mixed-use accounts (X6 ...): each hosts its own decision (one decision per result is an invariant of every consumer)
+  for (const r of schedC.businessUseResults) A.register(r);
   A.copy("sch1.3", "schc.31", bookRefs);
 
   // 2. Self-employment tax and Form 8959

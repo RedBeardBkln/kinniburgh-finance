@@ -20,25 +20,33 @@
 //     decision is recorded. Under the simplified method the home-office GL accounts
 //     (actual-method inputs) are NOT part of Schedule C profit.
 //
+//   - mixed-use accounts (lib/tax2025/business-use.ts, decisions X6 ...): the line total applies the owner's
+//     business-use percentage to those accounts; the personal portion is informational only (nothing is booked).
+//     Rounded ONCE from cents on the line total (the IRS "include cents when adding, round only the total" rule).
+//
 // Pure. Constants from lib/tax2025/constants.ts only.
 
 import type { Decimal } from "@prisma/client/runtime/library";
+import { BUSINESS_USE_ACCOUNTS, BUSINESS_USE_CENTS_TENTHS_PER_DOLLAR, BUSINESS_USE_DEFAULT_TENTHS, BUSINESS_USE_MAX_TENTHS, formatBusinessUsePercent, type BusinessUseAccount } from "@/lib/tax2025/business-use";
 import { K } from "@/lib/tax2025/constants";
 import type { FixedAssetFact, GlLineFact } from "@/lib/tax2025/facts";
 import { findGlMapEntry } from "@/lib/tax2025/gl-schedule-c-map";
-import { D, ZERO, amountLine, blockedLine, centsToDollars, dollarsToCents, fmt, maxD, minD, roundLine, sumThenRound } from "@/lib/tax2025/money";
+import { D, ZERO, amountLine, blockedLine, centsToDollars, dollarsToCents, fmt, maxD, minD, roundLine } from "@/lib/tax2025/money";
 import {
   aggregateStatus,
   scheduleCLineKey,
   worstBlocked,
   type Decided,
+  type DecidedPercent,
   type LineKey,
   type RuleAlternative,
   type RuleDecision,
   type RuleLine,
   type RuleResult,
+  type Ref,
   type RuleStatus,
   type ScheduleCAccountDetail,
+  type ScheduleCBusinessUse,
   type ScheduleCDetail,
   type ScheduleCLineId,
 } from "@/lib/tax2025/types";
@@ -56,6 +64,8 @@ export interface ScheduleCInput {
   fixedAssets: FixedAssetFact[];
   fixedAssetsNoneConfirmed: boolean;
   homeOfficeDecision?: Decided<"simplified" | "actual">;
+  /** Recorded business-use percentages (X6 ...) keyed by the BUSINESS_USE_ACCOUNTS `key`; absent = undecided (100%, flagged). */
+  businessUseDecisions?: Readonly<Record<string, DecidedPercent>>;
 }
 
 const CITATIONS = ["MEALS_DEDUCTIBLE_FRACTION", "MILEAGE_RATE", "HOME_OFFICE_RATE_PER_SQFT", "HOME_OFFICE_MAX_SQFT", "HOME_OFFICE_GROSS_INCOME_LIMIT"];
@@ -126,7 +136,21 @@ function leafName(name: string): string {
   return name.split(":").pop() ?? name;
 }
 
-export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; detail: ScheduleCDetail } {
+/** Exact dollars of `rawCents` at `tenths` tenths of a percent (cents x tenths / 100,000): no intermediate rounding. */
+function scaledDollars(rawCents: number, tenths: number): Decimal {
+  return D(rawCents).times(tenths).div(BUSINESS_USE_CENTS_TENTHS_PER_DOLLAR);
+}
+
+function validTenths(p: DecidedPercent | undefined): p is DecidedPercent {
+  return p !== undefined && Number.isInteger(p.percentTenths) && p.percentTenths >= 0 && p.percentTenths <= BUSINESS_USE_MAX_TENTHS;
+}
+
+export function computeScheduleC(input: ScheduleCInput): {
+  result: RuleResult;
+  detail: ScheduleCDetail;
+  /** One result per mixed-use account present with a booked amount (each hosts its own decision, X6 ...). */
+  businessUseResults: RuleResult[];
+} {
   const detail: ScheduleCDetail = {
     lines: [],
     otherExpenseItems: [],
@@ -137,6 +161,7 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
     vehicleActual: [],
     mileage: { entries: 0, miles: 0, deductionCents: 0 },
     cogsTotalCents: 0,
+    businessUse: [],
   };
   const base = { ruleId: "schedule-c", form: "Schedule C", citations: CITATIONS, inputsUsed: [] };
   const reasons: string[] = [];
@@ -156,6 +181,7 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
         inputsMissing: ["GL-coded EK Consulting transactions for 2025"],
       },
       detail,
+      businessUseResults: [],
     };
   }
 
@@ -170,6 +196,8 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
   let unmappedExpense = false;
   let needsCpaRevenue = false;
   let needsCpaExpense = false;
+  /** Mixed-use accounts that reached a plain `line` target with a booked amount (the list entry, the line, the accounts). */
+  const flagged = new Map<string, { def: BusinessUseAccount; line: ScheduleCLineId; accounts: ScheduleCAccountDetail[] }>();
 
   for (const g of input.glLines) {
     if (g.totalCents === 0) continue;
@@ -202,6 +230,24 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
           ? dollarsToCents(roundLine(centsToDollars(g.totalCents).times(K.MEALS_DEDUCTIBLE_FRACTION.value)))
           : g.totalCents;
         // the 50% is applied per account here only for the detail; the LINE total applies it once (see below)
+        const def = t.meals ? null : (BUSINESS_USE_ACCOUNTS.find((a) => a.mapAccount === entry.account) ?? null);
+        if (def) {
+          const rec = input.businessUseDecisions?.[def.key];
+          const tenths = validTenths(rec) ? rec.percentTenths : BUSINESS_USE_DEFAULT_TENTHS;
+          const acct: ScheduleCAccountDetail = {
+            code: g.code,
+            name: g.name,
+            rawCents: g.totalCents,
+            deductibleCents: dollarsToCents(scaledDollars(g.totalCents, tenths)),
+            businessUseDecisionId: def.decisionId,
+            businessUsePercentTenths: tenths,
+          };
+          addToLine(t.line, acct);
+          const prev = flagged.get(def.key);
+          if (prev) prev.accounts.push(acct);
+          else flagged.set(def.key, { def, line: t.line, accounts: [acct] });
+          break;
+        }
         addToLine(t.line, { code: g.code, name: g.name, rawCents: g.totalCents, deductibleCents });
         break;
       }
@@ -240,20 +286,59 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
   }
   detail.cogsTotalCents = cogsCents;
 
+  /**
+   * Exact dollars of a line with each mixed-use account at `tenthsOf(account)` (cents kept, no rounding): the caller
+   * rounds ONCE. Accounts that are not mixed-use enter at 100%.
+   */
+  const lineExact = (id: ScheduleCLineId, tenthsOf: (a: ScheduleCAccountDetail) => number | undefined): Decimal =>
+    (lineAccounts.get(id) ?? []).reduce((acc, a) => {
+      const tenths = a.businessUseDecisionId === undefined ? undefined : tenthsOf(a);
+      return acc.plus(tenths === undefined ? centsToDollars(a.rawCents) : scaledDollars(a.rawCents, tenths));
+    }, ZERO);
+  const inForce = (a: ScheduleCAccountDetail): number | undefined => a.businessUsePercentTenths;
+
   const lineTotal = (id: ScheduleCLineId): Decimal => {
     const accts = lineAccounts.get(id) ?? [];
-    const raw = sumThenRound(accts.map((a) => centsToDollars(a.rawCents)));
     if (id === "24b") {
       // meals: one 50% on the line total ("include cents when adding, round only the total")
       return roundLine(accts.reduce((s, a) => s.plus(centsToDollars(a.rawCents)), ZERO).times(K.MEALS_DEDUCTIBLE_FRACTION.value));
     }
-    return raw;
+    // mixed-use accounts enter at their business-use percentage, the rest at 100%; ONE rounding on the total
+    return roundLine(lineExact(id, inForce));
+  };
+
+  // Provenance of a line carrying a mixed-use account: the books accounts plus the owner's decision (X6 ...), never "verified".
+  const glRefs: Ref[] = input.glLines.map((g) => ({ kind: "gl", id: g.code, label: g.name }));
+  const businessUseNote = (id: ScheduleCLineId): { reason: string; refs: Ref[] } | null => {
+    const here = [...flagged.values()].filter((f) => f.line === id);
+    if (here.length === 0) return null;
+    const sentences: string[] = [];
+    const refs: Ref[] = [...glRefs];
+    for (const f of here) {
+      const rec = input.businessUseDecisions?.[f.def.key];
+      const raw = f.accounts.reduce((n, a) => n + a.rawCents, 0);
+      const deductible = f.accounts.reduce((n, a) => n + a.deductibleCents, 0);
+      if (validTenths(rec)) {
+        const pct = formatBusinessUsePercent(rec.percentTenths);
+        sentences.push(
+          `Includes the shared account(s) at ${pct} business use (decision ${f.def.decisionId}, the owner's statement, not verified by documents): ${fmt(centsToDollars(raw))} booked, ${fmt(centsToDollars(raw - deductible))} personal and not deducted.`
+        );
+        refs.push({ kind: "decision", id: f.def.decisionId, label: `Owner decision ${f.def.decisionId}: ${pct} business use, the owner's statement, not verified by documents` });
+      } else {
+        sentences.push(
+          `Includes the shared account(s) at 100% business use: default, undecided (decision ${f.def.decisionId}); record the business-use percentage on the review sheet.`
+        );
+        refs.push({ kind: "decision", id: f.def.decisionId, label: `Owner decision ${f.def.decisionId}: default 100% business use, undecided` });
+      }
+    }
+    return { reason: sentences.join(" "), refs };
   };
 
   const lines: RuleLine[] = [];
   const amounts = new Map<ScheduleCLineId, Decimal>();
-  const emit = (id: ScheduleCLineId, exact: Decimal, reason?: string) => {
+  const emit = (id: ScheduleCLineId, exact: Decimal, reason?: string, refs?: Ref[]) => {
     const line = amountLine(scheduleCLineKey(id), lbl(id), formLineOf(id), exact, "computed", reason);
+    if (refs !== undefined) line.refs = refs;
     lines.push(line);
     amounts.set(id, line.amount as Decimal);
   };
@@ -336,7 +421,8 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
 
   for (const id of EXPENSE_LINE_IDS) {
     if (id === "9" || id === "13" || id === "27b") continue; // special lines handled below
-    emit(id, lineTotal(id));
+    const note = businessUseNote(id);
+    emit(id, lineTotal(id), note?.reason, note?.refs);
     expenseAmounts.push(amounts.get(id)!);
   }
 
@@ -563,6 +649,108 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
     detail.lines.push({ lineId: id, amountCents: dollarsToCents(amounts.get(id) ?? ZERO), accounts: accts });
   }
 
+  // ── Mixed-use accounts (decisions X6 ...): one result per list entry that has a booked amount ────────────────
+  const businessUseResults: RuleResult[] = [];
+  for (const def of BUSINESS_USE_ACCOUNTS) {
+    const f = flagged.get(def.key);
+    if (!f) continue;
+    const rec = input.businessUseDecisions?.[def.key];
+    const decided = validTenths(rec);
+    const tenths = validTenths(rec) ? rec.percentTenths : BUSINESS_USE_DEFAULT_TENTHS;
+    const pct = formatBusinessUsePercent(tenths);
+    const lineKey = scheduleCLineKey(f.line);
+    const mine = (a: ScheduleCAccountDetail) => a.businessUseDecisionId === def.decisionId;
+    const atFull = amountLine(lineKey, lbl(f.line), formLineOf(f.line), lineExact(f.line, (a) => (mine(a) ? BUSINESS_USE_DEFAULT_TENTHS : a.businessUsePercentTenths)));
+    const atRecorded = amountLine(lineKey, lbl(f.line), formLineOf(f.line), lineExact(f.line, inForce));
+    const rawCents = f.accounts.reduce((n, a) => n + a.rawCents, 0);
+    const deductibleCents = f.accounts.reduce((n, a) => n + a.deductibleCents, 0);
+    const personalCents = rawCents - deductibleCents;
+    const otherAccountsOnLine = (lineAccounts.get(f.line) ?? []).some((a) => !mine(a));
+    const alsoNote = otherAccountsOnLine ? " (the line's other accounts as they are in force)" : "";
+    const lineWhere = `Schedule C line ${f.line}`;
+    const fullAmount = atFull.amount as Decimal;
+    const recordedAmount = atRecorded.amount as Decimal;
+    const fullInForce = !decided || tenths === BUSINESS_USE_DEFAULT_TENTHS;
+    const status: RuleDecision["status"] = decided ? "decided" : "default_undecided";
+    const businessUseDecision: RuleDecision = {
+      id: def.decisionId,
+      label: def.label,
+      chosen: pct,
+      status,
+      ...(decided && rec ? { decidedBy: rec.by, decidedAt: rec.at } : {}),
+    };
+    const alts: RuleAlternative[] = [
+      {
+        id: "full",
+        label: "100% business use (no split)",
+        status: "computed",
+        isDefault: true,
+        inForce: fullInForce,
+        lines: [atFull],
+        effect: { amount: fullAmount, note: `${lineWhere} would be ${fmt(fullAmount)}${alsoNote}; nothing is treated as personal.` },
+        reasons: [`The whole ${fmt(centsToDollars(rawCents))} booked to the shared account(s) is deducted.`],
+      },
+    ];
+    if (decided && tenths !== BUSINESS_USE_DEFAULT_TENTHS) {
+      alts.push({
+        id: "recorded",
+        label: `${pct} business use (your recorded share)`,
+        status: "computed",
+        isDefault: false,
+        inForce: true,
+        lines: [atRecorded],
+        effect: {
+          amount: recordedAmount,
+          note: `${lineWhere} is ${fmt(recordedAmount)}${alsoNote}: ${pct} of the ${fmt(centsToDollars(rawCents))} booked. The other ${fmt(centsToDollars(personalCents))} is personal: not deducted, not a Schedule C amount (informational; an owner draw in the books' terms, nothing is booked).`,
+        },
+        reasons: [`${pct} is the owner's own statement of the business share; no document supports it.`],
+      });
+    } else if (!decided) {
+      alts.push({
+        id: "recorded",
+        label: "A recorded business-use share (none recorded yet)",
+        status: "not_yet_computed",
+        isDefault: false,
+        inForce: false,
+        lines: [],
+        effect: null,
+        reasons: ["No percentage is recorded yet."],
+      });
+    }
+    businessUseResults.push({
+      ruleId: `schedule-c-business-use:${def.key}`,
+      form: "Schedule C",
+      status: "computed",
+      lines: [],
+      reasons: [
+        decided
+          ? `Business-use share ${pct} (decision ${def.decisionId}, the owner's statement, not verified by documents): ${fmt(centsToDollars(deductibleCents))} of the ${fmt(centsToDollars(rawCents))} booked is deducted on ${lineWhere}; ${fmt(centsToDollars(personalCents))} is personal (informational, nothing is booked).`
+          : `No business-use percentage is recorded for ${def.what}: 100% is used (the booked ${fmt(centsToDollars(rawCents))} on ${lineWhere}), flagged default, undecided.`,
+      ],
+      citations: [],
+      inputsUsed: [],
+      inputsMissing: [],
+      decision: businessUseDecision,
+      alternatives: alts,
+    });
+    for (const a of f.accounts) {
+      detail.businessUse.push({
+        decisionId: def.decisionId,
+        accountCode: a.code,
+        accountName: a.name,
+        rawCents: a.rawCents,
+        percentTenths: a.businessUsePercentTenths ?? BUSINESS_USE_DEFAULT_TENTHS,
+        deductibleCents: a.deductibleCents,
+        personalCents: a.rawCents - a.deductibleCents,
+        status,
+        ...(decided && rec ? { decidedBy: rec.by, decidedAt: rec.at } : {}),
+        lineId: f.line,
+        lineAtFullDollars: fullAmount.toNumber(),
+        lineDollars: recordedAmount.toNumber(),
+      } satisfies ScheduleCBusinessUse);
+    }
+  }
+
   return {
     result: {
       ...base,
@@ -574,6 +762,7 @@ export function computeScheduleC(input: ScheduleCInput): { result: RuleResult; d
       ...(alternatives ? { alternatives } : {}),
     },
     detail,
+    businessUseResults,
   };
 }
 

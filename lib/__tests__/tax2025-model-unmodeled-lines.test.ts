@@ -45,8 +45,8 @@ const MAPS_OF_THE_TASK: readonly FormMap[] = [f1040Map, sch1Map, sch2Map, sch3Ma
 const catalogs = Object.fromEntries(FORM_MAPS.map((m) => [m.formId, loadCatalog(m.formId)]));
 
 describe("engine version", () => {
-  it("is ty2025-1b.8 (1b.7 plus Form 8606)", () => {
-    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.8");
+  it("is ty2025-1b.9 (1b.8 plus the business-use percentage decision X6)", () => {
+    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.9");
   });
 });
 

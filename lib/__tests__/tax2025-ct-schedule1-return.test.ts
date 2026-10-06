@@ -20,8 +20,8 @@ function s1Facts(): Ty2025Facts {
 }
 
 describe("engine version", () => {
-  it("is ty2025-1b.8 (Form 8606 Part I lines 1, 2, 3 and 14 per person; before it 1b.7: Form 8995 loss carryforward on lines 16 / 17, Form 6251 lines 1a / 1b / 2a, Schedule A line 14 adds the printed lines)", () => {
-    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.8");
+  it("is ty2025-1b.9 (1b.8: Form 8606 Part I lines 1, 2, 3 and 14 per person; before it 1b.7: Form 8995 loss carryforward on lines 16 / 17, Form 6251 lines 1a / 1b / 2a, Schedule A line 14 adds the printed lines)", () => {
+    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.9");
   });
 });
 

@@ -104,6 +104,7 @@ export function hasAmount(status: RuleStatus): boolean {
 // The line catalog (every printed money line, with its real 2025 line id) lives in
 // line-catalog.ts (data only); LineKey is derived from it.
 import type { LineKey, ScheduleCLineId } from "@/lib/tax2025/line-catalog";
+import type { BusinessUseDecisionId } from "@/lib/tax2025/business-use";
 export {
   LINE_CATALOG,
   LINE_KEYS,
@@ -164,7 +165,7 @@ export interface RuleAlternative {
   reasons: string[];
 }
 
-export type DecisionId = "X1" | "X2" | "X3" | "X5";
+export type DecisionId = "X1" | "X2" | "X3" | "X5" | BusinessUseDecisionId;
 
 export interface RuleDecision {
   id: DecisionId;
@@ -248,6 +249,19 @@ export interface Ty2025Decisions {
   qbiForm?: Decided<"8995" | "8995a">;
   /** X5: 56 Arbor Rd 2025 property tax. Default: Schedule A (subject to the SALT cap). */
   arborRoadPropertyTax?: Decided<"schedule_a" | "capitalize">;
+  /**
+   * X6, X7 ...: the owner's business-use percentage for each mixed-use GL account of BUSINESS_USE_ACCOUNTS, keyed by the list `key`.
+   * An absent entry = undecided: 100% flagged "default, undecided". Not a registry decision (the list is data), see overrides.ts.
+   */
+  businessUse?: Readonly<Record<string, DecidedPercent>>;
+}
+
+/** A recorded business-use percentage in tenths of a percent (0..1000), with who and when. */
+export interface DecidedPercent {
+  percentTenths: number;
+  by: string;
+  /** ISO timestamp. */
+  at: string;
 }
 
 // ── Conflicts and open items ──────────────────────────────────────────────────
@@ -358,7 +372,7 @@ export interface Headline {
   unverifiedDocumentCount: number;
   /** Inputs inferred rather than stated (Schedule C owner by name, primary residence by the 1098 address). */
   derivedInputCount: number;
-  /** Decisions (X1 / X3 / X5) still at their default alternative. */
+  /** Decisions (X1 / X3 / X5 / X6 ...) still at their default alternative. */
   undecidedDecisionCount: number;
   /** Plain-language caveats (advisory), one per item above plus every informational line. */
   caveats: string[];
@@ -377,6 +391,32 @@ export interface ScheduleCAccountDetail {
    * line by a dollar or two. Print line amounts from the line, not from these.
    */
   deductibleCents: number;
+  /** Set when the account is a mixed-use account (lib/tax2025/business-use.ts): the decision id (X6 ...) whose percentage scales it. */
+  businessUseDecisionId?: string;
+  /** Percent applied to this account in tenths of a percent (1000 = 100%). Present with businessUseDecisionId. */
+  businessUsePercentTenths?: number;
+}
+
+/** One mixed-use account's split between the business (deducted) and the personal portion (informational only, never booked). */
+export interface ScheduleCBusinessUse {
+  decisionId: string;
+  accountCode: string;
+  accountName: string;
+  /** Booked amount, integer cents. */
+  rawCents: number;
+  /** In force: the recorded percentage, or 1000 while undecided. */
+  percentTenths: number;
+  /** rawCents x percent, half-up cents (informational; the printed line rounds the line TOTAL once). */
+  deductibleCents: number;
+  /** rawCents - deductibleCents: not deducted, not a Schedule C amount (an owner draw in the books' terms; nothing is booked). */
+  personalCents: number;
+  status: "decided" | "default_undecided";
+  decidedBy?: string;
+  decidedAt?: string;
+  /** The Schedule C line the account's share lands on, and what that whole line is at 100% / with the percentage in force (whole dollars). */
+  lineId: ScheduleCLineId;
+  lineAtFullDollars: number;
+  lineDollars: number;
 }
 
 /** Per-GL-code breakdown of Schedule C so the PDF layer can print Part II / Part V and explain every line. */
@@ -396,6 +436,8 @@ export interface ScheduleCDetail {
    * added to 1040 line 2b / Schedule B (print as one payer row "Interest from business bank account (per EK Consulting books)").
    */
   booksInterest: { code: string; name: string; amountCents: number }[];
+  /** Mixed-use accounts with a business-use percentage (empty when none is booked). One entry per GL code. */
+  businessUse: ScheduleCBusinessUse[];
 }
 
 export type FormId =
