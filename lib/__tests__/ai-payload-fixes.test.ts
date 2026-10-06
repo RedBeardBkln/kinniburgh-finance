@@ -292,7 +292,7 @@ describe("owner statements", () => {
   it("carries the owner-confirmed TY2025 facts, labelled as not verified by documents", async () => {
     const { payload } = await payloadFor();
     const o = payload.ownerStatements;
-    expect(o.version).toBe(1);
+    expect(o.version).toBe(2);
     expect(o.label).toMatch(/NOT verified by documents/);
     expect(o.label).toMatch(/do not ask the owner to confirm it again/);
     const text = o.confirmed.join("\n");
@@ -305,11 +305,35 @@ describe("owner statements", () => {
       "Taxpayer M materially participates in the Consulting LLC",
       "The $7,000 traditional IRA contribution (Taxpayer M) was made in 2025",
       "that property was not offered for rent in 2025",
+      // the estate facts (estate-owner-statements)
+      "Taxpayer F's mother died in August 2024. Taxpayer F was the sole beneficiary",
+      "inherited the house (other property A) and the other assets from it, and is the executor. The estate is closed and all distributions were completed in 2025",
+      "Its total income was far less than $600 in every tax year (bank interest under $2); no Form 1099-INT, 1099-DIV or 1099-B was issued",
+      "So no Form 1041 filing was required",
+      "Taxpayer F received no Schedule K-1 (Form 1041) and no Form 1099 for 2025 from the estate, or from the estate of her mother's late husband",
+      "The inheritance itself is not reported as income",
+      "to renovate other property A",
+      "about $90,000, were all in 2025. They are capital improvements and are not deducted",
+      "No energy-efficiency or solar improvements were made to other property A",
+      "the owner has NOT yet provided a bond redemption statement for the bonds the estate cashed (bond type and interest: unknown)",
+      "The basis of other property A is not needed for 2025: there was no sale of it and no depreciation on it in 2025",
     ]) expect(text, needle).toContain(needle);
     expect(text).toContain("doc:c68acecb");
   });
+  it("the estate statements carry no name, street, town, zip or identifier, say nothing about how the deed was transferred, and state the bond statement as OPEN", async () => {
+    const estate = OWNER_STATEMENTS_TY2025.slice(8).join("\n");
+    expect(OWNER_STATEMENTS_TY2025.slice(8)).toHaveLength(8);
+    expect(estate).not.toMatch(/barry|arbor|waterford|quaker|\bCT\b|0638\d|\bEIN\b|\bSSN\b|\bCPA\b|mezzo|sudden valley|\bgift|joint tenan|survivorship|\bdeed\b/i);
+    expect(estate).not.toMatch(/\b\d{2}-\d{7}\b|\b\d{3}-\d{2}-\d{4}\b/);
+    expect(findRedactionIssues(estate)).toEqual([]);
+    expect(estate).toMatch(/OPEN, not a confirmed fact: the owner has NOT yet provided a bond redemption statement/);
+    // the whole payload (with the real scrubbers) still carries them and still leaks nothing
+    const { json } = await payloadFor();
+    expect(json).toContain("sole beneficiary");
+    expect(json).not.toMatch(/\bbarry\b|\barbor\b|waterford|quaker|\bEric Sample\b|mezzo|sudden valley/i);
+  });
   it("the allow-list is explicit and ties a statement to a document only when the document exists", () => {
-    expect(OWNER_STATEMENTS_TY2025).toHaveLength(8);
+    expect(OWNER_STATEMENTS_TY2025).toHaveLength(16);
     const none = buildOwnerStatements({ tdInterestAliases: [], otherPropertyBillAliases: [], documentAliases: new Set(), statedNone: [], recordedDecisions: [], acceptedFindings: [] });
     expect(none.confirmed).toEqual([...OWNER_STATEMENTS_TY2025]);
     const some = buildOwnerStatements({ tdInterestAliases: ["0cc0dce2"], otherPropertyBillAliases: [], documentAliases: new Set(["c20de682"]), statedNone: ["solar_credit"], recordedDecisions: [], acceptedFindings: [] });

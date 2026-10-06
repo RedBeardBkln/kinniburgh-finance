@@ -18,7 +18,9 @@ import { LINE_CATALOG } from "@/lib/tax2025/line-catalog";
 
 const LINE_KEYS: ReadonlySet<string> = new Set(LINE_CATALOG.map((m) => m.key));
 
-export const OWNER_STATEMENTS_VERSION = 1;
+// 2 (estate-owner-statements): the estate facts of Taxpayer F's mother (inheritance, no Form 1041 / K-1 / 1099, no income from the inheritance,
+// the capital improvements to other property A, no energy improvements, the bond redemption statement still missing, no basis needed for 2025).
+export const OWNER_STATEMENTS_VERSION = 2;
 
 export const OWNER_STATEMENTS_LABEL =
   "Owner statements, NOT verified by documents: facts the owner confirmed himself. Treat each as given and do not ask the owner to confirm it again. You may still add a finding if a figure or a line contradicts a statement, if a statement does not carry the conclusion you would draw, or about anything a statement does not cover.";
@@ -33,6 +35,15 @@ export const OWNER_STATEMENTS_TY2025: readonly string[] = [
   "The software and apps expenses in the books are all for the Consulting LLC and cover tax year 2025.",
   "Taxpayer M materially participates in the Consulting LLC.",
   "The $7,000 traditional IRA contribution (Taxpayer M) was made in 2025.",
+  // ── the estate of Taxpayer F's mother (owner-confirmed 2026-10-06; no names, addresses or entity names) ──
+  "Taxpayer F's mother died in August 2024. Taxpayer F was the sole beneficiary of her mother's estate, inherited the house (other property A) and the other assets from it, and is the executor. The estate is closed and all distributions were completed in 2025.",
+  "The estate had its own employer identification number. Its total income was far less than $600 in every tax year (bank interest under $2); no Form 1099-INT, 1099-DIV or 1099-B was issued under the estate's number. So no Form 1041 filing was required.",
+  "Taxpayer F received no Schedule K-1 (Form 1041) and no Form 1099 for 2025 from the estate, or from the estate of her mother's late husband.",
+  "The inheritance itself is not reported as income. The estate's cash and proceeds were used to pay the decedent's debts and to renovate other property A.",
+  "The renovations of other property A, about $90,000, were all in 2025. They are capital improvements and are not deducted.",
+  "No energy-efficiency or solar improvements were made to other property A.",
+  "OPEN, not a confirmed fact: the owner has NOT yet provided a bond redemption statement for the bonds the estate cashed (bond type and interest: unknown). Do not assume the type of the bonds, the interest or whether any of it is reportable.",
+  "The basis of other property A is not needed for 2025: there was no sale of it and no depreciation on it in 2025.",
 ];
 
 export interface RecordedDecision {
