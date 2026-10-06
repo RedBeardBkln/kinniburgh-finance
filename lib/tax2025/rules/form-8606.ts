@@ -8,24 +8,29 @@
 //     * Line 1: the contribution not deducted: the smaller of the IRA Deduction Worksheet's line 10 (compensation) or line 11 (the
 //       contribution) minus its line 12 (the deduction). The IRA deduction rule (rules/ira-deduction.ts) holds those numbers and emits
 //       it as `ira.<slot>.nd`; this rule copies it.
-//     * Line 2: total basis from earlier years. "Generally, if this is the first year you are required to file Form 8606, enter -0-."
-//       The app cannot see earlier returns, so line 2 is 0 only on the owner's statement `ira_basis_other` (no nondeductible
-//       contribution for 2024 or an earlier year, no after-tax rollover, ...), never an unstated 0.
+//     * Line 2: total basis from earlier years. "Generally, if this is the first year you are required to file Form 8606, enter -0-.
+//       Otherwise, use the Total Basis Chart" (instructions, Line 2 and "Total Basis Chart--Line 2", p. 9): for a last Form 8606 filed for
+//       a year after 2023 and before 2025 (the 2024 form) it is "the amount from line 14 of that Form 8606 as adjusted to include the
+//       amount from line 6 of the Line 15c Worksheet, if any". The app cannot see the 2024 Form 8606 (the 2024 return facts it holds are
+//       adjusted gross income and tax only), so line 2 is the OWNER'S ANSWER (PersonAnswers.priorBasisCents: the 2024 line 14 amount, 0 if
+//       none or never filed one): never an unstated 0, never negative, never checked against a document (the line's reason says so).
 //     * Line 3 = line 1 + line 2.
 //     * The form's own flow box after line 3: "In 2025, did you take a distribution from a traditional IRA, or make a Roth IRA
 //       conversion? No: Enter the amount from line 3 on line 14. Do not complete the rest of Part I. Yes: Go to line 4."
 //       So lines 4-13 and 15a-15c are NOT completed here: they are for a year with a distribution or a conversion, and Parts II and
 //       III (Roth conversions and Roth distributions) are blank by the owner's statements.
 //     * Line 14 = total basis for 2025 and earlier years (next year's line 2).
-//   A "Yes" to a distribution (retirement_ss_income: IRA distributions, pensions, Social Security) or to the earlier-basis /
-//   conversion / recharacterization statement is NOT figured: the affected lines are BLOCKED with a plain reason, so a wrong number is
-//   never printed. Lines 4-13, 15a-15c and Parts II and III print blank (the PDF map's blank reasons say why).
+//   A "Yes" to a distribution (retirement_ss_income: IRA distributions, pensions, Social Security) or to the distribution /
+//   conversion / recharacterization / returned-contribution statement (ira_basis_other) is NOT figured: the affected lines are BLOCKED
+//   with a plain reason, so a wrong number is never printed. Lines 4-13, 15a-15c and Parts II and III print blank (the PDF map's blank
+//   reasons say why).
 //
 // Penalties (constants.ts): $50 for not filing when required, $100 for overstating nondeductible contributions.
 //
 // Pure. Constants from lib/tax2025/constants.ts only.
 
 import type { Decimal } from "@prisma/client/runtime/library";
+import type { Ans } from "@/lib/tax2025/answer-state";
 import { NONE_GROUP_TEXT, lineMeta, type LineKey } from "@/lib/tax2025/line-catalog";
 import { ZERO, amountLine, blockedLine, fmt } from "@/lib/tax2025/money";
 import { aggregateStatus, hasAmount, worstBlocked, type RuleLine, type RuleResult, type RuleStatus } from "@/lib/tax2025/types";
@@ -37,11 +42,16 @@ export interface Form8606PersonInput {
   name: string;
   /** The person's `ira.<slot>.nd` line (Form 8606 line 1 before the form flow): amount (whole dollars) and status; null amount = not figured. */
   nondeductible: { amount: Decimal | null; status: RuleStatus | undefined; reason: string | null };
+  /**
+   * The owner's answer: line 14 of the person's most recent filed Form 8606 (the 2024 form), in dollars; 0 = none or never filed one.
+   * Read only when line 1 is above 0. A negative amount is refused (line 2 blocked).
+   */
+  priorBasis: Ans<Decimal>;
 }
 
 export interface Form8606Input {
   people: Form8606PersonInput[];
-  /** Statement `ira_basis_other`: true = none of the earlier-year basis / conversion / recharacterization items, false = answered Yes, null = not stated. */
+  /** Statement `ira_basis_other`: true = no IRA distribution, Roth conversion, recharacterization or returned contribution in 2025, false = answered Yes, null = not stated. */
   noEarlierBasisOrOtherIraEvent: boolean | null;
   /** Statement `retirement_ss_income` (no IRA distributions, pensions or Social Security): same tri-state. */
   noIraDistributions: boolean | null;
@@ -60,7 +70,7 @@ const KEYS = {
 } as const satisfies Record<Form8606Slot, Record<string, LineKey>>;
 
 const YES_BASIS =
-  "You answered Yes to the question about earlier-year IRA basis and other IRA changes. Earlier basis, an after-tax rollover, a conversion to a Roth IRA, a recharacterization or a returned contribution change Form 8606 lines 2 and 4-18, which this app does not figure from your answers. Fill those lines in yourself from the 2025 Form 8606 instructions.";
+  "You answered Yes to the question about IRA withdrawals, Roth conversions, recharacterizations and returned contributions in 2025. Any of them changes Form 8606 lines 4-18, which this app does not figure from your answers. Fill those lines in yourself from the 2025 Form 8606 instructions.";
 const YES_DISTRIBUTION =
   "You answered Yes to IRA distributions, pensions or Social Security benefits. A distribution from a traditional IRA means Form 8606 lines 4-13 and 15a-15c apply (the form's flow box after line 3), which this app does not figure from your answers. Fill them in yourself from the 2025 Form 8606 instructions.";
 
@@ -74,10 +84,41 @@ function blocked(key: LineKey, status: Blocked, reason: string): RuleLine {
   return blockedLine(key, m.label, m.formLine, status, reason);
 }
 
+/** Line 2 for one person: the owner's answer, or why it is not known yet. */
+type Line2 = { kind: "amount"; amount: Decimal; reason: string } | { kind: "blocked"; status: Blocked; reason: string };
+
+function line2Of(name: string, pb: Ans<Decimal>): Line2 {
+  if (pb.state === "answered") {
+    if (pb.value.isNegative()) {
+      return { kind: "blocked", status: "missing_input", reason: `${name}: a total basis cannot be below zero (the amount on line 14 of the 2024 Form 8606). Enter 0 if there was none.` };
+    }
+    return {
+      kind: "amount",
+      amount: pb.value,
+      reason: `Owner answer (from the 2024 Form 8606 line 14): ${fmt(pb.value)}${pb.value.isZero() ? " (none, or no earlier Form 8606)" : ""}. The 2025 instructions' Total Basis Chart carries line 14 of the last Form 8606 filed into line 2. The app holds only adjusted gross income and tax from the 2024 return, so this amount is not checked against any 2024 document.`,
+    };
+  }
+  if (pb.state === "unsure") {
+    return {
+      kind: "blocked",
+      status: "needs_cpa_judgment",
+      reason: `${name}: you marked the amount on line 14 of the 2024 Form 8606 as not sure. Look it up (the 2024 return, or whoever prepared it) and answer it; until then line 2 stays blank. Enter 0 if there was none.`,
+    };
+  }
+  return {
+    kind: "blocked",
+    status: "missing_input",
+    reason: `${name}: needs your answer: the amount on line 14 of your most recent filed Form 8606 (for 2024), your total basis in traditional IRAs. Enter 0 if there was none or you never filed one.`,
+  };
+}
+
 export function computeForm8606(input: Form8606Input): RuleResult {
   const lines: RuleLine[] = [];
   const reasons: string[] = [];
   const missing: string[] = [];
+  const addMissing = (m: string): void => {
+    if (!missing.includes(m)) missing.push(m);
+  };
   const basis = input.noEarlierBasisOrOtherIraEvent;
   const dist = input.noIraDistributions;
 
@@ -97,7 +138,7 @@ export function computeForm8606(input: Form8606Input): RuleResult {
       lines.push(blocked(k.l1, st, why));
       for (const key of [k.l2, k.l3, k.l14]) lines.push(blocked(key, st, `Depends on Form 8606 line 1, which is not figured yet: ${why}`));
       reasons.push(`${p.name}: Form 8606 waits for the IRA deduction and contribution answers. ${why}`);
-      missing.push(`IRA answers for Form 8606 (${p.name})`);
+      addMissing(`IRA answers for Form 8606 (${p.name})`);
       continue;
     }
     // Nothing nondeductible: no Form 8606 for this person.
@@ -108,41 +149,42 @@ export function computeForm8606(input: Form8606Input): RuleResult {
     }
     // Line 1.
     lines.push(line(k.l1, nd.amount, "computed", nd.reason ?? `${p.name}: ${fmt(nd.amount)} of the traditional IRA contribution is not deducted.`));
-    // Line 2: earlier-year basis, only on the owner's statement.
-    let line2: Decimal | null = null;
-    let line2Status: Blocked | null = null;
-    if (basis === true) {
-      line2 = ZERO;
-      lines.push(line(k.l2, ZERO, "computed", `Stated: ${NONE_GROUP_TEXT.ira_basis_other}`));
-    } else if (basis === null) {
-      line2Status = "missing_input";
-      const why = `Needs an owner statement: ${NONE_GROUP_TEXT.ira_basis_other}`;
-      lines.push(blocked(k.l2, line2Status, why));
-      reasons.push(`${p.name}: ${why}`);
-      if (!missing.includes("Statement: no earlier-year IRA basis and no other IRA change")) missing.push("Statement: no earlier-year IRA basis and no other IRA change");
-    } else {
-      line2Status = "needs_cpa_judgment";
-      lines.push(blocked(k.l2, line2Status, YES_BASIS));
+    // Line 2: the owner's answer (line 14 of the most recent filed Form 8606). A Yes to the distribution / conversion statement is not figured:
+    // lines 2, 3 and 14 wait, whatever the amount is.
+    const l2 = line2Of(p.name, p.priorBasis);
+    if (l2.kind === "blocked") {
+      reasons.push(l2.reason);
+      addMissing(`Amount on the 2024 Form 8606 line 14 (${p.name})`);
+    }
+    if (basis === false) {
       reasons.push(`${p.name}: ${YES_BASIS}`);
+      for (const key of [k.l2, k.l3, k.l14]) lines.push(blocked(key, "needs_cpa_judgment", YES_BASIS));
+      continue;
     }
+    if (l2.kind === "blocked") {
+      lines.push(blocked(k.l2, l2.status, l2.reason));
+      lines.push(blocked(k.l3, l2.status, "Depends on Form 8606 line 2, which is not figured yet."));
+      lines.push(blocked(k.l14, l2.status, "Depends on Form 8606 line 3, which is not figured yet."));
+      continue;
+    }
+    lines.push(line(k.l2, l2.amount, "computed", l2.reason));
     // Line 3 = 1 + 2.
-    if (line2 !== null) {
-      lines.push(line(k.l3, nd.amount.plus(line2), "computed", `Line 1 ${fmt(nd.amount)} plus line 2 ${fmt(line2)}.`));
-    } else {
-      lines.push(blocked(k.l3, line2Status ?? "missing_input", "Depends on Form 8606 line 2, which is not figured yet."));
-    }
+    const line3 = nd.amount.plus(l2.amount);
+    lines.push(line(k.l3, line3, "computed", `Line 1 ${fmt(nd.amount)} plus line 2 ${fmt(l2.amount)}.`));
     // Line 14: the form's flow box says "No (no distribution, no conversion): enter the amount from line 3 on line 14".
-    if (line2 !== null && dist === true && basis === true) {
-      lines.push(line(k.l14, nd.amount.plus(line2), "computed", "No distribution from a traditional IRA and no Roth conversion (your statements): the form says to enter line 3 on line 14. This is next year's line 2."));
-    } else if (basis === false) {
-      lines.push(blocked(k.l14, "needs_cpa_judgment", YES_BASIS));
+    if (dist === true && basis === true) {
+      lines.push(line(k.l14, line3, "computed", "No distribution from a traditional IRA and no Roth conversion (your statements): the form says to enter line 3 on line 14. This is next year's line 2."));
     } else if (dist === false) {
       lines.push(blocked(k.l14, "needs_cpa_judgment", YES_DISTRIBUTION));
       reasons.push(`${p.name}: ${YES_DISTRIBUTION}`);
     } else {
-      const which = dist === null ? "IRA distributions, pensions or Social Security (statement not given)" : "earlier-year basis and other IRA changes (statement not given)";
+      const which = dist === null ? "IRA distributions, pensions or Social Security (statement not given)" : "IRA withdrawals, Roth conversions, recharacterizations and returned contributions (statement not given)";
       lines.push(blocked(k.l14, "missing_input", `Needs your statements before line 14 is final: ${which}. The form's flow box after line 3 sends a person with no IRA distribution and no conversion straight to line 14.`));
-      if (dist === null && !missing.includes("Statement: no IRA distributions, pensions or Social Security")) missing.push("Statement: no IRA distributions, pensions or Social Security");
+      if (basis === null) {
+        reasons.push(`${p.name}: Needs an owner statement: ${NONE_GROUP_TEXT.ira_basis_other}`);
+        addMissing("Statement: no IRA withdrawal, Roth conversion, recharacterization or returned contribution in 2025");
+      }
+      if (dist === null) addMissing("Statement: no IRA distributions, pensions or Social Security");
     }
   }
   return {

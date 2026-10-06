@@ -127,7 +127,7 @@ describe("Form 8606 is one form per person (copies)", () => {
   it("Eric only: exactly one copy, suffix a, with the label and Eric's name", () => {
     const copies = f8606Copies(ericView());
     expect(copies.map((c) => c.suffix)).toEqual(["a"]);
-    expect(copies[0]!.label).toBe("Taxpayer A: Part I lines 1-3 and 14");
+    expect(copies[0]!.label).toBe("Taxpayer A: Part I lines 1-3 and 14 (line 2 is your answer from the 2024 Form 8606 line 14)");
     expect(copies[0]!.answers).toEqual({ [F8606_NAME_ANSWER]: "Alex Example" });
   });
 
@@ -215,6 +215,7 @@ describe("Form 8606 in the packet", () => {
     const f = fullFacts1b();
     const [a, b] = f.returnAnswers.people;
     a!.traditionalIraCents = owner(700_000);
+    a!.priorBasisCents = owner(730_000); // the 2024 Form 8606 line 14
     a!.coveredByWorkplacePlan = owner(false);
     a!.age50Plus = owner(false);
     b!.coveredByWorkplacePlan = owner(true);
@@ -231,9 +232,9 @@ describe("Form 8606 in the packet", () => {
     expect(Object.fromEntries(filled)).toEqual({
       "Page1[0].f1_01[0]": "Eric Kinniburgh",
       "Page1[0].f1_09[0]": "7,000",
-      "Page1[0].f1_10[0]": "0",
-      "Page1[0].f1_11[0]": "7,000",
-      "Page1[0].f1_23[0]": "7,000",
+      "Page1[0].f1_10[0]": "7,300",
+      "Page1[0].f1_11[0]": "14,300",
+      "Page1[0].f1_23[0]": "14,300",
     });
     // nothing the engine requires is missing from the packet's list of absent forms
     expect(packet.forms.find((x) => x.formId === "f8606")?.included).toBe(true);

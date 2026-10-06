@@ -106,6 +106,7 @@ export const SOURCES: Readonly<Record<SourceId, QuestionnaireSource>> = {
   SCH1A: { title: "Schedule 1-A (Form 1040) 2025", url: "https://www.irs.gov/pub/irs-pdf/f1040s1a.pdf", verifiedOn: VERIFIED, basisTaxYear: 2025 },
   "8880F": { title: "Form 8880 (2025)", url: "https://www.irs.gov/pub/irs-pdf/f8880.pdf", verifiedOn: VERIFIED, basisTaxYear: 2025 },
   "590A": { title: "Publication 590-A (2025), Contributions to Individual Retirement Arrangements", url: "https://www.irs.gov/publications/p590a", verifiedOn: VERIFIED, basisTaxYear: 2025 },
+  "8606I": { title: "Instructions for Form 8606 (2025)", url: "https://www.irs.gov/pub/irs-prior/i8606--2025.pdf", verifiedOn: "2026-10-05", basisTaxYear: 2025 },
   "2210F": { title: "Form 2210 (2025)", url: "https://www.irs.gov/pub/irs-pdf/f2210.pdf", verifiedOn: VERIFIED, basisTaxYear: 2025 },
   SCHD: { title: "Instructions for Schedule D (2025)", url: "https://www.irs.gov/instructions/i1040sd", verifiedOn: "2026-10-04", basisTaxYear: 2025 },
   "8949": { title: "Instructions for Form 8949 (2025)", url: "https://www.irs.gov/instructions/i8949", verifiedOn: "2026-10-04", basisTaxYear: 2025 },
@@ -1387,9 +1388,9 @@ const RC_GROUP_PROMPTS: Readonly<Record<RcNoneGroupId, string>> = {
   // Federal Form 8960 (net investment income tax) lines 6, 7 and 10: items the app cannot read from any document, so a Yes means you work them out.
   niit_other:
     "stock in a company based outside the United States that the IRS treats as a controlled foreign corporation or a passive foreign investment company, a payout from an estate or a trust (Schedule K-1 from Form 1041, box 14 code H), a net operating loss (a business loss carried over from another year) that applies to investment income, a deduction from an earlier year that you got back and that was counted against investment income, or a business that mainly trades stocks, bonds or commodities",
-  // Federal Form 8606 (nondeductible IRAs) lines 2 and 4-18: the app cannot see earlier returns, so a "No" is how line 2 becomes 0.
+  // Federal Form 8606 (nondeductible IRAs) flow box after line 3 and lines 4-18: with none of these the form says to enter line 3 on line 14. (Line 2, the earlier-year basis, is the dollars question `ibasis_<person>`.)
   ira_basis_other:
-    "money in a traditional IRA (Individual Retirement Account) that you already paid tax on, for example a contribution for 2024 or an earlier year that you did not deduct on that year's tax return (a nondeductible contribution), after-tax money rolled over from a 401(k) or other workplace plan, or an inherited IRA that holds after-tax money; an IRA split or transferred because of a divorce; a conversion of a traditional IRA to a Roth IRA in 2025; moving a 2025 IRA contribution to a different kind of IRA (a recharacterization); or taking a 2025 IRA contribution back out",
+    "a withdrawal (distribution) from a traditional IRA (Individual Retirement Account), a conversion of a traditional IRA to a Roth IRA, moving a 2025 IRA contribution to a different kind of IRA (a recharacterization), or taking a 2025 IRA contribution back out",
 };
 
 /** Group id -> a short plain-language name used in the follow-up amount question. */
@@ -1419,7 +1420,7 @@ const RC_GROUP_LABELS: Readonly<Record<RcNoneGroupId, string>> = {
   ct_other_state_tax: "income taxed by another state",
   ct_other_credits: "other Connecticut credits",
   niit_other: "foreign company stock, estate or trust payouts and other net investment income tax items",
-  ira_basis_other: "earlier-year IRA basis and other IRA changes",
+  ira_basis_other: "IRA withdrawals, Roth conversions and returned contributions",
 };
 
 /** Every "stated none" group this flow asks about: NONE_GROUP_IDS plus the capital-gain groups (no duplicates). */
@@ -1562,7 +1563,16 @@ function rcPersonNodes(): QNode[] {
         help: "The IRS says the IRA contribution limit and the percentage used to reduce the IRA deduction are higher for a person age 50 or older at the end of 2025.",
         sources: ["590A"],
         showWhen: inn(`ira_${k}`, "some"),
-      })
+      }),
+      dollars(
+        `ibasis_${k}`,
+        `In ${P.name}'s most recent filed Form 8606 (for 2024), what is the amount on line 14 (${P.name}'s total basis in traditional IRAs)? (Enter 0 if ${P.name} had none or never filed one.)`,
+        {
+          help: "The IRS says (2025 Form 8606 instructions, Line 2 and the Total Basis Chart) to start 2025 line 2 from line 14 of the last Form 8606 you filed. Form 8606 is filed with a tax return, so look in the 2024 return or ask whoever prepared it. If that form's Line 15c Worksheet was used (only in a year with an IRA distribution), the instructions add the worksheet's line 6 to this amount, and the app does not add it for you.",
+          sources: ["8606I"],
+          showWhen: inn(`ira_${k}`, "some"),
+        }
+      )
     );
   }
   const CONTRIBUTES = anyOf(...RC_PERSONS.flatMap((P) => [inn(`def_${P.key}`, "some"), inn(`ira_${P.key}`, "some")]));

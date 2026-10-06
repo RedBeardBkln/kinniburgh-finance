@@ -4,7 +4,8 @@
 // Worksheet (specs/09, "Form 8606"). Pure: no DB.
 
 import { describe, expect, it } from "vitest";
-import { answered, MISSING, UNSURE } from "@/lib/tax2025/answer-state";
+import type { Decimal } from "@prisma/client/runtime/library";
+import { answered, MISSING, UNSURE, type Ans } from "@/lib/tax2025/answer-state";
 import { D } from "@/lib/tax2025/money";
 import { computeForm8606, type Form8606PersonInput } from "@/lib/tax2025/rules/form-8606";
 import { computeIraDeduction, type IraPersonInput } from "@/lib/tax2025/rules/ira-deduction";
@@ -28,12 +29,18 @@ function ira(people: IraPersonInput[], magi: number | null, noSs: boolean | null
 }
 
 /** The 8606 rule fed from the IRA rule's ira.<slot>.nd lines, the way return.ts does it. */
-function form(r: RuleResult, basis: boolean | null = true, dist: boolean | null = true, names: [string, string] = ["Eric", "Eva"]): RuleResult {
+function form(
+  r: RuleResult,
+  basis: boolean | null = true,
+  dist: boolean | null = true,
+  names: [string, string] = ["Eric", "Eva"],
+  prior: { a?: Ans<Decimal>; b?: Ans<Decimal> } = {}
+): RuleResult {
   const lead = (slot: "a" | "b"): Form8606PersonInput => {
     const key = `ira.${slot}.nd` as LineKey;
     const l = r.lines.find((x) => x.key === key);
     if (!l) throw new Error(`no line ${key}`);
-    return { slot, name: names[slot === "a" ? 0 : 1], nondeductible: { amount: l.amount, status: l.status ?? r.status, reason: l.reason ?? null } };
+    return { slot, name: names[slot === "a" ? 0 : 1], nondeductible: { amount: l.amount, status: l.status ?? r.status, reason: l.reason ?? null }, priorBasis: prior[slot] ?? answered(D(0)) };
   };
   return computeForm8606({ people: [lead("a"), lead("b")], noEarlierBasisOrOtherIraEvent: basis, noIraDistributions: dist });
 }
@@ -145,8 +152,8 @@ describe("computeForm8606: lines 1, 2, 3 and 14 for Eric", () => {
     expect(["f8606a.1", "f8606a.2", "f8606a.3", "f8606a.14"].map((k) => st(f, k as LineKey))).toEqual(["computed", "computed", "computed", "computed"]);
     expect(["f8606b.1", "f8606b.2", "f8606b.3", "f8606b.14"].map((k) => st(f, k as LineKey))).toEqual(["not_applicable", "not_applicable", "not_applicable", "not_applicable"]);
     expect(f.status).toBe("computed");
-    // line 2 prints a 0 only because the owner stated it: the reason quotes the statement
-    expect(f.lines.find((l) => l.key === "f8606a.2")?.reason).toContain("Stated:");
+    // line 2 prints a 0 only because the owner answered it: the reason says where it comes from
+    expect(f.lines.find((l) => l.key === "f8606a.2")?.reason).toContain("Owner answer (from the 2024 Form 8606 line 14)");
     expect(f.citations).toEqual(expect.arrayContaining(["FORM_8606_NOT_FILED_PENALTY", "IRA_PHASEOUT_SPOUSE_COVERED_MFJ"]));
   });
 
@@ -155,17 +162,17 @@ describe("computeForm8606: lines 1, 2, 3 and 14 for Eric", () => {
     expect(["f8606a.1", "f8606a.2", "f8606a.3", "f8606a.14"].map((k) => amt(f, k as LineKey))).toEqual(["2800", "0", "2800", "2800"]);
   });
 
-  it("not stated (earlier-year basis): lines 2, 3 and 14 are missing_input with a plain statement, line 1 still computes", () => {
+  it("the statement about 2025 IRA withdrawals, conversions and recharacterizations not stated: lines 1-3 compute from the amount, only line 14 is missing_input with a plain statement", () => {
     const f = form(ira([ERIC(), EVA()], 270980), null, true);
-    expect(st(f, "f8606a.1")).toBe("computed");
-    expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => st(f, k as LineKey))).toEqual(["missing_input", "missing_input", "missing_input"]);
-    expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => amt(f, k as LineKey))).toEqual([null, null, null]);
+    expect(["f8606a.1", "f8606a.2", "f8606a.3"].map((k) => st(f, k as LineKey))).toEqual(["computed", "computed", "computed"]);
+    expect(st(f, "f8606a.14")).toBe("missing_input");
+    expect(amt(f, "f8606a.14")).toBeNull();
     expect(f.status).toBe("missing_input");
     expect(f.reasons.join(" ")).toContain("Needs an owner statement");
-    expect(f.inputsMissing.join(" ")).toContain("earlier-year IRA basis");
+    expect(f.inputsMissing.join(" ")).toContain("Roth conversion");
   });
 
-  it("answered Yes (earlier basis or another IRA event): lines 2, 3 and 14 are blocked with a plain-language reason, never a printed number", () => {
+  it("answered Yes (a withdrawal, conversion, recharacterization or returned contribution in 2025): lines 2, 3 and 14 are blocked with a plain-language reason, never a printed number", () => {
     const f = form(ira([ERIC(), EVA()], 270980), false, true);
     expect(st(f, "f8606a.1")).toBe("computed");
     expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => st(f, k as LineKey))).toEqual(["needs_cpa_judgment", "needs_cpa_judgment", "needs_cpa_judgment"]);
@@ -188,9 +195,9 @@ describe("computeForm8606: lines 1, 2, 3 and 14 for Eric", () => {
     expect(st(f, "f8606a.3")).toBe("computed");
   });
 
-  it("Yes to BOTH: the earlier-basis reason is the one on line 14", () => {
+  it("Yes to BOTH: the withdrawals / conversions reason is the one on line 14", () => {
     const f = form(ira([ERIC(), EVA()], 270980), false, false);
-    expect(f.lines.find((l) => l.key === "f8606a.14")?.reason).toContain("earlier-year IRA basis");
+    expect(f.lines.find((l) => l.key === "f8606a.14")?.reason).toContain("Roth conversions");
   });
 
   it("a person with nothing nondeductible has no Form 8606: all four lines not_applicable zeros", () => {
@@ -219,6 +226,112 @@ describe("computeForm8606: lines 1, 2, 3 and 14 for Eric", () => {
       expect(keys.sort()).toEqual(["f8606a.1", "f8606a.14", "f8606a.2", "f8606a.3", "f8606b.1", "f8606b.14", "f8606b.2", "f8606b.3"]);
       for (const l of f.lines) expect(l.reason ?? "", `${l.key} ${basis}/${dist}`).not.toMatch(/CPA/);
       for (const r of f.reasons) expect(r).not.toMatch(/CPA/);
+    }
+  });
+});
+
+// Line 2 is the owner's answer: the amount on line 14 of the most recent filed Form 8606 (the 2024 form). 2025 Form 8606 instructions, Line 2 and the
+// Total Basis Chart: for a last form filed for a year after 2023 and before 2025, "the amount from line 14 of that Form 8606".
+describe("computeForm8606: line 2 from the 2024 Form 8606 line 14 (the owner's answer)", () => {
+  const eric = (prior: Ans<Decimal>, basis: boolean | null = true, dist: boolean | null = true, magi = 270980) => form(ira([ERIC(), EVA()], magi), basis, dist, ["Eric", "Eva"], { a: prior });
+  const four = (f: RuleResult, slot: "a" | "b" = "a") => [1, 2, 3, 14].map((n) => amt(f, `f8606${slot}.${n}` as LineKey));
+
+  it("Eric's golden: 2025 contribution 7,000 + 7,300 from the 2024 line 14 (7,000 contributed in 2024 plus 300 earlier) = line 3 14,300 = line 14 14,300", () => {
+    const f = eric(answered(D(7300)));
+    expect(four(f)).toEqual(["7000", "7300", "14300", "14300"]);
+    expect([1, 2, 3, 14].map((n) => st(f, `f8606a.${n}` as LineKey))).toEqual(["computed", "computed", "computed", "computed"]);
+    expect(f.status).toBe("computed");
+    const reason = f.lines.find((l) => l.key === "f8606a.2")?.reason ?? "";
+    expect(reason).toContain("Owner answer (from the 2024 Form 8606 line 14): $7,300");
+    // the app has no 2024 Form 8606 to tie it to, and the line says so
+    expect(reason).toContain("not checked against any 2024 document");
+    expect(f.lines.find((l) => l.key === "f8606a.3")?.reason).toContain("$7,000 plus line 2 $7,300");
+  });
+
+  it("zero prior basis (none, or no earlier Form 8606): line 2 prints 0 from the answer, 3 and 14 are 7,000", () => {
+    const f = eric(answered(D(0)));
+    expect(four(f)).toEqual(["7000", "0", "7000", "7000"]);
+    expect(f.lines.find((l) => l.key === "f8606a.2")?.reason).toContain("none, or no earlier Form 8606");
+  });
+
+  it("a large prior basis: 52,000 carried in, 7,000 this year = 59,000 on lines 3 and 14", () => {
+    expect(four(eric(answered(D(52000))))).toEqual(["7000", "52000", "59000", "59000"]);
+  });
+
+  it("a partial deduction plus a prior basis: line 1 2,800 + line 2 7,300 = 10,100 on lines 3 and 14", () => {
+    expect(four(eric(answered(D(7300)), true, true, 240000))).toEqual(["2800", "7300", "10100", "10100"]);
+  });
+
+  it("the amount missing: line 1 computes, lines 2, 3 and 14 are missing_input with a plain question; nothing prints", () => {
+    const f = eric(MISSING);
+    expect(st(f, "f8606a.1")).toBe("computed");
+    expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => st(f, k as LineKey))).toEqual(["missing_input", "missing_input", "missing_input"]);
+    expect(four(f)).toEqual(["7000", null, null, null]);
+    expect(f.status).toBe("missing_input");
+    const reason = f.lines.find((l) => l.key === "f8606a.2")?.reason ?? "";
+    expect(reason).toContain("amount on line 14 of your most recent filed Form 8606 (for 2024)");
+    expect(reason).toContain("Enter 0 if there was none or you never filed one");
+    expect(f.reasons[0]).toContain("Eric");
+    expect(f.inputsMissing.join(" ")).toContain("2024 Form 8606 line 14 (Eric)");
+  });
+
+  it("'Not sure': the same three lines are blocked (you look it up), never a guess", () => {
+    const f = eric(UNSURE);
+    expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => st(f, k as LineKey))).toEqual(["needs_cpa_judgment", "needs_cpa_judgment", "needs_cpa_judgment"]);
+    expect(f.lines.find((l) => l.key === "f8606a.2")?.reason).toContain("not sure");
+  });
+
+  it("a negative amount is refused: lines 2, 3 and 14 blocked, never a negative or a clamped 0 on the form", () => {
+    const f = eric(answered(D(-300)));
+    expect(four(f)).toEqual(["7000", null, null, null]);
+    expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => st(f, k as LineKey))).toEqual(["missing_input", "missing_input", "missing_input"]);
+    expect(f.lines.find((l) => l.key === "f8606a.2")?.reason).toContain("cannot be below zero");
+  });
+
+  it("Taxpayer F (b) with no contribution: the amount is not read, all four lines are not_applicable even when it is missing; Eric's lines are unaffected", () => {
+    const f = eric(answered(D(7300)));
+    expect([1, 2, 3, 14].map((n) => st(f, `f8606b.${n}` as LineKey))).toEqual(["not_applicable", "not_applicable", "not_applicable", "not_applicable"]);
+    expect(four(f, "b")).toEqual(["0", "0", "0", "0"]);
+  });
+
+  it("both persons with a contribution use their OWN amount (Eric 7,300 / Eva 1,000), never mixed", () => {
+    const f = form(ira([ERIC(), EVA({ traditional: answered(D(5000)) })], 270980), true, true, ["Eric", "Eva"], { a: answered(D(7300)), b: answered(D(1000)) });
+    expect(four(f, "a")).toEqual(["7000", "7300", "14300", "14300"]);
+    expect(four(f, "b")).toEqual(["5000", "1000", "6000", "6000"]);
+  });
+
+  it("one person's missing amount blocks only that person's lines", () => {
+    const f = form(ira([ERIC(), EVA({ traditional: answered(D(5000)) })], 270980), true, true, ["Eric", "Eva"], { a: answered(D(7300)), b: MISSING });
+    expect(four(f, "a")).toEqual(["7000", "7300", "14300", "14300"]);
+    expect(four(f, "b")).toEqual(["5000", null, null, null]);
+  });
+
+  it("a distribution Yes (retirement statement): lines 1-3 compute with the amount, line 14 is blocked", () => {
+    const f = eric(answered(D(7300)), true, false);
+    expect(four(f)).toEqual(["7000", "7300", "14300", null]);
+    expect(st(f, "f8606a.14")).toBe("needs_cpa_judgment");
+  });
+
+  it("Yes to the withdrawal / conversion / recharacterization statement: lines 2, 3 and 14 are blocked whatever the amount is", () => {
+    const f = eric(answered(D(7300)), false, true);
+    expect(four(f)).toEqual(["7000", null, null, null]);
+    expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => st(f, k as LineKey))).toEqual(["needs_cpa_judgment", "needs_cpa_judgment", "needs_cpa_judgment"]);
+  });
+
+  it("the statements not stated, amount answered: lines 1-3 compute, line 14 waits for the statements", () => {
+    const f = eric(answered(D(7300)), null, null);
+    expect(four(f)).toEqual(["7000", "7300", "14300", null]);
+    expect(st(f, "f8606a.14")).toBe("missing_input");
+  });
+
+  it("no owner-visible string says CPA, whatever the answer state", () => {
+    for (const prior of [answered(D(7300)), answered(D(0)), answered(D(-1)), MISSING, UNSURE] as const) {
+      for (const [basis, dist] of [[true, true], [null, null], [false, true], [true, false]] as const) {
+        const f = eric(prior, basis, dist);
+        for (const l of f.lines) expect(l.reason ?? "", `${l.key}`).not.toMatch(/CPA/);
+        for (const r of f.reasons) expect(r).not.toMatch(/CPA/);
+        for (const m of f.inputsMissing) expect(m).not.toMatch(/CPA/);
+      }
     }
   });
 });

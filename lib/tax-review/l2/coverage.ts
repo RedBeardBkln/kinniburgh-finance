@@ -31,7 +31,7 @@ const GROUPS: { label: string; prefixes: readonly string[] }[] = [
   { label: "Form 8995 (qualified business income deduction)", prefixes: ["f8995."] },
   { label: "Form 8959 (Additional Medicare Tax)", prefixes: ["f8959."] },
   { label: "Form 8960 (net investment income tax)", prefixes: ["f8960."] },
-  { label: "Form 8606 (nondeductible IRAs, Part I: line 3 and line 14)", prefixes: ["f8606a.", "f8606b."] },
+  { label: "Form 8606 (nondeductible IRAs, Part I: lines 2, 3 and 14)", prefixes: ["f8606a.", "f8606b."] },
   { label: "Schedule 1-A (tips, overtime, car loan interest, seniors)", prefixes: ["sch1a."] },
   { label: "Form 6251 (alternative minimum tax screen)", prefixes: ["f6251."] },
   { label: "Qualified Dividends and Capital Gain Tax Worksheet", prefixes: ["qdcg."] },

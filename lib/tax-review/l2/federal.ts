@@ -310,14 +310,21 @@ export function computeFederal(inp: OracleInputs): Ledger {
   stateOrEngine("sch1.17", adj.seHealthInsurance);
   stateOrEngine("sch1.20", adj.ira);
   // Form 8606 (nondeductible IRAs, Part I). Line 1 is the contribution minus the IRA deduction: it needs the whole IRA deduction worksheet, which the
-  // recalculation does not repeat, so lines 1 and 2 are taken from the return as inputs (line 2 is the owner's statement). Line 3 ("Add lines 1 and 2")
-  // is recomputed from them, and line 14 equals line 3 when the return prints it (the form's flow box after line 3 for a year with no distribution
+  // recalculation does not repeat, so line 1 is taken from the return as an input. Line 2 is the owner's answer (line 14 of the 2024 Form 8606,
+  // PersonAnswers.priorBasisCents): it is read from the FACTS here, so a wrong person's amount or a changed line 2 is caught; it is taken as an input
+  // only where the return prints no line 2 (no form, an unanswered amount, a Yes to the withdrawal / conversion statement). Line 3 ("Add lines 1 and
+  // 2") is recomputed from them, and line 14 equals line 3 when the return prints it (the form's flow box after line 3 for a year with no distribution
   // and no conversion; with one the return leaves line 14 blank and the recalculation does not fill it). Whether the FORM is needed IS recomputed
   // from the facts: some traditional IRA contribution is not covered by the Schedule 1 line 20 deduction.
   for (const slot of ["a", "b"] as const) {
     L.engineInput(`ira.${slot}.nd`, inp.engineAmount(`ira.${slot}.nd`), "the part of the traditional IRA contribution that is not deducted, from the IRA deduction worksheet (not recomputed here)");
     const l1 = L.engineInput(`f8606${slot}.1`, inp.engineAmount(`f8606${slot}.1`), "Form 8606 line 1 (contribution minus the IRA deduction), taken from the return");
-    const l2 = L.engineInput(`f8606${slot}.2`, inp.engineAmount(`f8606${slot}.2`), "Form 8606 line 2 (the owner's statement about earlier-year basis), taken from the return");
+    const engineL2 = inp.engineAmount(`f8606${slot}.2`);
+    const answer = facts.returnAnswers.people.find((p) => p.slot === slot)?.priorBasisCents?.value ?? null;
+    const l2 =
+      engineL2 !== null && answer !== null && answer >= 0 && l1 !== null && l1 > 0
+        ? L.put(`f8606${slot}.2`, dollarsOfCents(answer), [], "the owner's answer: line 14 of the 2024 Form 8606")
+        : L.engineInput(`f8606${slot}.2`, engineL2, "Form 8606 line 2 (the owner's answer from the 2024 Form 8606 line 14: none needed, not answered, or blocked by a Yes to the withdrawal / conversion statement), taken from the return");
     const l3 = L.put(`f8606${slot}.3`, addAll(l1, l2), [`f8606${slot}.1`, `f8606${slot}.2`]);
     if (inp.engineAmount(`f8606${slot}.14`) === null) L.engineInput(`f8606${slot}.14`, null, "Form 8606 line 14 is blank on the return (a distribution or conversion, or an unanswered statement)");
     else L.put(`f8606${slot}.14`, l3, [`f8606${slot}.3`]);

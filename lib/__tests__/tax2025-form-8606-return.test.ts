@@ -12,10 +12,12 @@ import { ERIC_ID, fullFacts1b, owner } from "@/lib/__tests__/tax2025-fixtures";
 const DOC_ID = "ba3c7bda-5498";
 
 /** Eric's shape: Eric (a) not covered at work and 7,000 traditional; Eva (b) covered; Eric's wages raised so the MAGI is far over 246,000. */
-function ericFacts(over: { traditionalCents?: number; fmvCents?: number | null; withStatement?: boolean } = {}): Ty2025Facts {
+function ericFacts(over: { traditionalCents?: number; fmvCents?: number | null; withStatement?: boolean; priorBasisCents?: number | null } = {}): Ty2025Facts {
   const f = fullFacts1b();
   const [a, b] = f.returnAnswers.people;
   a!.traditionalIraCents = owner(over.traditionalCents ?? 700_000);
+  // Eric's 2024 Form 8606 line 14 shows 7,300 (7,000 contributed in 2024 plus 300 of earlier basis); null = not answered
+  if (over.priorBasisCents !== null) a!.priorBasisCents = owner(over.priorBasisCents ?? 730_000);
   a!.coveredByWorkplacePlan = owner(false);
   a!.age50Plus = owner(false);
   b!.coveredByWorkplacePlan = owner(true);
@@ -69,10 +71,22 @@ describe("Form 8606 through the return: Eric's shape", () => {
     expect(status(r, "ira.b.nd")).toBe("not_applicable");
   });
 
-  it("lines 1 / 2 / 3 / 14 are 7,000 / 0 / 7,000 / 7,000, all computed; taxpayer B's four lines are not applicable", () => {
-    expect(F8606A.map((k) => amt(r, k))).toEqual([7000, 0, 7000, 7000]);
+  it("lines 1 / 2 / 3 / 14 are 7,000 / 7,300 / 14,300 / 14,300 (the 2025 contribution plus the 2024 Form 8606 line 14), all computed; taxpayer B's four lines are not applicable", () => {
+    expect(F8606A.map((k) => amt(r, k))).toEqual([7000, 7300, 14300, 14300]);
     expect(F8606A.map((k) => status(r, k))).toEqual(["computed", "computed", "computed", "computed"]);
     expect(F8606B.map((k) => status(r, k))).toEqual(["not_applicable", "not_applicable", "not_applicable", "not_applicable"]);
+  });
+
+  it("line 2 says where it comes from: the owner's answer from the 2024 Form 8606 line 14, not checked against a document", () => {
+    const l2 = r.lines["f8606a.2"]!;
+    expect(l2.reason).toContain("Owner answer (from the 2024 Form 8606 line 14): $7,300");
+    expect(l2.reason).toContain("not checked against any 2024 document");
+    expect(l2.refs.some((x) => x.kind === "planning" && x.id === "fixture")).toBe(true);
+  });
+
+  it("zero prior basis (answered 0): 7,000 / 0 / 7,000 / 7,000; a large prior basis (52,000): 7,000 / 52,000 / 59,000 / 59,000", () => {
+    expect(F8606A.map((k) => amt(computeTy2025Return(ericFacts({ priorBasisCents: 0 })), k))).toEqual([7000, 0, 7000, 7000]);
+    expect(F8606A.map((k) => amt(computeTy2025Return(ericFacts({ priorBasisCents: 5_200_000 })), k))).toEqual([7000, 52000, 59000, 59000]);
   });
 
   it("Form 8606 is required, with the $50 not-filing penalty in the reason, and it blocks nothing", () => {
@@ -111,23 +125,39 @@ describe("Form 8606 through the return: Eric's shape", () => {
     expect(base.formsRequired.f8606).toEqual({ required: false, reason: "No nondeductible traditional IRA contribution." });
   });
 
-  it("advisories: next year's starting point (line 14), and a check of earlier returns because the IRA already held more than this year's contribution", () => {
+  it("advisories: next year's starting point (line 14), and the source of line 2 (the owner's 2024 Form 8606 figure; the Form 5498 year-end value is information only)", () => {
     const basis = r.openItems.find((o) => o.id === "f8606-basis-record");
     expect(basis?.severity).toBe("advisory");
     expect(basis?.message).toContain("2026 Form 8606 line 2");
-    expect(basis?.message).toContain("$7,000");
+    expect(basis?.message).toContain("$14,300");
     expect(basis?.lineKeys).toEqual(["f8606a.14"]);
     const prior = r.openItems.find((o) => o.id === "f8606-prior-basis-check");
     expect(prior?.severity).toBe("advisory");
+    expect(prior?.message).toContain("line 2 is $7,300, your answer from the 2024 Form 8606 line 14");
     expect(prior?.message).toContain("$49,146.79");
+    expect(prior?.message).toContain("information only");
+    expect(prior?.message).toContain("cannot check the 2024 Form 8606 figure");
+    expect(prior?.lineKeys).toEqual(["f8606a.2"]);
     expect(prior?.refs.some((x) => x.id === DOC_ID)).toBe(true);
     for (const o of [basis, prior]) {
       expect(o?.message).not.toMatch(/CPA/);
       expect(o?.action).not.toMatch(/CPA/);
     }
-    // no year-end value that exceeds the contribution: no prior-basis hint
-    const small = computeTy2025Return(ericFacts({ fmvCents: 600_000 }));
-    expect(small.openItems.some((o) => o.id === "f8606-prior-basis-check")).toBe(false);
+    // an amount that is not 0 gets no "you entered 0" warning, whatever the year-end value
+    expect(prior?.message).not.toContain("You entered 0");
+    // no Form 5498 value: the advisory still says where line 2 comes from, without the year-end sentence
+    const noStatement = computeTy2025Return(ericFacts({ withStatement: false })).openItems.find((o) => o.id === "f8606-prior-basis-check");
+    expect(noStatement?.message).toContain("line 2 is $7,300");
+    expect(noStatement?.message).not.toContain("Form 5498");
+    // an answer of 0 with an IRA that already held more than this year's contribution: a check of earlier returns
+    const zero = computeTy2025Return(ericFacts({ priorBasisCents: 0 })).openItems.find((o) => o.id === "f8606-prior-basis-check");
+    expect(zero?.message).toContain("You entered 0 although the IRA already held more than this year's contribution");
+    // 0 and a year-end value below the contribution: no warning
+    const small = computeTy2025Return(ericFacts({ priorBasisCents: 0, fmvCents: 600_000 })).openItems.find((o) => o.id === "f8606-prior-basis-check");
+    expect(small?.message).not.toContain("You entered 0");
+    // the advisory is only for a computed line 2
+    const unanswered = computeTy2025Return(ericFacts({ priorBasisCents: null }));
+    expect(unanswered.openItems.some((o) => o.id === "f8606-prior-basis-check")).toBe(false);
   });
 
   it("the review sheet's document index lists the retirement statement against Form 8606 line 1 (it is no longer 'not used by any line')", () => {
@@ -140,33 +170,65 @@ describe("Form 8606 through the return: Eric's shape", () => {
   });
 });
 
-describe("Form 8606: the statements that gate lines 2 and 14", () => {
-  it("earlier-year basis NOT stated: lines 2, 3 and 14 are missing_input, rule:form-8606 is a blocking item naming the plain-language statement, the return is not complete", () => {
-    const f = ericFacts();
-    delete f.statedNone.ira_basis_other;
-    const r = computeTy2025Return(f);
+describe("Form 8606: the answer and the statements that gate lines 2 and 14", () => {
+  it("the 2024 Form 8606 line 14 amount NOT answered: lines 2, 3 and 14 are missing_input, rule:form-8606 is a blocking item asking for it in plain language, the return is not complete", () => {
+    const r = computeTy2025Return(ericFacts({ priorBasisCents: null }));
     expect(status(r, "f8606a.1")).toBe("computed");
     expect(amt(r, "f8606a.1")).toBe(7000);
     expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => status(r, k as LineKey))).toEqual(["missing_input", "missing_input", "missing_input"]);
+    expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => amt(r, k as LineKey))).toEqual([null, null, null]);
     const item = r.openItems.find((o) => o.id === "rule:form-8606");
     expect(item?.severity).toBe("blocking");
-    expect(item?.message).toContain("Needs an owner statement");
-    expect(item?.message).toContain("earlier");
-    expect(item?.action).toContain("Statement: no earlier-year IRA basis");
+    expect(item?.message).toContain("amount on line 14 of your most recent filed Form 8606 (for 2024)");
+    expect(item?.message).toContain("Enter 0 if there was none or you never filed one");
+    expect(item?.action).toContain("2024 Form 8606 line 14");
     expect(item?.lineKeys).toEqual(expect.arrayContaining(["f8606a.2", "f8606a.3", "f8606a.14"]));
     expect(r.headline.complete).toBe(false);
     // the form is still required (line 1 is known) and no tax number changed
     expect(r.formsRequired.f8606?.required).toBe(true);
     expect(amt(r, "sch1.20")).toBe(0);
+    expect(r.headline.federal.totalTax.amount).toBe(computeTy2025Return(ericFacts()).headline.federal.totalTax.amount);
   });
 
-  it("the provisional (fill) pass assumes none for the unstated item and says so; its lines carry 7,000 / 0 / 7,000 / 7,000", () => {
+  it("a 'not sure' answer to the amount blocks the same lines (you look it up); a negative amount in the facts is refused", () => {
     const f = ericFacts();
+    f.returnAnswers.people[0]!.priorBasisCents = { value: null, basis: "answer_owner", refs: [] };
+    const r = computeTy2025Return(f);
+    expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => status(r, k as LineKey))).toEqual(["needs_cpa_judgment", "needs_cpa_judgment", "needs_cpa_judgment"]);
+    const neg = computeTy2025Return(ericFacts({ priorBasisCents: -30_000 }));
+    expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => amt(neg, k as LineKey))).toEqual([null, null, null]);
+    expect(neg.lines["f8606a.2"]?.reason).toContain("cannot be below zero");
+    expect(neg.headline.complete).toBe(false);
+  });
+
+  it("the statement about 2025 IRA withdrawals, conversions and recharacterizations NOT stated: lines 1-3 compute, line 14 is missing_input and rule:form-8606 names the statement", () => {
+    const f = ericFacts();
+    delete f.statedNone.ira_basis_other;
+    const r = computeTy2025Return(f);
+    expect(F8606A.map((k) => amt(r, k))).toEqual([7000, 7300, 14300, null]);
+    expect(status(r, "f8606a.14")).toBe("missing_input");
+    const item = r.openItems.find((o) => o.id === "rule:form-8606");
+    expect(item?.severity).toBe("blocking");
+    expect(item?.message).toContain("Needs an owner statement");
+    expect(item?.message).toContain("Roth IRA");
+    expect(item?.action).toContain("Statement: no IRA withdrawal, Roth conversion");
+    expect(r.headline.complete).toBe(false);
+  });
+
+  it("the provisional (fill) pass assumes none for the unstated statement and for an unanswered amount, and says so; its lines carry 7,000 / 0 / 7,000 / 7,000", () => {
+    const f = ericFacts({ priorBasisCents: null });
     delete f.statedNone.ira_basis_other;
     const p = computeTy2025Return(f).headline.provisional;
     expect(p).not.toBeNull();
-    expect(p!.assumedFacts.some((x) => /earlier-year IRA basis/.test(x) && /Form 8606/.test(x))).toBe(true);
+    expect(p!.assumedFacts.some((x) => /No IRA distribution, Roth conversion/.test(x) && /Form 8606/.test(x))).toBe(true);
+    expect(p!.assumedFacts.some((x) => /No earlier-year basis in traditional IRAs/.test(x) && /2024 Form 8606/.test(x))).toBe(true);
     expect(F8606A.map((k) => p!.lines[k])).toEqual([7000, 0, 7000, 7000]);
+  });
+
+  it("Taxpayer F (Eva) with no contribution needs no amount: her four lines stay not applicable and nothing about her blocks", () => {
+    const r = computeTy2025Return(ericFacts());
+    expect(F8606B.map((k) => status(r, k))).toEqual(["not_applicable", "not_applicable", "not_applicable", "not_applicable"]);
+    expect(r.openItems.some((o) => o.severity === "blocking" && /Eva/.test(o.message) && /8606/.test(o.message))).toBe(false);
   });
 
   it("answered Yes: lines 2, 3 and 14 are blocked with a plain-language reason (no number is printed), line 1 still computes", () => {

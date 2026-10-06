@@ -34,6 +34,7 @@ function ericScenario(box1Cents = 700_000) {
   return cleanScenario(docs, (f) => {
     const [a, b] = f.returnAnswers.people;
     a!.traditionalIraCents = owner(700_000);
+    a!.priorBasisCents = owner(730_000); // the 2024 Form 8606 line 14
     a!.coveredByWorkplacePlan = owner(false);
     a!.age50Plus = owner(false);
     b!.coveredByWorkplacePlan = owner(true);
@@ -66,7 +67,9 @@ describe("L1 on an Eric-shaped return with a Form 8606", () => {
   it("the engine computes it and the packet carries f8606-a with the lines filled", async () => {
     const { pipeline } = await runPipeline(ericScenario());
     expect(pipeline.ret.lines["f8606a.1"]?.amount).toBe(7000);
-    expect(pipeline.ret.lines["f8606a.14"]?.amount).toBe(7000);
+    expect(pipeline.ret.lines["f8606a.2"]?.amount).toBe(7300);
+    expect(pipeline.ret.lines["f8606a.3"]?.amount).toBe(14300);
+    expect(pipeline.ret.lines["f8606a.14"]?.amount).toBe(14300);
     expect(pipeline.ctx.packet.files.some((f) => /f8606-a\.pdf$/.test(f.name))).toBe(true);
     expect(pipeline.ctx.packet.files.some((f) => /f8606-b\.pdf$/.test(f.name))).toBe(false);
   });
@@ -135,11 +138,20 @@ describe("L2 on Form 8606", () => {
     const out = runL2({ ret, effective: applyOverrides(ret, []), facts: s.facts });
     expect(out.status).toBe("ran");
     expect(out.findings.filter((f) => /f8606/.test(f.check) || f.formKey === "f8606")).toEqual([]);
-    // line 3 and line 14 are recomputed and compared; lines 1 and 2 are inputs (honestly listed, not checked)
+    // line 2 (the owner's answer, read from the facts), line 3 and line 14 are recomputed and compared; line 1 is an input (honestly listed, not checked)
     const row = out.coverage.find((c) => c.area.startsWith("Form 8606"));
     expect(row?.compared).toBe(true);
-    expect(row?.linesCompared).toBe(4); // line 3 and line 14 for both people
+    expect(row?.linesCompared).toBe(5); // Eric: lines 2, 3 and 14; Eva has no form: lines 3 and 14 (zero) only
     expect(row?.note).toContain("taken from the return as an input");
+  });
+
+  it("line 2 is recomputed from the owner's answer: a printed line 2 that differs from the answer (here 6,300 against 7,300) is a mismatch finding on that line", () => {
+    const s = ericScenario();
+    const ret = computeTy2025Return(s.facts);
+    expect(ret.lines["f8606a.2"]?.amount).toBe(7300);
+    (ret.lines["f8606a.2"] as { amount: number | null }).amount = 6300;
+    const out = runL2({ ret, effective: applyOverrides(ret, []), facts: s.facts });
+    expect(out.findings.some((f) => f.lineKey === "f8606a.2")).toBe(true);
   });
 
   it("a deliberate disagreement is found: the return says Form 8606 is NOT required while a 7,000 contribution has a 0 deduction", () => {
@@ -222,8 +234,19 @@ describe("pins and wiring", () => {
     const node = content.questionnaireById("return-completeness")?.nodes.find((n) => n.id === "g_ira_basis_other");
     expect(node).toBeDefined();
     expect(JSON.stringify(node)).not.toMatch(/CPA/);
-    expect(JSON.stringify(node)).toContain("nondeductible contribution");
-    expect(JSON.stringify(node)).toContain("Roth IRA");
+    expect(JSON.stringify(node)).toContain("conversion of a traditional IRA to a Roth IRA");
+    expect(JSON.stringify(node)).toContain("recharacterization");
+    // the earlier-year basis is NOT part of this statement any more: it is a dollars question per person (no definition version bump)
+    expect(JSON.stringify(node)).not.toContain("nondeductible contribution");
+    const def = content.questionnaireById("return-completeness");
+    expect(def?.version).toBe(2);
+    for (const k of ["eric", "eva"]) {
+      const n = def?.nodes.find((x) => x.id === `ibasis_${k}`);
+      expect(n?.kind).toBe("dollars");
+      expect(n?.prompt).toContain("most recent filed Form 8606 (for 2024), what is the amount on line 14");
+      expect(n?.prompt).toContain("(Enter 0 if");
+      expect(JSON.stringify(n)).not.toMatch(/CPA/);
+    }
   });
 });
 

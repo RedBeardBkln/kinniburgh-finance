@@ -187,6 +187,13 @@ export function parseCompletenessAnswers(
       hsaEligibleDec1: yn(`hsad1_${k}`, lbl("covered by the HDHP on December 1, 2025")),
       hsaEmployerOtherYear: yn(`hsaemp_${k}`, lbl("employer HSA contributions for another year")),
     };
+    // Form 8606 line 2: the line 14 amount of the person's most recent filed Form 8606 (the 2024 form). Set only when asked and answered
+    // ("Not sure" is a leaf with no value); an unanswered or hidden question leaves the field absent, which the rule reads as missing.
+    {
+      const basisAmt = cents(`ibasis_${k}`);
+      if (basisAmt === "unsure") p.priorBasisCents = unsure(`ibasis_${k}`, lbl("total basis in traditional IRAs from the 2024 Form 8606, line 14"));
+      else if (basisAmt !== null) p.priorBasisCents = leaf(basisAmt, `ibasis_${k}`, lbl("total basis in traditional IRAs from the 2024 Form 8606, line 14"));
+    }
     // HSA coverage
     if (hsaC === null) p.hsaCoverage = missing();
     else if (hsaC === "unsure") p.hsaCoverage = unsure(`hsa_${k}`, lbl("HDHP coverage"));

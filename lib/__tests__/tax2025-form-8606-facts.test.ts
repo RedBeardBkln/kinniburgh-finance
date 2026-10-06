@@ -119,7 +119,7 @@ describe("retirement statements as facts", () => {
     const i = openItems.find((o) => o.id === `retirement-doc-ira-event:${DOC_ID}`);
     expect(i).toBeDefined();
     expect(i!.severity).toBe("advisory");
-    expect(i!.message).toContain("a Roth conversion (box 3: $10000.00)");
+    expect(i!.message).toContain("a Roth conversion (box 3: $10,000.00)");
     expect(i!.message).toContain("a recharacterized contribution (box 4: $500.00)");
     expect(i!.message).toContain("box 13a: $200.00 for 2024");
     expect(i!.message).not.toMatch(/CPA/);

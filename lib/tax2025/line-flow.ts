@@ -108,7 +108,8 @@ const PAIRS: readonly (readonly [Keys, Keys])[] = [
   [["ira.a.7", "ira.b.7"], "sch1.20"],
 
   // ── Form 8606 (nondeductible IRAs), Part I: one form per person ─────────────
-  // Line 1 = smaller of compensation and the contribution minus the IRA deduction (ira.<s>.nd); line 3 = 1 + 2; line 14 = line 3 (no distribution, no conversion).
+  // Line 1 = smaller of compensation and the contribution minus the IRA deduction (ira.<s>.nd); line 2 = the owner's answer (line 14 of the 2024 Form 8606: an input,
+  // so no edge feeds it); line 3 = 1 + 2; line 14 = line 3 (no distribution, no conversion).
   ["ira.a.7", "ira.a.nd"],
   ["ira.b.7", "ira.b.nd"],
   ["ira.a.nd", "f8606a.1"],

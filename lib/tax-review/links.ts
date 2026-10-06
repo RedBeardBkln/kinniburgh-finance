@@ -863,7 +863,7 @@ export const OPEN_ITEM_RULES: readonly OpenItemRule[] = [
   { match: /^books-interest-routed$/, note: "interest in the books: the books", extras: { books: true } },
   { match: /^scha-mortgage-insurance-not-deductible$/, note: "mortgage insurance: the Schedule A line and the 1098", extras: { upload: true } },
   { match: /^(ct-schedule1-other-specify|sch1a-owner-statements|niit-sch-c-nonpassive|niit-allocation-9b|qbi-carryforward-out|other-income-allocation)$/, note: "a statement the owner gives in the Return completeness questions", extras: { question: "completeness" } },
-  { match: /^f8606-(basis-record|prior-basis-check)$/, note: "a Form 8606 note: its lines, the form and the earlier-year IRA basis question", extras: { form: "f8606", question: "completeness" } },
+  { match: /^f8606-(basis-record|prior-basis-check)$/, note: "a Form 8606 note: its lines, the form and the IRA questions", extras: { form: "f8606", question: "completeness" } },
   { match: /^schd-(reconciliation:|unread$|other-sales$)/, note: "Schedule D / Form 8949 does not tie to the broker documents: the lines, Form 8949 and the documents", extras: { form: "f8949", upload: true } },
   { match: /^schd-(adjustments-owner|1256-or-1099da|special-rates)$/, note: "a capital-gain statement only the owner can give: the lines and the question", extras: { form: "f8949", question: "completeness" } },
   { match: /^schd-digital-answer$/, note: "the digital assets answer drives Schedule D: that question", extras: { form: "f8949", attestNode: "digital" } },

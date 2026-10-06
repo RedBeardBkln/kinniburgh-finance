@@ -70,9 +70,10 @@ export const NONE_GROUP_TEXT = {
   // Form 8960 lines 6, 7 and 10 (rules/form-8960.ts reads it; no catalog line names it as its `group`).
   niit_other:
     "No stock in a foreign corporation (a controlled foreign corporation or a passive foreign investment company), no distribution from an estate or trust (Schedule K-1 (Form 1041) box 14 code H), no net operating loss that applies to net investment income, no recovery of a deduction counted against investment income in an earlier year, and no trading business (Form 8960 lines 6, 7 and 10).",
-  // Form 8606 lines 2 and 4-18 (rules/form-8606.ts reads it; no catalog line names it as its `group`). A Yes blocks those lines, never a guess.
+  // Form 8606 lines 4-18 (rules/form-8606.ts reads it; no catalog line names it as its `group`). Line 2 (earlier-year basis) is NOT this
+  // statement: it is the owner's amount from the 2024 Form 8606 line 14 (PersonAnswers.priorBasisCents). A Yes blocks lines 2, 3 and 14, never a guess.
   ira_basis_other:
-    "No basis in traditional IRAs from earlier years and no other IRA event that changes Form 8606: no nondeductible contribution to a traditional IRA for 2024 or an earlier year, no after-tax (nontaxable) money rolled into an IRA from a workplace plan, no inherited IRA with basis, no IRA transferred under a divorce, no conversion of a traditional IRA to a Roth IRA in 2025, no recharacterization of an IRA contribution and no return of an IRA contribution (Form 8606 lines 2 and 4-18).",
+    "No distribution from a traditional IRA, no conversion of a traditional IRA to a Roth IRA, no recharacterization of an IRA contribution and no return of an IRA contribution in 2025 (the Form 8606 flow box after line 3 and lines 4-18).",
 } as const;
 
 export type NoneGroupId = keyof typeof NONE_GROUP_TEXT;

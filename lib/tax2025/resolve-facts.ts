@@ -161,7 +161,8 @@ function dataOf(doc: RawDocument): Rec {
 
 /** Cents as "$1,234.56" for open-item prose (display only). */
 function usd(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  const [whole = "0", frac = "00"] = (cents / 100).toFixed(2).split(".");
+  return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
 }
 
 function intOrNull(v: unknown): number | null {
@@ -471,8 +472,8 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
       addItem({
         id: `retirement-doc-ira-event:${doc.id}`,
         severity: "advisory",
-        message: `The retirement statement${issuer === null ? "" : ` from ${issuer}`} shows ${events.join(" and ")}. That changes Form 8606 beyond lines 1-3 and 14: the Return completeness question about earlier-year IRA basis and other IRA changes should be answered Yes, which stops those Form 8606 lines until you fill them in yourself.`,
-        action: "Check the statement against your IRA records and answer the earlier-year IRA basis question.",
+        message: `The retirement statement${issuer === null ? "" : ` from ${issuer}`} shows ${events.join(" and ")}. That changes Form 8606 beyond lines 1-3 and 14: the Return completeness question about IRA withdrawals, Roth conversions, recharacterizations and returned contributions should be answered Yes, which stops those Form 8606 lines until you fill them in yourself.`,
+        action: "Check the statement against your IRA records and answer the question about IRA withdrawals, Roth conversions and recharacterizations.",
         refs: fact.refs,
       });
     }

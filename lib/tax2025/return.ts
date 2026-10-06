@@ -25,7 +25,7 @@
 // presenting them as computed.
 
 import { Decimal } from "@prisma/client/runtime/library";
-import { ans, mapAns, type Ans } from "@/lib/tax2025/answer-state";
+import { MISSING, ans, answered, mapAns, type Ans } from "@/lib/tax2025/answer-state";
 import { K } from "@/lib/tax2025/constants";
 import type { Ty2025Facts } from "@/lib/tax2025/facts";
 import {
@@ -410,7 +410,7 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     return out;
   };
   const personRefs = (p: (typeof ra.people)[number]): Ref[] =>
-    refsFrom(p.bornBefore1961, p.blind, p.validSsn, p.coveredByWorkplacePlan, p.deferralsCents, p.traditionalIraCents, p.rothIraCents, p.age50Plus, p.age55Plus, p.hsaCoverage, p.hsaMonthsEligible, p.hsaEligibleDec1, p.hsaMedicareOrDependent, p.hsaDirectContributionsCents, p.hsaEmployerOtherYear, p.hsaDistributions, p.tipsChoice, p.tipsCents, p.overtimeChoice, p.overtimeCents);
+    refsFrom(p.bornBefore1961, p.blind, p.validSsn, p.coveredByWorkplacePlan, p.deferralsCents, p.traditionalIraCents, ...(p.priorBasisCents === undefined ? [] : [p.priorBasisCents]), p.rothIraCents, p.age50Plus, p.age55Plus, p.hsaCoverage, p.hsaMonthsEligible, p.hsaEligibleDec1, p.hsaMedicareOrDependent, p.hsaDirectContributionsCents, p.hsaEmployerOtherYear, p.hsaDistributions, p.tipsChoice, p.tipsCents, p.overtimeChoice, p.overtimeCents);
   const w2sOf = (userId: string | null) => (userId === null ? [] : facts.income.w2s.filter((w) => w.personUserId === userId));
   /** W-2 box 12 code W (employer HSA contributions) for a person; null when unknowable (no person match or an older-format W-2). */
   const employerHsa = (userId: string | null): Decimal | null => {
@@ -667,24 +667,35 @@ function assemble(facts: Ty2025Facts, decisions: Ty2025Decisions, fill: boolean)
     };
     A.register(iraWithRefs, { refs: [...ra.people.flatMap(personRefs), ...facts.income.w2s.flatMap((w) => w.refs)] });
   }
-  // Form 8606 (nondeductible IRAs), Part I: lines 1, 2, 3 and 14 per person (rules/form-8606.ts). The provisional pass assumes the unanswered statements.
+  // Form 8606 (nondeductible IRAs), Part I: lines 1, 2, 3 and 14 per person (rules/form-8606.ts). The provisional pass assumes the unanswered
+  // statements and an unanswered earlier-year basis amount (no earlier basis); the strict pass never does.
   {
     let basis = facts.statedNone.ira_basis_other?.value ?? null;
     let distNone = facts.statedNone.retirement_ss_income?.value ?? null;
     if (fill && basis === null) {
       basis = true;
-      A.assumedFacts.push("No earlier-year IRA basis and no IRA conversion, recharacterization or returned contribution (Form 8606 lines 2 and 4-18, not stated)");
+      A.assumedFacts.push("No IRA distribution, Roth conversion, recharacterization or returned contribution in 2025 (Form 8606 lines 4-18, not stated)");
     }
     if (fill && distNone === null) distNone = true;
+    let assumedNoPriorBasis = false;
     const f8606 = computeForm8606({
-      people: ra.people.map((p) => ({
-        slot: p.slot,
-        name: p.name,
-        nondeductible: { amount: A.peek(ndKeyOf[p.slot]), status: A.statusOf(ndKeyOf[p.slot]), reason: A.lines.get(ndKeyOf[p.slot])?.reason ?? null },
-      })),
+      people: ra.people.map((p) => {
+        let priorBasis: Ans<Decimal> = p.priorBasisCents === undefined ? MISSING : dollarsAns(p.priorBasisCents);
+        if (fill && priorBasis.state === "missing" && (p.traditionalIraCents.value ?? 0) > 0) {
+          priorBasis = answered(ZERO);
+          assumedNoPriorBasis = true;
+        }
+        return {
+          slot: p.slot,
+          name: p.name,
+          nondeductible: { amount: A.peek(ndKeyOf[p.slot]), status: A.statusOf(ndKeyOf[p.slot]), reason: A.lines.get(ndKeyOf[p.slot])?.reason ?? null },
+          priorBasis,
+        };
+      }),
       noEarlierBasisOrOtherIraEvent: basis,
       noIraDistributions: distNone,
     });
+    if (assumedNoPriorBasis) A.assumedFacts.push("No earlier-year basis in traditional IRAs (Form 8606 line 2: the amount on line 14 of the 2024 Form 8606, not answered)");
     const f8606WithRefs: RuleResult = {
       ...f8606,
       lines: f8606.lines.map((l) => (l.key.startsWith("f8606a.") ? { ...l, refs: form8606Refs("a") } : l.key.startsWith("f8606b.") ? { ...l, refs: form8606Refs("b") } : l)),
@@ -1778,21 +1789,31 @@ export function computeTy2025Return(facts: Ty2025Facts, decisions: Ty2025Decisio
       refs: [],
     });
   }
-  if (facts.statedNone.ira_basis_other?.value === true) {
-    const heldMore = facts.returnAnswers.people.flatMap((p) => {
-      const trad = p.traditionalIraCents.value;
-      if (p.userId === null || trad === null || trad <= 0) return [];
-      const stmts = (facts.income.retirementStatements ?? []).filter((r) => r.personUserId === p.userId && (r.fairMarketValueCents ?? 0) > trad);
-      return stmts.map((r) => ({ p, r }));
+  // Form 8606 line 2 is the owner's answer (line 14 of the 2024 Form 8606): say where it comes from, that nothing in the app checks it, and that the
+  // Form 5498 year-end value is information only (the form skips line 6 when there is no distribution or conversion).
+  {
+    const entries = facts.returnAnswers.people.flatMap((p) => {
+      const key = p.slot === "a" ? "f8606a.2" : "f8606b.2";
+      const amt = p.priorBasisCents?.value ?? null;
+      if (amt === null || amt < 0 || A.statusOf(key) !== "computed") return [];
+      const trad = p.traditionalIraCents.value ?? 0;
+      const stmt = (facts.income.retirementStatements ?? []).find((r) => p.userId !== null && r.personUserId === p.userId && r.fairMarketValueCents !== null);
+      return [{ p, key: key as LineKey, amt, stmt, heldMore: stmt !== undefined && (stmt.fairMarketValueCents ?? 0) > trad }];
     });
-    if (heldMore.length > 0) {
+    if (entries.length > 0) {
+      const parts = entries.map(({ p, amt, stmt, heldMore }) => {
+        const own = `${p.name}: line 2 is ${fmt(centsToDollars(amt))}, your answer from the 2024 Form 8606 line 14.`;
+        const fmv = stmt === undefined ? "" : ` The year-end value on the Form 5498 (box 5: ${fmt(centsToDollars(stmt.fairMarketValueCents ?? 0))}) is information only: Form 8606 does not use it when there was no distribution or conversion.`;
+        const zero = amt === 0 && heldMore ? " You entered 0 although the IRA already held more than this year's contribution at year end; check that no earlier contribution was left undeducted." : "";
+        return `${own}${fmv}${zero}`;
+      });
       openItems.push({
         id: "f8606-prior-basis-check",
         severity: "advisory",
-        message: `${heldMore.map(({ p, r }) => `${p.name}'s IRA already held more than this year's contribution at year end (Form 5498 box 5: ${fmt(centsToDollars(r.fairMarketValueCents ?? 0))}).`).join(" ")} Form 8606 line 2 is 0 because you stated there are no earlier nondeductible contributions or other IRA changes.`,
-        action: "Check your earlier returns: if any earlier contribution was not deducted and no Form 8606 was filed for it, answer Yes to the earlier-year IRA basis question and fill in Form 8606 lines 2 and 4-18 yourself.",
-        lineKeys: ["f8606a.2", "f8606b.2"],
-        refs: heldMore.flatMap(({ r }) => r.refs),
+        message: `${parts.join(" ")} The app holds only adjusted gross income and tax from your 2024 return, so it cannot check the 2024 Form 8606 figure.`,
+        action: "Check that the line 2 amount matches line 14 of your 2024 Form 8606 (2025 Form 8606 instructions, Line 2 and the Total Basis Chart).",
+        lineKeys: entries.map((e) => e.key),
+        refs: entries.flatMap(({ p, stmt }) => [...(p.priorBasisCents?.refs ?? []), ...(stmt?.refs ?? [])]),
       });
     }
   }

@@ -356,6 +356,13 @@ export const personAnswersSchema = z.object({
   /** Elective deferrals to a 401(k), 403(b), 457(b), SIMPLE, SEP or TSP in 2025 (cents). */
   deferralsCents: sourcedSchema(cents),
   traditionalIraCents: sourcedSchema(cents),
+  /**
+   * Total basis in traditional IRAs carried in from earlier years (cents): the line 14 amount of the person's most recent filed Form 8606 (the
+   * 2024 form), which the 2025 Form 8606 instructions (Line 2, Total Basis Chart) say to enter on 2025 line 2. Optional: absent = not asked
+   * or not answered (the Form 8606 rule treats it as missing); a questionnaire "not sure" is a leaf with no value and an owner basis. 0 = none
+   * (or no earlier Form 8606). Never read from a document: the 2024 return facts hold only AGI and tax.
+   */
+  priorBasisCents: sourcedSchema(cents).optional(),
   rothIraCents: sourcedSchema(cents),
   hsaCoverage: sourcedSchema(z.enum(["none", "self_only", "family", "changed"])),
   /** Months (0-12) the person was an eligible individual on the first day of the month with HDHP coverage. */

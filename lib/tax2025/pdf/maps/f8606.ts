@@ -67,7 +67,8 @@ function copyFor(slot: "a" | "b", view: PdfReturnView): FormCopy | null {
   const name = view.answers[f8606NameAnswerOf(slot)];
   return {
     suffix: slot,
-    label: `Taxpayer ${slot.toUpperCase()}: Part I lines 1-3 and 14`,
+    // The label is the cover / index note for the sheet: line 2 is the owner's answer (the app holds no 2024 Form 8606 to check it against).
+    label: `Taxpayer ${slot.toUpperCase()}: Part I lines 1-3 and 14 (line 2 is your answer from the 2024 Form 8606 line 14)`,
     answers: { [F8606_NAME_ANSWER]: typeof name === "string" ? name : null },
     tables: {},
     lines: mapped,

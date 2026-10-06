@@ -271,7 +271,7 @@ describe("Return completeness questionnaire: tree integrity", () => {
     const a = walk(noneOrNo);
     expect(Object.keys(a).length).toBeGreaterThanOrEqual(40);
     expect(Object.keys(a).length).toBeLessThanOrEqual(65); // + the Form 8606 g_ question (form-8606) + the Form 8960 g_ question (ty2025-sch1a-8960-pdfs) + cgco, cgall, cgadj and two capital-gain stated-none groups (schedule-d-capture) + six CT Schedule 1 g_ questions (ty2025-mip-ct-schedule1) + two CT credit g_ questions (ty2025-ct1040-derived-lines)
-    expect(def.nodes.length).toBe(158); // + 2 (the Form 8606 earlier-year basis group, g_ + ga_); 156 = + 2 (the Form 8960 lines 6, 7 and 10 group, g_ + ga_); 129 (round 6: other-income flow) + 9 capital-gain nodes (cgco/cgcos/cgcol/cgall/cgadj + 2 none groups g_ + ga_) + 12 (six CT Schedule 1 groups, g_ + ga_ each) + 4 (two CT credit groups, g_ + ga_ each)
+    expect(def.nodes.length).toBe(160); // + 2 (the Form 8606 earlier-year basis amount per person, ibasis_eric and ibasis_eva), + 2 (the Form 8606 IRA withdrawal / conversion group, g_ + ga_); 156 = + 2 (the Form 8960 lines 6, 7 and 10 group, g_ + ga_); 129 (round 6: other-income flow) + 9 capital-gain nodes (cgco/cgcos/cgcol/cgall/cgadj + 2 none groups g_ + ga_) + 12 (six CT Schedule 1 groups, g_ + ga_ each) + 4 (two CT credit groups, g_ + ga_ each)
   });
   it("every showWhen references only EARLIER nodes (no dangling / forward reference) and the unsure option exists on every choice node", () => {
     const idx = new Map(def.nodes.map((n, i) => [n.id, i]));
