@@ -100,8 +100,8 @@ export const f1040Map: FormMap = {
     money(`${P2}f2_28[0]`, "f1040.32"),
     money(`${P2}f2_29[0]`, "f1040.33", { zero: "print" }),
     money(`${P2}f2_30[0]`, "f1040.34"),
-    money(`${P2}f2_31[0]`, "f1040.35a"),
-    money(`${P2}f2_34[0]`, "f1040.36"),
+    money(`${P2}f2_31[0]`, "f1040.35a"), // refunded: decision X7 (line 34 less the line 38 penalty printed, less any amount applied); blank while undecided
+    money(`${P2}f2_34[0]`, "f1040.36"), // applied to 2026 estimated tax: decision X7; a computed 0 prints blank
     money(`${P2}f2_35[0]`, "f1040.37"),
     money(`${P2}f2_36[0]`, "f1040.38"),
     // ── Filing status: five separate checkboxes (no radio groups on IRS forms); exactly one is checked ──

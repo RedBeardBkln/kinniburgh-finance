@@ -8,8 +8,13 @@ import { fullFacts } from "./tax2025-fixtures";
 // The package index (tester Y, D4-a / D4-b): it says the generated Form 8949 attachment is only a summary, and it lists the lines
 // that are left blank because they are the owner's choice as "enter by hand" items.
 
-function indexText(hasForm8949Summary: boolean): string[] {
+function indexText(hasForm8949Summary: boolean, overpaid = false): string[] {
   const facts = fullFacts();
+  // an overpaying return (extra withholding) raises decisions X7 / X8, so the two overpayment bullets are still the owner's choice (undecided)
+  if (overpaid) {
+    facts.income.w2s[0]!.fedWithheldCents = (facts.income.w2s[0]!.fedWithheldCents ?? 0) + 5_000_000;
+    facts.income.w2s[0]!.ctWithheldCents = (facts.income.w2s[0]!.ctWithheldCents ?? 0) + 600_000;
+  }
   const view = toPdfReturnView(computeTy2025Return(facts), facts, { generatedAt: "2026-10-08T16:00:00.000Z", generatedBy: "Test" });
   const lines = buildIndexLines({ view, formFiles: [{ name: "forms/01-f1040.pdf", title: "Form 1040" }], attachments: [], notIncluded: [], hasForm8949Summary });
   expect(scanChrome(lines)).toEqual([]);
@@ -28,8 +33,8 @@ describe("final package index wording", () => {
   it("does not print the Also attach block when there are no Form 8949 summary rows", () => {
     expect(indexText(false).join("\n")).not.toMatch(/Exception 2/);
   });
-  it("lists the lines left blank for the owner's choice as by-hand items (Form 1040 7b, 35a, 36; CT-1040 23, 24, 24a, 25)", () => {
-    const text = indexText(false).join("\n");
+  it("lists the lines left blank for the owner's choice as by-hand items (Form 1040 7b, 35a, 36; CT-1040 23, 24, 24a, 25) while decisions X7 / X8 are undecided", () => {
+    const text = indexText(false, true).join("\n");
     for (const needle of ["Form 1040 lines 35a and 36", "Form 1040 line 7b", "CT-1040 lines 23, 24 and 24a", "line 25"]) expect(text, needle).toContain(needle);
     expect(BY_HAND.length).toBeGreaterThanOrEqual(10);
   });

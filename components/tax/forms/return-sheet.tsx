@@ -438,6 +438,7 @@ function Decision({ d, taxYear, canRecord }: { d: SheetDecision; taxYear: 2025; 
               decisionKey: d.decisionKey,
               undecided: d.undecided,
               choices: d.choices,
+              amount: d.amount === null ? null : { maxDollars: d.amount.maxDollars, overpaymentLine: d.amount.overpaymentLine },
               override:
                 d.override === null
                   ? null

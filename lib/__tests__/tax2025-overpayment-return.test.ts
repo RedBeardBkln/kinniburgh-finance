@@ -20,8 +20,8 @@ const applyAmount = (n: number): DecidedOverpayment => ({ chosen: "apply_amount"
 /** fullFacts1b with extra withholding: a federal overpayment (line 34 > 0) and a CT overpayment (line 22 > 0). */
 function overFacts(): Ty2025Facts {
   const f = fullFacts1b();
-  f.income.w2s[0]!.fedWithheldCents += 3_000_000;
-  f.income.w2s[0]!.ctWithheldCents += 600_000;
+  f.income.w2s[0]!.fedWithheldCents = (f.income.w2s[0]!.fedWithheldCents ?? 0) + 3_000_000;
+  f.income.w2s[0]!.ctWithheldCents = (f.income.w2s[0]!.ctWithheldCents ?? 0) + 600_000;
   return f;
 }
 /** The same facts owing tax on both returns (no overpayment). */

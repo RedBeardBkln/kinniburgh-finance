@@ -14,7 +14,7 @@
 export interface BusinessUseAccountDef {
   /** Neutral, name-free key. Stored as TaxReturnOverride.targetKey = `businessUse.<key>`. */
   key: string;
-  /** Engine decision id; must match the DECISION_SHAPE of lib/tax-review/links.ts. X6 first, X7 ... later. */
+  /** Engine decision id; must match the DECISION_SHAPE of lib/tax-review/links.ts. X6 first; X7 and X8 are the overpayment decisions (lib/tax2025/overpayment.ts), so the next shared account is X9. */
   decisionId: `X${number}`;
   /** The `account` of the GL_SCHEDULE_C_MAP entry (aliases resolve to it through findGlMapEntry). */
   mapAccount: string;

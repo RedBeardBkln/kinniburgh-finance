@@ -31,8 +31,8 @@ const CT = "ctOverpayment";
 
 function overFacts(): Ty2025Facts {
   const f = fullFacts1b();
-  f.income.w2s[0]!.fedWithheldCents += 3_000_000;
-  f.income.w2s[0]!.ctWithheldCents += 600_000;
+  f.income.w2s[0]!.fedWithheldCents = (f.income.w2s[0]!.fedWithheldCents ?? 0) + 3_000_000;
+  f.income.w2s[0]!.ctWithheldCents = (f.income.w2s[0]!.ctWithheldCents ?? 0) + 600_000;
   return f;
 }
 

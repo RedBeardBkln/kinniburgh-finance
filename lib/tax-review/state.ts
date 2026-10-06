@@ -218,6 +218,8 @@ export interface ReviewStateDto {
   /** The judgments register: the AI-narrated wording when that task completed, else the engine's own text. */
   register: RegisterEntry[];
   registerNarrated: boolean;
+  /** The engine's decisions and whether each is recorded (id and status only): the "To do by hand" list drops the lines a recorded decision prints. */
+  decisions: { id: string; status: "decided" | "default_undecided" }[];
 }
 
 export function toRunDto(run: RunRowLike, currentFingerprint: string): RunDto {
@@ -295,6 +297,8 @@ export interface ReviewStateInput {
   ai?: AiReviewProgress | null;
   /** The engine's own register for the current return (shown when no narrated one exists). */
   register?: readonly RegisterEntry[];
+  /** The engine's decisions (id and status) for the current return; absent = none known. */
+  decisions?: readonly { id: string; status: "decided" | "default_undecided" }[];
   /**
    * What an approval is re-checked against (lib/tax-review-approval-facts.ts readRevocationFacts: the same facts the clean-copy routes use).
    * Absent: derived from `latest` and `dispositions` (no cancellation times), for callers that build the state by hand.
@@ -344,6 +348,7 @@ export function buildReviewState(input: ReviewStateInput): ReviewStateDto {
     ai: toAiDto(ai),
     register: [...(ai.narratedRegister ?? input.register ?? [])],
     registerNarrated: ai.narratedRegister !== null,
+    decisions: (input.decisions ?? []).map((d) => ({ id: d.id, status: d.status })),
   };
 }
 

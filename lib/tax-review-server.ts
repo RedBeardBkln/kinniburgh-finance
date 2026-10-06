@@ -31,6 +31,8 @@ export interface ReviewContext {
   approver: ApproverResolution;
   /** The judgments register built from the engine's own state (the AI-narrated wording replaces it once that task completed). */
   register?: RegisterEntry[];
+  /** The engine's decisions (id and status): the "To do by hand" list reads them. */
+  decisions?: { id: string; status: "decided" | "default_undecided" }[];
   /** Where each finding's links go (lines of the review sheet, printed pages, documents ...): plain JSON, built from the same return. */
   links?: LinkContext;
 }
@@ -92,6 +94,7 @@ export async function loadReviewContext(year: 2025, userId: string): Promise<Con
       engine: engineGateState({ view: inputs.view, effective: inputs.built.effective }),
       approver: resolveApprover(users, inputs.ekcName, user.id),
       register: buildRegister({ ret: inputs.built.ret, facts: inputs.built.facts }),
+      decisions: inputs.built.ret.decisions.map((d) => ({ id: d.id, status: d.status })),
       links: linkContextOf(inputs),
     },
   };
@@ -141,6 +144,7 @@ export function stateOf(ctx: ReviewContext, records: ReviewRecords): ReviewState
     approver: ctx.approver,
     ai: records.ai,
     register: ctx.register,
+    ...(ctx.decisions !== undefined ? { decisions: ctx.decisions } : {}),
     ...(records.revocation !== undefined ? { revocation: records.revocation } : {}),
   });
 }

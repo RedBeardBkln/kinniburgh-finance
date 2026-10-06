@@ -19,8 +19,10 @@
 //     instruction: "If no tax is due, enter 0"); an unanswered question stays BLANK with a
 //     blocking item (never invented). Lines 8, 12, 14, 16, 17 and 21 also print "0" (the form says to enter 0).
 //   - Lines 22 (overpayment) and 26 (tax due) are their own engine lines (ct1040.22 / ct1040.26): at most one is
-//     non-zero and a zero prints blank. Line 25 (refund) is informational: the owner's elections on lines 23, 24
-//     and 24a are never guessed, so 23 / 24 / 24a stay blank and 25 stays blank with an advisory item stating line 22.
+//     non-zero and a zero prints blank. Lines 23 (applied to 2026 estimated tax) and 25 (refund) follow the owner's
+//     decision X8 (refund all / apply all / a stated amount): a computed 0 prints blank, and with no decision both
+//     stay blank with an advisory item stating line 22. Lines 24 (CHET) and 24a (charities) are the owner's own
+//     irrevocable contributions: never modelled, never printed (recording X8 states that none is made).
 //   - Schedule 3 rows come from the engine's own qualifying bills (ct-property-tax.ts): the
 //     primary residence and up to two vehicles. Other real estate (56 Arbor Rd) is never listed. When the credit is
 //     fully phased out (or line 10 is 0) the adapter leaves the whole schedule blank and says why on the cover.
@@ -63,7 +65,8 @@ const lines: MapLine[] = [
   { kind: "money", field: f("l20d"), line: "ct1040.20d" },
   { kind: "money", field: f("l21"), line: "ct1040.21", zero: "print" },
   { kind: "money", field: f("l22"), line: "ct1040.22" }, // overpayment: line 21 more than line 17 (blank when 0)
-  { kind: "money", field: f("l25"), line: "ct1040.25" }, // refund: informational while the owner has not made the 23 / 24 / 24a elections
+  { kind: "money", field: f("l23"), line: "ct1040.23" }, // applied to 2026 estimated tax: decision X8 (blank while undecided or 0)
+  { kind: "money", field: f("l25"), line: "ct1040.25" }, // refund: line 22 less line 23 (decision X8; blank while undecided)
   { kind: "money", field: f("l26"), line: "ct1040.26" }, // tax due: line 17 more than line 21 (blank when 0)
   { kind: "money", field: f("l27"), line: "ct1040.27" },
   { kind: "money", field: f("l28"), line: "ct1040.28" },
@@ -136,7 +139,7 @@ const propertyTax: MapTable = {
  */
 const NOT_MODELED_GROUPS: ReadonlyArray<{ note: string; lines: readonly string[] }> = [
   { note: "line 18f: additional CT withholding from Schedule CT-1040WH", lines: ["18f"] },
-  { note: "lines 23, 24, 24a: the owner's irrevocable overpayment elections (apply to 2026 estimated tax, CHET, charities); line 25 shows the refund relationship", lines: ["23", "24", "24a"] },
+  { note: "lines 24 and 24a: CHET and charity contributions, the owner's own irrevocable elections; this app never models them (decision X8 records that none is made)", lines: ["24", "24a"] },
   { note: "Schedule 4 lines 69a, 69c, 69d (use tax at other rates; the engine figures only the 6.35% general rate, line 69b)", lines: ["69a", "69c", "69d"] },
 ];
 

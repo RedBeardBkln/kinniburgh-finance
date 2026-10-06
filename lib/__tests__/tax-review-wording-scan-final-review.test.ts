@@ -5,7 +5,7 @@ import { ATTESTATION_V2_TEXT, evaluateGate, type GateInput } from "@/lib/tax-rev
 import { HONESTY_ALL, HONESTY_CANNOT, HONESTY_INTRO } from "@/lib/tax-review/honesty";
 import { buildReviewState, NOT_RUN_NOTICE } from "@/lib/tax-review/state";
 import { checkApprovalForm, checkReason, gateStateLabel, SEVERITY_LABELS, verdictChip } from "@/lib/tax-review/ui";
-import { BY_HAND } from "@/lib/tax2025/pdf/final-package";
+import { BY_HAND, byHandItems } from "@/lib/tax2025/pdf/final-package";
 import { findFinalPackageBannedWording, findOwnerBannedWording } from "@/lib/tax-wording";
 
 // ai-return-reviewer, plan 7.5: nothing the owner can SEE may say that a CPA reviews, prepares or signs the return. The Final review
@@ -83,8 +83,9 @@ describe("Final review wording", () => {
   });
 
   it("the by-hand checklist the page shows is the package index's list, and it passes both banned-wording lists", () => {
-    expect(read(`${DIR}/by-hand-checklist.tsx`)).toContain("BY_HAND");
-    for (const t of BY_HAND) {
+    // the page reads the list through byHandItems (the same function the index uses), which drops the overpayment bullets once X7 / X8 are recorded
+    expect(stripComments(read(`${DIR}/by-hand-checklist.tsx`))).toContain("byHandItems(");
+    for (const t of [...BY_HAND, ...byHandItems([{ id: "X7", status: "default_undecided" }, { id: "X8", status: "default_undecided" }])]) {
       expect(findOwnerBannedWording(t), t).toEqual([]);
       expect(findFinalPackageBannedWording(t), t).toEqual([]);
     }

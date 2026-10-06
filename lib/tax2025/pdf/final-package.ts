@@ -215,6 +215,32 @@ export const BY_HAND: readonly string[] = [
   "CT-1040 lines 23, 24 and 24a: what to do with a Connecticut overpayment (your choice; left blank), and then check line 25, the refund, against them",
 ];
 
+const FEDERAL_ELECTION_PREFIX = "Form 1040 lines 35a and 36";
+const CT_ELECTION_PREFIX = "CT-1040 lines 23, 24 and 24a";
+
+/**
+ * BY_HAND for a return: the two overpayment bullets (Form 1040 lines 35a and 36; CT-1040 lines 23, 24 and 24a) are the owner's choice until
+ * decision X7 / X8 is recorded. Once it is recorded the app prints those lines and the bullet goes; with no overpayment there is nothing to
+ * choose and the bullet goes too. While the decision is still undecided the bullet stays, with the way to have the app fill it. Every other
+ * bullet is unchanged. BY_HAND itself stays the full catalogue (its link targets and tests iterate it).
+ */
+export function byHandItems(decisions?: readonly { id: string; status: "decided" | "default_undecided" }[]): readonly string[] {
+  // callers that do not know the decisions get the full catalogue (nothing is hidden by accident)
+  if (decisions === undefined) return BY_HAND;
+  const undecided = (id: string): boolean => decisions.some((d) => d.id === id && d.status === "default_undecided");
+  const out: string[] = [];
+  for (const t of BY_HAND) {
+    if (t.startsWith(FEDERAL_ELECTION_PREFIX)) {
+      if (undecided("X7")) out.push(`${t}. Or record decision X7 on the return sheet of the Forms page and the app fills them.`);
+    } else if (t.startsWith(CT_ELECTION_PREFIX)) {
+      if (undecided("X8")) out.push(`${t}. Or record decision X8 on the return sheet of the Forms page and the app fills lines 23 and 25 (lines 24 and 24a stay blank).`);
+    } else {
+      out.push(t);
+    }
+  }
+  return out;
+}
+
 export interface IndexInput {
   view: PdfReturnView;
   formFiles: readonly { name: string; title: string }[];
@@ -261,7 +287,7 @@ export function buildIndexLines(input: IndexInput): Line[] {
 
   l.push(chrome({ kind: "heading", text: "Enter by hand before filing" }));
   l.push(chrome({ kind: "para", text: "These are never stored or filled in. Complete them on the printed forms:" }));
-  for (const t of BY_HAND) l.push(chrome({ kind: "bullet", text: t }));
+  for (const t of byHandItems(view.decisions)) l.push(chrome({ kind: "bullet", text: t }));
   l.push(chrome({ kind: "para", text: "The paid preparer, firm and PTIN boxes stay blank on a return you prepared yourself." }));
 
   if (input.hasForm8949Summary) {

@@ -250,7 +250,7 @@ export interface Ty2025Decisions {
   /** X5: 56 Arbor Rd 2025 property tax. Default: Schedule A (subject to the SALT cap). */
   arborRoadPropertyTax?: Decided<"schedule_a" | "capitalize">;
   /**
-   * X6, X7 ...: the owner's business-use percentage for each mixed-use GL account of BUSINESS_USE_ACCOUNTS, keyed by the list `key`.
+   * X6, X9 ...: the owner's business-use percentage for each mixed-use GL account of BUSINESS_USE_ACCOUNTS, keyed by the list `key`.
    * An absent entry = undecided: 100% flagged "default, undecided". Not a registry decision (the list is data), see overrides.ts.
    */
   businessUse?: Readonly<Record<string, DecidedPercent>>;

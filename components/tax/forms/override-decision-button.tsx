@@ -3,7 +3,8 @@
 import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { clearTaxReturnOverride, setTaxReturnOverride } from "@/actions/tax-return-overrides";
-import { checkDecisionForm, checkReasonInput, describeActionFailure } from "@/lib/tax2025/override-input";
+import { checkDecisionForm, checkReasonInput, describeActionFailure, splitRecordedChoice } from "@/lib/tax2025/override-input";
+import { formatWholeDollars, overpaymentPreview, type OverpaymentMode } from "@/lib/tax2025/overpayment";
 import type { OverrideAuthority } from "@/lib/tax2025/overrides";
 import { ModalShell } from "@/components/tax/forms/modal-shell";
 import { AuthorityField, NEW_OVERRIDE_AUTHORITY, BUTTON_PLAIN, BUTTON_PRIMARY, ClearSection, HistorySection, ReasonField } from "@/components/tax/forms/override-parts";
@@ -20,7 +21,18 @@ export interface DecisionDialogData {
   decisionKey: string;
   undecided: boolean;
   choices: { id: string; label: string; effectText: string; isDefault: boolean; inForce: boolean }[];
+  /** An overpayment decision (X7 / X8): the limit for "apply a stated amount" (whole dollars). Null for every other decision. */
+  amount?: { maxDollars: number; overpaymentLine: string } | null;
   override: { id: string; version: number; authority: OverrideAuthority; choice: string; note: string } | null;
+}
+
+const IRREVOCABLE_NOTE = "Once the return is filed, the choice to apply an amount to 2026 cannot be changed. You can change this decision here until you file.";
+
+/** The help lines of an overpayment dialog: what stays by hand (federal: direct deposit; CT: CHET and charities). */
+function overpaymentHelp(id: string): string {
+  return id === "X8"
+    ? "Lines 24 (CHET) and 24a (charities) are never filled by this app; choosing here means none. Direct deposit lines 25a to 25d are entered by hand."
+    : "Direct deposit (lines 35b to 35d) and Form 8888 are entered by hand; the IRS generally stops issuing paper checks.";
 }
 
 function DecisionDialog({ data, taxYear, onClose }: { data: DecisionDialogData; taxYear: 2025; onClose: () => void }) {
@@ -28,14 +40,19 @@ function DecisionDialog({ data, taxYear, onClose }: { data: DecisionDialogData; 
   const [, startTransition] = useTransition();
   const radioName = useId();
   const current = data.override;
-  const [choice, setChoice] = useState<string | null>(current?.choice ?? null);
+  const start = splitRecordedChoice(current?.choice ?? null);
+  const [choice, setChoice] = useState<string | null>(start.choice);
+  const [amountText, setAmountText] = useState(start.amountText);
   const [reasonText, setReasonText] = useState("");
   const [clearing, setClearing] = useState(false);
   const [clearReason, setClearReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
-  const form = checkDecisionForm({ choice, reasonText, busy });
+  const maxDollars = data.amount?.maxDollars;
+  const form = checkDecisionForm({ choice, reasonText, busy, ...(maxDollars === undefined ? {} : { amountText, maxDollars }) });
+  const modeChosen: OverpaymentMode | null = choice === "refund_all" || choice === "apply_all" || choice === "apply_amount" ? choice : null;
+  const preview = maxDollars === undefined || modeChosen === null ? null : overpaymentPreview(maxDollars, modeChosen, amountText);
   const clearCheck = checkReasonInput(clearReason);
 
   function finish() {
@@ -44,11 +61,11 @@ function DecisionDialog({ data, taxYear, onClose }: { data: DecisionDialogData; 
   }
 
   async function save() {
-    if (!form.canSave || choice === null) return;
+    if (!form.canSave || form.choiceText === null) return;
     setBusy(true);
     setResult(null);
     try {
-      const res = await setTaxReturnOverride({ taxYear, targetKind: "decision", targetKey: data.decisionKey, choice, authority: NEW_OVERRIDE_AUTHORITY, reason: reasonText.trim() });
+      const res = await setTaxReturnOverride({ taxYear, targetKind: "decision", targetKey: data.decisionKey, choice: form.choiceText, authority: NEW_OVERRIDE_AUTHORITY, reason: reasonText.trim() });
       if (!res.ok) {
         setResult(describeActionFailure(res));
         return;
@@ -103,6 +120,42 @@ function DecisionDialog({ data, taxYear, onClose }: { data: DecisionDialogData; 
             </label>
           ))}
         </fieldset>
+
+        {data.amount != null ? (
+          <div className="space-y-2" data-testid="overpayment-part">
+            {choice === "apply_amount" ? (
+              <div className="space-y-1">
+                <label htmlFor={`${radioName}-amount`} className="block text-xs font-medium">
+                  Amount to apply to your 2026 estimated tax (whole dollars, 1 to {formatWholeDollars(data.amount.maxDollars)})
+                </label>
+                <input
+                  id={`${radioName}-amount`}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={amountText}
+                  onChange={(e) => setAmountText(e.target.value)}
+                  disabled={busy}
+                  aria-invalid={form.amountError !== null}
+                  className="min-h-[44px] w-full rounded-md border px-2 text-sm sm:min-h-0 sm:py-1"
+                  data-testid="overpayment-amount"
+                />
+                {form.amountError !== null ? (
+                  <p className="text-xs text-red-700" role="alert">
+                    {form.amountError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {preview !== null ? (
+              <p className="rounded-md border bg-muted/40 p-2 text-xs" data-testid="overpayment-preview" aria-live="polite">
+                {preview}
+              </p>
+            ) : null}
+            {choice === "apply_amount" || choice === "apply_all" ? <p className="text-xs text-amber-900">{IRREVOCABLE_NOTE}</p> : null}
+            <p className="text-xs text-muted-foreground">{overpaymentHelp(data.id)}</p>
+          </div>
+        ) : null}
 
         {current !== null ? (
           <p className="rounded-md border border-violet-300 bg-violet-50 p-3 text-xs text-violet-900" data-testid="override-current">

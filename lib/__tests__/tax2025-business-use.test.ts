@@ -103,7 +103,7 @@ describe("structure of the list", () => {
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ids) {
       expect(id).toMatch(/^[A-Za-z][A-Za-z0-9]{0,15}$/);
-      expect(["X1", "X2", "X3", "X5"]).not.toContain(id);
+      expect(["X1", "X2", "X3", "X5", "X7", "X8"]).not.toContain(id);
     }
     const keys = BUSINESS_USE_ACCOUNTS.map((a) => a.key);
     expect(new Set(keys).size).toBe(keys.length);

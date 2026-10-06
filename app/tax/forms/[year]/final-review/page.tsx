@@ -146,7 +146,7 @@ export default async function FinalReviewPage({ params }: PageProps) {
                 </div>
 
                 <RunHistory runs={state.runs} year={2025} links={links} />
-                <ByHandChecklist links={links} />
+                <ByHandChecklist links={links} decisions={state.decisions} />
                 <InfoCards cards={infoCards()} links={links} />
               </>
             );

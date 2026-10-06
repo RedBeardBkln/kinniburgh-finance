@@ -190,10 +190,10 @@ describe("sheet model: the X6 card", () => {
     expect(p?.note).toMatch(/^Not raised for this return: nothing is booked for 2025 to the shared household internet and phone service/);
     expect(p?.label).toBe(BUSINESS_USE_ACCOUNTS[0].label);
   });
-  it("every decision the sheet shows or lists is X1 / X2 / X3 / X5 / X6", () => {
+  it("every decision the sheet shows or lists is X1 / X2 / X3 / X5 / X6 / X7 / X8 (X7 and X8 are placeholders on these balance-due fixtures)", () => {
     for (const withAccount of [true, false]) {
       const m = sheet([], facts(withAccount));
-      expect(new Set([...m.decisions.map((d) => d.id), ...m.decisionPlaceholders.map((p) => p.id)])).toEqual(new Set(["X1", "X2", "X3", "X5", "X6"]));
+      expect(new Set([...m.decisions.map((d) => d.id), ...m.decisionPlaceholders.map((p) => p.id)])).toEqual(new Set(["X1", "X2", "X3", "X5", "X6", "X7", "X8"]));
     }
   });
 });

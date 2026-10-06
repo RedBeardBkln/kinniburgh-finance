@@ -19,6 +19,7 @@
 
 import { BUSINESS_USE_ACCOUNTS, businessUseDefByDecisionId, businessUseTargetKey, formatCentsText, type BusinessUseAccount } from "@/lib/tax2025/business-use";
 import { allConstants } from "@/lib/tax2025/constants";
+import { OVERPAYMENT_LABELS, parseOverpaymentChoice } from "@/lib/tax2025/overpayment";
 import { ownerWordingDeep } from "@/lib/tax-wording";
 import {
   DECISION_KEYS,
@@ -26,7 +27,9 @@ import {
   affectedLines,
   authorityLabel,
   formatOverrideNote,
-  isValidDecisionChoice,
+  isListableDecisionChoice,
+  isOverpaymentDecisionKey,
+  overpaymentAvailable,
   type AppliedDecisionOverride,
   type AppliedLineOverride,
   type EffectiveLine,
@@ -242,6 +245,19 @@ export interface SheetBusinessUse {
   personalCents: number;
 }
 
+/**
+ * Set for an overpayment decision (X7 / X8): choosing "apply a stated amount" takes a whole-dollar amount from 1 up to what the engine says
+ * is available. The limit is the engine's own figure (line 34 less the printed line 38 for X7, line 22 for X8), never a client number.
+ */
+export interface SheetOverpaymentAmount {
+  /** The most that can be applied, whole dollars. */
+  maxDollars: number;
+  /** The recorded amount (whole dollars) when the recorded choice is "apply a stated amount", else null. */
+  currentDollars: number | null;
+  /** "Form 1040 line 34" / "CT-1040 line 22". */
+  overpaymentLine: string;
+}
+
 export interface SheetDecision {
   id: string;
   label: string;
@@ -250,6 +266,8 @@ export interface SheetDecision {
   decisionKey: string | null;
   /** Set for a business-use percentage decision (X6 ...): the percent dialog is used instead of the choice dialog. */
   percent: SheetBusinessUse | null;
+  /** Set for an overpayment decision (X7 / X8): the choice dialog then offers the amount input for "apply a stated amount". */
+  amount: SheetOverpaymentAmount | null;
   /** The recorded override, when the decision was made through the overrides table. */
   override: SheetDecisionOverride | null;
   /** Choices a user may record (alternatives that are valid decision choices). */
@@ -766,7 +784,17 @@ function businessUseData(def: BusinessUseAccount, sc: Ty2025Return["scheduleC"],
   };
 }
 
-function toSheetDecision(r: RuleResult, applied: ReadonlyMap<string, AppliedDecisionOverride>, sc: Ty2025Return["scheduleC"]): SheetDecision | null {
+/** The limit and the recorded amount of an overpayment decision card, from the engine's own lines and the recorded choice text. */
+function overpaymentAmountData(key: "federalOverpayment" | "ctOverpayment", ret: Pick<Ty2025Return, "lines">, applied: AppliedDecisionOverride | undefined): SheetOverpaymentAmount {
+  const parsed = applied === undefined ? null : parseOverpaymentChoice(applied.choice);
+  return {
+    maxDollars: overpaymentAvailable(ret, key) ?? 0,
+    currentDollars: parsed !== null && parsed.ok && parsed.mode === "apply_amount" ? parsed.appliedDollars : null,
+    overpaymentLine: key === "ctOverpayment" ? "CT-1040 line 22" : "Form 1040 line 34",
+  };
+}
+
+function toSheetDecision(r: RuleResult, applied: ReadonlyMap<string, AppliedDecisionOverride>, sc: Ty2025Return["scheduleC"], ret: Pick<Ty2025Return, "lines">): SheetDecision | null {
   const d = r.decision;
   if (d === undefined) return null;
   const undecided = d.status === "default_undecided";
@@ -778,7 +806,7 @@ function toSheetDecision(r: RuleResult, applied: ReadonlyMap<string, AppliedDeci
     registryKey === null
       ? []
       : (r.alternatives ?? [])
-          .filter((a) => isValidDecisionChoice(registryKey, a.id))
+          .filter((a) => isListableDecisionChoice(registryKey, a.id))
           .map((a) => ({ id: a.id, label: a.label, effectText: altEffectText(a), isDefault: a.isDefault, inForce: a.inForce }));
   const alts = (r.alternatives ?? []).map((a): SheetAlternative => {
     const marker = undecided
@@ -818,6 +846,7 @@ function toSheetDecision(r: RuleResult, applied: ReadonlyMap<string, AppliedDeci
     chosen: d.chosen,
     decisionKey,
     percent: businessUse === null ? null : businessUseData(businessUse, sc, appliedOverride),
+    amount: registryKey !== null && isOverpaymentDecisionKey(registryKey) ? overpaymentAmountData(registryKey, ret, appliedOverride) : null,
     override: appliedOverride === undefined ? null : toSheetDecisionOverride(appliedOverride),
     choices,
     statusText: undecided ? "default, undecided" : "decided",
@@ -885,6 +914,16 @@ const KNOWN_DECISIONS: readonly { id: string; label: string; notRaised: (ret: Ty
       propertyTaxUnresolved(ret)
         ? "Not decided: the property tax bills are not all classified or answered yet, so it is not known whether a non-primary property (Arbor Rd) decision arises."
         : "Not raised for this return: the engine raises it only when a property tax bill is classified as non-primary real estate (Arbor Rd).",
+  },
+  {
+    id: "X7",
+    label: OVERPAYMENT_LABELS.X7,
+    notRaised: () => "Not raised for this return: Form 1040 line 34 is 0 (or not computed yet), so there is no overpayment to refund or apply to 2026.",
+  },
+  {
+    id: "X8",
+    label: OVERPAYMENT_LABELS.X8,
+    notRaised: () => "Not raised for this return: CT-1040 line 22 is 0 (or not computed yet), so there is no overpayment to refund or apply to 2026.",
   },
   // one placeholder per mixed-use account of the list (X6 ...): raised only when the account has a booked amount on a plain expense line
   ...BUSINESS_USE_ACCOUNTS.map((def) => ({
@@ -1216,7 +1255,7 @@ function buildSheetModelRaw(input: BuildSheetInput): SheetModel {
   // The effective open items (acknowledged / resolved blocking items moved out, override items added) when overrides are applied.
   const openItems = toSheetOpenItems(effective?.openItems ?? ret.openItems);
   const appliedDecisions = new Map((effective?.applied.decisions ?? []).map((d) => [d.decisionId, d]));
-  const decisions = ret.results.map((r) => toSheetDecision(r, appliedDecisions, ret.scheduleC)).filter((d): d is SheetDecision => d !== null);
+  const decisions = ret.results.map((r) => toSheetDecision(r, appliedDecisions, ret.scheduleC, ret)).filter((d): d is SheetDecision => d !== null);
   const raised = new Set(decisions.map((d) => d.id));
   const placeholders: SheetDecisionPlaceholder[] = KNOWN_DECISIONS.filter((k) => !raised.has(k.id)).map((k) => ({
     id: k.id,

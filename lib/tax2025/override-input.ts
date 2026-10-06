@@ -23,6 +23,13 @@ import {
   formatDollars,
   formatOverrideDate,
 } from "@/lib/tax2025/override-format";
+import {
+  formatOverpaymentChoice,
+  formatWholeDollars,
+  overpaymentChoiceLabel,
+  parseOverpaymentAmount,
+  parseOverpaymentChoice,
+} from "@/lib/tax2025/overpayment";
 import type { OverrideActionResult, OverrideHistoryRow } from "@/lib/tax2025/overrides";
 
 // ── Amount ────────────────────────────────────────────────────────────────────
@@ -113,14 +120,54 @@ export interface DecisionFormState {
   choice: string | null;
   reasonText: string;
   busy: boolean;
+  /**
+   * An overpayment decision (X7 / X8) only: the typed amount to apply and the most that can be applied (whole dollars). When `maxDollars`
+   * is given and the choice is "apply_amount", Save needs a whole number of dollars from 1 up to `maxDollars` and the stored text is
+   * "apply_amount:<n>".
+   */
+  amountText?: string;
+  maxDollars?: number;
 }
 
-export function checkDecisionForm(state: DecisionFormState): { canSave: boolean; reasonError: string | null } {
+export interface DecisionFormCheck {
+  canSave: boolean;
+  reasonError: string | null;
+  /** The amount problem (an untouched field shows none yet); null when the choice takes no amount. */
+  amountError: string | null;
+  /** The text to store: the choice id, or "apply_amount:<n>" once the amount is valid; null while the choice is incomplete. */
+  choiceText: string | null;
+}
+
+export function checkDecisionForm(state: DecisionFormState): DecisionFormCheck {
   const reason = checkReasonInput(state.reasonText);
-  return {
-    canSave: !state.busy && state.choice !== null && reason.ok,
-    reasonError: state.reasonText.trim() === "" ? null : reason.ok ? null : reason.error,
-  };
+  const reasonError = state.reasonText.trim() === "" ? null : reason.ok ? null : reason.error;
+  let choiceText: string | null = state.choice;
+  let amountError: string | null = null;
+  if (state.choice === "apply_amount" && state.maxDollars !== undefined) {
+    const typed = state.amountText ?? "";
+    const amount = parseOverpaymentAmount(typed);
+    if (!amount.ok) {
+      choiceText = null;
+      amountError = typed.trim() === "" ? null : amount.error;
+    } else if (amount.dollars > state.maxDollars) {
+      choiceText = null;
+      amountError = `That is more than the overpayment (${formatWholeDollars(state.maxDollars)}).`;
+    } else {
+      choiceText = formatOverpaymentChoice("apply_amount", amount.dollars);
+    }
+  }
+  return { canSave: !state.busy && choiceText !== null && reason.ok, reasonError, amountError, choiceText };
+}
+
+/**
+ * The dialog's starting state from a recorded choice text: "apply_amount:5000" -> mode "apply_amount" and "5000"; "refund_all" -> that
+ * mode and no amount; a registry choice ("actual") passes through unchanged. Null (nothing recorded) starts empty.
+ */
+export function splitRecordedChoice(text: string | null): { choice: string | null; amountText: string } {
+  if (text === null) return { choice: null, amountText: "" };
+  const p = parseOverpaymentChoice(text);
+  if (!p.ok) return { choice: text, amountText: "" };
+  return { choice: p.mode, amountText: p.appliedDollars === null ? "" : String(p.appliedDollars) };
 }
 
 // ── Business-use percentage (decision X6 ...) ─────────────────────────────────
@@ -202,7 +249,12 @@ export interface HistoryRowText {
 
 function valueOfRow(r: OverrideHistoryRow, percent: boolean): string {
   if (r.valueKind === "money_cents" && r.valueCents !== null) return formatDollars(r.valueCents / 100);
-  if (r.valueKind === "choice" && r.valueText !== null) return percent ? `${r.valueText}% business use` : `choice: ${r.valueText}`;
+  if (r.valueKind === "choice" && r.valueText !== null) {
+    // an overpayment decision (X7 / X8) reads "Refund all" / "Apply all to 2026" / "Apply $5,000 to 2026"
+    const overpayment = !percent && (r.valueText === "refund_all" || r.valueText === "apply_all" || r.valueText.startsWith("apply_amount:")) ? overpaymentChoiceLabel(r.valueText) : null;
+    if (overpayment !== null) return `choice: ${overpayment}`;
+    return percent ? `${r.valueText}% business use` : `choice: ${r.valueText}`;
+  }
   return "acknowledged";
 }
 
