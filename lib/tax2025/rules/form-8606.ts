@@ -155,6 +155,12 @@ export function computeForm8606(input: Form8606Input): RuleResult {
     if (l2.kind === "blocked") {
       reasons.push(l2.reason);
       addMissing(`Amount on the 2024 Form 8606 line 14 (${p.name})`);
+      // Line 14 also waits for the two statements: name the ones still missing now, so the owner answers everything in one round.
+      if (basis === null) {
+        reasons.push(`${p.name}: Needs an owner statement: ${NONE_GROUP_TEXT.ira_basis_other}`);
+        addMissing("Statement: no IRA withdrawal, Roth conversion, recharacterization or returned contribution in 2025");
+      }
+      if (dist === null) addMissing("Statement: no IRA distributions, pensions or Social Security");
     }
     if (basis === false) {
       reasons.push(`${p.name}: ${YES_BASIS}`);

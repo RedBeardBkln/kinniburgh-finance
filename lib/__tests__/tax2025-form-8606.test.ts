@@ -275,6 +275,15 @@ describe("computeForm8606: line 2 from the 2024 Form 8606 line 14 (the owner's a
     expect(f.inputsMissing.join(" ")).toContain("2024 Form 8606 line 14 (Eric)");
   });
 
+  it("the amount AND the statements missing: everything still missing is named at once (one round of answers), amount first", () => {
+    const f = eric(MISSING, null, null);
+    expect(f.reasons[0]).toContain("amount on line 14 of your most recent filed Form 8606");
+    expect(f.reasons.join(" ")).toContain("Needs an owner statement");
+    expect(f.inputsMissing.join(" ")).toContain("Statement: no IRA withdrawal, Roth conversion");
+    expect(f.inputsMissing.join(" ")).toContain("Statement: no IRA distributions, pensions or Social Security");
+    expect(four(f)).toEqual(["7000", null, null, null]);
+  });
+
   it("'Not sure': the same three lines are blocked (you look it up), never a guess", () => {
     const f = eric(UNSURE);
     expect(["f8606a.2", "f8606a.3", "f8606a.14"].map((k) => st(f, k as LineKey))).toEqual(["needs_cpa_judgment", "needs_cpa_judgment", "needs_cpa_judgment"]);
