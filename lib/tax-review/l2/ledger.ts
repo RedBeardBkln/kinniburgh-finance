@@ -52,6 +52,11 @@ export interface OracleLine {
 export class Ledger {
   readonly lines = new Map<string, OracleLine>();
   readonly abstentions: Abstention[] = [];
+  /**
+   * What the calculator worked out about which forms are needed from the FACTS (not from a printed line): form id -> required, null =
+   * could not tell. Read by predictForms (forms-required.ts).
+   */
+  readonly formHints: Record<string, Maybe<boolean>> = {};
 
   /** Records a recomputed line and returns its value. */
   put(key: string, value: Maybe<number>, deps: readonly string[] = [], note?: string): Maybe<number> {

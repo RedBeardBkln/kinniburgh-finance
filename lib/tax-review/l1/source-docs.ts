@@ -30,7 +30,7 @@ export function list(v: unknown): Rec[] {
 export const YEAR = 2025;
 
 /** Document types that carry income, withholding or deduction amounts onto the return. */
-export const AMOUNT_DOC_TYPES: readonly string[] = ["w2", "1099", "mortgage_interest", "form_1098", "property_tax", "k1"];
+export const AMOUNT_DOC_TYPES: readonly string[] = ["w2", "1099", "mortgage_interest", "form_1098", "property_tax", "k1", "retirement_contribution"];
 
 export function isAmountDoc(d: Pick<RawDocument, "docType">): boolean {
   return AMOUNT_DOC_TYPES.includes(d.docType);

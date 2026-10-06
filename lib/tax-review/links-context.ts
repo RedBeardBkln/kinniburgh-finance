@@ -29,6 +29,7 @@ export const FORM_LINK_LABELS: Readonly<Record<string, string>> = {
   f8949: "Form 8949",
   f8959: "Form 8959",
   f8960: "Form 8960",
+  f8606: "Form 8606",
   f8995: "Form 8995",
   ct1040: "CT-1040",
   // forms the engine knows that have no filled PDF here

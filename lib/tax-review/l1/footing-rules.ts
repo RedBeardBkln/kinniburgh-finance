@@ -367,6 +367,15 @@ const F8960: FootingRule[] = [
   sum("f8960.16", "f8960", "f8960", "f8960.16", p("f8960.nii", "f8960.15"), "16. Enter the smaller of line 12 or line 15.", "tax", { combine: "min" }),
 ];
 
+// Form 8606 (nondeductible IRAs), Part I, one form per person (taxpayer A: f8606a.*, taxpayer B: f8606b.*). Line 3 is "Add lines 1 and 2". Line 14
+// is "Subtract line 13 from line 3"; the engine prints lines 4-13 blank (they are completed only with a distribution or a conversion, which it
+// blocks), so line 13 is zero here and line 14 equals line 3: the form's own flow box says "Enter the amount from line 3 on line 14". The quote is
+// the printed text of line 14. A person with no Form 8606 prints all four lines not applicable and is skipped.
+const F8606: FootingRule[] = (["a", "b"] as const).flatMap((s): FootingRule[] => [
+  sum(`f8606${s}.3`, "f8606", "f8606", `f8606${s}.3`, p(`f8606${s}.1`, `f8606${s}.2`), "3. Add lines 1 and 2.", "adjustments", { skipIfBlank: true }),
+  link(`f8606${s}.14`, "f8606", "f8606", `f8606${s}.14`, `f8606${s}.3`, "14. Subtract line 13 from line 3.", "adjustments", { skipIfBlank: true }),
+]);
+
 // ── CT-1040 (flat form: the quote is the engine's printed-line label, see the header) ──
 
 function ctLabel(text: string): string {
@@ -415,6 +424,7 @@ export const FOOTING_RULES: readonly FootingRule[] = [
   ...F8959,
   ...SCH1A,
   ...F8960,
+  ...F8606,
   ...CT,
 ];
 

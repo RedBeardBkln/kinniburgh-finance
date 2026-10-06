@@ -122,8 +122,9 @@ describe("F1 / F2 on real engine output", () => {
       mutated += 1;
     }
     expect(mutated).toBeGreaterThanOrEqual(110);
-    // the rules no fixture exercises: Schedule 1-A (no data in the fixtures) and CT-1040 line 30 (its late-payment lines are informational: no amount)
-    expect(neverEvaluated.sort()).toEqual(neverEvaluated.filter((id) => /^(sch1a|ct1040\.30)/.test(id)).sort());
+    // the rules no fixture exercises: Schedule 1-A (no data in the fixtures), Form 8606 (the fixtures have no nondeductible IRA contribution; tax2025-form-8606-review.test.ts
+    // runs its rules on an Eric-shaped return) and CT-1040 line 30 (its late-payment lines are informational: no amount)
+    expect(neverEvaluated.sort()).toEqual(neverEvaluated.filter((id) => /^(sch1a|f8606|ct1040\.30)/.test(id)).sort());
   });
   it("a part with no amount while its total has one is 'cannot prove' (high), not silently zero", () => {
     const rule = FOOTING_RULES.find((r) => r.id === "f1040.9");

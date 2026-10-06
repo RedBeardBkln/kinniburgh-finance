@@ -173,7 +173,7 @@ export const TASKS: readonly TaskDef[] = [
       "Task b2 (deductions and credits). Review Schedule 1-A (tips, overtime, car loan interest, seniors), the qualified business income deduction and the credits.",
       "Check eligibility and limits against the quoted sources and constants: that only the premium part of overtime counts, that tips are qualified tips, the income phase-outs, the age and taxpayer-number conditions, the QBI limits and the form used, retirement and HSA contributions against W-2 box 12 and the owner's answers, and credits claimed or missing."
     ),
-    slice: (p) => ({ ...core(p), lines: linesOn(p, ["Schedule 1-A", "Form 8995", "Schedule 3", "Schedule 1"]).concat(p.lines.filter((l) => /^f1040\.(13|19|20|21|22)/.test(l.key))), rules: rulesOn(p, /1-A|8995|QBI|credit|HSA|IRA|Schedule 3|Schedule 1\b/i), decisions: p.decisions, income: { w2: p.income.w2.map((w) => ({ doc: w["doc"], person: w["person"], box1: w["box1"], box7: w["box7"], box12: w["box12"], box14: w["box14"] })), scheduleC: p.income.scheduleC }, answers: p.answers, constants: p.constants, openItems: p.openItems }),
+    slice: (p) => ({ ...core(p), lines: linesOn(p, ["Schedule 1-A", "Form 8995", "Schedule 3", "Schedule 1", "Form 8606 (taxpayer A)", "Form 8606 (taxpayer B)"]).concat(p.lines.filter((l) => /^f1040\.(13|19|20|21|22)/.test(l.key))), rules: rulesOn(p, /1-A|8995|8606|QBI|credit|HSA|IRA|Schedule 3|Schedule 1\b/i), decisions: p.decisions, income: { w2: p.income.w2.map((w) => ({ doc: w["doc"], person: w["person"], box1: w["box1"], box7: w["box7"], box12: w["box12"], box14: w["box14"] })), scheduleC: p.income.scheduleC }, answers: p.answers, constants: p.constants, openItems: p.openItems }),
   },
   {
     id: "b3",

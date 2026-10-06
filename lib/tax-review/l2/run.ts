@@ -75,6 +75,7 @@ export function oracleLedger(input: L2Input): Ledger {
   const fed = computeFederal(oracleInputs);
   for (const [k, line] of fed.lines) ledger.lines.set(k, line);
   for (const a of fed.abstentions) ledger.abstain(a.area, a.reason);
+  Object.assign(ledger.formHints, fed.formHints);
   computeCt(oracleInputs, ledger);
   return ledger;
 }

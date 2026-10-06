@@ -98,6 +98,9 @@ export function engineFormOfLine(key: string): FormId | null {
     case "f8889a":
     case "f8889b":
       return "f8889";
+    case "f8606a":
+    case "f8606b":
+      return "f8606";
     default:
       return null;
   }

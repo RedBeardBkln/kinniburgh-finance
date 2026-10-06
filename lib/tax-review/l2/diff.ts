@@ -144,6 +144,8 @@ const FORM_OF_PREFIX: readonly [string, string][] = [
   ["f8995.", "f8995"],
   ["f8959.", "f8959"],
   ["f8960.", "f8960"],
+  ["f8606a.", "f8606"],
+  ["f8606b.", "f8606"],
   ["f6251.", "f6251"],
   ["qdcg.", "f1040"],
   ["std.", "f1040"],
@@ -157,6 +159,7 @@ export function formKeyOfLine(key: string): string | undefined {
 export function areaOfLine(key: string): FindingArea {
   const num = (prefix: string): number => parseInt(key.slice(prefix.length), 10);
   if (key.startsWith("ct1040.")) return "state";
+  if (key.startsWith("f8606")) return "adjustments";
   if (key.startsWith("f1040.")) {
     const n = num("f1040.");
     if (n >= 1 && n <= 9) return "income";

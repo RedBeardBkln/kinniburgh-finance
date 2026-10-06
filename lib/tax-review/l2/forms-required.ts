@@ -42,6 +42,7 @@ export function predictForms(L: Ledger): FormPrediction[] {
   add("sch1a", "Schedule 1-A", sch1a === null ? null : sch1a > 0, "a tips, overtime, car loan interest or seniors deduction is claimed");
   add("f8949", "Form 8949", [...L.lines.keys()].some((k) => /^schd\.(1b|2|3|8b|9|10)\./.test(k)) ? true : L.lines.has("schd.16") ? false : v("f1040.7a") === null ? null : false, "a sales category reported through a Form 8949 summary row");
   const l31 = v("schc.31");
+  add("f8606", "Form 8606", L.formHints["f8606"] ?? null, "a traditional IRA contribution larger than the IRA deduction on Schedule 1 line 20 (the rest is nondeductible; one Form 8606 per person)");
   add("schc", "Schedule C", l31 === null ? null : (v("schc.1") ?? 0) !== 0 || (v("schc.28") ?? 0) !== 0, "business income or expenses");
   const amt = v("f6251.amt");
   add("f6251", "Form 6251", amt === null ? null : amt > 0, "alternative minimum tax is owed");

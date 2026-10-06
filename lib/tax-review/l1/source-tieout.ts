@@ -3,7 +3,8 @@
 // resolve-facts.ts) and the totals are compared with the lines of the effective return:
 //   W-2 box 1 / 2 / 3+7 / 5 / 6, box 17 (Connecticut), box 12 deferrals and tips / overtime against the owner's answers;
 //   1099-INT, 1099-DIV, 1099-B category totals, federal withholding on 1099s, other boxes that must not be silently dropped;
-//   Form 1098 interest (and mortgage insurance, which is not deducted), property tax, estimated and extension payments.
+//   Form 1098 interest (and mortgage insurance, which is not deducted), property tax, estimated and extension payments, and the
+//   retirement statement (Form 5498) box 1 against the IRA deduction plus the Form 8606 line 1 amount.
 // Every document of an amount-carrying type is also classified "used" or "not used: <reason>"; a usable document that is not
 // reflected anywhere on the return is a finding.
 //
@@ -12,7 +13,8 @@
 import { makeFinding, type EvidenceItem, type Finding, type FindingArea, type Severity } from "@/lib/tax-review/types";
 import type { L1Check, L1Context } from "@/lib/tax-review/l1/context";
 import { formIsFiled, lineState, lineTitle, roundCentsHalfUp, usd } from "@/lib/tax-review/l1/helpers";
-import { dataOf, int, isAmountDoc, isUsableFor2025, list, str, sumCents, uniqueDocs, unusableReason } from "@/lib/tax-review/l1/source-docs";
+import { retirementStatementSummary } from "@/lib/retirement-statement";
+import { YEAR, dataOf, int, isAmountDoc, isUsableFor2025, list, str, sumCents, uniqueDocs, unusableReason } from "@/lib/tax-review/l1/source-docs";
 import type { LineKey } from "@/lib/tax2025/line-catalog";
 import type { RawDocument } from "@/lib/tax2025/resolve-facts";
 
@@ -352,6 +354,48 @@ function paymentFindings(ctx: L1Context): Finding[] {
   return out;
 }
 
+// ── retirement statements (Form 5498): the traditional IRA contribution ──────
+
+/**
+ * Form 5498 box 1 (traditional IRA contributions for 2025, including those made through April 15, 2026) against what the return reflects for that
+ * person: the IRA deduction plus the nondeductible part (Form 8606 line 1) is the whole traditional contribution. Read from the document's own
+ * extraction field, not through resolve-facts. A difference is a finding the owner can accept with a reason (a contribution at another custodian,
+ * or one made for another year, is a real reason).
+ */
+function retirementFindings(ctx: L1Context, docs: readonly RawDocument[]): Finding[] {
+  const out: Finding[] = [];
+  const stmts = uniqueDocs(docs, "retirement_contribution", { ignorePerson: true });
+  for (const p of ctx.facts.returnAnswers.people) {
+    if (p.userId === null) continue;
+    const mine = stmts.filter((d) => d.subjectType === "person" && d.subjectUserId === p.userId);
+    const box1 = mine.map((d) => ({ id: d.id, cents: int(dataOf(d)["iraContributionsCents"]) }));
+    const known = box1.filter((b) => b.cents !== null);
+    if (known.length === 0) continue;
+    const expected = roundCentsHalfUp(known.reduce((n, b) => n + (b.cents ?? 0), 0));
+    const ded = lineState(ctx, `ira.${p.slot}.7` as LineKey);
+    const nd = lineState(ctx, `ira.${p.slot}.nd` as LineKey);
+    if (ded.amount === null || nd.amount === null) continue; // the IRA lines are not figured: L1.D1 reports why
+    const reflected = ded.amount + nd.amount;
+    if (reflected === expected) continue;
+    out.push(
+      makeFinding({
+        layer: "L1",
+        check: "L1.C1.ira-traditional",
+        severity: "high",
+        area: "adjustments",
+        lineKey: `ira.${p.slot}.nd` as LineKey,
+        ruleTag: p.userId.slice(0, 8),
+        message: `A retirement statement (Form 5498 box 1) shows ${usd(expected)} of traditional IRA contributions for 2025 for one household member, but the return reflects ${usd(reflected)} (the IRA deduction ${usd(ded.amount)} plus the nondeductible part ${usd(nd.amount)}, which is Form 8606 line 1). The questionnaire answer for the traditional IRA contribution drives both.`,
+        evidence: [{ ref: `ira.${p.slot}.7`, amount: ded.amount, status: ded.status }, { ref: `ira.${p.slot}.nd`, amount: nd.amount, status: nd.status }, ...docEvidence(box1)],
+        citation: DOC_CITATION,
+        recommendedAction: "Correct the questionnaire answer, or accept this finding with the reason the two should differ (a contribution made at another custodian, or one made for another year, can explain it).",
+        acceptable: true,
+      })
+    );
+  }
+  return out;
+}
+
 // ── inventory ─────────────────────────────────────────────────────────────────
 
 function reflectedIn(ctx: L1Context, d: RawDocument): boolean {
@@ -372,6 +416,12 @@ function reflectedIn(ctx: L1Context, d: RawDocument): boolean {
       return f.deductions.mortgages.some((x) => x.docId === d.id);
     case "property_tax":
       return f.deductions.propertyTaxBills.some((x) => x.docId === d.id);
+    case "retirement_contribution": {
+      if ((f.income.retirementStatements ?? []).some((x) => x.docId === d.id)) return true;
+      // a statement that states nothing, or states another year, has nothing to reflect
+      const s = retirementStatementSummary(d.extractionData);
+      return !s.hasReading || (s.taxYear !== null && s.taxYear !== YEAR);
+    }
     default:
       return true;
   }
@@ -396,7 +446,7 @@ function inventoryFindings(ctx: L1Context, docs: readonly RawDocument[]): Findin
   return out;
 }
 
-const AMOUNT_TYPES_FOR_INVENTORY = ["w2", "1099", "mortgage_interest", "form_1098", "property_tax"];
+const AMOUNT_TYPES_FOR_INVENTORY = ["w2", "1099", "mortgage_interest", "form_1098", "property_tax", "retirement_contribution"];
 
 export const sourceTieoutCheck: L1Check = {
   id: "L1.C1",
@@ -417,6 +467,6 @@ export const sourceTieoutCheck: L1Check = {
       ];
     }
     const docs = ctx.raw.documents;
-    return [...w2Findings(ctx, docs), ...f1099Findings(ctx, docs), ...deductionFindings(ctx, docs), ...paymentFindings(ctx), ...inventoryFindings(ctx, docs)];
+    return [...w2Findings(ctx, docs), ...f1099Findings(ctx, docs), ...deductionFindings(ctx, docs), ...retirementFindings(ctx, docs), ...paymentFindings(ctx), ...inventoryFindings(ctx, docs)];
   },
 };

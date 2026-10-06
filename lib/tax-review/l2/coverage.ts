@@ -31,6 +31,7 @@ const GROUPS: { label: string; prefixes: readonly string[] }[] = [
   { label: "Form 8995 (qualified business income deduction)", prefixes: ["f8995."] },
   { label: "Form 8959 (Additional Medicare Tax)", prefixes: ["f8959."] },
   { label: "Form 8960 (net investment income tax)", prefixes: ["f8960."] },
+  { label: "Form 8606 (nondeductible IRAs, Part I: line 3 and line 14)", prefixes: ["f8606a.", "f8606b."] },
   { label: "Schedule 1-A (tips, overtime, car loan interest, seniors)", prefixes: ["sch1a."] },
   { label: "Form 6251 (alternative minimum tax screen)", prefixes: ["f6251."] },
   { label: "Qualified Dividends and Capital Gain Tax Worksheet", prefixes: ["qdcg."] },
@@ -66,7 +67,7 @@ export function buildCoverage(ledger: Ledger, diff: DiffResult, ret: Ty2025Retur
     if (missing.length > 0) parts.push(`${missing.length} line${missing.length === 1 ? "" : "s"} the recalculation could not produce for this return (not checked)`);
     rows.push({ area: g.label, compared: compared.length > 0, note: parts.join("; "), linesCompared: compared.length, linesMatched: matched });
   }
-  if (forms.checked > 0) rows.push({ area: "Which forms the packet needs (Schedules B, C, D, SE, A, 1-A and Forms 8949, 8959, 8960, 8995, 6251)", compared: true, note: `${forms.checked} forms recomputed and compared with the return's packet plan, ${forms.checked - forms.differing} agree`, linesCompared: forms.checked, linesMatched: forms.checked - forms.differing });
+  if (forms.checked > 0) rows.push({ area: "Which forms the packet needs (Schedules B, C, D, SE, A, 1-A and Forms 8949, 8959, 8960, 8995, 8606, 6251)", compared: true, note: `${forms.checked} forms recomputed and compared with the return's packet plan, ${forms.checked - forms.differing} agree`, linesCompared: forms.checked, linesMatched: forms.checked - forms.differing });
   for (const a of ledger.abstentions) rows.push({ area: `Not recomputed on this return: ${a.area}`, compared: false, note: a.reason });
   // lines the return carries with a non-zero amount that the recalculation never touched: listed by name, never silently passed
   const touched = new Set<string>([...ledger.lines.keys()]);
