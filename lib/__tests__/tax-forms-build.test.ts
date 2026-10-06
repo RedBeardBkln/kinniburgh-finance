@@ -317,7 +317,7 @@ describe("loadFormsPageData (read-only assembler)", () => {
     expect(lineOf("schedule-e", "Depreciation (line 18)")?.haveData).toBe(false); // "some" is not a confirmation
   });
 
-  it("production-shaped entities: Sudden Valley flagged for CPA in 2026, none in 2025; Mezzo only not-applicable", async () => {
+  it("production-shaped entities: Sudden Valley flagged for CPA in 2026, none in 2025; Mezzo not listed", async () => {
     const y26 = await loadFormsPageData(2026);
     const e26 = y26.federal.find((e) => e.id === "schedule-e");
     expect(e26?.applicability).toBe("required");
@@ -325,8 +325,8 @@ describe("loadFormsPageData (read-only assembler)", () => {
     const y25 = await loadFormsPageData(2025);
     // Sudden Valley does not exist in 2025: no Schedule E card and no entity block at all.
     expect(y25.federal.find((e) => e.id === "schedule-e")).toBeUndefined();
-    const mezzo = y25.entities.find((s) => s.slug === "mezzo");
-    expect(mezzo?.entries.every((e) => e.applicability === "not_applicable")).toBe(true);
+    // Mezzo (not formed) is left off the page entirely
+    expect(y25.entities.find((s) => s.slug === "mezzo")).toBeUndefined();
     expect(y25.entities.find((s) => s.slug === "sudden-valley")).toBeUndefined();
   });
 

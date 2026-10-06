@@ -16,6 +16,14 @@ export interface EntityYearInput {
   taxStatusNotes: string | null;
 }
 
+/**
+ * A business that has not been formed at all (no formation date recorded and its notes say "not yet formed", e.g. Mezzo). It must not
+ * appear in any tax discussion (forms page, entity pickers, the AI review) until the owner records a formation date.
+ */
+export function isEntityUnformed(entity: EntityYearInput): boolean {
+  return entity.type !== "personal" && !entity.foundedDate && (entity.taxStatusNotes ?? "").toLowerCase().includes("not yet formed");
+}
+
 export function isEntityActiveForYear(entity: EntityYearInput, year: number): boolean {
   if (entity.type === "personal") return true;
   if (entity.foundedDate) return entity.foundedDate.getUTCFullYear() <= year;

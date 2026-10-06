@@ -37,7 +37,7 @@ import {
   suggestIssuerFromExtraction,
   type PersonRef,
 } from "@/lib/document-attribution";
-import { isEntityActiveForYear } from "@/lib/tax-entities";
+import { isEntityActiveForYear, isEntityUnformed } from "@/lib/tax-entities";
 import { resolveFieldFixes, type FieldFix, type FixContext } from "@/lib/tax-form-fixes";
 import {
   buildCardState,
@@ -952,10 +952,13 @@ export function buildFormsPageData(input: FormsCatalogInput): FormsPageData {
 
   // ── Entity sections ─────────────────────────────────────────────────────────
   // Sudden Valley has no filing before it was formed: for those years it is left
-  // off the page entirely (no "not applicable" block). Other inactive entities
-  // (e.g. Mezzo, not yet formed) keep their explanatory row.
+  // off the page entirely (no "not applicable" block). A business that has not
+  // been formed at all is left off too (the owner removed it from every tax
+  // discussion until a formation date is recorded). Any other inactive entity
+  // keeps its explanatory row.
   const businesses = entities
     .filter((e) => e.type === "business")
+    .filter((e) => !isEntityUnformed(e))
     .filter((e) => e.slug !== SLUG_SV || svActive)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
