@@ -13,6 +13,7 @@
 // PURE: no DB, no network, no clock.
 
 import { findRedactionIssues } from "@/lib/tax-review/redact";
+import { businessUseKeyOf } from "@/lib/tax2025/business-use";
 import { DECISION_REGISTRY } from "@/lib/tax2025/overrides";
 import { LINE_CATALOG } from "@/lib/tax2025/line-catalog";
 
@@ -113,7 +114,12 @@ function clean(text: string, max: number): string | null {
  * kept only when it has the plain shape of an id (no camelCase word), otherwise both are replaced by a neutral word too.
  */
 export function neutralTarget(kind: string, target: string): string {
-  if (kind === "decision") return (DECISION_REGISTRY as Record<string, { decisionId: string } | undefined>)[target]?.decisionId ?? "decision";
+  if (kind === "decision") {
+    // a business-use percentage is stored as `businessUse.<key>` (the key is a neutral list key, but it is still never sent): it goes as its decision id ("X6")
+    const businessUse = businessUseKeyOf(target);
+    if (businessUse !== null) return businessUse.decisionId;
+    return (DECISION_REGISTRY as Record<string, { decisionId: string } | undefined>)[target]?.decisionId ?? "decision";
+  }
   if (kind === "line") return LINE_KEYS.has(target) ? target : "line";
   if (kind === "rule_ack") return /^[A-Za-z0-9]{1,16}(?:[._:-][A-Za-z0-9]{1,16}){0,5}$/.test(target) && !/[a-z][A-Z]/.test(target) ? target : "rule";
   return "record";

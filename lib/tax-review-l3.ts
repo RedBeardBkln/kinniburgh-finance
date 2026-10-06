@@ -10,6 +10,7 @@ import type { ScrubConfig } from "@/lib/tax-review/llm/scrub";
 import { sameProperty } from "@/lib/tax-review/llm/address";
 import type { AcceptedFinding, RecordedDecision } from "@/lib/tax-review/llm/owner-statements";
 import type { DispositionRow } from "@/lib/tax-review/gate";
+import { businessUseKeyOf } from "@/lib/tax2025/business-use";
 import type { OverrideRow } from "@/lib/tax2025/overrides";
 import { isEntityActiveForYear, isEntityUnformed } from "@/lib/tax-entities";
 import { getRunWithFindings, listDispositions, listRuns } from "@/lib/tax-review-store";
@@ -123,11 +124,18 @@ export function scrubAddressesFor(facts: Ty2025Facts, primaryResidence: string |
 
 const dollarText = (cents: number): string => String(Math.round(cents / 100));
 
+/** The value of a recorded row as the payload shows it: whole dollars for a line, "70.5%" for a business-use percentage, else the stored choice. */
+function recordedValueOf(r: OverrideRow): string | null {
+  if (r.targetKind === "line") return r.valueCents === null ? null : dollarText(r.valueCents);
+  if (r.targetKind === "decision" && businessUseKeyOf(r.targetKey) !== null) return r.valueText === null ? null : `${r.valueText}%`;
+  return r.valueText;
+}
+
 /** The owner's recorded decisions / overrides (active rows only) with the reason given for each, as plain data for the payload. */
 export function recordedDecisionsOf(rows: readonly OverrideRow[]): RecordedDecision[] {
   return rows
     .filter((r) => r.archivedAt === null)
-    .map((r) => ({ kind: r.targetKind, target: r.targetKey, value: r.targetKind === "line" ? (r.valueCents === null ? null : dollarText(r.valueCents)) : r.valueText, reason: r.reason }));
+    .map((r) => ({ kind: r.targetKind, target: r.targetKey, value: recordedValueOf(r), reason: r.reason }));
 }
 
 /**
