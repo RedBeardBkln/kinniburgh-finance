@@ -29,6 +29,7 @@
 
 import { Decimal } from "@prisma/client/runtime/library";
 import { z } from "zod";
+import { businessUseKeyOf, formatBusinessUsePercent, parseBusinessUsePercent } from "@/lib/tax2025/business-use";
 import { downstreamOf } from "@/lib/tax2025/line-flow";
 import { dollarsToCents } from "@/lib/tax2025/money";
 import {
@@ -43,6 +44,8 @@ import {
   type DecisionId,
   type Headline,
   type LineKey,
+  scheduleCLineKey,
+  type DecidedPercent,
   type OpenItem,
   type ReturnLine,
   type RuleDecision,
@@ -78,7 +81,11 @@ export function isSupportedOverrideTaxYear(year: number): boolean {
 
 // ── Decision registry (typed so a new engine decision breaks the build) ──────
 
-type DecisionKey = keyof Ty2025Decisions;
+/**
+ * The registry decisions. The business-use percentages (X6 ...) are NOT here: they are keyed by the list in
+ * lib/tax2025/business-use.ts (adding an account is a list entry, not code), stored as `businessUse.<key>`.
+ */
+type DecisionKey = Exclude<keyof Ty2025Decisions, "businessUse">;
 type ChoiceOf<K extends DecisionKey> = NonNullable<Ty2025Decisions[K]>["chosen"];
 
 interface DecisionMeta<K extends DecisionKey> {
@@ -386,8 +393,16 @@ export function selectActiveOverrides(rows: readonly OverrideRow[]): ActiveSelec
  */
 export function decisionsFromOverrides(rows: readonly OverrideRow[]): Ty2025Decisions {
   const out: Ty2025Decisions = {};
+  const businessUse: Record<string, DecidedPercent> = {};
   for (const o of selectActiveOverrides(rows).active) {
     if (o.targetKind !== "decision") continue;
+    // a business-use percentage (X6 ...): an unparseable value is ignored here and reported by applyOverrides as an orphan
+    const bu = businessUseKeyOf(o.targetKey);
+    if (bu) {
+      const p = parseBusinessUsePercent(o.choice);
+      if (p.ok) businessUse[bu.key] = { percentTenths: p.tenths, by: o.setByName, at: o.setAt };
+      continue;
+    }
     const key = decisionKeyOf(o.targetKey);
     if (!key) continue;
     const meta = { by: o.setByName, at: o.setAt };
@@ -416,6 +431,7 @@ export function decisionsFromOverrides(rows: readonly OverrideRow[]): Ty2025Deci
         assertNever(key);
     }
   }
+  if (Object.keys(businessUse).length > 0) out.businessUse = businessUse;
   return out;
 }
 
@@ -467,6 +483,8 @@ export interface AppliedDecisionOverride extends AppliedCommon {
   decisionId: DecisionId;
   label: string;
   choice: string;
+  /** How the choice reads to a person when it is not the stored text (a business-use percentage: "70.5%"). */
+  display?: string;
   stale: StaleInfo | null;
 }
 export interface AppliedAckOverride extends AppliedCommon {
@@ -614,7 +632,7 @@ export function formatOverrideNote(o: AppliedOverride): string {
       return `${tag} override: was ${wasText}, now ${formatDollars(o.nowAmount)}, ${tail}`;
     }
     case "decision":
-      return `${tag} decision: ${o.label} set to ${o.choice}, ${tail}`;
+      return `${tag} decision: ${o.label} set to ${o.display ?? o.choice}, ${tail}`;
     case "rule_ack":
       return `${tag} acknowledged rule ${o.ruleId} (reviewed; accepts as shown or will handle outside the app), ${tail}`;
   }
@@ -788,6 +806,48 @@ export function applyOverrides(
         set.add(key);
         dependents.set(d, set);
       }
+    } else if (o.targetKind === "decision" && businessUseKeyOf(o.targetKey) !== null) {
+      // A business-use percentage (X6 ...): the choice is the canonical percent text; the engine shows it as "70%".
+      const def = businessUseKeyOf(o.targetKey);
+      if (!def) continue;
+      const parsed = parseBusinessUsePercent(o.choice);
+      if (!parsed.ok) {
+        orphan(o, `Decision override ${def.decisionId} = "${o.choice}" is no longer a valid choice (a business-use percentage from 0 to 100 with at most one decimal).`);
+        continue;
+      }
+      const shown = formatBusinessUsePercent(parsed.tenths);
+      const target = decisions.find((d) => d.id === def.decisionId);
+      if (!target) {
+        orphan(o, `Decision override ${def.decisionId} (${shown}) cannot be shown: the computed return carries no ${def.decisionId} decision.`);
+        continue;
+      }
+      const versionChanged = o.snapshot.engineVersion !== undefined && o.snapshot.engineVersion !== engineVersion;
+      const applied: AppliedDecisionOverride = {
+        ...common(o),
+        targetKind: "decision",
+        decisionId: def.decisionId,
+        label: def.label,
+        choice: o.choice,
+        display: shown,
+        stale: null,
+      };
+      target.override = applied;
+      appliedDecisions.push(applied);
+      if (versionChanged) {
+        markEngineChanged(o, `Decision ${def.decisionId}`, `engine ${o.snapshot.engineVersion ?? "?"}`, `engine ${engineVersion}`, "The decision is applied as recorded.");
+      }
+      // compare with the FORMATTED percent: the stored text "70" is shown by the engine as "70%"
+      if (target.chosen !== shown || target.status !== "decided") {
+        extraItems.push(
+          openItem(
+            `override-decision-not-reflected:${o.targetKey}`,
+            "blocking",
+            `The ${def.decisionId} decision (${shown}) is recorded but the computed return does not reflect it.`,
+            "Recompute the return with the recorded decisions (decisionsFromOverrides) before relying on these numbers.",
+            []
+          )
+        );
+      }
     } else if (o.targetKind === "decision") {
       const dKey = decisionKeyOf(o.targetKey);
       if (!dKey) {
@@ -887,6 +947,23 @@ export function applyOverrides(
       }
       appliedAcks.push(applied);
     }
+  }
+
+  // A pin on the line a business-use percentage feeds hides the percentage's effect on the printed line (advisory).
+  // Checked after the loop: overrides are applied in target order, so the line pin may come after the decision.
+  for (const d of appliedDecisions) {
+    const lineId = base.scheduleC?.businessUse.find((b) => b.decisionId === d.decisionId)?.lineId;
+    if (lineId === undefined || businessUseKeyOf(d.targetKey) === null) continue;
+    if (lines[scheduleCLineKey(lineId)]?.override === undefined) continue;
+    extraItems.push(
+      openItem(
+        `override-decision-shadowed:${d.decisionId}`,
+        "advisory",
+        `Schedule C line ${lineId} is pinned by an override, so the business-use percentage (decision ${d.decisionId}, ${d.display ?? d.choice}) does not change the printed line.`,
+        "Clear the pin on that line, or clear the decision.",
+        [scheduleCLineKey(lineId)]
+      )
+    );
   }
 
   // D2: a blocking engine item whose lines are ALL supplied by (fresh) overrides on blocked lines is resolved.

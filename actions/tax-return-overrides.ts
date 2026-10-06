@@ -27,6 +27,7 @@ import {
   type OverrideTargetKind,
   type OverrideValueKind,
 } from "@/lib/tax2025/overrides";
+import { businessUseKeyOf, parseBusinessUsePercent } from "@/lib/tax2025/business-use";
 import { containsSsnLikeText } from "@/lib/tax-extraction-schema";
 import { loadBaseAndActive, loadOverrideHistory, resolvePersonalEntityId } from "@/lib/tax2025-overrides-build";
 import { LINE_KEYS } from "@/lib/tax2025/types";
@@ -74,8 +75,13 @@ const setSchema = z.discriminatedUnion("targetKind", [
   z.object({
     ...commonFields,
     targetKind: z.literal("decision"),
-    targetKey: z.enum(DECISION_KEYS as [string, ...string[]]),
-    /** Choice id, validated against the typed registry below. */
+    // a registry decision key (X1 / X2 / X3 / X5) OR a business-use list target `businessUse.<key>` (X6 ...)
+    targetKey: z
+      .string()
+      .min(1)
+      .max(60)
+      .refine((k) => (DECISION_KEYS as string[]).includes(k) || businessUseKeyOf(k) !== null, "Unknown decision."),
+    /** Choice id, validated against the typed registry below (a business-use target: a percent from 0 to 100, one decimal). */
     choice: z.string().min(1).max(40),
   }),
   z.object({
@@ -169,6 +175,16 @@ export async function setTaxReturnOverride(input: z.input<typeof setSchema>): Pr
     valueKind = "money_cents";
     valueCents = v.valueCents;
     snapshot = lineSnapshot(line, engineVersion);
+  } else if (v.targetKind === "decision" && businessUseKeyOf(v.targetKey) !== null) {
+    const def = businessUseKeyOf(v.targetKey);
+    if (!def) return { ok: false, error: "Unknown decision." };
+    const pct = parseBusinessUsePercent(v.choice);
+    if (!pct.ok) return { ok: false, error: pct.error };
+    const decision = base.decisions.find((d) => d.id === def.decisionId);
+    if (!decision) return { ok: false, error: "That decision is not on the computed return." };
+    valueKind = "choice";
+    valueText = pct.canonical;
+    snapshot = decisionSnapshot(decision, engineVersion);
   } else if (v.targetKind === "decision") {
     const dKey = decisionKeyOf(v.targetKey);
     if (!dKey) return { ok: false, error: "Unknown decision." };
