@@ -16,6 +16,7 @@ import { oracleLedger, runL2, type L2Input } from "@/lib/tax-review/l2";
 import { decisionsOf } from "@/lib/tax-review/l2/engine-view";
 import { overpaymentOfText, overpaymentSplitOf } from "@/lib/tax-review/l2/money";
 import { neutralTarget } from "@/lib/tax-review/llm/owner-statements";
+import { buildRegister } from "@/lib/tax-review/llm/register";
 import { toPdfReturnView } from "@/lib/tax2025/pdf/adapter";
 import { applyOverrides } from "@/lib/tax2025/overrides";
 import { computeTy2025Return } from "@/lib/tax2025/return";
@@ -210,6 +211,23 @@ describe("L2 independence: the oracle files do not import the engine's overpayme
       const src = fs.readFileSync(path.join(dir, f), "utf8");
       const imports = [...src.matchAll(/^import\s[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1] ?? "");
       expect(imports.filter((i) => /tax2025\/overpayment|tax2025\/rules\//.test(i)), f).toEqual([]);
+    }
+  });
+});
+
+describe("the judgments register lists X7 / X8 without inventing a dollar impact", () => {
+  it("undecided: 'Needs your decision' entries; decided: 'You decided'; amountDollars is null (no 'deduction size' figure), no CPA wording", () => {
+    for (const [decisions, status] of [[{}, "undecided"], [{ federalOverpayment: refund(), ctOverpayment: applyAmount(400) }, "decided"]] as const) {
+      const f = overFacts();
+      const ret = computeTy2025Return(f, decisions);
+      const entries = buildRegister({ ret, facts: f }).filter((e) => e.id === "decision:X7" || e.id === "decision:X8");
+      expect(entries.map((e) => e.id)).toEqual(["decision:X7", "decision:X8"]);
+      for (const e of entries) {
+        expect(e.status, e.id).toBe(status);
+        expect(e.dollarImpact.amountDollars, e.id).toBeNull();
+        expect(JSON.stringify(e), e.id).not.toMatch(/\bCPA\b|deduction size/);
+        expect(e.alternative, e.id).not.toBeNull();
+      }
     }
   });
 });

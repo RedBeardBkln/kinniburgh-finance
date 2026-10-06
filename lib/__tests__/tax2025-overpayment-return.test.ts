@@ -3,6 +3,7 @@
 // expectations are RELATIVE to those lines (35a + 36 + printed 38 = 34; 25 + 23 = 22).
 
 import { describe, expect, it } from "vitest";
+import { findOwnerBannedWording, ownerWording } from "@/lib/tax-wording";
 import { D } from "@/lib/tax2025/money";
 import { TY2025_ENGINE_VERSION, computeTy2025Return, duplicateEmissions } from "@/lib/tax2025/return";
 import { computeCtSettlement } from "@/lib/tax2025/rules/ct-settlement";
@@ -276,6 +277,29 @@ describe("(h) CT line 29 still open: the refund says the interest may reduce it"
       const l = (k: string) => r.lines.find((x) => x.key === k)?.amount?.toNumber() ?? -1;
       expect(l("ct1040.25") + l("ct1040.23")).toBe(904);
     }
+  });
+});
+
+describe("owner-visible wording: every string the two rules write passes the owner banned-wording scan (no CPA, no professional-review claim)", () => {
+  it("lines, decisions, alternatives and open items, undecided and decided, apply_amount too large included", () => {
+    const runs = [
+      computeTy2025Return(overFacts(), {}),
+      computeTy2025Return(overFacts(), { federalOverpayment: refund(), ctOverpayment: refund() }),
+      computeTy2025Return(overFacts(), { federalOverpayment: applyAmount(5000), ctOverpayment: applyAll() }),
+      computeTy2025Return(overFacts(), { federalOverpayment: applyAmount(O + 1), ctOverpayment: applyAmount(C + 1) }),
+    ];
+    const texts: string[] = [];
+    for (const ret of runs) {
+      for (const k of OVERPAYMENT_KEYS) texts.push(ret.lines[k]?.reason ?? "", ...(ret.lines[k]?.refs ?? []).map((r) => r.label));
+      for (const d of ret.decisions.filter((x) => x.id === "X7" || x.id === "X8")) texts.push(d.label, d.chosen);
+      for (const r of ret.results.filter((x) => x.decision?.id === "X7" || x.decision?.id === "X8")) {
+        texts.push(...r.reasons, ...r.inputsMissing);
+        for (const a of r.alternatives ?? []) texts.push(a.label, a.effect?.note ?? "", ...a.reasons, ...a.lines.map((l) => l.reason ?? ""));
+      }
+      for (const o of ret.openItems.filter((x) => /X7|X8|35a|\.36|ct1040\.2[35]|overpayment/.test(x.id))) texts.push(o.message, o.action);
+    }
+    expect(texts.filter((t) => t.length > 0).length).toBeGreaterThan(40);
+    for (const t of texts) expect(findOwnerBannedWording(ownerWording(t)), t).toEqual([]);
   });
 });
 
