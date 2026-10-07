@@ -19,13 +19,22 @@ import { LINE_CATALOG } from "@/lib/tax2025/line-catalog";
 
 const LINE_KEYS: ReadonlySet<string> = new Set(LINE_CATALOG.map((m) => m.key));
 
-// 4 (owner-statements-v4): the owner's confirmations of 2026-10-06 after the second live review: the estate's Form 1041 covers calendar 2024 and
-// reported no bond interest (the savings bonds were redeemed in late 2024, so any bond interest is a 2024 estate matter); no federal estimated tax
+// 5 (owner-statements-v5): the owner's corrected estate facts of 2026-10-06/07, which replace what versions 3 and 4 said about the bonds, the
+// 2025 forms and the deed: probate was completed in December 2025 (final distribution letter received then; the estate is closed); the estate's
+// 2024 Form 1041 was filed and reported no bond interest because the savings bonds had not been cashed yet, and no Schedule K-1 was ever issued;
+// the bonds were cashed in 2025 and a 2025 Form 1099-INT (box 3 only, $1,894.50) was issued to the ESTATE under its own number, which the owner
+// reports on the 2025 joint return as interest passing from the estate (the estate's own 2025 Form 1041 is not filed yet); no final 2024 Form 1040
+// was filed for the mother; nothing from the estate was held in Taxpayer F's own name in 2025; the deed was filed with the town in March 2019 (it
+// is no longer "undated") and gave Taxpayer F a 90% joint tenancy with her mother, after whose death she became the sole beneficiary of the property.
+// RETIRED, now false, and pinned never to come back: "no Schedule K-1 and no Form 1099 for 2025 from the estate", "bonds redeemed in late 2024 ...
+// a 2024 estate matter, not income of the 2025 return", "the amount of any bond interest is unknown ... does not change the 2025 return", "the deed is undated".
+// The deed was not a gift (the owner's statement) and whether a gift tax return was needed (OPEN) are unchanged.
+// 4 (owner-statements-v4): the owner's confirmations of 2026-10-06 after the second live review: no federal estimated tax
 // payments were made for 2025; the property tax on other property A was paid from personal funds; the Form 1098 loan bought the primary residence;
-// a motor vehicle property tax statement is on Schedule A line 5c; the deed was not a gift (owner's statement); the Internet & Phone share is decision X6.
+// a motor vehicle property tax statement is on Schedule A line 5c; the Internet & Phone share is decision X6.
 // Version 3 said the owner had not yet re-read the Form 1041 and carried an OPEN statement about the bonds: both are replaced by these facts.
 // Version 2 was the first version of the estate facts and said no Form 1041 filing was required: that was wrong.
-export const OWNER_STATEMENTS_VERSION = 4;
+export const OWNER_STATEMENTS_VERSION = 5;
 
 export const OWNER_STATEMENTS_LABEL =
   "Owner statements, NOT verified by documents: facts the owner confirmed himself. Treat each as given and do not ask the owner to confirm it again. You may still add a finding if a figure or a line contradicts a statement, if a statement does not carry the conclusion you would draw, or about anything a statement does not cover.";
@@ -45,15 +54,15 @@ export const OWNER_STATEMENTS_TY2025: readonly string[] = [
   "The mortgage loan reported on the Form 1098 was used to buy the primary residence, so the interest is home acquisition debt.",
   "A motor vehicle property tax statement was uploaded and is included on Schedule A line 5c.",
   "The Internet & Phone business-use share is recorded by the owner as decision X6 (see the recorded decisions); it is not repeated here.",
-  // ── the estate of Taxpayer F's mother (owner-confirmed 2026-10-06, updated the same day; no names, addresses or entity names) ──
-  "Taxpayer F's mother died in August 2024. Taxpayer F was the sole beneficiary of her mother's estate, inherited the house (other property A) and the other assets from it, and is the executor. The estate is closed and all distributions were completed in 2025.",
-  "The estate had its own employer identification number, and its Form 1041 covers calendar 2024 (1 January 2024 to 31 December 2024). It reported no bond interest and issued no Schedule K-1. The owner recalls the estate's bank interest as under $2 and saw no Form 1099-INT, 1099-DIV or 1099-B under the estate's number.",
-  "Taxpayer F received no Schedule K-1 (Form 1041) and no Form 1099 for 2025 from the estate, or from the estate of her mother's late husband.",
+  // ── the estate of Taxpayer F's mother (owner-confirmed 2026-10-06/07, v5; no names, addresses or entity names) ──
+  "Taxpayer F's mother died in August 2024. Taxpayer F is the executor and the sole beneficiary of her mother's estate and inherited the other assets from it. Probate was completed in December 2025 and the final distribution letter was received then, so all distributions were completed in 2025 and the estate is closed.",
+  "The estate had its own employer identification number, and its Form 1041 covers calendar 2024 (1 January 2024 to 31 December 2024) and was filed. It reported no bond interest because the savings bonds had not been cashed yet, and no Schedule K-1 was ever issued or received. The owner recalls the estate's bank interest for 2024 as under $2 and saw no Form 1099-INT, 1099-DIV or 1099-B for 2024 under the estate's number.",
+  "The savings bonds were cashed in 2025 (the redemption date is not shown on the form). A 2025 Form 1099-INT was issued by the bank to the estate under the estate's own identification number: box 3 (US savings bond interest) $1,894.50, boxes 1, 2 and 4 blank. The owner reports that $1,894.50 on the 2025 joint return as interest passing from the estate; the estate's own 2025 Form 1041 has not been filed yet, and the interest is to be matched with the estate's final Schedule K-1 when that return is prepared.",
   "The inheritance itself is not reported as income. The estate's cash and proceeds were used to pay the decedent's debts and to renovate other property A. The renovations, about $90,000, were all in 2025. They are capital improvements and are not deducted.",
   "No energy-efficiency or solar improvements were made to other property A.",
-  "The US savings bonds the estate cashed were redeemed in late 2024 (the exact date is unknown). The redemption record and any Form 1099-INT still cannot be found. So the bond interest is a 2024 estate matter, not income of the 2025 return.",
-  "OPEN, not a confirmed fact: the amount of any bond interest is unknown. If a Form 1099-INT surfaces, the estate's 2024 Form 1041 may need to be amended; that is an estate and 2024 matter and does not change the 2025 return. Do not assume an amount.",
-  "The deed made Taxpayer F a joint tenant with right of survivorship in other property A, and was not a gift (the owner's statement). The deed is undated. OPEN, not a confirmed fact: whether a gift tax return was needed is unresolved; do not assume either way.",
+  "No final 2024 Form 1040 was filed for Taxpayer F's mother, only the estate's 2024 Form 1041, so none of the bond interest was reported before 2025. No account or security from the estate was held in Taxpayer F's own name for any part of 2025 and earned interest or dividends.",
+  "OPEN, not a confirmed fact: the amount that will appear on the estate's final Schedule K-1 because the estate's 2025 Form 1041 is not prepared yet; a different amount would mean amending the 2025 return; do not assume an amount other than the $1,894.50 on the bank form.",
+  "A warranty deed filed with the town in March 2019 gave Taxpayer F a 90% joint tenancy ownership of other property A together with her mother; after her mother's death in August 2024 Taxpayer F became the sole beneficiary of the property. The deed was not a gift (the owner's statement). OPEN, not a confirmed fact: whether a gift tax return was needed is unresolved; do not assume either way.",
   "The basis of other property A is not needed for 2025: there was no sale of it and no depreciation on it in 2025.",
 ];
 
