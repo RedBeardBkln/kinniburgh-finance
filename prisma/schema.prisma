@@ -42,6 +42,8 @@ model User {
   taxQuestionnaireNotes TaxQuestionnaire[]    @relation("TaxQuestionnaireNoteAuthor")
   taxReturnOverridesSet      TaxReturnOverride[] @relation("TaxReturnOverrideSetter")
   taxReturnOverridesArchived TaxReturnOverride[] @relation("TaxReturnOverrideArchiver")
+  taxFactsSet                TaxFact[]           @relation("TaxFactSetter")
+  taxFactsArchived           TaxFact[]           @relation("TaxFactArchiver")
   taxReviewRunsStarted       TaxReviewRun[]      @relation("TaxReviewRunStarter")
   taxReviewDispositions      TaxReviewFindingDisposition[] @relation("TaxReviewDispositionAuthor")
   taxReturnApprovalsGiven    TaxReturnApproval[] @relation("TaxReturnApprovalApprover")
@@ -108,6 +110,7 @@ model Entity {
   fixedAssets        FixedAsset[]
   taxQuestionnaires  TaxQuestionnaire[]
   taxReturnOverrides TaxReturnOverride[]
+  taxFacts           TaxFact[]
   taxReviewRuns      TaxReviewRun[]
   taxReviewDispositions TaxReviewFindingDisposition[]
   taxReturnApprovals TaxReturnApproval[]
@@ -1051,6 +1054,46 @@ model TaxReturnOverride {
 
   @@unique([taxYear, entityId, targetKind, targetKey, version])
   @@index([taxYear, entityId, archivedAt])
+}
+
+// ─── Tax facts carry-forward store (tax-facts-carry-forward-store) ────────────
+// Owner-confirmed facts for the household return, kept so the same questions need not be asked every year.
+// APPEND-ONLY / versioned like TaxReturnOverride: a change, a re-confirmation for a new year, a policy change, a
+// retirement and the resolution of an open item are each a NEW version; only `archivedAt` (set when superseded by the
+// next version) is ever updated; there is no delete path (tax records are never hard-deleted). The latest version of a
+// key is the row with archivedAt = NULL. NOT read by the TY2025 engine, the return fingerprint or the AI reviewer.
+// `reason` is a tax record and is never written to AuditLog. No SSN, EIN, account number or date of birth is ever stored.
+model TaxFact {
+  id           String    @id @default(uuid())
+  entityId     String    // Personal entity id (household return), same convention as TaxReturnOverride
+  factKey      String    // stable dotted key, e.g. "decision.x1.home_office_method" (regex in lib/tax-facts/validate.ts)
+  version      Int       // 1, 2, 3 ... per (entityId, factKey)
+  category     String    // "household" | "income" | "business" | "retirement" | "payments" | "property" | "estate" | "decision" | "open_item" (app-validated, no DB enum)
+  label        String    // owner-facing title, <= 120
+  taxYear      Int       // the tax year THIS version was established / changed / reconfirmed FOR
+  valueKind    String    // "text" | "choice" | "bool" | "percent" | "money_cents" | "none_statement" | "open_item"
+  valueCents   Int?      // money_cents only (whole cents)
+  valueText    String?   // every other kind (<= 600): choice id, "yes"/"no", percent "50" or "12.5", free text
+  carryPolicy  String    // "stable" | "reconfirm" | "year_specific" | "derived"
+  changeKind   String    // "established" | "changed" | "reconfirmed" | "policy_changed" | "retired" | "resolved"
+  sourceKind   String    // "owner_statement" | "document" | "decision" | "derived"
+  sourceRef    String?   // pointer only, no values (<= 200)
+  reason       String?   // required for changed / retired / resolved (3..500); tax record, never written to AuditLog
+  confirmedAt  DateTime  // when the owner confirmed it
+  setById      String?
+  setByName    String    // display-name snapshot so who-set survives a SET NULL
+  setAt        DateTime  @default(now())
+  archivedAt   DateTime? // set when SUPERSEDED by the next version; NULL = latest version
+  archivedById String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  entity     Entity @relation(fields: [entityId], references: [id])
+  setBy      User?  @relation("TaxFactSetter", fields: [setById], references: [id], onDelete: SetNull)
+  archivedBy User?  @relation("TaxFactArchiver", fields: [archivedById], references: [id], onDelete: SetNull)
+
+  @@unique([entityId, factKey, version])
+  @@index([entityId, archivedAt])
 }
 
 // ─── TY2025 return review (AI Return Reviewer) and owner approval ─────────────

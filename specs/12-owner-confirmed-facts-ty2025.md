@@ -6,7 +6,7 @@ Status: written 2026-10-07 at the end of the TY2025 self-preparation work. These
 
 - The engine computes only from documents, recorded answers and decisions; it never reads this file.
 - The AI Return Reviewer is shown a scrubbed, allow-listed subset of these facts (`OWNER_STATEMENTS_TY2025`, no names, addresses or entity names) so it stops asking about settled points. The recorded decisions and their reasons are also sent: keep the reasons consistent with this file (an out-of-date reason produced false findings once).
-- For a future tax year: start from this file, re-confirm only what could have changed (employers, balances, the estate, the properties), then add a `specs/12-...-tyYYYY.md`. A runtime carry-forward store (database) is not built; it would need a migration and the owner's approval.
+- For a future tax year: start from this file, re-confirm only what could have changed (employers, balances, the estate, the properties), then add a `specs/12-...-tyYYYY.md`. A runtime carry-forward store now exists (table `TaxFact`, migration `20261010000000_tax_facts`, owner page `/tax/facts`, code in `lib/tax-facts/**`): append-only versioned facts, each with a carry-forward policy, loaded from this file by an owner-triggered, idempotent seed whose every entry is anchored to a verbatim sentence here (a test enforces it). The store is a recall aid only: it is NOT read by the engine, the return fingerprint or the AI reviewer, and `OWNER_STATEMENTS_TY2025` is still maintained by hand. The migration is applied only with the owner's explicit OK.
 
 ## Household and roles
 
