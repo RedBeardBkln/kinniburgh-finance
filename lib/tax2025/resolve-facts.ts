@@ -518,8 +518,24 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
 
     const int1 = intOrNull(data.int_box1Cents);
     const legacyInterest = int1 === null && formVariant === "1099-INT" ? intOrNull(data.amountCents) : null;
-    if (int1 !== null || legacyInterest !== null) {
-      const box1 = int1 ?? legacyInterest;
+    // A printed 1099-INT with box 1 blank but another interest box filled (for example only box 3, savings bond interest) reported nothing in
+    // box 1: the document still counts (box 1 = 0). Without this the whole document, and its box 3, would be silently dropped.
+    const isInt1099 = formVariant === "1099-INT" || (Array.isArray(data.variantsPresent) && data.variantsPresent.includes("1099-INT"));
+    const hasOtherIntBox = ["int_box2Cents", "int_box3Cents", "int_box4Cents", "int_box5Cents", "int_box6Cents", "int_box8Cents", "int_box9Cents"].some(
+      (k) => intOrNull(data[k]) !== null
+    );
+    const blankBox1WithOtherBoxes = isInt1099 && int1 === null && legacyInterest === null && hasOtherIntBox;
+    if (isInt1099 && int1 === null && legacyInterest === null && !hasOtherIntBox) {
+      addItem({
+        id: `interest-1099-unreadable:${doc.id}`,
+        severity: "blocking",
+        message: `The 1099-INT${payer === null ? "" : ` from ${payer}`} has no readable interest amount (no box 1, no other interest box and no headline amount), so any interest on it is not counted on 1040 line 2b or Schedule B.`,
+        action: "Open the document's review screen, enter the interest boxes printed on the 1099-INT (or re-read it) and confirm it.",
+        refs: [ref],
+      });
+    }
+    if (int1 !== null || legacyInterest !== null || blankBox1WithOtherBoxes) {
+      const box1 = blankBox1WithOtherBoxes ? 0 : (int1 ?? legacyInterest);
       interest.push({
         docId: doc.id,
         payer,
@@ -527,7 +543,7 @@ export function resolveFacts(raw: RawTy2025Inputs): ResolvedFacts {
         legacyFormat: doc.legacyFormat,
         refs: [ref],
         box1Cents: box1,
-        usedLegacyHeadline: int1 === null,
+        usedLegacyHeadline: int1 === null && !blankBox1WithOtherBoxes,
         box3Cents: boxValue(doc, data, "int_box3Cents"),
         box4Cents: intOrNull(data.int_box4Cents),
         box6Cents: boxValue(doc, data, "int_box6Cents"),

@@ -869,7 +869,7 @@ export const OPEN_ITEM_RULES: readonly OpenItemRule[] = [
   { match: /^schd-digital-answer$/, note: "the digital assets answer drives Schedule D: that question", extras: { form: "f8949", attestNode: "digital" } },
   { match: /^schd-/, note: "Schedule D / Form 8949 explanation: the lines and Form 8949", extras: { form: "f8949" } },
   { match: /^doc-duplicate:/, note: "two documents that look the same: both documents", extras: { docFromId: true } },
-  { match: /^(doc-unverified|doc-legacy|w2-unusable|w2-no-person|w2-non-ct-state|legacy-1099-withholding|broker-summary-unread|broker-row-incomplete|form1098-no-interest|bill-no-paid|bill-unclassified|retirement-doc-no-person|retirement-doc-ira-event):/, note: "a problem with one document: that document", extras: { docFromId: true } },
+  { match: /^(doc-unverified|doc-legacy|w2-unusable|w2-no-person|w2-non-ct-state|legacy-1099-withholding|interest-1099-unreadable|broker-summary-unread|broker-row-incomplete|form1098-no-interest|bill-no-paid|bill-unclassified|retirement-doc-no-person|retirement-doc-ira-event):/, note: "a problem with one document: that document", extras: { docFromId: true } },
   { match: /^w2-no-ein:/, note: "a W-2 without an employer ID: the documents", extras: { upload: true } },
   { match: /^(form1098-multiple-properties|no-second-property-bill|prior-year-return|paystub-withholding-not-added)$/, note: "a document that is missing or needs a look: the Documents page", extras: { upload: true } },
   { match: /^primary-residence-derived$/, note: "an address taken from a document: the documents on file", extras: { documents: true } },

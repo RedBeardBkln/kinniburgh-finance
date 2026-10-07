@@ -58,9 +58,9 @@ describe("Form 8606 through the return: Eric's shape", () => {
   const f = ericFacts();
   const r = computeTy2025Return(f);
 
-  it("the engine version is ty2025-1b.10", () => {
-    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.10");
-    expect(r.engineVersion).toBe("ty2025-1b.10");
+  it("the engine version is ty2025-1b.11", () => {
+    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.11");
+    expect(r.engineVersion).toBe("ty2025-1b.11");
   });
 
   it("the MAGI is over 246,000, so the deduction is 0 (Schedule 1 line 20 stays 0) and 7,000 is nondeductible", () => {

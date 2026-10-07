@@ -100,7 +100,7 @@ import {
 } from "@/lib/tax2025/types";
 
 /** Bumped whenever a rule, the constants or the line catalog changes (stale-output detection for stored overrides / PDFs). */
-export const TY2025_ENGINE_VERSION = "ty2025-1b.10";
+export const TY2025_ENGINE_VERSION = "ty2025-1b.11";
 
 type Blocked = Exclude<RuleStatus, "computed" | "not_applicable">;
 

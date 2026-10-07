@@ -48,7 +48,7 @@ describe("the fixture really has both overpayments", () => {
     expect(O).toBeGreaterThan(1000);
     expect(C).toBeGreaterThan(1000);
     expect(num(undecided, "f1040.38")).toBe(0);
-    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.10");
+    expect(TY2025_ENGINE_VERSION).toBe("ty2025-1b.11");
   });
 });
 

@@ -104,7 +104,11 @@ function interestEvidence(documents: PersonalFormPlanDocumentInput[]): Evidence 
     if (d.docType !== "1099" || d.extractionStatus !== "complete") return false;
     const data = dataOf(d);
     if (typeof data?.int_box1Cents === "number") return true;
-    return data?.formVariant === "1099-INT" && typeof data?.amountCents === "number";
+    if (data?.formVariant === "1099-INT" && typeof data?.amountCents === "number") return true;
+    // A 1099-INT with box 1 blank but another interest box filled (for example only box 3) is still interest data (the engine counts it).
+    const variants = Array.isArray(data?.variantsPresent) ? data.variantsPresent : [];
+    const isInt = data?.formVariant === "1099-INT" || variants.includes("1099-INT");
+    return isInt && ["int_box2Cents", "int_box3Cents", "int_box4Cents", "int_box5Cents", "int_box6Cents", "int_box8Cents", "int_box9Cents"].some((k) => typeof data?.[k] === "number");
   });
   return { have: docs.length > 0, docs };
 }

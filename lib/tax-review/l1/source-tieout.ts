@@ -189,7 +189,11 @@ function f1099Findings(ctx: L1Context, docs: readonly RawDocument[]): Finding[] 
     const data = dataOf(d);
     const b1 = int(data["int_box1Cents"]);
     const legacy = b1 === null && variant(d) === "1099-INT" ? int(data["amountCents"]) : null;
-    const box1 = b1 ?? legacy;
+    // Mirrors the engine: a printed 1099-INT with box 1 blank and another interest box filled reported 0 in box 1 (its box 3 still counts).
+    const variants = Array.isArray(data["variantsPresent"]) ? data["variantsPresent"] : [];
+    const isInt1099 = variant(d) === "1099-INT" || variants.includes("1099-INT");
+    const otherBox = ["int_box2Cents", "int_box3Cents", "int_box4Cents", "int_box5Cents", "int_box6Cents", "int_box8Cents", "int_box9Cents"].some((k) => int(data[k]) !== null);
+    const box1 = b1 ?? legacy ?? (isInt1099 && otherBox ? 0 : null);
     if (box1 === null) return [];
     const b3 = int(data["int_box3Cents"]) ?? (d.legacyFormat ? null : 0);
     return [{ id: d.id, cents: b3 === null ? null : box1 + b3 }];
