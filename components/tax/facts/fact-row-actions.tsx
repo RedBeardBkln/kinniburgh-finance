@@ -40,8 +40,8 @@ const VALUE_KIND_LABELS: Readonly<Record<FactValueKind, string>> = {
   open_item: "Open item",
 };
 
-const field = "w-full rounded-md border bg-background px-2 py-1.5 text-sm";
-const button = "rounded-md border px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-60";
+export const field = "w-full rounded-md border bg-background px-2 py-1.5 text-sm";
+export const button = "rounded-md border px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-60";
 
 function centsToDollarsText(cents: number | null): string {
   if (cents === null) return "";
@@ -50,7 +50,7 @@ function centsToDollarsText(cents: number | null): string {
   return cents < 0 ? `-${text}` : text;
 }
 
-function ValueInput({
+export function ValueInput({
   kind,
   text,
   setText,
@@ -83,7 +83,7 @@ function ValueInput({
   );
 }
 
-function useFactAction(onDone: () => void) {
+export function useFactAction(onDone: () => void) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);

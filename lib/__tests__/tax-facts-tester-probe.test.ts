@@ -601,9 +601,10 @@ describe("round 2: retired and resolved cards never say 'confirmed' about the re
     expect(text).toContain("Retired 2026-10-07 from TY2026 (v2)");
     expect(text).toContain("Resolved 2026-10-07 from TY2026 (v2)");
     expect(text).not.toContain("confirmed 2026-10-07 for TY2026");
-    // history lines of the retire / resolve versions say recorded
-    expect(text).toMatch(/Retired for TY2026[^;]*Re-confirm; recorded 2026-10-07/);
-    expect(text).toMatch(/Resolved for TY2026[^;]*[A-Za-z-]+; recorded 2026-10-07/);
+    // history lines of the retire / resolve versions say "dated" (not "recorded") so the line no longer repeats
+    // "recorded ...; recorded by" (carry-screen task, cosmetic O2)
+    expect(text).toMatch(/Retired for TY2026[^;]*Re-confirm; dated 2026-10-07; recorded by Eric/);
+    expect(text).toMatch(/Resolved for TY2026[^;]*[A-Za-z-]+; dated 2026-10-07; recorded by Eric/);
   });
 
   it("an edited decision, a policy change on a decision and a retired decision all keep the recall-only note", () => {

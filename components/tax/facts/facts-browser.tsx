@@ -68,7 +68,8 @@ function FactCard({ group }: { group: FactGroup }) {
                 {formatFactValue(h)}
               </p>
               <p className="text-muted-foreground">
-                {POLICY_SHORT_LABELS[h.carryPolicy]}; {confirmationWord(h)} {formatFactDate(h.confirmedAt)}; recorded by {h.setByName} on{" "}
+                {POLICY_SHORT_LABELS[h.carryPolicy]}; {confirmationWord(h) === "recorded" ? "dated" : "confirmed"}{" "}
+                {formatFactDate(h.confirmedAt)}; recorded by {h.setByName} on{" "}
                 {formatFactDate(h.setAt)}
                 {h.archivedAt ? `; replaced ${formatFactDate(h.archivedAt)}` : "; current"}
               </p>

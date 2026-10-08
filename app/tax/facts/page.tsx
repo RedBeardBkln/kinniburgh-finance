@@ -6,7 +6,8 @@ import { AppShell } from "@/components/app-shell";
 import { AddFactButton } from "@/components/tax/facts/fact-row-actions";
 import { FactsBrowser } from "@/components/tax/facts/facts-browser";
 import { SeedFactsButton } from "@/components/tax/facts/seed-facts-button";
-import { FACTS_CARRY_NOT_BUILT, FACTS_PAGE_HONESTY, MIGRATION_MISSING_MESSAGE } from "@/lib/tax-facts/format";
+import { defaultCarryTarget, carryTargetContext } from "@/lib/tax-facts/carry-target";
+import { FACTS_CARRY_STATUS, FACTS_PAGE_HONESTY, MIGRATION_MISSING_MESSAGE } from "@/lib/tax-facts/format";
 import { groupFacts } from "@/lib/tax-facts/group";
 import { TAX_FACTS_SEED_TY2025 } from "@/lib/tax-facts/seed-ty2025";
 import { loadTaxFacts } from "@/lib/tax-facts-store";
@@ -31,14 +32,14 @@ export default async function TaxFactsPage() {
             <span>/</span>
             <span>Facts</span>
           </div>
-          <h1 className="text-2xl font-semibold">Facts carried forward</h1>
+          <h1 className="text-2xl font-semibold">Owner-confirmed facts</h1>
           <p className="text-sm text-muted-foreground">
-            The facts you have told the app about the household return, kept so they can be recalled and, once the carry
-            screen exists, not asked again every year. Each shows where it came from, the tax year you confirmed it for,
-            and its full history. Changing a fact adds a new version; nothing is ever deleted.
+            The facts you have told the app about the household return, kept so they can be recalled and, on the carry
+            screen, confirmed again for a new year one fact at a time. Each shows where it came from, the tax year you
+            confirmed it for, and its full history. Changing a fact adds a new version; nothing is ever deleted.
           </p>
           <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            {FACTS_PAGE_HONESTY} {FACTS_CARRY_NOT_BUILT}
+            {FACTS_PAGE_HONESTY} {FACTS_CARRY_STATUS}
           </p>
         </div>
 
@@ -56,6 +57,19 @@ export default async function TaxFactsPage() {
 
         {load.state === "ok" && (
           <>
+            {load.rows.length > 0 &&
+              (() => {
+                const carryYear = defaultCarryTarget(carryTargetContext(null));
+                return (
+                  <Link
+                    href={`/tax/facts/carry/${carryYear}` as Route}
+                    className="block rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900 hover:bg-blue-100"
+                  >
+                    Start the TY{carryYear} carry-forward review: confirm, change or answer each fact for the new year, one at a
+                    time.
+                  </Link>
+                );
+              })()}
             {(() => {
               const have = new Set(load.rows.map((r) => r.factKey));
               const missing = TAX_FACTS_SEED_TY2025.filter((s) => !have.has(s.factKey)).length;

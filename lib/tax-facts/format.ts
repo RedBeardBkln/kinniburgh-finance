@@ -120,11 +120,15 @@ export function carriedFromLabel(f: { taxYear: number; version: number; carryPol
 
 /** What the page says about the store (stated once so the wording is tested). */
 export const FACTS_PAGE_HONESTY =
-  "These are facts you told the app. They are not verified by documents unless a row says so. The TY2025 return, its checks and its approval do not read this store: the return uses the answers and decisions recorded on the Forms page. Nothing here is a computed figure.";
+  "These are facts you told the app. They are not verified by documents unless a row says so. The TY2025 return, its checks and its approval do not read this store: the return uses the answers and decisions recorded on the Tax Forms page. Nothing here is a computed figure.";
 
 /** The honest status of the carry-forward mechanism itself (stated once so the wording is tested). */
-export const FACTS_CARRY_NOT_BUILT =
-  "Today this is a recall store only. The screen that carries facts into a new tax year is not built yet, nothing re-confirms a fact for a later year from this page, and no questionnaire, return computation or review reads these facts.";
+export const FACTS_CARRY_STATUS =
+  "The carry-forward screen lets you carry these facts into a new tax year one fact at a time. Nothing re-confirms a fact for you, and no questionnaire, return computation, review or approval reads these facts.";
+
+/** What the carry screen says about itself, directly under its heading (stated once so the wording is tested). */
+export const FACTS_CARRY_SCREEN_HONESTY =
+  "Confirming a fact here records only that you say it is still true for the new tax year; it is not verified by documents. The TY2025 return and its approval do not read this store, and no questionnaire, computation or review uses it. Open items are questions, not facts, and are never confirmed here. Decisions are a recorded copy for recall; the return uses the decision recorded on the Tax Forms page.";
 
 export const MIGRATION_MISSING_MESSAGE =
   "The facts table has not been created yet: the migration has not been applied. Nothing is wrong with your data.";
