@@ -10,7 +10,8 @@ describe("loadAdvisorConfig", () => {
     expect(c).toMatchObject({
       model: DEFAULT_ADVISOR_MODEL,
       effort: "medium",
-      strictTools: true,
+      // Off by default since Phase 2 (25 tools do not fit any strict limit); ADVISOR_STRICT_TOOLS=1 opts in.
+      strictTools: false,
       fallbacks: true,
       maxOutputTokens: 16_000,
       maxToolIterations: 8,

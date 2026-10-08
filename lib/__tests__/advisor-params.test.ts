@@ -21,7 +21,8 @@ const mk = (name: string) =>
     phase: 1,
   });
 
-const cfg = loadAdvisorConfig({});
+// Strict tool schemas are opt-in since Phase 2 (default off); these tests exercise the opt-in path. The default is pinned below.
+const cfg = loadAdvisorConfig({ ADVISOR_STRICT_TOOLS: "1" });
 const defs = toolDefinitions(sortTools([mk("zeta_tool"), mk("alpha_tool")]), { strict: true });
 const system = { frozen: "FROZEN", volatile: "VOLATILE" };
 const messages = [{ role: "user" as const, content: "hi" }];
@@ -79,6 +80,12 @@ describe("buildParams", () => {
   it("is byte-identical for identical input (cache stability)", () => {
     const again = buildParams({ cfg, tools: toolDefinitions(sortTools([mk("alpha_tool"), mk("zeta_tool")]), { strict: true }), system, messages, userId: "user-1", level: 0 });
     expect(JSON.stringify(again)).toBe(JSON.stringify(p));
+  });
+
+  it("by default (no env) the tools carry no strict flag at all", () => {
+    const dflt = buildParams({ cfg: loadAdvisorConfig({}), tools: defs, system, messages, userId: "u", level: 0 });
+    expect(JSON.stringify(dflt.tools)).not.toContain("strict");
+    for (const t of dflt.tools as unknown as Record<string, unknown>[]) expect("strict" in t).toBe(false);
   });
 
   it("degradation level 1 drops strict, level 2 also drops fallbacks and the beta", () => {

@@ -105,6 +105,14 @@ export function safeField(s: string | null | undefined, max: number): string {
   return clip(redactText(s ?? ""), max);
 }
 
+/**
+ * safeField for OWNER-TYPED DESCRIPTIVE text (asset descriptions, document names, recipients, deadline labels, insurers): street addresses are
+ * removed first (heuristic, see redactStreetAddresses), then the usual identifier redaction and clip apply.
+ */
+export function safeDescriptive(s: string | null | undefined, max: number): string {
+  return safeField(redactStreetAddresses(normalizeText(s ?? "")), max);
+}
+
 const MAX_DEPTH = 24;
 
 /**
@@ -124,6 +132,27 @@ export function scrubDeep<T>(value: T, depth = 0): T {
     out[k] = scrubDeep(v, depth + 1);
   }
   return out as T;
+}
+
+export const ADDRESS_REMOVED = "[address removed]";
+
+const STREET_SUFFIX = "(?:Rd|Road|St|Street|Ave|Avenue|Ln|Lane|Dr|Drive|Ct|Court|Blvd|Boulevard|Way|Pl|Place|Cir|Circle|Hwy|Highway|Pkwy|Parkway|Ter|Terrace)";
+/** `<1-6 digits> <1-3 capitalized words> <street suffix>` ("12 Maple Rd", "400 Old Mill Road"). */
+const STREET_ADDRESS = new RegExp(String.raw`\b\d{1,6}\s+(?:[A-Z][A-Za-z'.-]*\s+){1,3}${STREET_SUFFIX}\b\.?`, "g");
+
+/** OCR text is often ALL-CAPS: `<digits> <1-3 UPPER-CASE words> <UPPER-CASE suffix>` ("123 MAIN ST"). Lower-case stays untouched on purpose (prose like "3 items to place"). */
+const STREET_ADDRESS_UPPER = new RegExp(String.raw`\b\d{1,6}\s+(?:[A-Z][A-Z0-9'.-]*\s+){1,3}${STREET_SUFFIX.toUpperCase()}\b\.?`, "g");
+/** "PO Box 4412", "P.O. Box 12" in any case. */
+const PO_BOX = /\bP\.?\s?O\.?\s+Box\s+\d+\b/gi;
+
+/**
+ * Heuristic removal of a street address in owner-typed descriptive text (asset descriptions, document names, recipients, deadline labels).
+ * Called by SHAPERS on those fields only; deliberately NOT part of redactText / scrubDeep (a global rule would rewrite what the person
+ * types). It catches "number + street word(s) + suffix"; an address without a leading number ("the barn on the old road") passes, which is
+ * a documented limit (advisor-ai-chatbot-phase2 plan, risk 3). Never echoes the removed text.
+ */
+export function redactStreetAddresses(input: string): string {
+  return input.replace(STREET_ADDRESS, ADDRESS_REMOVED).replace(STREET_ADDRESS_UPPER, ADDRESS_REMOVED).replace(PO_BOX, ADDRESS_REMOVED);
 }
 
 export const MEMORY_NOTE_MAX = 400;

@@ -9,14 +9,30 @@ import { findOwnerBannedWording } from "@/lib/tax-wording";
 
 // The assembled Phase 1 tool set, as the model sees it.
 
+const PHASE_1_TOOL_NAMES = [
+  "get_budget_status",
+  "get_financial_overview",
+  "get_net_worth_history",
+  "get_spend_summary",
+  "get_tax_decisions",
+  "get_tax_facts",
+  "get_tax_open_items",
+  "get_tax_return_lines",
+  "get_tax_return_summary",
+  "get_tax_review_status",
+  "list_accounts",
+  "list_goals",
+  "search_transactions",
+] as const;
+
 describe("the assembled tool set", () => {
-  it("is 13 tools, sorted by name, unique, snake_case", () => {
+  it("is sorted by name, unique, snake_case, and contains the 13 Phase 1 tools (the exact total is pinned in advisor-tools-phase2.test.ts)", () => {
     const names = ADVISOR_TOOLS.map((t) => t.name);
-    expect(names).toHaveLength(13);
     expect(names).toEqual([...names].sort());
-    expect(new Set(names).size).toBe(13);
-    expect(ADVISOR_TOOL_MAP.size).toBe(13);
+    expect(new Set(names).size).toBe(names.length);
+    expect(ADVISOR_TOOL_MAP.size).toBe(names.length);
     for (const n of names) expect(n).toMatch(/^[a-z][a-z0-9_]+$/);
+    for (const n of PHASE_1_TOOL_NAMES) expect(names, n).toContain(n);
   });
 
   it("the request tools array is byte-identical across calls (prompt-cache stability) and every tool is strict with additionalProperties:false", () => {
@@ -52,28 +68,29 @@ describe("the assembled tool set", () => {
   });
 
   it("each property declared in a JSON schema is accepted by the tool's own validation, and each required one is enforced", () => {
-    const sample: Record<string, unknown> = { string: "2026-09-01", integer: 1, number: 10, boolean: true };
+    const sample: Record<string, unknown> = { string: "2026-09-01", integer: 1, number: 10, boolean: true, array: ["00000000-0000-4000-8000-000000000000"] };
     for (const t of ADVISOR_TOOLS) {
       const required = t.inputJsonSchema.required;
       const missing = t.prepare({});
       expect(missing.ok, `${t.name} with no arguments`).toBe(required.length === 0);
       // every optional/required property name is known to the validator: an unknown name is refused, a declared one never is "unknown"
       for (const [name, node] of Object.entries(t.inputJsonSchema.properties)) {
-        expect(["string", "integer", "number", "boolean"]).toContain(node.type);
+        expect(["string", "integer", "number", "boolean", "array"]).toContain(node.type);
         const r = t.prepare({ ...Object.fromEntries(required.map((k) => [k, undefined])), [name]: sample[node.type] });
         if (!r.ok) expect(r.error, `${t.name}.${name}`).not.toMatch(/Unrecognized key|unrecognized/i);
       }
     }
   });
 
-  it("the optional-property count is recorded (strict mode limits are unverified offline; see anthropic.ts degradation)", () => {
+  it("the optional-property count is recorded as an informational ceiling (strict tool schemas are off by default since Phase 2)", () => {
     const total = ADVISOR_TOOLS.reduce((n, t) => n + countOptionalProperties(t.inputJsonSchema), 0);
-    // Pinned so a new optional argument is a deliberate, visible change.
-    expect(total).toBe(34);
+    // Not a limit of the API (strict is opt-in via ADVISOR_STRICT_TOOLS=1); a ceiling so a runaway schema is a deliberate, visible change.
+    expect(total).toBeGreaterThanOrEqual(34);
+    expect(total).toBeLessThanOrEqual(150);
   });
 
   it("the whole request for the real tool set is built the way the checklist says", () => {
-    const p = buildParams({ cfg: loadAdvisorConfig({}), tools: toolDefinitions(ADVISOR_TOOLS, { strict: true }), system: { frozen: FROZEN_SYSTEM, volatile: "v" }, messages: [{ role: "user", content: "hi" }], userId: "u", level: 0 });
+    const p = buildParams({ cfg: loadAdvisorConfig({ ADVISOR_STRICT_TOOLS: "1" }), tools: toolDefinitions(ADVISOR_TOOLS, { strict: true }), system: { frozen: FROZEN_SYSTEM, volatile: "v" }, messages: [{ role: "user", content: "hi" }], userId: "u", level: 0 });
     const tools = p.tools as unknown as { name: string }[];
     expect(tools.map((t) => t.name)).toEqual(ADVISOR_TOOLS.map((t) => t.name));
     expect(p.model).toBe("claude-opus-5-5");

@@ -9,8 +9,17 @@ export type AdvisorEffort = (typeof EFFORT_LEVELS)[number];
 export interface AdvisorConfig {
   model: string;
   effort: AdvisorEffort;
-  /** `strict: true` on tool schemas (kill switch ADVISOR_STRICT_TOOLS=0, see anthropic.ts degradation). */
+  /**
+   * `strict: true` on tool schemas. OFF by default since Phase 2 (advisor-ai-chatbot-phase2 plan, Decision A): 25 tools do not fit any
+   * per-request strict limit, and every tool call is re-validated by zod server-side anyway. ADVISOR_STRICT_TOOLS=1 opts back in
+   * (anthropic.ts still degrades on a 400).
+   */
   strictTools: boolean;
+  /**
+   * Whether payer / employer / lender / issuer / charity names read from tax documents are returned as printed ("keep", the default) or
+   * hidden ("generic"). Same switch and meaning as the AI Return Reviewer's TAX_REVIEW_PAYER_NAMES; anything but "generic" means keep.
+   */
+  payerNames: "keep" | "generic";
   /** Opt in to server-side fallbacks (beta). ADVISOR_FALLBACKS=0 turns it off. */
   fallbacks: boolean;
   maxOutputTokens: number;
@@ -74,7 +83,8 @@ export function loadAdvisorConfig(env: Readonly<Record<string, string | undefine
   return {
     model: model !== undefined && model !== "" && /^[A-Za-z0-9._-]{1,80}$/.test(model) ? model : DEFAULT_ADVISOR_MODEL,
     effort: isEffort(env.ADVISOR_EFFORT?.trim()) ? (env.ADVISOR_EFFORT!.trim() as AdvisorEffort) : "medium",
-    strictTools: flagFromEnv(env.ADVISOR_STRICT_TOOLS, true),
+    strictTools: flagFromEnv(env.ADVISOR_STRICT_TOOLS, false),
+    payerNames: env.TAX_REVIEW_PAYER_NAMES?.trim().toLowerCase() === "generic" ? "generic" : "keep",
     fallbacks: flagFromEnv(env.ADVISOR_FALLBACKS, true),
     maxOutputTokens: intFromEnv(env.ADVISOR_MAX_OUTPUT_TOKENS, 16_000, 1_024, 64_000),
     maxToolIterations: intFromEnv(env.ADVISOR_MAX_TOOL_ITERATIONS, 8, 1, 16),

@@ -130,11 +130,12 @@ const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 describe("A. the model has no write path", () => {
   const toolAndQueryFiles = [...walk(join(ROOT, "lib/advisor/tools")), ...walk(join(ROOT, "lib/advisor/queries"))];
 
-  it("the registry is exactly the 13 read tools; no tool name suggests a write", () => {
+  it("the registry holds only read tools (plus the suggestion-only propose_memory_note); no tool name suggests a write", () => {
     const names = ADVISOR_TOOLS.map((t) => t.name);
-    expect(names).toHaveLength(13);
-    expect(new Set(names).size).toBe(13);
-    for (const n of names) expect(n, n).toMatch(/^(get|list|search)_/);
+    // Phase 2: the registry grows; the one tool whose name is not get/list/search is the explicit propose_memory_note (it never writes).
+    expect(new Set(names).size).toBe(names.length);
+    const SUGGESTION_ONLY = ["propose_memory_note"];
+    for (const n of names) if (!SUGGESTION_ONLY.includes(n)) expect(n, n).toMatch(/^(get|list|search)_/);
     expect(names).not.toContain("save_memory");
     expect(names.filter((n) => /save|set_|update|create|delete|approve|accept|start|run_|record|archive|forget|remember|write|send/.test(n))).toEqual([]);
   });
@@ -146,6 +147,8 @@ describe("A. the model has no write path", () => {
       for (const m of src.matchAll(/(?:from|import)\s*\(?\s*"([^"]+)"/g)) {
         // tax-facts-store is read through loadTaxFacts() only (checked below)
         if (m[1] === "@/lib/tax-facts-store") continue;
+        // Phase 2: the year-close READ store is imported by exactly one query file (get_tax_calendar; get_recent_changes goes through it).
+        if (rel(f) === "lib/advisor/queries/tax-calendar.ts" && m[1] === "@/lib/tax-year-close-store") continue;
         expect(banned.test(m[1]!), `${rel(f)} imports ${m[1]}`).toBe(false);
       }
     }
@@ -634,9 +637,9 @@ describe("C. conversation ownership in the real store (in-memory db)", () => {
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // D. API request construction
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-describe("D. buildParams on the real 13-tool set", () => {
+describe("D. buildParams on the real tool set (strict schemas opted in)", () => {
   const defs = toolDefinitions(ADVISOR_TOOLS, { strict: true });
-  const params = buildParams({ cfg: loadAdvisorConfig({}), tools: defs, system: { frozen: FROZEN_SYSTEM, volatile: buildVolatileBlock({ now: new Date("2026-10-08T12:00:00Z"), firstName: "Eric", memory: "- note" }) }, messages: [{ role: "user", content: "hi" }], userId: "u1", level: 0 });
+  const params = buildParams({ cfg: loadAdvisorConfig({ ADVISOR_STRICT_TOOLS: "1" }), tools: defs, system: { frozen: FROZEN_SYSTEM, volatile: buildVolatileBlock({ now: new Date("2026-10-08T12:00:00Z"), firstName: "Eric", memory: "- note" }) }, messages: [{ role: "user", content: "hi" }], userId: "u1", level: 0 });
 
   it("no thinking / temperature / top_p / top_k / tool_choice; effort set; model default; fallbacks + beta header", () => {
     const p = params as unknown as Record<string, unknown>;
