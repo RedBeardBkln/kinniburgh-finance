@@ -1,7 +1,16 @@
 "use server";
 
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
+
+// Every export is a server action addressable by id, so each one starts with the auth gate (the page also redirects).
+// The Advisor's Goals panel is the only caller and always runs inside a signed-in session.
+async function requireAuth(): Promise<{ id: string }> {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+  return { id: session.user.id };
+}
 
 export type GoalInput = {
   title: string;
@@ -15,6 +24,7 @@ export type GoalInput = {
 };
 
 export async function listGoals() {
+  await requireAuth();
   return db.financialGoal.findMany({
     where: { status: { not: "deleted" } },
     orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
@@ -22,6 +32,7 @@ export async function listGoals() {
 }
 
 export async function createGoal(input: GoalInput) {
+  await requireAuth();
   const goal = await db.financialGoal.create({
     data: {
       title: input.title,
@@ -39,6 +50,7 @@ export async function createGoal(input: GoalInput) {
 }
 
 export async function updateGoal(id: string, input: Partial<GoalInput & { status: string }>) {
+  await requireAuth();
   const goal = await db.financialGoal.update({
     where: { id },
     data: {
@@ -58,6 +70,7 @@ export async function updateGoal(id: string, input: Partial<GoalInput & { status
 }
 
 export async function updateGoalStatus(id: string, status: "active" | "achieved" | "paused") {
+  await requireAuth();
   const goal = await db.financialGoal.update({
     where: { id },
     data: { status },
@@ -67,6 +80,7 @@ export async function updateGoalStatus(id: string, status: "active" | "achieved"
 }
 
 export async function deleteGoal(id: string) {
+  await requireAuth();
   await db.financialGoal.delete({ where: { id } });
   revalidatePath("/advisor");
 }
