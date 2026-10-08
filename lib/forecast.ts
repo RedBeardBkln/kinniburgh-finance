@@ -52,7 +52,12 @@ function allWeekdays(from: Date, to: Date, dayOfWeek: number): Date[] {
   return result;
 }
 
-/** Returns all dates in [from, to) matching one of daysOfMonth (1-based). */
+/**
+ * Returns all dates in [from, to) matching one of daysOfMonth (1-based).
+ * A listed day the month is too short to have (29/30/31) is clamped to that
+ * month's last day, and days that collapse onto the same date in a month
+ * (e.g. [30, 31] in November) yield ONE date, not two.
+ */
 function allMonthDays(from: Date, to: Date, daysOfMonth: number[]): Date[] {
   const result: Date[] = [];
   const start = startOfDayUTC(from);
@@ -64,10 +69,11 @@ function allMonthDays(from: Date, to: Date, daysOfMonth: number[]): Date[] {
   const endMonth = to.getUTCMonth();
 
   while (year < endYear || (year === endYear && month <= endMonth)) {
-    for (const day of daysOfMonth) {
-      // Skip days that don't exist in this month (e.g. day 31 in February)
-      const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-      if (day > daysInMonth) continue;
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    // Clamp to the month's last day, then de-duplicate (a Set keeps the
+    // collapsed day once, e.g. [30, 31] in a 30-day month).
+    const monthDays = new Set(daysOfMonth.map((day) => Math.min(day, daysInMonth)));
+    for (const day of monthDays) {
       const d = new Date(Date.UTC(year, month, day));
       if (d >= from && d < to) result.push(d);
     }

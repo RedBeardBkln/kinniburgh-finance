@@ -490,10 +490,10 @@ export async function checkBillReminders(): Promise<number> {
 
   const now = new Date();
   const today = startOfDayUTC(now);
-  // Wide enough to guarantee finding the next monthly occurrence even in the
-  // allMonthDays edge case where a day-31 bill falls in a month that skips it
-  // entirely (e.g. Feb) and rolls to the following month's 31st (~58 days out
-  // in the worst case: Feb 1 -> Mar 31).
+  // Wide enough to cover every cadence's next occurrence (monthly days 29-31
+  // clamp to the month's last day in allMonthDays, so consecutive monthly
+  // occurrences are at most 31 days apart). 65 days is kept as a generous
+  // margin and costs nothing.
   const horizon = new Date(today.getTime() + 65 * 86400000);
   const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
   let generated = 0;

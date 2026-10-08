@@ -7,13 +7,8 @@
 // hand in plain rows. All date math is delegated to lib/forecast.ts's generators; this file only
 // decides precedence, gating (unknown amount / unknown day are NEVER guessed) and totals.
 //
-// KNOWN INHERITED GAP (not fixed here, see plan section 9 risk 1): lib/forecast.ts `allMonthDays`
-// skips any listed day that does not exist in that month. Days 29, 30 and 31 of ANY monthly bill,
-// Budget schedule or paycheck (semi-monthly or monthly) are therefore skipped in months too short to
-// have them: e.g. the [15, 31] paycheck in Sep, Nov, Feb, Apr, Jun, and a day-30 bill (Toyota) in
-// February. The skipped occurrence has no item, no note and no `undated` entry. Everything below goes
-// through that generator unchanged, so the same occurrences are missing from this list until the
-// generator is fixed in its own task (clamp to the last day of the month, no duplicate dates).
+// Month-length: lib/forecast.ts `allMonthDays` clamps a listed day 29-31 to the last day of a short
+// month (and collapses duplicates such as [30, 31]), so month-end bills and paychecks are never skipped.
 
 import { Decimal } from "@prisma/client/runtime/library";
 import {
