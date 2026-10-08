@@ -19,7 +19,12 @@ function monthYear(d: Date): string {
   return d.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
-export async function buildAdvisorContext(): Promise<string> {
+export interface AdvisorContextOptions {
+  /** The assistant's get_financial_overview tool: leave rental guest names out of the text (names policy). Default false (unchanged). */
+  omitGuestNames?: boolean;
+}
+
+export async function buildAdvisorContext(options: AdvisorContextOptions = {}): Promise<string> {
   const now = new Date();
   const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -259,7 +264,7 @@ export async function buildAdvisorContext(): Promise<string> {
     }
     tx("Bookings:");
     for (const b of upcomingBookings) {
-      li(`${b.guest}: ${shortDate(new Date(b.startDate))} – ${shortDate(new Date(b.endDate))} (${b.nights} nights) — ${fmtDollars(Number(b.grossEarnings))}`);
+      li(`${options.omitGuestNames === true ? "Booking" : b.guest}: ${shortDate(new Date(b.startDate))} – ${shortDate(new Date(b.endDate))} (${b.nights} nights) — ${fmtDollars(Number(b.grossEarnings))}`);
     }
   }
 
