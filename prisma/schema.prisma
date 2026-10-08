@@ -48,6 +48,9 @@ model User {
   taxReviewDispositions      TaxReviewFindingDisposition[] @relation("TaxReviewDispositionAuthor")
   taxReturnApprovalsGiven    TaxReturnApproval[] @relation("TaxReturnApprovalApprover")
   taxYearCloseEventsMade     TaxYearCloseEvent[] @relation("TaxYearCloseAuthor")
+  advisorConversations       AdvisorConversation[] @relation("AdvisorConversationOwner")
+  advisorMemoriesAuthored    AdvisorMemory[]     @relation("AdvisorMemoryAuthor")
+  advisorUsages              AdvisorUsage[]      @relation("AdvisorUsageUser")
 }
 
 model PasswordResetToken {
@@ -1377,4 +1380,90 @@ model DedupAction {
 
   @@index([createdAt])
   @@index([entityId])
+}
+
+// ─── Advisor assistant (advisor-ai-chatbot) ──────────────────────────────────
+// Additive only: four NEW tables, nothing existing is touched. Plain String columns validated in the app (no DB enums / CHECKs).
+// The assistant is read-only: none of these tables is read by the TY2025 engine, the return fingerprint or the AI reviewer.
+
+// Per-user private conversation. Archive-only (CLAUDE.md rule 7: tax content can appear in answers). Only title / titleSource /
+// messageCount / lastMessageAt / archivedAt are ever updated.
+model AdvisorConversation {
+  id            String    @id @default(uuid())
+  userId        String
+  title         String                       // <= 80, scrubbed; auto from the first message until the user renames
+  titleSource   String    @default("auto")   // "auto" | "user"
+  messageCount  Int       @default(0)
+  lastMessageAt DateTime  @default(now())
+  archivedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user     User             @relation("AdvisorConversationOwner", fields: [userId], references: [id], onDelete: Restrict)
+  messages AdvisorMessage[]
+
+  @@index([userId, archivedAt, lastMessageAt])
+}
+
+// INSERT-ONLY. User + assistant text (scrubbed) and compact tool-call records. Never raw tool results.
+model AdvisorMessage {
+  id             String   @id @default(uuid())
+  conversationId String
+  seq            Int                          // 1,2,3... per conversation; the unique index makes two racing sends safe
+  role           String                       // "user" | "assistant"
+  text           String                       // scrubbed; <= 4_000 (user) / <= 24_000 (assistant)
+  toolCalls      Json?                        // [{ name, argSummary<=120, ok, rows, resultChars, ms }]  (no values)
+  stopReason     String?                      // end_turn | max_tokens | refusal | loop_cap | time_budget | token_cap | aborted | error
+  model          String?                      // model that served (maybe a fallback)
+  pageRoute      String?                      // Phase 2: closed-set route label (no query values)
+  createdAt      DateTime @default(now())
+
+  conversation AdvisorConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+
+  @@unique([conversationId, seq])
+}
+
+// Household memory notes. APPEND-ONLY / versioned like TaxFact: an edit = new row + archive of the old one; "forget" = archive; never deleted.
+model AdvisorMemory {
+  id             String    @id @default(uuid())
+  text           String                         // <= 400, passed scrubMemoryNote (identifier-like text is REJECTED, not stored)
+  category       String                         // "preference" | "household" | "tax_context" | "other"
+  source         String                         // "panel" | "assistant"
+  createdById    String?
+  createdByName  String                         // display-name snapshot (first name) so attribution survives a SET NULL
+  conversationId String?                        // pointer only (assistant source)
+  supersedesId   String?                        // edit chain
+  createdAt      DateTime  @default(now())
+  archivedAt     DateTime?
+  archivedById   String?
+  archivedByName String?
+  archiveKind    String?                        // "forgotten" | "superseded"
+
+  createdBy User? @relation("AdvisorMemoryAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([archivedAt, createdAt])
+}
+
+// INSERT-ONLY. One row per assistant turn that was accepted and run (completed, aborted or failed). Turns refused up front (over a cap, bad request)
+// write no row. The daily cap is checked before a turn and its usage is written after it, so two concurrent sends can overshoot by a few turns
+// (accepted). COUNTS ONLY: no text, no arguments.
+model AdvisorUsage {
+  id               String   @id @default(uuid())
+  userId           String
+  conversationId   String?
+  model            String?
+  inputTokens      Int      @default(0)    // uncached input
+  cacheWriteTokens Int      @default(0)
+  cacheReadTokens  Int      @default(0)
+  outputTokens     Int      @default(0)    // includes thinking tokens
+  iterations       Int      @default(0)
+  toolCalls        Int      @default(0)
+  fallbackUsed     Boolean  @default(false)
+  outcome          String                  // end_turn | max_tokens | refusal | loop_cap | time_budget | token_cap | aborted | error
+  durationMs       Int      @default(0)
+  at               DateTime @default(now())
+
+  user User @relation("AdvisorUsageUser", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, at])
 }
