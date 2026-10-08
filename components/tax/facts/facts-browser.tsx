@@ -28,7 +28,7 @@ function FactCard({ group }: { group: FactGroup }) {
           {f.sourceRef && <p className="text-xs text-muted-foreground">Source: {f.sourceRef}</p>}
           {f.category === "decision" && (
             <p className="text-xs text-muted-foreground">
-              Recorded copy for recall; the return uses the decision recorded on the Forms page.
+              Recorded copy for recall; the return uses the decision recorded on the Tax Forms page.
             </p>
           )}
         </div>

@@ -436,7 +436,7 @@ export function PersonalTaxClient(props: Props) {
           <CardTitle className="text-base">5 · Forms</CardTitle>
           <p className="text-xs text-muted-foreground">
             The forms your {props.taxYear} situation requires, why each is needed, which documents feed
-            it, and how ready it is now live on the Forms page. Nothing is filed automatically — you
+            it, and how ready it is now live on the Tax Forms page. Nothing is filed automatically — you
             review, sign and file.
           </p>
         </CardHeader>
@@ -445,7 +445,7 @@ export function PersonalTaxClient(props: Props) {
             href={`/tax/forms/${props.taxYear}` as Route}
             className="text-sm font-medium text-primary hover:underline"
           >
-            Open the {props.taxYear} Forms page →
+            Open the {props.taxYear} Tax Forms page →
           </Link>
         </CardContent>
       </Card>

@@ -61,12 +61,12 @@ export function NoneConfirmation({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span>
           {confirmed
-            ? `Confirmed: ${noneLabel.toLowerCase()}. The Forms page treats this line as done.`
+            ? `Confirmed: ${noneLabel.toLowerCase()}. The Tax Forms page treats this line as done.`
             : hasEntries
-              ? `${entriesLabel} recorded - the Forms page treats this line as done.`
+              ? `${entriesLabel} recorded - the Tax Forms page treats this line as done.`
               : uncountedNote
                 ? uncountedNote
-                : `Not confirmed - the Forms page keeps this line open until you record an entry or confirm none.`}
+                : `Not confirmed - the Tax Forms page keeps this line open until you record an entry or confirm none.`}
         </span>
         {confirmed ? (
           <button

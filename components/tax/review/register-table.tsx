@@ -6,7 +6,7 @@ import { byImpact } from "@/lib/tax-review/llm/register";
 
 // The judgments register: every decision that used to be left to a third party is a decision for Eric, with a recommended position, the
 // alternative, the source and the dollar impact the engine can actually compute ("not quantified" otherwise). Server component, plain
-// props. Nothing here decides: it lists what is left to the owner (record decisions on the Forms page, answer questions in the
+// props. Nothing here decides: it lists what is left to the owner (record decisions on the Tax Forms page, answer questions in the
 // Return completeness questionnaire). The wording of an entry marked "AI-worded" came from the AI review and was validated by code
 // (no invented dollar figures, sources checked); the status, the topic and the dollar impact never come from the AI.
 
@@ -35,7 +35,7 @@ export function RegisterTable({ entries, narrated, links = EMPTY_LINK_CONTEXT }:
             ? "Nothing in this return is waiting on a decision of yours."
             : `${entries.length} item${entries.length === 1 ? "" : "s"} the return leaves to you (${open} still need${open === 1 ? "s" : ""} a decision), largest dollar impact first. Each shows the position the return uses, the alternative, the source and what the engine can say about the dollars. ${
                 narrated ? "The wording was written by the AI review and checked by code." : "The wording is the engine's own; run the AI review for a plainer explanation."
-              } Record a decision on the Forms page; answer open questions in the Return completeness questions.`}
+              } Record a decision on the Tax Forms page; answer open questions in the Return completeness questions.`}
         </p>
       </div>
       {entries.length > 0 ? (
