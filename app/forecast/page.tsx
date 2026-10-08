@@ -30,6 +30,9 @@ import { RentalBookingsSection } from "@/components/forecast/rental-bookings-sec
 import { SpendPaceSection, type TagPaceRow } from "@/components/forecast/spend-pace-section";
 import { capForecastHorizon, prorateExpensesAcrossHorizon } from "@/lib/business-forecast";
 import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
+import { loadUpcomingLedger } from "@/lib/upcoming-ledger-build";
+import { parseHorizon, parseTransfersFlag, toUiLedger, type UiLedger } from "@/lib/upcoming-ledger-view";
+import { UpcomingAgenda } from "@/components/upcoming/upcoming-agenda";
 import {
   BusinessForecastSection,
   type ForecastAccount as BusinessForecastAccount,
@@ -37,7 +40,7 @@ import {
 } from "@/components/forecast/business-forecast-section";
 
 interface PageProps {
-  searchParams: Promise<{ bucket?: string }>;
+  searchParams: Promise<{ bucket?: string; horizon?: string; transfers?: string }>;
 }
 
 export default async function ForecastPage({ searchParams }: PageProps) {
@@ -629,6 +632,26 @@ export default async function ForecastPage({ searchParams }: PageProps) {
 
   const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+  // ── Upcoming agenda (30 / 60 / 90 days). Read-only, fail-soft: a loader error shows a small
+  // notice in the agenda card and leaves every other section untouched. ──
+  const upcomingHorizon = parseHorizon(params.horizon);
+  const showTransfers = parseTransfersFlag(params.transfers);
+  let upcoming: UiLedger | null = null;
+  try {
+    const loaded = await loadUpcomingLedger({ entityId: entity?.id ?? null, days: upcomingHorizon, now });
+    upcoming = toUiLedger(loaded.ledger, {
+      days: upcomingHorizon,
+      bucketSlug: bucket,
+      isAggregate: entity === null,
+      entityNameById: loaded.entityNameById,
+      entitySlugById: loaded.entitySlugById,
+      accountNameById: loaded.accountNameById,
+      includeTransfers: showTransfers,
+    });
+  } catch (err) {
+    console.error("Upcoming ledger unavailable", err instanceof Error ? err.name : "UnknownError");
+  }
+
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
@@ -932,6 +955,14 @@ export default async function ForecastPage({ searchParams }: PageProps) {
             )}
           </CardContent>
         </Card>
+
+        {/* ── Upcoming agenda: every dated bill / paycheck / deadline, de-duplicated (lib/upcoming-ledger.ts) ── */}
+        <UpcomingAgenda
+          ledger={upcoming}
+          bucketSlug={bucket}
+          horizon={upcomingHorizon}
+          showTransfers={showTransfers}
+        />
 
         {/* ── Category spend pace (Personal bucket only) ──────────────── */}
         {entity?.slug === "personal" && paceRows.length > 0 && (

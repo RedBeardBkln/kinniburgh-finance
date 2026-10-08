@@ -14,6 +14,9 @@ import type { Route } from "next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { DashboardClient, type SerializedBudget } from "@/components/dashboard/dashboard-client";
 import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
+import { loadUpcomingLedger } from "@/lib/upcoming-ledger-build";
+import { toUiLedger, type UiLedger } from "@/lib/upcoming-ledger-view";
+import { UpcomingWidget } from "@/components/upcoming/upcoming-widget";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; period?: string }>;
@@ -96,6 +99,27 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     }),
     db.tag.findMany({ orderBy: { name: "asc" } }),
   ]);
+
+  // "Next 30 days" widget: about today, so only on the current month. Deliberately NOT part of the
+  // Promise.all above and fail-soft: if it throws, the widget shows a small notice and the rest of
+  // the dashboard is unaffected. Read-only; the page has already run auth().
+  let upcoming: UiLedger | null = null;
+  if (isCurrentPeriod) {
+    try {
+      const loaded = await loadUpcomingLedger({ entityId: entity?.id ?? null, days: 30, now });
+      upcoming = toUiLedger(loaded.ledger, {
+        days: 30,
+        bucketSlug: bucket,
+        isAggregate: entity === null,
+        entityNameById: loaded.entityNameById,
+        entitySlugById: loaded.entitySlugById,
+        accountNameById: loaded.accountNameById,
+        includeTransfers: false,
+      });
+    } catch (err) {
+      console.error("Upcoming ledger unavailable", err instanceof Error ? err.name : "UnknownError");
+    }
+  }
 
   const spendByTagId = new Map<string, Prisma.Decimal>(
     tagSpend.map((r) => [r.tagId, new Prisma.Decimal(r.total)])
@@ -267,6 +291,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </CardContent>
           </Card>
         </div>
+
+        {/* Next 30 days (current month only) */}
+        {isCurrentPeriod && <UpcomingWidget ledger={upcoming} bucketSlug={bucket} />}
 
         {/* Budget lines table */}
         <Card>
