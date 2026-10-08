@@ -88,8 +88,52 @@ describe("no tool or query reaches an excluded model or field", () => {
     }
   });
 
-  it("allows no raw-extraction field anywhere in Phase 1", () => {
-    expect(ALLOWED_RAW_USES).toEqual({});
+  it("allows raw-extraction fields in exactly one file: the document-values query", () => {
+    expect(ALLOWED_RAW_USES).toEqual({
+      "lib/advisor/queries/document-values.ts": ["extractionData", "extractionCorrections", "extractionConfirmedAt", "extractionStatus"],
+    });
+  });
+
+  it("the document-values query reads extraction values only through resolveTaxDocForCompute, names the raw columns only inside select blocks, and never iterates the extraction object", () => {
+    const f = join(ROOT, "lib/advisor/queries/document-values.ts");
+    expect(existsSync(f)).toBe(true);
+    const src = stripComments(read(f));
+    expect(src).toMatch(/import \{[^}]*\bresolveTaxDocForCompute\b[^}]*\} from "@\/lib\/tax-extraction-policy"/);
+    expect(src).toMatch(/\bresolveTaxDocForCompute\(/);
+    // every mention of a raw column sits inside a `select: { ... }` block
+    const selects = [...src.matchAll(/select:\s*\{/g)].map((m) => {
+      let depth = 1;
+      let i = m.index! + m[0].length;
+      while (i < src.length && depth > 0) {
+        if (src[i] === "{") depth++;
+        else if (src[i] === "}") depth--;
+        i++;
+      }
+      return [m.index!, i] as const;
+    });
+    for (const col of ["extractionData", "extractionCorrections"]) {
+      const hits = [...src.matchAll(new RegExp(`\\b${col}\\b`, "g"))];
+      expect(hits.length, col).toBeGreaterThan(0);
+      // inside a select block, or the property of the RESOLVED (effective) result: `resolved.extractionData`
+      for (const h of hits) {
+        const inSelect = selects.some(([a, b]) => h.index! >= a && h.index! < b);
+        const onResolved = src.slice(Math.max(0, h.index! - "resolved.".length), h.index!) === "resolved.";
+        expect(inSelect || onResolved, `${col} outside a select block`).toBe(true);
+      }
+      if (col === "extractionCorrections") expect(hits.every((h) => selects.some(([a, b]) => h.index! >= a && h.index! < b)), "corrections are never read outside the select").toBe(true);
+    }
+    expect(/JSON\.stringify|Object\.(keys|entries|values)|for\s*\(\s*(const|let)\s+\w+\s+(in|of)/.test(src)).toBe(false);
+  });
+
+  it("no other advisor file (tools, queries or lib) names the raw extraction value columns", () => {
+    for (const f of advisorLib) {
+      // exclusions.ts is the boundary-as-data file: it lists these names to forbid them.
+      if (rel(f) === "lib/advisor/queries/document-values.ts" || rel(f) === "lib/advisor/exclusions.ts") continue;
+      const src = stripComments(read(f));
+      for (const col of ["extractionData", "extractionCorrections", "extractionRaw", "ocrRaw"]) {
+        expect(new RegExp(`\\b${col}\\b`).test(src), `${rel(f)} names ${col}`).toBe(false);
+      }
+    }
   });
 
   it("imports nothing from the Vault, Plaid, encryption or session modules, and reads no environment", () => {
