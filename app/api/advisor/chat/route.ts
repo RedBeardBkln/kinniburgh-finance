@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   if (!checked.ok) return jsonError(checked.status, checked.code, checked.message);
 
   const deps = productionDeps();
-  const prepared = await prepareTurn(deps, { userId, conversationId: checked.body.conversationId, message: checked.body.message });
+  const prepared = await prepareTurn(deps, { userId, conversationId: checked.body.conversationId, message: checked.body.message, pageContext: checked.body.pageContext?.path ?? null });
   if (!prepared.ok) return jsonError(prepared.status, prepared.code, prepared.message);
 
   const abort = new AbortController();

@@ -14,6 +14,7 @@ import { checkLimits, windowStart } from "@/lib/advisor/limits";
 import { runTurn, type LlmClient, type TurnOutcome } from "@/lib/advisor/loop";
 import { buildMemoryBlock, type MemoryNoteView } from "@/lib/advisor/memory";
 import { firstNameOf } from "@/lib/advisor/names";
+import { describePageContext, parsePageContext } from "@/lib/advisor/page-context";
 import { buildVolatileBlock, FROZEN_SYSTEM } from "@/lib/advisor/prompt";
 import { redactUserText } from "@/lib/advisor/scrub";
 import type { AdvisorEvent, ErrorCode } from "@/lib/advisor/stream-protocol";
@@ -57,13 +58,17 @@ export interface PreparedTurn {
   title: string;
   turnsLeftAfterThis: number;
   inputScrubbed: boolean;
+  /** Fresh tokens used by this user in the last 24 hours BEFORE this turn (the usage line). */
+  tokens24hBefore?: number;
+  /** The server's own one-sentence description of the page (null / absent when the path is unknown or /advisor). Never client text. */
+  pageContext?: string | null;
 }
 
 const NOT_FOUND: PrepareFailure = { ok: false, status: 404, code: "not_found", message: "Conversation not found." };
 
 export async function prepareTurn(
   deps: TurnDeps,
-  input: { userId: string; conversationId: string | null; message: string },
+  input: { userId: string; conversationId: string | null; message: string; pageContext?: string | null },
 ): Promise<{ ok: true; turn: PreparedTurn } | PrepareFailure> {
   try {
     const now = deps.now();
@@ -107,13 +112,30 @@ export async function prepareTurn(
     }
     return {
       ok: true,
-      turn: { userId: input.userId, firstName, conversationId, userMessageId: stored.id, title, turnsLeftAfterThis: Math.max(0, decision.turnsLeft - 1), inputScrubbed: cleaned.changed },
+      turn: {
+        userId: input.userId,
+        firstName,
+        conversationId,
+        userMessageId: stored.id,
+        title,
+        turnsLeftAfterThis: Math.max(0, decision.turnsLeft - 1),
+        inputScrubbed: cleaned.changed,
+        tokens24hBefore: totals.user.freshTokens,
+        pageContext: pageSentence(input.pageContext),
+      },
     };
   } catch (e) {
     console.error("advisor prepare failed:", e instanceof Error ? e.name : "unknown error");
     if (deps.isMissingTable(e)) return { ok: false, status: 503, code: "unavailable", message: "The assistant's storage has not been set up yet." };
     return { ok: false, status: 500, code: "upstream", message: "Something went wrong. Nothing was changed; please try again." };
   }
+}
+
+/** The page sentence for the prompt, from the client's pathname re-parsed against the closed table (null when unknown or the Advisor page itself). */
+function pageSentence(path: string | null | undefined): string | null {
+  if (path === null || path === undefined) return null;
+  const ctx = parsePageContext(path);
+  return ctx === null ? null : describePageContext(ctx);
 }
 
 function usageOf(o: TurnOutcome | null): { in: number; out: number; cacheRead: number } {
@@ -135,7 +157,7 @@ export async function streamTurn(deps: TurnDeps, turn: PreparedTurn, emitRaw: (e
   let messageId: string | null = null;
   const pinger = setInterval(() => emit({ t: "ping" }), LIMITS.pingMs);
   try {
-    emit({ t: "meta", conversationId: turn.conversationId, userMessageId: turn.userMessageId, title: turn.title, remaining: { turns: turn.turnsLeftAfterThis } });
+    emit({ t: "meta", conversationId: turn.conversationId, userMessageId: turn.userMessageId, title: turn.title, remaining: { turns: turn.turnsLeftAfterThis, ...(turn.tokens24hBefore !== undefined ? { tokens24h: turn.tokens24hBefore } : {}) } });
     if (turn.inputScrubbed) emit({ t: "notice", code: "input_scrubbed", message: "A number that looked like an SSN, EIN or account number was removed from your message." });
 
     const [stored, memory] = await Promise.all([deps.store.loadMessages(turn.userId, turn.conversationId), deps.store.listActiveMemory().catch(() => [] as MemoryNoteView[])]);
@@ -148,7 +170,7 @@ export async function streamTurn(deps: TurnDeps, turn: PreparedTurn, emitRaw: (e
       tools: deps.toolMap,
       ctx: { userId: turn.userId, firstName: turn.firstName, now, memo: new Map(), signal },
       cfg: deps.cfg,
-      system: { frozen: FROZEN_SYSTEM, volatile: buildVolatileBlock({ now, firstName: turn.firstName, memory: buildMemoryBlock(memory) }) },
+      system: { frozen: FROZEN_SYSTEM, volatile: buildVolatileBlock({ now, firstName: turn.firstName, memory: buildMemoryBlock(memory), ...(turn.pageContext ? { pageContext: turn.pageContext } : {}) }) },
       messages,
       emit,
       signal,

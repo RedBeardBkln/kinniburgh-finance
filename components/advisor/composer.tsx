@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { formatUsageLine } from "@/lib/advisor/usage-format";
 
 interface ComposerProps {
   value: string;
@@ -13,13 +14,16 @@ interface ComposerProps {
   streaming: boolean;
   /** null = unknown. 0 = the daily limit is reached. */
   turnsLeft: number | null;
+  /** Fresh tokens used in the last 24 hours (null / absent = unknown). Counts only: no cost is ever shown. */
+  tokens24h?: number | null;
   maxChars: number;
 }
 
-export function Composer({ value, onChange, onSend, onStop, streaming, turnsLeft, maxChars }: ComposerProps) {
+export function Composer({ value, onChange, onSend, onStop, streaming, turnsLeft, tokens24h = null, maxChars }: ComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const limitReached = turnsLeft !== null && turnsLeft <= 0;
   const disabled = streaming || limitReached;
+  const usageLine = formatUsageLine({ turnsLeft, tokens24h });
   return (
     <div className="border-t p-3 space-y-1.5">
       {limitReached && (
@@ -56,7 +60,7 @@ export function Composer({ value, onChange, onSend, onStop, streaming, turnsLeft
       </div>
       <p className="text-[11px] text-muted-foreground">
         Press Enter to send, Shift+Enter for a new line.
-        {turnsLeft !== null && !limitReached ? ` ${turnsLeft} question${turnsLeft === 1 ? "" : "s"} left today.` : ""} The assistant is software and can be wrong: verify before you act.
+        {usageLine !== "" ? ` ${usageLine}` : ""} The assistant is software and can be wrong: verify before you act.
       </p>
     </div>
   );

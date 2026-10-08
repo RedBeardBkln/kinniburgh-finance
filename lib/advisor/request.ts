@@ -7,6 +7,8 @@ export const chatBodySchema = z
   .object({
     conversationId: z.string().uuid().nullable(),
     message: z.string().min(1).max(LIMITS.maxMessageChars),
+    /** The page the person is on: the pathname ONLY. The server re-parses it against a closed table (lib/advisor/page-context.ts). */
+    pageContext: z.object({ path: z.string().max(200) }).strict().optional(),
   })
   .strict();
 

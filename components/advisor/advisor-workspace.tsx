@@ -10,10 +10,10 @@ import { ConversationList } from "@/components/advisor/conversation-list";
 import { MemoryPanel, type MemoryNoteDto } from "@/components/advisor/memory-panel";
 import { MessageBubble } from "@/components/advisor/message-bubble";
 import { VisibilityNotice } from "@/components/advisor/visibility-notice";
-import { applyEvent, emptyTurn, liveMessage, toUiMessage, type ConversationView, type TurnView, type UiMessage } from "@/lib/advisor/chat-state";
+import { useAdvisorChat } from "@/components/advisor/use-advisor-chat";
+import { toUiMessage, type ConversationView, type UiMessage } from "@/lib/advisor/chat-state";
 import { LIMITS } from "@/lib/advisor/config";
 import { STARTER_PROMPTS } from "@/lib/advisor/starters";
-import { createByteDecoder } from "@/lib/advisor/stream-protocol";
 
 interface AdvisorWorkspaceProps {
   initialConversations: ConversationView[];
@@ -21,6 +21,8 @@ interface AdvisorWorkspaceProps {
   initialMessages: UiMessage[];
   initialMemory: MemoryNoteDto[];
   turnsLeft: number | null;
+  /** Fresh tokens used in the last 24 hours (null = unknown). */
+  tokens24h?: number | null;
   /** "ok", or why the assistant's tables cannot be used yet (the Goals panel keeps working). */
   storage: "ok" | "table_missing" | "error";
   /** Server time at render, ISO (the conversation list says "today" / "yesterday" from it). */
@@ -28,29 +30,19 @@ interface AdvisorWorkspaceProps {
   goalsSlot: React.ReactNode;
 }
 
-const GENERIC_ERROR = "Something went wrong. Please try again.";
-
-async function errorMessageOf(res: Response): Promise<string> {
-  if (res.status === 401) return "Your session expired. Sign in again.";
-  try {
-    const body = (await res.json()) as { error?: { message?: unknown } };
-    if (typeof body.error?.message === "string" && body.error.message !== "") return body.error.message;
-  } catch {
-    /* not JSON */
-  }
-  return GENERIC_ERROR;
-}
-
-export function AdvisorWorkspace({ initialConversations, initialActiveId, initialMessages, initialMemory, turnsLeft: initialTurnsLeft, storage, nowIso, goalsSlot }: AdvisorWorkspaceProps) {
+export function AdvisorWorkspace({ initialConversations, initialActiveId, initialMessages, initialMemory, turnsLeft: initialTurnsLeft, tokens24h: initialTokens24h, storage, nowIso, goalsSlot }: AdvisorWorkspaceProps) {
   const [conversations, setConversations] = useState(initialConversations);
-  const [activeId, setActiveId] = useState<string | null>(initialActiveId);
-  const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
-  const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [turnsLeft, setTurnsLeft] = useState<number | null>(initialTurnsLeft);
   const [railOpen, setRailOpen] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const chat = useAdvisorChat({
+    initialMessages,
+    initialActiveId,
+    initialTurnsLeft,
+    initialTokens24h: initialTokens24h ?? null,
+    getPageContext: () => ({ path: window.location.pathname }),
+    onMeta: ({ conversationId, title }) => onMeta(conversationId, title),
+  });
+  const { messages, setMessages, input, setInput, streaming, activeId, setActiveId, turnsLeft, tokens24h } = chat;
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,8 +55,7 @@ export function AdvisorWorkspace({ initialConversations, initialActiveId, initia
 
   function newChat() {
     if (streaming) return;
-    setActiveId(null);
-    setMessages([]);
+    chat.reset();
     setBanner(null);
     setUrl(null);
     setRailOpen(false);
@@ -100,9 +91,7 @@ export function AdvisorWorkspace({ initialConversations, initialActiveId, initia
     return null;
   }
 
-  function onMeta(conversationId: string, title: string, remaining: number) {
-    setActiveId(conversationId);
-    setTurnsLeft(remaining);
+  function onMeta(conversationId: string, title: string) {
     setUrl(conversationId);
     const nowIsoText = new Date().toISOString();
     setConversations((prev) => {
@@ -112,61 +101,10 @@ export function AdvisorWorkspace({ initialConversations, initialActiveId, initia
     });
   }
 
-  async function send() {
-    const message = input.trim();
-    if (message === "" || streaming) return;
-    setInput("");
+  function send() {
+    if (input.trim() === "" || streaming) return;
     setBanner(null);
-    setStreaming(true);
-    const stamp = Date.now();
-    const assistantId = `live-${stamp}`;
-    setMessages((prev) => [
-      ...prev,
-      { id: `user-${stamp}`, role: "user", text: message, tools: [], links: [], notices: [], streaming: false, error: null },
-      liveMessage(assistantId, emptyTurn(), true),
-    ]);
-    const ac = new AbortController();
-    abortRef.current = ac;
-    let view: TurnView = emptyTurn();
-    const paint = () => {
-      const snapshot = view;
-      setMessages((prev) => prev.map((m) => (m.id === assistantId ? liveMessage(assistantId, snapshot, !snapshot.finished) : m)));
-    };
-    try {
-      const res = await fetch("/api/advisor/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: activeId, message }),
-        signal: ac.signal,
-      });
-      if (!res.ok || res.body === null) {
-        view = { ...view, error: await errorMessageOf(res), finished: true };
-        if (res.status === 429) setTurnsLeft(0);
-        paint();
-        return;
-      }
-      const reader = res.body.getReader();
-      const decoder = createByteDecoder();
-      const handle = (events: ReturnType<typeof decoder.push>) => {
-        for (const ev of events) {
-          view = applyEvent(view, ev);
-          if (ev.t === "meta") onMeta(ev.conversationId, ev.title, ev.remaining.turns);
-        }
-        paint();
-      };
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        handle(decoder.push(value));
-      }
-      handle(decoder.flush());
-    } catch {
-      view = ac.signal.aborted ? { ...view, notices: [...view.notices, "Stopped."], finished: true } : { ...view, error: GENERIC_ERROR, finished: true };
-      paint();
-    } finally {
-      abortRef.current = null;
-      setStreaming(false);
-    }
+    void chat.send();
   }
 
   const unavailable = storage !== "ok";
@@ -241,10 +179,11 @@ export function AdvisorWorkspace({ initialConversations, initialActiveId, initia
         <Composer
           value={input}
           onChange={setInput}
-          onSend={() => void send()}
-          onStop={() => abortRef.current?.abort()}
+          onSend={send}
+          onStop={chat.stop}
           streaming={streaming}
           turnsLeft={turnsLeft}
+          tokens24h={tokens24h}
           maxChars={LIMITS.maxMessageChars}
         />
       </section>

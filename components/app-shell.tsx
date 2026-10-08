@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { AppShellNav } from "./app-shell-nav";
+import { AdvisorLauncher } from "@/components/advisor/advisor-launcher";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getNavBuckets, getTaxEntityLinks } from "@/lib/entity";
@@ -61,6 +62,8 @@ export async function AppShell({ children, userName, wide }: AppShellProps) {
           {children}
         </AppShellNav>
       </Suspense>
+      {/* The assistant's slide-over launcher: signed-in pages only (the public /queue page never renders AppShell); hidden on /advisor itself. */}
+      {session?.user?.id && <AdvisorLauncher />}
     </div>
   );
 }

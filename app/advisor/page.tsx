@@ -51,9 +51,11 @@ export default async function AdvisorPage({ searchParams }: PageProps) {
   const memory: MemoryNoteDto[] =
     memoryRead.state === "ok" ? memoryRead.value.map((n) => ({ id: n.id, text: n.text, category: n.category, createdByName: n.createdByName, createdAt: n.createdAt.toISOString(), source: n.source })) : [];
   let turnsLeft: number | null = null;
+  let tokens24h: number | null = null;
   if (usageRead.state === "ok") {
     const decision = checkLimits(cfg, usageRead.value.user, usageRead.value.household);
     turnsLeft = decision.ok ? decision.turnsLeft : 0;
+    tokens24h = usageRead.value.user.freshTokens;
   }
   const storage = listed.state === "ok" ? "ok" : listed.state;
 
@@ -72,6 +74,7 @@ export default async function AdvisorPage({ searchParams }: PageProps) {
           initialMessages={messages}
           initialMemory={memory}
           turnsLeft={turnsLeft}
+          tokens24h={tokens24h}
           storage={storage}
           nowIso={now.toISOString()}
           goalsSlot={<GoalsPanel initialGoals={goals} />}
