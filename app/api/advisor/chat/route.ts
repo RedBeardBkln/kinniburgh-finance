@@ -1,75 +1,68 @@
-import { auth } from "@/lib/auth";
-import { buildAdvisorContext } from "@/lib/advisor-context";
-import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
+import { auth } from "@/lib/auth";
+import { LIMITS } from "@/lib/advisor/config";
+import { productionDeps } from "@/lib/advisor/deps";
+import { checkChatRequest, isSameOrigin } from "@/lib/advisor/request";
+import { prepareTurn, streamTurn } from "@/lib/advisor/run-turn";
+import { encodeEvent, type ErrorCode } from "@/lib/advisor/stream-protocol";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// POST /api/advisor/chat: the tool-using assistant. The request carries only the new message and the conversation id; the server loads the
+// history by id (ownership checked) and streams NDJSON events back (lib/advisor/stream-protocol.ts). Auth is the first statement.
+// 60 s is the value already proven on this project's long routes; the loop keeps its own 50 s wall-clock budget inside it.
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+function jsonError(status: number, code: ErrorCode, message: string): Response {
+  return new Response(JSON.stringify({ error: { code, message } }), {
+    status,
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+  });
+}
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  if (!session?.user?.id) return jsonError(401, "unauthorized", "Please sign in.");
+  const userId = session.user.id;
 
-  const { messages } = (await req.json()) as {
-    messages: { role: "user" | "assistant"; content: string }[];
-  };
+  // Same-origin POST only (a missing Origin header is refused).
+  if (!isSameOrigin(req.headers)) return jsonError(403, "invalid", "That request was not accepted.");
 
-  if (!messages || messages.length === 0) {
-    return new Response("messages required", { status: 400 });
-  }
+  // Cheap size check before the body is read, then the exact check on the text.
+  const declared = Number(req.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > LIMITS.maxBodyBytes) return jsonError(413, "invalid", "That request is too large.");
+  const checked = checkChatRequest(req.headers.get("content-type"), await req.text());
+  if (!checked.ok) return jsonError(checked.status, checked.code, checked.message);
 
-  const financialContext = await buildAdvisorContext();
+  const deps = productionDeps();
+  const prepared = await prepareTurn(deps, { userId, conversationId: checked.body.conversationId, message: checked.body.message });
+  if (!prepared.ok) return jsonError(prepared.status, prepared.code, prepared.message);
 
-  const systemPrompt = `You are a personal financial advisor for a family called the Kinniburgh household. You have been given full access to their financial data below. Your role is to:
-
-1. Analyze their financial situation objectively and thoroughly
-2. Provide strategic guidance aligned with their stated goals
-3. Highlight risks, opportunities, and areas needing attention
-4. Give specific, actionable recommendations with concrete next steps
-5. Be honest about trade-offs and uncertainties
-
-IMPORTANT DISCLAIMERS (state these when giving specific investment or legal advice):
-- All recommendations require independent research and validation before acting
-- You are not a licensed financial planner, tax advisor, or attorney
-- Past performance does not guarantee future results
-- This is educational guidance, not professional advice
-
-Keep responses focused and practical. When the user asks follow-up questions, use the full financial context below to give precise, data-grounded answers.
-
----
-
-${financialContext}`;
-
+  const abort = new AbortController();
+  req.signal.addEventListener("abort", () => abort.abort(), { once: true });
   const encoder = new TextEncoder();
-
-  const readable = new ReadableStream({
+  const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        const stream = await client.messages.create({
-          model: "claude-opus-4-8",
-          max_tokens: 2048,
-          stream: true,
-          system: systemPrompt,
-          messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        });
-
-        for await (const event of stream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            controller.enqueue(encoder.encode(event.delta.text));
-          }
+        await streamTurn(deps, prepared.turn, (event) => controller.enqueue(encoder.encode(encodeEvent(event))), abort.signal);
+      } finally {
+        try {
+          controller.close();
+        } catch {
+          /* already closed by a cancel */
         }
-        controller.close();
-      } catch (err) {
-        controller.error(err);
       }
+    },
+    cancel() {
+      abort.abort();
     },
   });
 
-  return new Response(readable, {
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  return new Response(body, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store, no-transform",
+      "X-Accel-Buffering": "no",
+    },
   });
 }

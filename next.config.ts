@@ -13,6 +13,8 @@ const nextConfig: NextConfig = {
     // The Final review page hosts server actions that read the blank forms (the packet is built and read back) and, for the AI review
     // passes, the pinned source pack (data/tax-sources: IRS / Connecticut instruction text, manifest, topics). Same reason: dynamic paths.
     "/tax/forms/**": ["./data/forms/**/*", "./data/tax-sources/**/*"],
+    // The advisor chat route reads the TY2025 review state, which builds its link context from the blank forms (failure only costs the links).
+    "/api/advisor/**": ["./data/forms/**/*"],
   },
   headers: async () => [
     {
