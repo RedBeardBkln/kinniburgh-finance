@@ -26,6 +26,8 @@ export interface ToolRunResult {
   resultChars: number;
   ms: number;
   links: AppLink[];
+  /** A scrubbed memory-note suggestion for the loop to turn into a `memory_proposal` event (never stored here). */
+  proposal: { text: string; category: string } | null;
 }
 
 export const BUDGET_USED_MESSAGE = "Data budget for this turn is used; answer with what you have.";
@@ -34,7 +36,7 @@ const LOOKUP_TIMEOUT = "That lookup took too long.";
 
 function failure(name: string, message: string, argSummary: string, started: number): ToolRunResult {
   const content = JSON.stringify({ ok: false, error: message });
-  return { name, ok: false, content, rows: null, argSummary, resultChars: content.length, ms: Date.now() - started, links: [] };
+  return { name, ok: false, content, rows: null, argSummary, resultChars: content.length, ms: Date.now() - started, links: [], proposal: null };
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -142,6 +144,7 @@ export async function runTool(
   try {
     const data = scrubDeep(ownerWordingDeep(output.data));
     const links = (output.links ?? []).map(safeLink).filter((l): l is AppLink => l !== null);
+    const proposal = output.proposal === undefined ? null : scrubDeep({ text: output.proposal.text, category: output.proposal.category });
     const cap = Math.min(tool.maxChars, budget.charsLeft);
     const envelope = fitToCap(
       {
@@ -157,7 +160,7 @@ export async function runTool(
     );
     const content = JSON.stringify(envelope);
     budget.charsLeft -= content.length;
-    return { name, ok: true, content, rows: output.rows ?? null, argSummary, resultChars: content.length, ms: Date.now() - started, links };
+    return { name, ok: true, content, rows: output.rows ?? null, argSummary, resultChars: content.length, ms: Date.now() - started, links, proposal };
   } catch (err) {
     const errName = err instanceof Error ? err.name : "UnknownError";
     console.error("advisor tool error:", name, errName);

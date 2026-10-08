@@ -12,6 +12,7 @@
 
 import { LIMITS, type AdvisorConfig } from "@/lib/advisor/config";
 import type { AppLink } from "@/lib/advisor/links";
+import { lastHumanMessage } from "@/lib/advisor/memory-proposal";
 import type { ErrorCode, AdvisorEvent, NoticeCode, StopKind } from "@/lib/advisor/stream-protocol";
 import { newTurnBudget, runTool, type TurnBudget } from "@/lib/advisor/tools/run-tool";
 import type { RegisteredTool, ToolContext } from "@/lib/advisor/tools/types";
@@ -164,6 +165,8 @@ export async function runTurn(input: LoopInput): Promise<TurnOutcome> {
   const clock = input.clock ?? Date.now;
   const started = clock();
   const budget = input.budget ?? newTurnBudget();
+  // The human message of THIS turn, captured once before any tool result is appended: propose_memory_note judges the person's words, never data.
+  const ctx: ToolContext = { ...input.ctx, turn: { humanMessage: lastHumanMessage(input.messages), proposals: 0 } };
   const messages: LlmMessage[] = [...input.messages];
   const usage: TurnUsage = { inputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 0, iterations: 0, toolCalls: 0 };
   const records: ToolCallRecord[] = [];
@@ -279,8 +282,10 @@ export async function runTurn(input: LoopInput): Promise<TurnOutcome> {
         }
         const results = await Promise.all(
           uses.map(async (u) => {
-            const r = await runTool(input.tools, input.ctx, budget, u.name, u.input);
+            const r = await runTool(input.tools, ctx, budget, u.name, u.input);
             input.emit({ t: "tool", id: u.id, name: u.name, state: "done", ok: r.ok, rows: r.rows });
+            // A suggestion, not a write: the person decides with the Save button.
+            if (r.proposal !== null) input.emit({ t: "memory_proposal", id: u.id, text: r.proposal.text, category: r.proposal.category });
             return r;
           }),
         );

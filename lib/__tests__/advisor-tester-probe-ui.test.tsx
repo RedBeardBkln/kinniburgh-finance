@@ -1,11 +1,15 @@
 // Tester probes: the REAL MarkdownView / MessageBubble rendered to static HTML with hostile model output (no DOM infrastructure exists in
 // this repo, so interactive behaviour is NOT covered here; see 03-test-report.md "Not tested").
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MarkdownView } from "@/components/advisor/markdown-view";
 import { MessageBubble } from "@/components/advisor/message-bubble";
 import { applyEvent, emptyTurn, liveMessage } from "@/lib/advisor/chat-state";
+
+// MessageBubble renders the memory-suggestion chip, which calls a server action; the real action module needs next-auth / next/server, so the render
+// tests stub it (they never click).
+vi.mock("@/actions/advisor", () => ({ confirmMemorySuggestion: async () => ({ ok: false, error: "stub" }) }));
 
 (globalThis as unknown as { React: typeof React }).React = React;
 

@@ -10,11 +10,13 @@ export type ErrorCode = "limit_reached" | "busy" | "upstream" | "unavailable" | 
 export type StopKind = "end_turn" | "max_tokens" | "refusal" | "loop_cap" | "time_budget" | "token_cap" | "aborted" | "error";
 
 export type AdvisorEvent =
-  | { t: "meta"; conversationId: string; userMessageId: string; title: string; remaining: { turns: number } }
+  | { t: "meta"; conversationId: string; userMessageId: string; title: string; remaining: { turns: number; tokens24h?: number } }
   | { t: "text"; d: string }
   | { t: "tool"; id: string; name: string; label: string; state: "start" }
   | { t: "tool"; id: string; name: string; state: "done"; ok: boolean; rows: number | null }
   | { t: "notice"; code: NoticeCode; message: string }
+  /** A memory note SUGGESTION from propose_memory_note. Live only (not stored); saved only if the person clicks Save. */
+  | { t: "memory_proposal"; id: string; text: string; category: string }
   | { t: "ping" }
   | { t: "done"; messageId: string | null; text: string; stop: StopKind; usage: { in: number; out: number; cacheRead: number }; links: AppLink[] }
   | { t: "error"; code: ErrorCode; message: string };
@@ -23,7 +25,7 @@ export function encodeEvent(event: AdvisorEvent): string {
   return `${JSON.stringify(event)}\n`;
 }
 
-const EVENT_TYPES = new Set(["meta", "text", "tool", "notice", "ping", "done", "error"]);
+const EVENT_TYPES = new Set(["meta", "text", "tool", "notice", "memory_proposal", "ping", "done", "error"]);
 
 function parseLine(line: string): AdvisorEvent | null {
   const trimmed = line.trim();

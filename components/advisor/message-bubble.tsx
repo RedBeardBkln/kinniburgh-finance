@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { Loader2 } from "lucide-react";
 import { MarkdownView } from "@/components/advisor/markdown-view";
+import { MemoryProposalChip } from "@/components/advisor/memory-proposal-chip";
 import { ToolChips } from "@/components/advisor/tool-chips";
 import { isKnownAppPath } from "@/lib/advisor/links";
 import type { UiMessage } from "@/lib/advisor/chat-state";
@@ -27,6 +28,9 @@ export function MessageBubble({ message }: { message: UiMessage }) {
         ) : (
           <MarkdownView text={message.text} />
         )}
+        {(message.proposals ?? []).map((p) => (
+          <MemoryProposalChip key={p.id} text={p.text} category={p.category} />
+        ))}
         {message.error !== null && <p className="text-xs text-destructive">{message.error}</p>}
         {message.notices.map((n) => (
           <p key={n} className="text-xs text-muted-foreground">

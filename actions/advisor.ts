@@ -76,6 +76,22 @@ export async function addMemoryNote(text: string, category: string): Promise<Act
   return { ok: true };
 }
 
+/**
+ * Saves a memory note the assistant SUGGESTED, after the person clicked Save on it. The model-facing tool (propose_memory_note) never writes;
+ * this is the only caller of addMemoryNote with source "assistant". The text is validated and scrubbed again here (the client's copy is never
+ * trusted), the 50-note cap applies, and the author recorded is the person who clicked. The `source` is a display label only.
+ */
+export async function confirmMemorySuggestion(text: string, category: string): Promise<ActionResult> {
+  const user = await requireAuth();
+  const checked = validateMemoryDraft(typeof text === "string" ? text : "", typeof category === "string" ? category : "");
+  if (!checked.ok) return { ok: false, error: checked.error };
+  const person = await getPerson(user.id);
+  const res = await store.addMemoryNote(checked.value, { id: user.id, firstName: firstNameOf(person?.name) }, "assistant");
+  if (!res.ok) return { ok: false, error: res.error };
+  revalidatePath("/advisor");
+  return { ok: true };
+}
+
 export async function forgetMemoryNote(id: string): Promise<ActionResult> {
   const user = await requireAuth();
   const parsed = idSchema.safeParse(id);

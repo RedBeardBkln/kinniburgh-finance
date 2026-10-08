@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MarkdownView } from "@/components/advisor/markdown-view";
 import { MessageBubble } from "@/components/advisor/message-bubble";
@@ -8,6 +8,10 @@ import type { UiMessage } from "@/lib/advisor/chat-state";
 
 // Static renders of the presentational pieces (the repo has no DOM test infra; the interactive workspace is covered by the Tester's manual
 // walk-through). These prove the markup is inert for hostile model text and that links are only the allowed ones.
+// MessageBubble renders the memory-suggestion chip, which calls a server action; the real action module needs next-auth / next/server, so the render
+// tests stub it (they never click).
+vi.mock("@/actions/advisor", () => ({ confirmMemorySuggestion: async () => ({ ok: false, error: "stub" }) }));
+
 (globalThis as unknown as { React: typeof React }).React = React;
 
 const render = (md: string) => renderToStaticMarkup(<MarkdownView text={md} />);

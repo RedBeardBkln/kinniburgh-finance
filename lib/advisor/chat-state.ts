@@ -14,6 +14,13 @@ export interface ToolChip {
   state: "running" | "done" | "failed";
 }
 
+/** A memory note the assistant SUGGESTED this turn (live only; saved only if the person clicks Save). */
+export interface MemoryProposalView {
+  id: string;
+  text: string;
+  category: string;
+}
+
 export interface TurnView {
   conversationId: string | null;
   userMessageId: string | null;
@@ -27,6 +34,10 @@ export interface TurnView {
   stop: StopKind | null;
   error: string | null;
   messageId: string | null;
+  /** Memory suggestions, in arrival order (absent until one arrives). */
+  proposals?: MemoryProposalView[];
+  /** Fresh tokens used in the last 24 hours BEFORE this turn (from `meta`; the client adds this turn's usage when it finishes). */
+  tokens24h?: number;
 }
 
 export function emptyTurn(): TurnView {
@@ -41,7 +52,7 @@ export function chipText(name: string, rows: number | null, ok: boolean): string
 export function applyEvent(v: TurnView, e: AdvisorEvent): TurnView {
   switch (e.t) {
     case "meta":
-      return { ...v, conversationId: e.conversationId, userMessageId: e.userMessageId, title: e.title, turnsLeft: e.remaining.turns };
+      return { ...v, conversationId: e.conversationId, userMessageId: e.userMessageId, title: e.title, turnsLeft: e.remaining.turns, ...(e.remaining.tokens24h !== undefined ? { tokens24h: e.remaining.tokens24h } : {}) };
     case "text":
       return { ...v, text: v.text + e.d };
     case "tool":
@@ -49,6 +60,12 @@ export function applyEvent(v: TurnView, e: AdvisorEvent): TurnView {
       return { ...v, tools: v.tools.map((t) => (t.id === e.id ? { ...t, text: chipText(t.name, e.rows, e.ok), state: e.ok ? "done" : "failed" } : t)) };
     case "notice":
       return v.notices.includes(e.message) ? v : { ...v, notices: [...v.notices, e.message] };
+    case "memory_proposal": {
+      const have = v.proposals ?? [];
+      // At most two per answer (the server enforces it too); a repeated id is the same suggestion.
+      if (have.length >= 2 || have.some((p) => p.id === e.id)) return v;
+      return { ...v, proposals: [...have, { id: e.id, text: e.text, category: e.category }] };
+    }
     case "error":
       return { ...v, error: e.message };
     case "done":
@@ -69,6 +86,8 @@ export interface UiMessage {
   notices: string[];
   streaming: boolean;
   error: string | null;
+  /** Memory suggestions under this answer (live only; not stored with the message). */
+  proposals?: MemoryProposalView[];
 }
 
 /** A conversation row as the client gets it (dates as ISO strings). */
@@ -103,7 +122,7 @@ export function toUiMessage(m: StoredLike): UiMessage {
 
 /** The live assistant bubble for a turn in progress. */
 export function liveMessage(id: string, v: TurnView, streaming: boolean): UiMessage {
-  return { id, role: "assistant", text: v.text, tools: v.tools, links: v.links, notices: v.notices, streaming, error: v.error };
+  return { id, role: "assistant", text: v.text, tools: v.tools, links: v.links, notices: v.notices, streaming, error: v.error, ...(v.proposals !== undefined && v.proposals.length > 0 ? { proposals: v.proposals } : {}) };
 }
 
 /** "today", "yesterday" or a short date, for the conversation list (the clock is injected). */

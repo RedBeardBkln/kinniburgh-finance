@@ -30,6 +30,11 @@ export interface ToolContext {
   /** Per-turn memo of heavy loads (TY2025 sheet, review state, tax facts). Cleared per turn; there is no cross-request cache. */
   memo: Map<string, Promise<unknown>>;
   signal?: AbortSignal;
+  /**
+   * Per-turn state for propose_memory_note, set by the loop: the human message of THIS turn (captured once, before any tool result is appended)
+   * and how many suggestions were already made. Absent outside the loop.
+   */
+  turn?: { humanMessage: string; proposals: number };
 }
 
 /** Memoize a heavy load for the current turn; parallel calls share one in-flight promise. */
@@ -50,6 +55,8 @@ export interface ToolOutput {
   links?: AppLink[];
   /** ISO date the data is as of. */
   asOf?: string;
+  /** A memory note SUGGESTION (propose_memory_note only). Shown to the person with a Save button; nothing is stored by the tool or the loop. */
+  proposal?: { text: string; category: string };
 }
 
 export interface AdvisorTool<I> {

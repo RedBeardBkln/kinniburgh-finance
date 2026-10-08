@@ -238,7 +238,7 @@ describe("source pins", () => {
 
   it("every export of actions/advisor.ts starts with const user = await requireAuth() or await requireAuth()", () => {
     const parts = actionsSrc.split(/\nexport async function /).slice(1);
-    expect(parts.length).toBe(7);
+    expect(parts.length).toBe(8); // + confirmMemorySuggestion (Phase 2)
     for (const body of parts) {
       const open = body.indexOf("{\n") + 2;
       const first = body.slice(open, open + 60).trimStart();

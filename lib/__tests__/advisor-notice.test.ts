@@ -76,3 +76,35 @@ describe("the notice states the boundary", () => {
     for (const s of ASSISTANT_NOTICE) for (const i of s.items) expect(i.length).toBeGreaterThan(20);
   });
 });
+
+describe("the notice covers the Phase 2 tools", () => {
+  it("says document values are readable (amounts, dates, payer names), labelled verified or unverified AI read, and what is never included", () => {
+    expect(text).toMatch(/amounts, dates and payer, employer, lender or charity names read from them/);
+    expect(text).toMatch(/verified by you or an unverified AI read/);
+    expect(text).toMatch(/ID numbers, account numbers, addresses and dates of birth are never included/);
+  });
+
+  it("mentions business P&L, rental totals without renter names, recurring items, the forecast, the tax calendar and recent changes without values", () => {
+    expect(text).toMatch(/profit and loss/);
+    expect(text).toMatch(/rental income totals \(no renter names\)/);
+    expect(text).toMatch(/recurring bills, transfers and paychecks/);
+    expect(text).toMatch(/balance forecast/);
+    expect(text).toMatch(/tax calendar/);
+    expect(text).toMatch(/never the values or reasons/);
+  });
+
+  it("mentions donation and fixed-asset logs (no deductions computed) and insurance summaries without policy numbers", () => {
+    expect(text).toMatch(/Donation and fixed-asset logs/);
+    expect(text).toMatch(/no deductions computed/);
+    expect(text).toMatch(/insurance summaries without policy numbers/);
+  });
+
+  it("says a memory suggestion is saved only on the person's click, and that suggested notes are household notes", () => {
+    expect(text).toMatch(/nothing is saved unless you click Save/);
+    expect(text).toMatch(/save from an assistant suggestion/);
+  });
+
+  it("never uses a forbidden field word (the lowercase word for a renter's name is one of them)", () => {
+    expect(text).not.toMatch(/\bguest\b/);
+  });
+});
