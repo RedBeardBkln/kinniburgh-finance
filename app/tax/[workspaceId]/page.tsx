@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { YearStatusNotice } from "@/components/tax/year-status-notice";
 import { getTaxWorkspace } from "@/actions/tax";
 import { listDocuments } from "@/actions/documents";
 import { TaxWorkspaceClient } from "@/components/tax/tax-workspace-client";
@@ -46,6 +47,7 @@ export default async function TaxWorkspacePage({ params }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
+        <YearStatusNotice year={workspace.taxYear} />
         <div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
             <Link href={"/tax" as Route} className="hover:underline">Tax Workspaces</Link>

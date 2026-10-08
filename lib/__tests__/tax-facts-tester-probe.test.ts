@@ -20,6 +20,7 @@ const mockDb = vi.hoisted(() => ({
   entity: { findFirst: vi.fn() },
   taxFact: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), createMany: vi.fn(), updateMany: vi.fn() },
   auditLog: { create: vi.fn() },
+  taxYearCloseEvent: { findMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -56,6 +57,8 @@ beforeEach(() => {
   mockDb.user.findUnique.mockResolvedValue({ name: "Eric" });
   mockDb.entity.findFirst.mockResolvedValue({ id: PERSONAL });
   mockDb.auditLog.create.mockResolvedValue({});
+  // The carry guard reads the close events (fail-closed): no year is marked filed in these tests.
+  mockDb.taxYearCloseEvent.findMany.mockResolvedValue([]);
   mockDb.$transaction.mockImplementation(async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb));
   mockDb.taxFact.findMany.mockImplementation(async (args: { where: Record<string, unknown> }) =>
     rows().filter((r) => matches(r, args.where)).sort((a, b) => b.version - a.version)

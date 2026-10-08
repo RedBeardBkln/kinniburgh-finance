@@ -11,6 +11,9 @@ import { AddPriorYearForm } from "@/components/tax/add-prior-year-form";
 import { TaxEntityWidget, type TaxWidgetData } from "@/components/tax/tax-entity-widget";
 import { computePL } from "@/lib/reports";
 import { entitiesForYear, isEntityUnformed } from "@/lib/tax-entities";
+import { YearStateBadge } from "@/components/tax/year-state-badge";
+import { loadYearCloseStates } from "@/lib/tax-year-close-store";
+import { widgetStatus, type YearState } from "@/lib/tax-year-close/state";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -30,6 +33,10 @@ export default async function TaxPage() {
       select: { id: true, name: true, type: true, foundedDate: true, slug: true, taxStatusNotes: true },
     }),
   ]);
+
+  // Household year state (filed / reopened): a soft label read fail-soft (a missing table or any error means "no states").
+  const closeLoad = await loadYearCloseStates();
+  const yearStates: Map<number, YearState> = closeLoad.state === "ok" ? closeLoad.byYear : new Map();
 
   // A business that has not been formed is left out of every tax picker and widget (lib/tax-entities.ts isEntityUnformed).
   const allEntities = allEntitiesRaw.filter((e) => !isEntityUnformed(e));
@@ -52,6 +59,7 @@ export default async function TaxPage() {
   const currentYear = new Date().getUTCFullYear();
   const yearSet = new Set<number>(workspaces.map((w) => w.taxYear));
   yearSet.add(currentYear);
+  for (const y of yearStates.keys()) yearSet.add(y);
   const years = Array.from(yearSet).sort((a, b) => b - a);
 
   const shortName = (name: string) => name.split(",")[0] ?? name;
@@ -99,7 +107,8 @@ export default async function TaxPage() {
       entityType: entity.type,
       taxYear: year,
       workspaceId: ws?.id ?? null,
-      status: ws?.status ?? null,
+      // The household return is the Personal entity's: its badge follows the close state when the year has one.
+      status: widgetStatus(entity.type, ws?.status ?? null, yearStates.get(year)),
       deadline: ws?.deadline?.toISOString() ?? null,
       totalIncome: pl?.totalIncome ?? null,
       totalExpenses: pl?.totalExpenses ?? null,
@@ -139,6 +148,7 @@ export default async function TaxPage() {
           <section key={year} id={`year-${year}`} className="space-y-3">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold">{year}</h2>
+              <YearStateBadge state={yearStates.get(year)} />
               {year === currentYear && (
                 <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                   Current year

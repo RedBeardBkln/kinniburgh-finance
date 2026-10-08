@@ -4,10 +4,13 @@ import Link from "next/link";
 import type { Route } from "next";
 import { AppShell } from "@/components/app-shell";
 import { CarryForwardReview } from "@/components/tax/facts/carry-forward-review";
+import { FiledYearsStrip } from "@/components/tax/facts/filed-years-strip";
 import { buildCarryScreen } from "@/lib/tax-facts/carry-screen";
 import { carryTargetContext, carryTargetYears, checkCarryTarget } from "@/lib/tax-facts/carry-target";
 import { MIGRATION_MISSING_MESSAGE } from "@/lib/tax-facts/format";
 import { loadTaxFacts } from "@/lib/tax-facts-store";
+import { loadYearCloseStates } from "@/lib/tax-year-close-store";
+import { latestClosedYear } from "@/lib/tax-year-close/state";
 
 interface PageProps {
   params: Promise<{ year: string }>;
@@ -24,7 +27,11 @@ export default async function TaxFactsCarryPage({ params }: PageProps) {
   if (!/^\d{4}$/.test(yearStr)) notFound();
   const year = Number(yearStr);
 
-  const ctx = carryTargetContext(null);
+  // The latest year marked filed bounds the target (a reopened year does not). Display is fail-soft; the writers re-check
+  // fail-closed (lib/tax-facts-carry-guard.ts), so an unreadable state here can never allow a write.
+  const closeLoad = await loadYearCloseStates();
+  const states = closeLoad.state === "ok" ? [...closeLoad.byYear.values()] : [];
+  const ctx = carryTargetContext(latestClosedYear(states));
   const target = checkCarryTarget(year, ctx);
   const years = carryTargetYears(ctx);
 
@@ -42,6 +49,7 @@ export default async function TaxFactsCarryPage({ params }: PageProps) {
         <span>Carry forward</span>
       </div>
       <h1 className="text-2xl font-semibold">Carry facts into TY{year}</h1>
+      <FiledYearsStrip states={states} />
       <p className="text-sm text-muted-foreground">
         Go through the facts you have told the app and carry each one into the new tax year, one fact at a time. Nothing is
         confirmed for you, and nothing is ever deleted: each confirmation or change adds a new version.
@@ -69,6 +77,11 @@ export default async function TaxFactsCarryPage({ params }: PageProps) {
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
         {header}
+        {closeLoad.state === "error" && (
+          <p className="text-xs text-destructive">
+            Whether a tax year is marked filed could not be checked just now. Saving here will refuse until it can be checked.
+          </p>
+        )}
         {load.state === "table_missing" && (
           <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">{MIGRATION_MISSING_MESSAGE}</p>
         )}

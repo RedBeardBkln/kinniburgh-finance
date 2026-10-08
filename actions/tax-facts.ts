@@ -23,7 +23,7 @@ import {
 } from "@/lib/tax-facts/validate";
 import { planNextVersion, type VersionRequest } from "@/lib/tax-facts/versioning";
 import { MIGRATION_MISSING_MESSAGE } from "@/lib/tax-facts/format";
-import { checkCarryTarget } from "@/lib/tax-facts/carry-target";
+import { checkCarryTargetGuarded } from "@/lib/tax-facts-carry-guard";
 import { TAX_FACTS_SEED_CONFIRMED_AT, TAX_FACTS_SEED_TY2025, TAX_FACTS_SEED_VERSION } from "@/lib/tax-facts/seed-ty2025";
 
 // Tax facts carry-forward store: the owner records, changes, re-confirms and retires the facts he told the app, and
@@ -255,9 +255,10 @@ export async function reconfirmTaxFact(input: z.input<typeof reconfirmSchema>): 
   const v = parsed.data;
   const bad = privacyProblem([["reason", v.reason]]);
   if (bad) return { ok: false, error: bad };
-  // The carry screen is the only caller: TY2025 and earlier are never re-confirmed (checked before any database call).
-  const target = checkCarryTarget(v.taxYear, { latestClosedYear: null, now: new Date() });
-  if (!target.ok) return { ok: false, error: target.message };
+  // The carry screen is the only caller: TY2025 and earlier are never re-confirmed (checked before any database call), and a year
+  // marked filed (or any earlier one) is refused; a failed check of the filed state refuses too (fail-closed).
+  const target = await checkCarryTargetGuarded(v.taxYear);
+  if (!target.ok) return { ok: false, error: target.error };
   try {
     const who = await loadWriter(user.id);
     if (!who.ok) return { ok: false, error: who.error };

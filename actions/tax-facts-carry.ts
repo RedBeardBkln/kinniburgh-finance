@@ -4,12 +4,12 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { setTaxFact, type TaxFactActionResult } from "@/actions/tax-facts";
-import { checkCarryTarget } from "@/lib/tax-facts/carry-target";
+import { checkCarryTargetGuarded } from "@/lib/tax-facts-carry-guard";
 import { FACT_LIMITS } from "@/lib/tax-facts/types";
-import { MAX_FACT_TAX_YEAR, MIN_FACT_TAX_YEAR } from "@/lib/tax-facts/validate";
+import { MAX_FACT_TAX_YEAR, MIN_FACT_TAX_YEAR, containsPrivateIdentifier, privacyError } from "@/lib/tax-facts/validate";
 
-// The carry screen's "It changed" writer: a new version of ONE fact for the carry target year. It refuses the TY2025 and
-// earlier years (and, once a year can be marked filed, a filed year) before any database call, then delegates to
+// The carry screen's "It changed" writer: a new version of ONE fact for the carry target year. It refuses TY2025 and
+// earlier years, and a year marked filed (or an earlier one), before any write, then delegates to
 // `setTaxFact` in "change" mode so versioning, the privacy checks, archive-on-supersede and the audit shape stay the
 // existing, tested path. One fact key per call: there is no array parameter and no bulk variant. The value and the
 // reason are never written to AuditLog (setTaxFact's audit shape holds ids, the key, the version and the year only).
@@ -34,8 +34,12 @@ export async function changeTaxFactForCarry(input: z.input<typeof changeSchema>)
   const parsed = changeSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
   const v = parsed.data;
-  const target = checkCarryTarget(v.taxYear, { latestClosedYear: null, now: new Date() });
-  if (!target.ok) return { ok: false, error: target.message };
+  // Free text is checked before any database call (the guard below reads the database); the rejected text is never echoed.
+  for (const [name, text] of [["value", v.valueText], ["reason", v.reason]] as const) {
+    if (typeof text === "string" && text.length > 0 && containsPrivateIdentifier(text)) return { ok: false, error: privacyError(name) };
+  }
+  const target = await checkCarryTargetGuarded(v.taxYear);
+  if (!target.ok) return { ok: false, error: target.error };
   const res = await setTaxFact({
     mode: "change",
     factKey: v.factKey,

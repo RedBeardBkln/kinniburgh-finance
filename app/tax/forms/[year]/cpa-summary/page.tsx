@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
 import { AppShell } from "@/components/app-shell";
+import { YearStatusNotice } from "@/components/tax/year-status-notice";
 import { CpaSummaryView } from "@/components/tax/forms/cpa-summary-view";
 import { PrintButton } from "@/components/tax/forms/print-button";
 import { loadCpaSummary } from "@/lib/tax-questionnaire-build";
@@ -27,6 +28,7 @@ export default async function CpaSummaryPage({ params }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div id="cpa-summary" className="space-y-4">
+        <YearStatusNotice year={year} />
         <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Link href="/tax" className="hover:underline">

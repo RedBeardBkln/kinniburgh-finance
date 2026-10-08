@@ -3,6 +3,8 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
 import { AppShell } from "@/components/app-shell";
+import { YearStatusNotice } from "@/components/tax/year-status-notice";
+import { loadYearCloseStates } from "@/lib/tax-year-close-store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { loadDonationsPage } from "@/lib/donations-build";
 import { NONE_CONFIRMATION_KEYS } from "@/lib/tax-none-confirmation";
@@ -28,6 +30,11 @@ export default async function TaxDonationsPage({ params }: PageProps) {
   if (!Number.isInteger(year) || year < MIN_LOG_YEAR || year > MAX_LOG_YEAR) notFound();
 
   const view = await loadDonationsPage(year);
+  // Filed years get a check mark on the chip (soft label, fail-soft read; nothing is blocked).
+  const closeLoad = await loadYearCloseStates();
+  const closedYears = new Set(
+    closeLoad.state === "ok" ? [...closeLoad.byYear.values()].filter((s) => s.status === "closed").map((s) => s.taxYear) : []
+  );
   const hasEntries = view.rows.length > 0;
   // New gifts default to today when the viewed year is the current one, else mid-year.
   const currentYear = new Date().getUTCFullYear();
@@ -36,6 +43,7 @@ export default async function TaxDonationsPage({ params }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
+        <YearStatusNotice year={year} />
         <div>
           <div className="mb-1 flex items-center gap-2 text-sm text-muted-foreground">
             <Link href={"/tax" as Route} className="hover:underline">
@@ -58,7 +66,7 @@ export default async function TaxDonationsPage({ params }: PageProps) {
                   y === year ? "bg-primary text-primary-foreground" : "hover:bg-accent"
                 }`}
               >
-                {y}
+                {closedYears.has(y) ? `✓ ${y}` : y}
               </Link>
             ))}
             <Link href={`/tax/forms/${year}` as Route} className="ml-2 text-xs text-primary hover:underline">

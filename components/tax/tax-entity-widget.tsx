@@ -38,6 +38,9 @@ function StatusBadge({ status }: { status: string | null }) {
   if (status === "filed") {
     return <span className="rounded-full border border-green-300 px-2 py-0.5 text-xs text-green-700">Filed</span>;
   }
+  if (status === "reopened") {
+    return <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-900">Reopened</span>;
+  }
   if (status === "extended") {
     return <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs text-destructive">Extended</span>;
   }

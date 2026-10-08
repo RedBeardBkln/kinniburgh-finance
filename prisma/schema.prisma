@@ -47,6 +47,7 @@ model User {
   taxReviewRunsStarted       TaxReviewRun[]      @relation("TaxReviewRunStarter")
   taxReviewDispositions      TaxReviewFindingDisposition[] @relation("TaxReviewDispositionAuthor")
   taxReturnApprovalsGiven    TaxReturnApproval[] @relation("TaxReturnApprovalApprover")
+  taxYearCloseEventsMade     TaxYearCloseEvent[] @relation("TaxYearCloseAuthor")
 }
 
 model PasswordResetToken {
@@ -114,6 +115,7 @@ model Entity {
   taxReviewRuns      TaxReviewRun[]
   taxReviewDispositions TaxReviewFindingDisposition[]
   taxReturnApprovals TaxReturnApproval[]
+  taxYearCloseEvents TaxYearCloseEvent[]
 }
 
 model Institution {
@@ -1204,6 +1206,32 @@ model TaxReturnApproval {
   approvedBy User?        @relation("TaxReturnApprovalApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
   @@index([taxYear, entityId, at])
+}
+
+// Household tax year close events (tax-carry-screen-and-year-close, Phase B). INSERT-ONLY, like TaxReturnApproval: marking a year
+// filed ("closed") and reopening it for revision are each a NEW row, never an update or a delete. The current state of a year is the
+// row with the highest seq for (entityId, taxYear): none = open, closed = filed, reopened = open for revision. entityId is the
+// Personal entity (the household return). `note` is a tax record (a close note, or the REQUIRED reopen reason) and is NEVER written
+// to AuditLog. There is deliberately no column for a confirmation number. TaxWorkspace.status / filedAt are a separate per-entity
+// label and are not read or written by this feature.
+model TaxYearCloseEvent {
+  id        String    @id @default(uuid())
+  entityId  String
+  taxYear   Int
+  seq       Int       // 1, 2, 3 ... per (entityId, taxYear); the unique index makes two racing tabs safe
+  kind      String    // "closed" | "reopened" (app-validated, no DB enum)
+  filedOn   DateTime? // closed rows only: the date the owner says the return was filed, stored 12:00 UTC
+  note      String?
+  byId      String?
+  byName    String
+  at        DateTime  @default(now())
+  createdAt DateTime  @default(now())
+
+  entity Entity @relation(fields: [entityId], references: [id])
+  by     User?  @relation("TaxYearCloseAuthor", fields: [byId], references: [id], onDelete: SetNull)
+
+  @@unique([entityId, taxYear, seq])
+  @@index([entityId, taxYear])
 }
 
 // One step of the AI review passes (L3) of a TaxReviewRun: run_started (config + estimate), payload (the exact redacted JSON that was

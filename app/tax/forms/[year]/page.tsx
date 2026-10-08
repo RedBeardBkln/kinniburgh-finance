@@ -16,6 +16,12 @@ import { YearNotice } from "@/components/tax/forms/year-notice";
 import { AnchorHighlight } from "@/components/tax/anchor-highlight";
 import { FORMS_PAGE_ANCHORS } from "@/lib/tax-anchors";
 import { defaultFilingTaxYear } from "@/lib/tax-default-year";
+import { YearCloseCard } from "@/components/tax/year-close-card";
+import { YearStateBadge } from "@/components/tax/year-state-badge";
+import { formatFactDate } from "@/lib/tax-facts/format";
+import { loadYearCloseStates } from "@/lib/tax-year-close-store";
+import { resolveCloserForUser } from "@/lib/tax-year-close-owner";
+import { foldYearState, toYearCloseView } from "@/lib/tax-year-close/state";
 
 interface PageProps {
   params: Promise<{ year: string }>;
@@ -52,6 +58,24 @@ export default async function TaxFormsPage({ params }: PageProps) {
   yearSet.add(year);
   const years = Array.from(yearSet).sort((a, b) => b - a);
 
+  // Household year state (filed / reopened): a soft label, read fail-soft, never a gate. Nothing here feeds the return.
+  const closeLoad = await loadYearCloseStates();
+  const yearState = closeLoad.state === "ok" ? (closeLoad.byYear.get(year) ?? foldYearState(year, [])) : null;
+  const closedYears = new Set(
+    closeLoad.state === "ok" ? [...closeLoad.byYear.values()].filter((s) => s.status === "closed").map((s) => s.taxYear) : []
+  );
+  const showCloseCard = closeLoad.state === "ok" || closeLoad.state === "table_missing";
+  const closer = showCloseCard ? await resolveCloserForUser(session.user.id ?? "") : null;
+  // Advice for the close dialog only: business workspaces for this year that do not say Filed. Nothing is written to them.
+  const pendingWorkspaces = showCloseCard
+    ? (
+        await db.taxWorkspace.findMany({
+          where: { taxYear: year, status: { not: "filed" }, entity: { type: "business" } },
+          select: { entity: { select: { name: true } } },
+        })
+      ).map((w) => w.entity.name.split(",")[0] ?? w.entity.name)
+    : [];
+
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
@@ -65,7 +89,10 @@ export default async function TaxFormsPage({ params }: PageProps) {
             <span>/</span>
             <span>Tax Forms {year}</span>
           </div>
-          <h1 className="text-2xl font-semibold">Tax Forms — {year}</h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold">Tax Forms — {year}</h1>
+            <YearStateBadge state={yearState} />
+          </div>
           <p className="text-sm text-muted-foreground">
             The federal and Connecticut forms the system can determine for the household and each business entity, why
             each is needed, which uploaded documents feed it, and how ready it is. Anything the system cannot determine
@@ -81,7 +108,7 @@ export default async function TaxFormsPage({ params }: PageProps) {
                   y === year ? "bg-primary text-primary-foreground" : "hover:bg-accent"
                 }`}
               >
-                {y}
+                {closedYears.has(y) ? `✓ ${y}` : y}
               </Link>
             ))}
             <Link
@@ -101,6 +128,17 @@ export default async function TaxFormsPage({ params }: PageProps) {
             ) : null}
           </div>
         </div>
+
+        {showCloseCard && (
+          <YearCloseCard
+            view={toYearCloseView(yearState ?? foldYearState(year, []))}
+            canAct={closer?.allowed ?? false}
+            refusal={closer?.reason ?? null}
+            migrationMissing={closeLoad.state === "table_missing"}
+            pendingWorkspaces={pendingWorkspaces}
+            today={formatFactDate(new Date())}
+          />
+        )}
 
         {overrideCount > 0 ? (
           <div className="rounded-md border-2 border-violet-400 bg-violet-50 px-4 py-3 text-sm text-violet-950" role="status" data-testid="forms-overrides-banner">

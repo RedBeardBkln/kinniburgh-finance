@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
 import { AppShell } from "@/components/app-shell";
+import { YearStatusNotice } from "@/components/tax/year-status-notice";
 import { QuestionnaireRunner } from "@/components/tax/forms/questionnaire-runner";
 import { loadQuestionnairePage } from "@/lib/tax-questionnaire-build";
 import { renderCopy } from "@/lib/tax-questionnaire";
@@ -36,6 +37,7 @@ export default async function TaxQuestionnairePage({ params, searchParams }: Pag
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-5">
+        <YearStatusNotice year={year} />
         <AnchorHighlight />
         <YearNotice
           viewedYear={year}

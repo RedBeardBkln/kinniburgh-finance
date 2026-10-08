@@ -11,6 +11,9 @@ import { FACTS_CARRY_STATUS, FACTS_PAGE_HONESTY, MIGRATION_MISSING_MESSAGE } fro
 import { groupFacts } from "@/lib/tax-facts/group";
 import { TAX_FACTS_SEED_TY2025 } from "@/lib/tax-facts/seed-ty2025";
 import { loadTaxFacts } from "@/lib/tax-facts-store";
+import { FiledYearsStrip } from "@/components/tax/facts/filed-years-strip";
+import { loadYearCloseStates } from "@/lib/tax-year-close-store";
+import { latestClosedYear } from "@/lib/tax-year-close/state";
 
 // Read-only render: the page never writes while loading. Writes happen only through the actions in
 // actions/tax-facts.ts (each starts with requireAuth()). This is a static segment on purpose: without it /tax/facts
@@ -20,6 +23,8 @@ export default async function TaxFactsPage() {
   if (!session?.user) redirect("/login");
 
   const load = await loadTaxFacts();
+  const closeLoad = await loadYearCloseStates();
+  const states = closeLoad.state === "ok" ? [...closeLoad.byYear.values()] : [];
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
@@ -33,6 +38,7 @@ export default async function TaxFactsPage() {
             <span>Facts</span>
           </div>
           <h1 className="text-2xl font-semibold">Owner-confirmed facts</h1>
+          <FiledYearsStrip states={states} />
           <p className="text-sm text-muted-foreground">
             The facts you have told the app about the household return, kept so they can be recalled and, on the carry
             screen, confirmed again for a new year one fact at a time. Each shows where it came from, the tax year you
@@ -59,7 +65,7 @@ export default async function TaxFactsPage() {
           <>
             {load.rows.length > 0 &&
               (() => {
-                const carryYear = defaultCarryTarget(carryTargetContext(null));
+                const carryYear = defaultCarryTarget(carryTargetContext(latestClosedYear(states)));
                 return (
                   <Link
                     href={`/tax/facts/carry/${carryYear}` as Route}

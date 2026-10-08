@@ -15,6 +15,7 @@ const mockDb = vi.hoisted(() => ({
   entity: { findFirst: vi.fn() },
   taxFact: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), createMany: vi.fn(), updateMany: vi.fn() },
   auditLog: { create: vi.fn() },
+  taxYearCloseEvent: { findMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -80,6 +81,8 @@ beforeEach(() => {
   mockDb.user.findUnique.mockResolvedValue({ name: "Eric" });
   mockDb.entity.findFirst.mockResolvedValue({ id: PERSONAL });
   mockDb.auditLog.create.mockResolvedValue({});
+  // The carry guard reads the close events (fail-closed): no year is marked filed in these tests.
+  mockDb.taxYearCloseEvent.findMany.mockResolvedValue([]);
   mockDb.$transaction.mockImplementation(async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb));
   mockDb.taxFact.findMany.mockImplementation(async (args: { where: Record<string, unknown> }) =>
     rows().filter((r) => matches(r, args.where)).sort((a, b) => b.version - a.version)
@@ -219,8 +222,8 @@ describe("source shape", () => {
   });
 
   it("checks the target year before it delegates", () => {
-    expect(src.indexOf("checkCarryTarget(")).toBeGreaterThan(0);
-    expect(src.indexOf("checkCarryTarget(")).toBeLessThan(src.indexOf("await setTaxFact("));
+    expect(src.indexOf("checkCarryTargetGuarded(")).toBeGreaterThan(0);
+    expect(src.indexOf("checkCarryTargetGuarded(")).toBeLessThan(src.indexOf("await setTaxFact("));
   });
 
   it("reconfirmTaxFact checks the target year before any db call", () => {
@@ -228,7 +231,7 @@ describe("source shape", () => {
     const start = s.indexOf("export async function reconfirmTaxFact");
     const end = s.indexOf("export async function setTaxFactPolicy");
     const body = s.slice(start, end);
-    expect(body.indexOf("checkCarryTarget(")).toBeGreaterThan(0);
-    expect(body.indexOf("checkCarryTarget(")).toBeLessThan(body.indexOf("loadWriter("));
+    expect(body.indexOf("checkCarryTargetGuarded(")).toBeGreaterThan(0);
+    expect(body.indexOf("checkCarryTargetGuarded(")).toBeLessThan(body.indexOf("loadWriter("));
   });
 });

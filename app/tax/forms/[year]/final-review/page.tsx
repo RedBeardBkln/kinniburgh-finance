@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
 import { AppShell } from "@/components/app-shell";
+import { YearStatusNotice } from "@/components/tax/year-status-notice";
 import { AnchorHighlight } from "@/components/tax/anchor-highlight";
 import { ApprovalCard } from "@/components/tax/review/approval-card";
 import { ByHandChecklist } from "@/components/tax/review/by-hand-checklist";
@@ -57,6 +58,7 @@ export default async function FinalReviewPage({ params }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6" data-testid="final-review-page">
+        <YearStatusNotice year={year} />
         <AnchorHighlight />
         <div>
           <div className="mb-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">

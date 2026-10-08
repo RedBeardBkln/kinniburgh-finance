@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
+import { YearStatusNotice } from "@/components/tax/year-status-notice";
 import { ensurePersonalWorkspace } from "@/actions/tax-planning";
 import { getTaxWorkspace } from "@/actions/tax";
 import {
@@ -131,6 +132,7 @@ export default async function PersonalTaxWorkspacePage({ params }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
+        <YearStatusNotice year={year} />
         <div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
             <Link href="/tax" className="hover:underline">Tax Workspaces</Link>
