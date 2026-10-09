@@ -102,7 +102,7 @@ describe("tester: notice arithmetic == /budgets override logic", () => {
 
 describe("tester: loader reads and period", () => {
   const mocks = vi.hoisted(() => ({ budget: vi.fn(), bill: vi.fn(), rec: vi.fn() }));
-  vi.mock("@/lib/db", () => ({ db: { budget: { findMany: mocks.budget }, scheduledBill: { findMany: mocks.bill }, recurringExpense: { findMany: mocks.rec } } }));
+  vi.mock("@/lib/db", () => ({ db: { budget: { findMany: mocks.budget }, scheduledBill: { findMany: mocks.bill }, recurringExpense: { findMany: mocks.rec }, appSetting: { findUnique: async () => null } } }));
 
   it("period is the UTC month of now (same as /budgets), at the New York evening edge too", async () => {
     const { currentBudgetPeriod, loadBudgetHints } = await import("@/lib/recurring-budget-hint-build");

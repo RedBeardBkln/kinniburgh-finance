@@ -11,6 +11,7 @@ vi.mock("@/lib/db", () => {
       incomeSource: { findMany: vi.fn(async () => []) },
       scheduledBill: { findMany: vi.fn(async () => []) },
       budget: { findMany: vi.fn(async () => []) },
+      appSetting: { findUnique: vi.fn(async () => null) },
     },
   };
 });
