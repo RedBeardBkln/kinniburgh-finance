@@ -7,12 +7,14 @@
 
 import { db } from "@/lib/db";
 import {
-  generateBillOccurrences,
   generateIncomeOccurrences,
   generateTransferOccurrences,
   type ScheduleEvent,
 } from "@/lib/forecast";
 import type { ScheduledFlow } from "@/lib/cc-funding";
+import { loadNetIncomeSources } from "@/lib/net-income-build";
+import { generateBillOccurrencesBudgetDated } from "@/lib/bill-dates";
+import { loadBudgetScheduleIndex } from "@/lib/bill-dates-build";
 
 /**
  * Signed flows (positive = into the account) for `accountId` in [from, to), or null when they could not be read
@@ -28,7 +30,8 @@ export async function loadScheduledFlows(accountId: string, from: Date, to: Date
 }
 
 async function readScheduledFlows(accountId: string, from: Date, to: Date): Promise<ScheduledFlow[]> {
-  const [transfers, incomeSources, bills] = await Promise.all([
+  // Paychecks are TAKE-HOME (loadNetIncomeSources), bills are dated by the Budget row (loadBudgetScheduleIndex).
+  const [transfers, incomeSources, bills, budget] = await Promise.all([
     db.scheduledTransfer.findMany({
       where: { active: true, OR: [{ fromAccountId: accountId }, { toAccountId: accountId }] },
       select: {
@@ -42,15 +45,15 @@ async function readScheduledFlows(accountId: string, from: Date, to: Date): Prom
         active: true,
       },
     }),
-    db.incomeSource.findMany({
-      where: { active: true, accountId },
-      select: { id: true, accountId: true, description: true, cadence: true, dayRules: true, amount: true, active: true },
-    }),
+    loadNetIncomeSources({ where: { accountId } }),
     db.scheduledBill.findMany({
       where: { active: true, accountId, budgetTagId: { not: null } },
       select: {
         id: true,
         accountId: true,
+        entityId: true,
+        budgetTagId: true,
+        budgetEntityId: true,
         payee: true,
         amountType: true,
         expectedAmount: true,
@@ -63,12 +66,13 @@ async function readScheduledFlows(accountId: string, from: Date, to: Date): Prom
         accrualEnvelope: { select: { draws: { select: { estimatedDate: true, estimatedAmount: true } } } },
       },
     }),
+    loadBudgetScheduleIndex({ from, to }),
   ]);
 
   const events: ScheduleEvent[] = [
     ...transfers.flatMap((t) => generateTransferOccurrences(t, from, to)),
     ...incomeSources.flatMap((s) => generateIncomeOccurrences(s, from, to)),
-    ...bills.flatMap((b) => generateBillOccurrences(b, from, to, b.accrualEnvelope?.draws ?? [])),
+    ...bills.flatMap((b) => generateBillOccurrencesBudgetDated(b, budget.index, from, to, b.accrualEnvelope?.draws ?? [])),
   ].filter((e) => e.accountId === accountId);
   return events.map((e) => ({ date: e.date, amount: e.amount }));
 }

@@ -12,13 +12,20 @@
 
 import { Decimal } from "@prisma/client/runtime/library";
 import {
-  generateBillOccurrences,
   generateCardStatementPayment,
   generateIncomeOccurrences,
   generateTransferOccurrences,
   type AccrualDrawLike,
 } from "@/lib/forecast";
 import { cycleMonthsFor, isLumpSumFrequency } from "@/lib/annual-bill";
+import {
+  budgetKeyOfBill,
+  buildBudgetScheduleIndex,
+  effectiveSchedule,
+  generateBillOccurrencesBudgetDated,
+  periodsBetween,
+  type BudgetScheduleIndex,
+} from "@/lib/bill-dates";
 import { monthlyEquivalentCents } from "@/lib/recurring-expenses";
 import { seriesKeyFromNotes } from "@/lib/recurring-series-marker";
 
@@ -89,6 +96,11 @@ export interface UpcomingItem {
   learnedCadence?: LearnedCadence;
   /** Set only on a past-due card statement whose paid-statement check ran and found no payment. */
   paymentCheck?: "none_found";
+  /**
+   * Informational line about the DATE of a bill: it is dated by its Budget row (the money has to be in the account
+   * then), the bill record says another day, and the bank may clear it a few days later. Not a discrepancy.
+   */
+  dateNote?: string;
 }
 
 export interface LedgerTotals {
@@ -256,8 +268,17 @@ export interface UpcomingIncomeRow {
   description: string;
   cadence: string;
   dayRules: unknown;
+  /** The amount to use per paycheck: TAKE-HOME (lib/net-income.ts) when known, else gross (see amountBasis). */
   amount: Num;
   active: boolean;
+  /** The stored gross amount (display only). Absent = `amount` is all that is known (older callers, tests). */
+  grossAmount?: Num;
+  /** How `amount` was resolved. "gross_unknown" = gross used because take-home is unknown (a flagged assumption). */
+  amountBasis?: "deposits" | "paystub" | "gross_unknown";
+  /** Plain-language basis, shown in the item notes ("take-home $6,064.86, from your last 6 deposits"). */
+  netLabel?: string;
+  /** True when the recent take-home values spread (shown as an estimate). */
+  netVariable?: boolean;
 }
 
 export interface UpcomingRentalRow {
@@ -344,6 +365,11 @@ export interface ModelledRef {
    * marker). Ties the record to ITS series however it was renamed or tagged.
    */
   seriesKey?: string | null;
+  /**
+   * A bill dated by its Budget row: the bill RECORD's own day when it differs from `day` (so a history match that
+   * lands on either date still counts as this obligation).
+   */
+  altDay?: number | null;
 }
 
 export interface UpcomingLedgerInput {
@@ -378,6 +404,7 @@ export const CARD_PAST_DUE_LOOKBACK_DAYS = 14;
 const DAY_MS = 86_400_000;
 const ZERO = new Decimal(0);
 const ONE = new Decimal(1);
+const NO_BUDGET_INDEX: BudgetScheduleIndex = new Map();
 
 export function startOfDayUTC(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -612,7 +639,9 @@ function expandShape(shape: Shape, from: Date, to: Date): ExpandedEvent[] {
       else payload.expectedAmount = ONE;
     }
 
-    for (const ev of generateBillOccurrences(payload, from, to, draws)) {
+    // The payload already carries the schedule of its month (Budget row or bill record, see budgetDatedEvents), so no
+    // Budget index is needed here: an empty index is exactly the plain generator.
+    for (const ev of generateBillOccurrencesBudgetDated(payload, NO_BUDGET_INDEX, from, to, draws)) {
       const unknown = shape.unknownAmount || unknownDrawDates.has(dateKey(ev.date));
       out.push({ date: ev.date, amount: unknown ? null : cents(ev.amount.abs()) });
     }
@@ -662,6 +691,8 @@ interface Obligation {
   budgetByPeriod?: Map<string, UpcomingBudgetRow>;
   recurringLosers?: UpcomingRecurringRow[];
   extraNotes?: string[];
+  /** Bills only: the raw row, for month-by-month Budget dating. */
+  bill?: UpcomingBillRow;
 }
 
 function budgetHasSchedule(b: UpcomingBudgetRow): boolean {
@@ -945,6 +976,10 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
   const budgets = (input.budgets ?? []).filter((b) => inScope(b.entityId));
   const recurring = (input.recurring ?? []).filter((r) => inScope(r.entityId));
 
+  // Each month of a Budget-linked bill is dated by THAT month's Budget row when it carries a usable schedule
+  // (lib/bill-dates.ts): the money has to be in the account on the Budget date. Amounts stay the bill's.
+  const scheduleIndex = buildBudgetScheduleIndex(budgets);
+
   const billPayload = (b: UpcomingBillRow): BillPayload => ({
     id: b.id,
     accountId: b.accountId,
@@ -959,10 +994,26 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
     payMonth: b.payMonth ?? null,
   });
 
+  /** The bill's payload for one period: the Budget row's schedule fields when usable, else the bill's own. */
+  function billPayloadFor(b: UpcomingBillRow, period: string): BillPayload {
+    const base = billPayload(b);
+    const eff = effectiveSchedule(b, scheduleIndex, period);
+    if (eff.basis !== "budget") return base;
+    return {
+      ...base,
+      frequency: eff.fields.frequency,
+      autopayDay: eff.fields.autopayDay,
+      payDayOfWeek: eff.fields.payDayOfWeek,
+      biweeklyAnchorDate: eff.fields.biweeklyAnchorDate,
+      payMonth: eff.fields.payMonth,
+    };
+  }
+
   function billObligation(b: UpcomingBillRow, tagKey: string | null): Obligation {
     const payload = billPayload(b);
     const draws = b.draws ?? [];
     return {
+      bill: b,
       source: "scheduled_bill",
       sourceId: b.id,
       entityId: b.entityId,
@@ -971,7 +1022,8 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
       tagKey,
       shape: billShape(payload, draws),
       monthly: billMonthly(payload),
-      day: billDay(payload),
+      // The CURRENT period's effective day (the Budget's when it has a usable one): used for duplicate matching.
+      day: billDay(billPayloadFor(b, fromPeriod)),
     };
   }
 
@@ -1139,7 +1191,7 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
     return { source, sourceId, monthlyAmount: monthly, day };
   }
 
-  function compare(o: Obligation, other: AlternateRecord, item: UpcomingItem): void {
+  function compare(o: Obligation, other: AlternateRecord, item: UpcomingItem, ignoreDay = false): void {
     item.alsoRecordedAs.push(other);
     if (o.monthly && other.monthlyAmount && o.monthly.minus(other.monthlyAmount).abs().gt(ONE)) {
       item.discrepancies.push({
@@ -1149,7 +1201,7 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
         otherAmount: other.monthlyAmount,
       });
     }
-    if (o.day != null && other.day != null && o.day !== other.day) {
+    if (!ignoreDay && o.day != null && other.day != null && o.day !== other.day) {
       item.discrepancies.push({ kind: "day", otherSource: other.source, thisDay: o.day, otherDay: other.day });
     }
   }
@@ -1158,8 +1210,19 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
     const period = periodOf(item.date ?? from);
     if (o.source === "scheduled_bill" && o.budgetByPeriod) {
       const row = o.budgetByPeriod.get(period);
-      if (row) compare(o, alt("budget_line", row.id, budgetMonthly(row), billDay(budgetPayload(row))), item);
-      else if (o.budgetByPeriod.size > 0) item.notes.push(`No budget line for ${period}`);
+      if (row) {
+        // A bill and its OWN Budget row can disagree on the day: the Budget's date wins (see dateNote below), so
+        // only the amount can be a discrepancy between them.
+        compare(o, alt("budget_line", row.id, budgetMonthly(row), billDay(budgetPayload(row))), item, true);
+        if (o.bill) {
+          const eff = effectiveSchedule(o.bill, scheduleIndex, period);
+          const budgetDay = billDay(budgetPayload(row));
+          const recordDay = billDay(billPayload(o.bill));
+          if (eff.basis === "budget" && budgetDay != null && recordDay != null && budgetDay !== recordDay) {
+            item.dateNote = `Dated by the budget (day ${budgetDay}) because the money has to be in the account then. The bill record says day ${recordDay}. The bank may take a few days to clear it.`;
+          }
+        }
+      } else if (o.budgetByPeriod.size > 0) item.notes.push(`No budget line for ${period}`);
     }
     for (const r of o.recurringLosers ?? []) {
       compare(o, alt("recurring_expense", r.id, recurringMonthly(r), recurringDay(r)), item);
@@ -1167,9 +1230,34 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
     for (const n of o.extraNotes ?? []) item.notes.push(n);
   }
 
+  /**
+   * A Budget-linked bill's events month by month, each month from its effective schedule. null = not applicable
+   * (not a bill, no Budget rows for its category, or real accrual draw dates), so the bill's own schedule applies.
+   * datedMonths = months that could be dated (a month with no usable schedule at all contributes nothing).
+   */
+  function budgetDatedEvents(o: Obligation): { events: ExpandedEvent[]; datedMonths: number } | null {
+    const b = o.bill;
+    if (!b || (o.shape.accrued && o.shape.draws.length > 0)) return null;
+    const key = budgetKeyOfBill(b);
+    if (!key || !scheduleIndex.has(key)) return null;
+    const events: ExpandedEvent[] = [];
+    let datedMonths = 0;
+    for (const period of periodsBetween(from, to)) {
+      const [y, m] = period.split("-").map(Number) as [number, number];
+      const monthStart = new Date(Date.UTC(y, m - 1, 1));
+      const nextMonth = new Date(Date.UTC(y, m, 1));
+      const shape = billShape(billPayloadFor(b, period), b.draws ?? []);
+      if (shape.undatedReason) continue;
+      datedMonths += 1;
+      events.push(...expandShape(shape, from > monthStart ? from : monthStart, to < nextMonth ? to : nextMonth));
+    }
+    return { events: events.sort((a, c) => a.date.getTime() - c.date.getTime()), datedMonths };
+  }
+
   function itemsFor(o: Obligation): { dated: UpcomingItem[]; undatedItem: UpcomingItem | null } {
     const shape = o.shape;
-    if (shape.undatedReason) {
+    const monthDated = budgetDatedEvents(o);
+    if (shape.undatedReason && !(monthDated && monthDated.datedMonths > 0)) {
       // Budget rows: only the row for the current month reports "day not set" (not one per period).
       if (o.period && o.period !== fromPeriod) return { dated: [], undatedItem: null };
       const amount = shape.undatedAmount ? cents(shape.undatedAmount) : null;
@@ -1193,7 +1281,7 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
       return { dated: [], undatedItem: item };
     }
 
-    let events = expandShape(shape, from, to);
+    let events = monthDated && monthDated.datedMonths > 0 ? monthDated.events : expandShape(shape, from, to);
     if (o.period) {
       const [y, m] = o.period.split("-").map(Number) as [number, number];
       const start = Date.UTC(y, m - 1, 1);
@@ -1378,6 +1466,16 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
     const rules = s.dayRules && typeof s.dayRules === "object" ? s.dayRules : {};
     // Zero / negative / missing amount: dated but "amount not set" (placeholder only for the dates).
     const amount = positive(s.amount);
+    // s.amount is TAKE-HOME when known (lib/net-income.ts). Variable take-home, or gross used because take-home is
+    // unknown, is an ESTIMATE with the basis stated; an exact take-home stays "scheduled".
+    const grossUnknown = s.amountBasis === "gross_unknown";
+    const payTier: ConfidenceTier = grossUnknown || s.netVariable ? "estimated" : "scheduled";
+    const payTierNote = grossUnknown
+      ? "gross amount used, take-home unknown"
+      : s.netVariable
+        ? "take-home varies from paycheck to paycheck"
+        : undefined;
+    const payNotes = amount ? (s.netLabel ? [s.netLabel] : []) : ["Amount not set"];
     const events = generateIncomeOccurrences(
       { id: s.id, accountId: s.accountId, description: s.description, cadence: s.cadence, dayRules: rules, amount: amount ?? ONE, active: s.active },
       from,
@@ -1392,9 +1490,10 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
             amount: amount ? cents(ev.amount) : null,
             amountStatus: amount ? "known" : "unknown",
             kind: "income",
-            tier: "scheduled",
+            tier: payTier,
+            ...(payTierNote ? { tierNote: payTierNote } : {}),
             link: { page: "forecast" },
-            notes: amount ? [] : ["Amount not set"],
+            notes: payNotes,
           }
         )
       );
@@ -1652,6 +1751,8 @@ export function collectModelledRefs(input: UpcomingLedgerInput): ModelledRef[] {
   const inScope = (entityId: string) => scope === null || entityId === scope;
   const refs: ModelledRef[] = [];
   const taggedSeen = new Set<string>();
+  const refIndex = buildBudgetScheduleIndex((input.budgets ?? []).filter((b) => inScope(b.entityId)));
+  const refPeriod = periodOf(startOfDayUTC(input.from));
 
   for (const b of input.bills ?? []) {
     if (!b.active || !inScope(b.entityId)) continue;
@@ -1672,6 +1773,21 @@ export function collectModelledRefs(input: UpcomingLedgerInput): ModelledRef[] {
     };
     const tagKey = b.budgetTagId ? `${b.budgetEntityId ?? b.entityId}|${b.budgetTagId}` : null;
     if (tagKey) taggedSeen.add(tagKey);
+    // The day this obligation is DATED on in the current period (the Budget's when usable), plus the record's own day.
+    const eff = effectiveSchedule(b, refIndex, refPeriod);
+    const effPayload: BillPayload =
+      eff.basis === "budget"
+        ? {
+            ...payload,
+            frequency: eff.fields.frequency,
+            autopayDay: eff.fields.autopayDay,
+            payDayOfWeek: eff.fields.payDayOfWeek,
+            biweeklyAnchorDate: eff.fields.biweeklyAnchorDate,
+            payMonth: eff.fields.payMonth,
+          }
+        : payload;
+    const refDay = billDay(effPayload);
+    const recordDay = billDay(payload);
     refs.push({
       source: "scheduled_bill",
       sourceId: b.id,
@@ -1681,7 +1797,8 @@ export function collectModelledRefs(input: UpcomingLedgerInput): ModelledRef[] {
       direction: "outflow",
       tagKey,
       monthly: billMonthly(payload),
-      day: billDay(payload),
+      day: refDay,
+      ...(eff.basis === "budget" && recordDay != null && recordDay !== refDay ? { altDay: recordDay } : {}),
       cadence: accrued ? null : refCadence(frequency),
       expectedAmount: accrued
         ? null

@@ -206,7 +206,7 @@ export function PaystubConfirmForm(props: Props) {
       setError(result.error);
       return;
     }
-    setSuccessMsg("Income source updated — the forecast now uses this cadence and amount.");
+    setSuccessMsg("Income source updated — the forecast uses this cadence; its paycheck amount is your take-home, worked out from your deposits and paystubs.");
     startTransition(() => router.refresh());
   }
 
@@ -635,7 +635,7 @@ export function PaystubConfirmForm(props: Props) {
               onClick={handleSyncToForecast}
               disabled={isPending}
               className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent disabled:opacity-60"
-              title="Update the income source used by the cash-flow forecast with this cadence and amount"
+              title="Update the income source used by the cash-flow forecast with this cadence and gross amount (the forecast itself uses your take-home, worked out from your deposits and paystubs)"
             >
               Sync to Forecast
             </button>
@@ -651,7 +651,8 @@ export function PaystubConfirmForm(props: Props) {
           <p className="text-xs text-muted-foreground">
             Sync to Forecast updates the payroll income source (gross per paycheck, {payFrequency.replace("_", " ")}{" "}
             cadence{depositAccountId ? `, deposited into ${props.accounts.find((a) => a.id === depositAccountId)?.nickname ?? "the selected account"}` : ""}) so the
-            predictive balance forecast reflects real take-home.
+            forecast uses this schedule. The forecast amount is your take-home, worked out from your deposits and
+            paystubs, not this gross figure.
           </p>
         </form>
       </CardContent>

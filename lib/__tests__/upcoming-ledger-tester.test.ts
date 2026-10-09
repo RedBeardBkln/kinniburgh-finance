@@ -187,7 +187,9 @@ describe("dedupe precedence bill > budget > recurring (exact entity+tag key)", (
 
         let day: number | null = null;
         let amt = 0;
-        if (hasBill && billActive) { day = bDay; amt = bAmt; }
+        // The bill wins the AMOUNT; when the category's Budget row carries a schedule, the Budget wins the DATE
+        // (net-income-budget-dates: the money has to be in the account on the Budget date).
+        if (hasBill && billActive) { day = hasBudgetSched ? sDay : bDay; amt = bAmt; }
         else if (hasBudgetSched) { day = sDay; amt = sAmt; }
         else if (hasRec) { day = rDay; amt = rAmt; }
         if (day !== null) {

@@ -10,6 +10,10 @@ import type { Decimal } from "@prisma/client/runtime/library";
 import { db } from "@/lib/db";
 import type { CardProjection } from "@/lib/card-next-statement";
 import { loadCardProjections } from "@/lib/card-next-statement-build";
+import { loadNetIncomeSources } from "@/lib/net-income-build";
+import type { NetBasis } from "@/lib/net-income";
+import { loadBudgetScheduleIndex } from "@/lib/bill-dates-build";
+import type { BudgetScheduleIndex } from "@/lib/bill-dates";
 
 export interface ForecastAccountRow {
   id: string;
@@ -39,13 +43,22 @@ export interface ForecastIncomeRow {
   description: string;
   cadence: string;
   dayRules: unknown;
+  /** The per-paycheck amount to project with: TAKE-HOME when known, else the gross (see amountBasis). */
   amount: Decimal;
   active: boolean;
+  /** The stored gross amount. */
+  grossAmount?: Decimal;
+  /** How `amount` was resolved; "gross_unknown" = gross used because take-home is unknown (a flagged assumption). */
+  amountBasis?: NetBasis;
 }
 
 export interface ForecastBillRow {
   id: string;
   accountId: string;
+  /** With the budget link, lets the bill be dated by its Budget row (lib/bill-dates.ts). */
+  entityId?: string;
+  budgetTagId?: string | null;
+  budgetEntityId?: string | null;
   payee: string;
   amountType: string;
   expectedAmount: Decimal | null;
@@ -69,10 +82,14 @@ export interface ForecastInputs {
   cardProjectionsFailed: boolean;
   /** Entity names by id, for the "(<entity> card)" label. */
   entityNameById: Record<string, string>;
+  /** Budget schedule rows for the projection window: a bill is dated by its Budget row. Absent / empty = the bill records' dates. */
+  budgetIndex?: BudgetScheduleIndex;
 }
 
 export async function loadForecastInputs(now: Date = new Date()): Promise<ForecastInputs> {
-  const [accounts, transfers, incomes, bills, loadedCards, entities] = await Promise.all([
+  const windowEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + 91 * 86_400_000);
+  const windowStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const [accounts, transfers, incomeRows, bills, loadedCards, entities, budgetDates] = await Promise.all([
     db.account.findMany({
       where: { archivedAt: null, accountType: "checking", minimumBalance: { not: null }, entity: { type: "personal" } },
       orderBy: { nickname: "asc" },
@@ -84,17 +101,17 @@ export async function loadForecastInputs(now: Date = new Date()): Promise<Foreca
       take: 200,
       select: { id: true, fromAccountId: true, toAccountId: true, amount: true, cadence: true, dayRules: true, purpose: true, active: true },
     }),
-    db.incomeSource.findMany({
-      where: { active: true },
-      take: 200,
-      select: { id: true, accountId: true, description: true, cadence: true, dayRules: true, amount: true, active: true },
-    }),
+    // Paychecks are TAKE-HOME (lib/net-income-build.ts: its own explicit selects), never the stored gross amount.
+    loadNetIncomeSources({ take: 200, now }),
     db.scheduledBill.findMany({
       where: { active: true, budgetTagId: { not: null } },
       take: 200,
       select: {
         id: true,
         accountId: true,
+        entityId: true,
+        budgetTagId: true,
+        budgetEntityId: true,
         payee: true,
         amountType: true,
         expectedAmount: true,
@@ -109,12 +126,25 @@ export async function loadForecastInputs(now: Date = new Date()): Promise<Foreca
     }),
     loadCardProjections({ now }),
     db.entity.findMany({ where: { archivedAt: null }, take: 20, select: { id: true, name: true } }),
+    loadBudgetScheduleIndex({ from: windowStart, to: windowEnd }),
   ]);
+  const incomes: ForecastIncomeRow[] = incomeRows.map((s) => ({
+    id: s.id,
+    accountId: s.accountId,
+    description: s.description,
+    cadence: s.cadence,
+    dayRules: s.dayRules,
+    amount: s.amount,
+    active: s.active,
+    grossAmount: s.grossAmount,
+    amountBasis: s.amountBasis,
+  }));
   return {
     accounts,
     transfers,
     incomes,
     bills,
+    budgetIndex: budgetDates.index,
     cardProjections: loadedCards.projections,
     cardProjectionsFailed: loadedCards.error,
     entityNameById: Object.fromEntries(entities.map((e) => [e.id, e.name])),

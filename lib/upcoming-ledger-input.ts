@@ -5,6 +5,7 @@
 // (which needs only the recorded items, not the built ledger).
 
 import { db } from "@/lib/db";
+import { loadNetIncomeSources } from "@/lib/net-income-build";
 import { CARD_PAST_DUE_LOOKBACK_DAYS, todayForNewYork, type UpcomingLedgerInput } from "@/lib/upcoming-ledger";
 
 const DAY_MS = 86_400_000;
@@ -150,19 +151,8 @@ export async function loadUpcomingLedgerInput(args: {
         toAccount: { select: { nickname: true } },
       },
     }),
-    db.incomeSource.findMany({
-      where: { active: true, ...entityWhere },
-      select: {
-        id: true,
-        accountId: true,
-        entityId: true,
-        description: true,
-        cadence: true,
-        dayRules: true,
-        amount: true,
-        active: true,
-      },
-    }),
+    // Paychecks are TAKE-HOME (lib/net-income-build.ts): `amount` is the net figure, the gross rides along for display.
+    loadNetIncomeSources({ where: entityWhere, now }),
     db.rentalBooking.findMany({
       where: { payoutDate: { gte: from, lt: to }, ...entityWhere },
       select: { id: true, entityId: true, payoutDate: true, guest: true, grossEarnings: true },
@@ -263,7 +253,20 @@ export async function loadUpcomingLedgerInput(args: {
       toNickname: t.toAccount.nickname,
       active: t.active,
     })),
-    incomeSources,
+    incomeSources: incomeSources.map((s) => ({
+      id: s.id,
+      accountId: s.accountId,
+      entityId: s.entityId,
+      description: s.description,
+      cadence: s.cadence,
+      dayRules: s.dayRules,
+      amount: s.amount,
+      active: s.active,
+      grossAmount: s.grossAmount,
+      amountBasis: s.amountBasis,
+      netLabel: s.netInfo.label,
+      netVariable: s.netInfo.variable,
+    })),
     rentalBookings,
     projectedRevenue,
     taxDeadlines,

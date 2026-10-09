@@ -149,7 +149,7 @@ export function AddIncomeSourceForm({ entities, accounts }: Props) {
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Amount ($)</label>
+          <label className="text-xs font-medium text-muted-foreground">Gross amount per paycheck ($)</label>
           <input
             type="number"
             value={amount}

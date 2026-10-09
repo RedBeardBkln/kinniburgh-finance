@@ -7,7 +7,6 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
   generateTransferOccurrences,
-  generateBillOccurrences,
   generateIncomeOccurrences,
   buildAccountForecast,
   findBreachDays,
@@ -15,6 +14,9 @@ import {
   type ScheduleEvent,
 } from "@/lib/forecast";
 import { getEntityBySlug } from "@/lib/entity";
+import { loadNetIncomeSources } from "@/lib/net-income-build";
+import { effectiveSchedule, generateBillOccurrencesBudgetDated } from "@/lib/bill-dates";
+import { loadBudgetScheduleIndex } from "@/lib/bill-dates-build";
 
 async function requireAuth() {
   const session = await auth();
@@ -108,11 +110,8 @@ export async function getEnvelopeSummary(bucket: string = "personal") {
       include: { account: true, draws: { orderBy: { estimatedDate: "asc" } } },
       orderBy: { name: "asc" },
     }),
-    db.incomeSource.findMany({
-      where: { active: true, account: accountWhere },
-      include: { account: true, entity: true },
-      orderBy: { description: "asc" },
-    }),
+    // Paychecks as TAKE-HOME (lib/net-income-build.ts); `amount` is the net figure, `grossAmount` the stored gross.
+    loadNetIncomeSources({ where: { account: accountWhere }, withAccount: true, withEntity: true }),
   ]);
 
   // Slush Funds proposal — only relevant on Personal tab
@@ -505,9 +504,16 @@ export async function getEnvelopeForecastData(bucket: string = "personal"): Prom
         where: { active: true, budgetTagId: { not: null } },
         include: { accrualEnvelope: { include: { draws: true } } },
       },
-      incomeSources: { where: { active: true } },
     },
   });
+  // Bills are dated by their Budget row month by month (fail-soft: the bill records' own dates on error).
+  const budgetDates = await loadBudgetScheduleIndex({ from, to });
+  const thisPeriod = from.toISOString().slice(0, 7);
+  // The day / weekday a bill is paid on this month: the Budget row's when it has a usable schedule.
+  const billTiming = (b: (typeof accounts)[number]["scheduledBills"][number]) => {
+    const eff = effectiveSchedule(b, budgetDates.index, thisPeriod);
+    return { dueDay: eff.fields.autopayDay, payDayOfWeek: eff.fields.payDayOfWeek };
+  };
 
   const results: EnvelopeForecastResult[] = [];
 
@@ -534,9 +540,10 @@ export async function getEnvelopeForecastData(bucket: string = "personal"): Prom
         estimatedDate: d.estimatedDate,
         estimatedAmount: d.estimatedAmount,
       }));
-      events.push(...generateBillOccurrences(b, from, to, draws));
+      events.push(...generateBillOccurrencesBudgetDated(b, budgetDates.index, from, to, draws));
     }
-    for (const s of account.incomeSources) {
+    // Paychecks are TAKE-HOME (lib/net-income-build.ts), never the stored gross amount.
+    for (const s of await loadNetIncomeSources({ where: { accountId: account.id } })) {
       events.push(...generateIncomeOccurrences(s, from, to));
     }
 
@@ -565,10 +572,9 @@ export async function getEnvelopeForecastData(bucket: string = "personal"): Prom
         feeAppliedThisPeriod: false,
         billsThisMonth: account.scheduledBills.map((b) => ({
           payee: b.payee,
-          dueDay: b.autopayDay,
+          ...billTiming(b),
           expectedAmount: b.expectedAmount ? new Prisma.Decimal(b.expectedAmount).toNumber() : null,
           frequency: b.frequency,
-          payDayOfWeek: b.payDayOfWeek,
         })),
       });
       continue;
@@ -622,10 +628,9 @@ export async function getEnvelopeForecastData(bucket: string = "personal"): Prom
       feeAppliedThisPeriod,
       billsThisMonth: account.scheduledBills.map((b) => ({
         payee: b.payee,
-        dueDay: b.autopayDay,
+        ...billTiming(b),
         expectedAmount: b.expectedAmount ? new Prisma.Decimal(b.expectedAmount).toNumber() : null,
         frequency: b.frequency,
-        payDayOfWeek: b.payDayOfWeek,
       })),
     });
   }

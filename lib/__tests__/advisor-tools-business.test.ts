@@ -215,13 +215,13 @@ function scheduleRows(): ScheduleRows {
   return {
     recurringExpenses: [{ name: "Oil delivery", amountCents: 45_000, frequency: "monthly", dueDay: 12, nextDueDate: new Date("2026-10-12T00:00:00Z"), entity: { name: "Personal" }, tag: { shortName: "Heating" }, ...poison } as never],
     bills: [
-      { payee: "Utility Co", amountType: "static", expectedAmount: D("120.50"), annualBudget: null, autopayDay: 5, frequency: "monthly", payDayOfWeek: null, payMonth: null, active: true, entity: { name: "Personal" }, account: { nickname: "Primary Checking" }, ...poison } as never,
+      { payee: "Utility Co", amountType: "static", expectedAmount: D("120.50"), annualBudget: null, autopayDay: 5, frequency: "monthly", payDayOfWeek: null, payMonth: null, active: true, entity: { name: "Personal" }, account: { nickname: "Primary Checking" }, budgetDay: 3, ...poison } as never,
       { payee: "Insurance", amountType: "static", expectedAmount: D("100.00"), annualBudget: D("1200.00"), autopayDay: 15, frequency: "annual", payDayOfWeek: null, payMonth: 3, active: false, entity: { name: "Personal" }, account: { nickname: "Primary Checking" } },
     ],
     transfers: [
       { amount: D("500.00"), cadence: "semi_monthly", dayRules: { daysOfMonth: [15, 30], note: MARKER, accountId: MARKER }, purpose: "Bills", active: true, fromAccount: { nickname: "Primary Checking" }, toAccount: { nickname: "Credit Cards" }, ...poison } as never,
     ],
-    income: [{ description: "Eric payroll", cadence: "biweekly", dayRules: { intervalDays: 14, anchorDate: "2026-01-03", extra: MARKER }, amount: D("2500.00"), active: true, entity: { name: "Personal" }, account: { nickname: "Primary Checking" } }],
+    income: [{ description: "Eric payroll", cadence: "biweekly", dayRules: { intervalDays: 14, anchorDate: "2026-01-03", extra: MARKER }, amount: D("2500.00"), takeHome: D("1700.00"), takeHomeBasis: "deposits", takeHomeNote: "take-home $1,700.00, from your last 6 deposits", active: true, entity: { name: "Personal" }, account: { nickname: "Primary Checking" } }],
   };
 }
 
@@ -243,9 +243,9 @@ describe("list_recurring_and_scheduled", () => {
     const out = shapeSchedule(scheduleRows());
     const d = out.data as {
       recurring_expenses: Record<string, unknown>[];
-      bills: { payee: string; active: boolean; timing: string; monthly_amount: number; annual_budget: number | null }[];
+      bills: { payee: string; active: boolean; timing: string; monthly_amount: number; annual_budget: number | null; budget_day?: number }[];
       transfers: { schedule: string }[];
-      income: { schedule: string; amount: number }[];
+      income: { schedule: string; gross_amount: number; take_home: number | null; take_home_basis: string; take_home_note?: string; amount?: number }[];
     };
     expect(d.recurring_expenses[0]).toMatchObject({ name: "Oil delivery", amount: 450, frequency: "monthly", due_day: 12, next_due: "2026-10-12", budget_tag: "Heating" });
     expect(d.bills.map((b) => [b.payee, b.active, b.timing])).toEqual([
@@ -253,8 +253,19 @@ describe("list_recurring_and_scheduled", () => {
       ["Insurance", false, "once a year from March 15"],
     ]);
     expect(d.bills[1]!.annual_budget).toBe(1200);
+    // net-income-budget-dates: a bill dated by a different budget day reports it (the budget date is the one used)
+    expect(d.bills[0]!.budget_day).toBe(3);
+    expect(d.bills[1]!.budget_day).toBeUndefined();
     expect(d.transfers[0]!.schedule).toBe("semi-monthly on 15 and 30");
-    expect(d.income[0]).toMatchObject({ schedule: "every 14 days from 2026-01-03", amount: 2500 });
+    // The stored amount is the GROSS paycheck: it is labelled so, and the take-home the forecast uses rides along.
+    expect(d.income[0]).toMatchObject({
+      schedule: "every 14 days from 2026-01-03",
+      gross_amount: 2500,
+      take_home: 1700,
+      take_home_basis: "recent deposits",
+      take_home_note: "take-home $1,700.00, from your last 6 deposits",
+    });
+    expect(d.income[0]!.amount).toBeUndefined();
     expect(out.rows).toBe(5);
     expectClean(out.data);
   });

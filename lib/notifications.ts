@@ -7,9 +7,11 @@ import {
   findBreachDays,
   generateTransferOccurrences,
   generateIncomeOccurrences,
-  generateBillOccurrences,
   type ScheduleEvent,
 } from "./forecast";
+import { loadNetIncomeSources } from "./net-income-build";
+import { effectiveSchedule, generateBillOccurrencesBudgetDated, hasResolvableDay } from "./bill-dates";
+import { loadBudgetScheduleIndex } from "./bill-dates-build";
 import { sendPushToUser } from "./web-push";
 import { evaluateBudgetPace, PACE_TRAILING_MONTHS } from "./budget-pace";
 import type { MonthlySpendPoint } from "./budget-pace";
@@ -306,7 +308,6 @@ export async function checkLowBalance(): Promise<number> {
     include: {
       scheduledTransfersFrom: { where: { active: true } },
       scheduledTransfersTo: { where: { active: true } },
-      incomeSources: { where: { active: true } },
     },
   });
 
@@ -323,7 +324,8 @@ export async function checkLowBalance(): Promise<number> {
         ...generateTransferOccurrences(t, from, to).filter((e) => e.accountId === account.id)
       );
     }
-    for (const s of account.incomeSources) {
+    // Paychecks are TAKE-HOME (lib/net-income-build.ts), never the stored gross amount.
+    for (const s of await loadNetIncomeSources({ where: { accountId: account.id } })) {
       events.push(...generateIncomeOccurrences(s, from, to));
     }
 
@@ -483,8 +485,14 @@ export async function checkAccrualShortfall(): Promise<number> {
 // ── Check: Bill reminders ─────────────────────────────────────────────────────
 
 export async function checkBillReminders(): Promise<number> {
+  // A bill tied to a Budget line is dated by that month's Budget row (the money has to be in the account then), so a
+  // bill whose own record has no day can still have one: the query includes tagged bills, and a bill with no
+  // resolvable date in a month gets no reminder for it (no fabricated day 1).
   const bills = await db.scheduledBill.findMany({
-    where: { active: true, OR: [{ autopayDay: { not: null } }, { frequency: { not: "monthly" } }] },
+    where: {
+      active: true,
+      OR: [{ autopayDay: { not: null } }, { frequency: { not: "monthly" } }, { budgetTagId: { not: null } }],
+    },
     include: { entity: true },
   });
 
@@ -496,13 +504,16 @@ export async function checkBillReminders(): Promise<number> {
   // margin and costs nothing.
   const horizon = new Date(today.getTime() + 65 * 86400000);
   const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
+  const budgetDates = await loadBudgetScheduleIndex({ from: today, to: horizon });
   let generated = 0;
 
   for (const bill of bills) {
     // generateBillOccurrences already sorts ascending (accrued branch is
     // explicitly sorted; the date-generator branch is naturally ascending
     // since allMonthDays/allWeekdays/allBiweekly all produce ascending output).
-    const events = generateBillOccurrences(bill, today, horizon);
+    const events = generateBillOccurrencesBudgetDated(bill, budgetDates.index, today, horizon).filter((e) =>
+      hasResolvableDay(effectiveSchedule(bill, budgetDates.index, e.date.toISOString().slice(0, 7)), bill)
+    );
     // Includes a bill with a due day set but a null/zero expectedAmount (e.g. a
     // budget line with an auto-summed or still-blank amount) — generateBillOccurrences
     // gates on a real amount, so this bill silently gets no reminder instead of one

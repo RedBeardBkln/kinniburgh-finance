@@ -2,6 +2,10 @@
 // Notes, ids, tag ids and account ids are never selected; `dayRules` (JSON) is selected because the shaper summarizes it into text.
 
 import { db } from "@/lib/db";
+import { loadNetIncomeSources } from "@/lib/net-income-build";
+import type { NetBasis } from "@/lib/net-income";
+import { effectiveSchedule } from "@/lib/bill-dates";
+import { loadBudgetScheduleIndex } from "@/lib/bill-dates-build";
 
 type Dec = { toString(): string };
 
@@ -27,6 +31,8 @@ export interface ScheduledBillRow {
   active: boolean;
   entity: { name: string };
   account: { nickname: string };
+  /** The bill's day in the current month when its Budget row dates it differently from the bill record (else absent). */
+  budgetDay?: number | null;
 }
 
 export interface ScheduledTransferRow {
@@ -43,10 +49,16 @@ export interface IncomeSourceRow {
   description: string;
   cadence: string;
   dayRules: unknown;
+  /** The stored GROSS amount per paycheck. */
   amount: Dec;
   active: boolean;
   entity: { name: string };
   account: { nickname: string };
+  /** Take-home per paycheck (null when unknown: the forecast then uses the gross) and how it was resolved. */
+  takeHome?: Dec | null;
+  takeHomeBasis?: NetBasis;
+  /** Plain-language basis ("take-home $6,064.86, from your last 6 deposits"). */
+  takeHomeNote?: string;
 }
 
 export interface ScheduleRows {
@@ -89,6 +101,10 @@ export async function loadSchedule(opts: { entity?: string; kind: ScheduleKind }
             payDayOfWeek: true,
             payMonth: true,
             active: true,
+            // Only to find the bill's Budget row (to report a different budget day); never returned.
+            entityId: true,
+            budgetTagId: true,
+            budgetEntityId: true,
             entity: { select: { name: true } },
             account: { select: { nickname: true } },
           },
@@ -110,14 +126,50 @@ export async function loadSchedule(opts: { entity?: string; kind: ScheduleKind }
           },
         })
       : Promise.resolve([]),
+    // Income sources come from the take-home loader (its own explicit selects): the stored amount stays the GROSS.
     want("income")
-      ? db.incomeSource.findMany({
-          where: entityWhere,
-          orderBy: [{ description: "asc" }, { id: "asc" }],
-          take,
-          select: { description: true, cadence: true, dayRules: true, amount: true, active: true, entity: { select: { name: true } }, account: { select: { nickname: true } } },
-        })
+      ? loadNetIncomeSources({ where: entityWhere, includeInactive: true, withAccount: true, withEntity: true, take })
       : Promise.resolve([]),
   ]);
-  return { recurringExpenses, bills, transfers, income };
+
+  // A bill dated by its Budget row: report the budget day only when it differs from the bill record's day.
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const budget = bills.length > 0 ? await loadBudgetScheduleIndex({ from: monthStart, to: monthEnd }) : null;
+  const period = monthStart.toISOString().slice(0, 7);
+  const billRows: ScheduledBillRow[] = bills.map((b) => {
+    const row: ScheduledBillRow = {
+      payee: b.payee,
+      amountType: b.amountType,
+      expectedAmount: b.expectedAmount,
+      annualBudget: b.annualBudget,
+      autopayDay: b.autopayDay,
+      frequency: b.frequency,
+      payDayOfWeek: b.payDayOfWeek,
+      payMonth: b.payMonth,
+      active: b.active,
+      entity: b.entity,
+      account: b.account,
+    };
+    if (budget) {
+      const eff = effectiveSchedule(b, budget.index, period);
+      if (eff.basis === "budget" && eff.budgetDay !== null && eff.budgetDay !== b.autopayDay) row.budgetDay = eff.budgetDay;
+    }
+    return row;
+  });
+
+  const incomeRows: IncomeSourceRow[] = income.map((s) => ({
+    description: s.description,
+    cadence: s.cadence,
+    dayRules: s.dayRules,
+    amount: s.grossAmount,
+    active: s.active,
+    entity: s.entity ?? { name: "" },
+    account: s.account ?? { nickname: "" },
+    takeHome: s.amountBasis === "gross_unknown" ? null : s.amount,
+    takeHomeBasis: s.amountBasis,
+    takeHomeNote: s.netInfo.label,
+  }));
+  return { recurringExpenses, bills: billRows, transfers, income: incomeRows };
 }

@@ -56,7 +56,7 @@ export function EntityChip({ item }: { item: UiItem }) {
 }
 
 export function Disagreements({ item }: { item: UiItem }) {
-  if (item.disagreements.length === 0) return null;
+  if (item.disagreements.length === 0 && !item.dateNote) return null;
   return (
     <>
       {item.disagreements.map((text) => (
@@ -64,6 +64,8 @@ export function Disagreements({ item }: { item: UiItem }) {
           {text}
         </p>
       ))}
+      {/* A date explanation, not a disagreement: muted, never the amber discrepancy style. */}
+      {item.dateNote && <p className="text-xs text-muted-foreground">{item.dateNote}</p>}
     </>
   );
 }

@@ -22,6 +22,7 @@ import {
   trailingQualifier,
   type LearnedCadence,
   type ModelledRef,
+  type UpcomingItem,
   type UpcomingSource,
 } from "@/lib/upcoming-ledger";
 
@@ -97,6 +98,21 @@ export interface Flag {
   now?: Decimal;
 }
 
+/**
+ * How many days after its recorded (budget) date a monthly bill usually clears the bank. EXPLANATORY ONLY: it never
+ * moves an item or changes a flag, it only lets the ledger say "usually clears about the 17th".
+ */
+export interface ClearingLag {
+  source: UpcomingSource;
+  sourceId: string;
+  /** Day of month the payment usually posts. */
+  typicalDay: number;
+  /** Days after the recorded day (1..7). */
+  lagDays: number;
+  /** Payments the figure rests on. */
+  samples: number;
+}
+
 export interface DetectResult {
   /** Active, unsuppressed series (both outflow and inflow), strongest first. */
   suggestions: Series[];
@@ -106,6 +122,8 @@ export interface DetectResult {
   flags: Flag[];
   /** Series that passed every test but were last seen too long ago to still be running. */
   staleCount: number;
+  /** Clearing lag of recorded monthly bills whose history supports one. Optional: absent = none. */
+  clearing?: ClearingLag[];
 }
 
 export interface DetectInput {
@@ -740,8 +758,12 @@ function suppressionFor(s: Series, rows: PRow[], modelled: ModelledRef[], knownA
   for (const m of refs) {
     if (!accountsCompatible(m.accountId, s.accountId)) continue;
     if (!m.monthly || !amountsClose(monthly, m.monthly)) continue;
+    // A bill dated by its Budget row also keeps its record's own day (altDay): the bank may clear it a few days later.
     const dayOk =
-      m.day === null || (s.typicalDay !== null && circularDistance(m.day, s.typicalDay) <= AMOUNT_DAY_WINDOW);
+      m.day === null ||
+      (s.typicalDay !== null &&
+        (circularDistance(m.day, s.typicalDay) <= AMOUNT_DAY_WINDOW ||
+          (m.altDay != null && circularDistance(m.altDay, s.typicalDay) <= AMOUNT_DAY_WINDOW)));
     if (dayOk) return { kind: "amount_day", label: m.label, source: m.source };
   }
   return null;
@@ -804,9 +826,12 @@ function matchRows(ref: ModelledRef, rows: PRow[], knownAccounts: Set<string>): 
   const expected = ref.expectedAmount;
   const refDay = ref.day;
   if (expected && refDay !== null) {
-    const byMoney = pool.filter(
-      (r) => amountsClose(r.abs, expected) && circularDistance(new Date(r.ms).getUTCDate(), refDay) <= 4
-    );
+    const refAltDay = ref.altDay ?? null;
+    const byMoney = pool.filter((r) => {
+      if (!amountsClose(r.abs, expected)) return false;
+      const d = new Date(r.ms).getUTCDate();
+      return circularDistance(d, refDay) <= 4 || (refAltDay !== null && circularDistance(d, refAltDay) <= 4);
+    });
     if (byMoney.length > 0) return byMoney;
   }
   return null;
@@ -820,14 +845,38 @@ function isLateCadence(c: string | null): c is LateCadence {
   return c === "monthly" || c === "weekly" || c === "biweekly";
 }
 
-/** The "expected, has not posted" sentence, or null. `label` leads the sentence. */
-function lateText(label: string, cadence: LateCadence, occ: Occ[], today: Date): { text: string; day?: number } | null {
+/** Days an owner-recorded due day may sit after the observed posting day and still raise the expected day. */
+const DUE_DAY_FLOOR_WINDOW = 7;
+
+/**
+ * The "expected, has not posted" sentence, or null. `label` leads the sentence. `dueDay` (a MODELLED monthly record's
+ * recorded due day) is a floor: the expected day is the later of the observed posting day and the due day, when the
+ * due day is 1 to 7 days after the observed one (a due date moved later than the history shows is not "late" before
+ * its new date). A bill that clears AFTER its due date is measured from when it posts, as before.
+ */
+function lateText(
+  label: string,
+  cadence: LateCadence,
+  occ: Occ[],
+  today: Date,
+  dueDay: number | null = null
+): { text: string; day?: number } | null {
   if (occ.length < MIN_LATE_MATCHES) return null;
   const todayMs = today.getTime();
   const lastMs = (occ[occ.length - 1] as Occ).ms;
 
   if (cadence === "monthly") {
-    const c = circularDays(occ.map((o) => new Date(o.ms).getUTCDate()));
+    const observed = circularDays(occ.map((o) => new Date(o.ms).getUTCDate()));
+    let expectedDay = observed.day;
+    let fromDueDay = false;
+    if (dueDay !== null) {
+      const forward = (slot(dueDay) - slot(observed.day) + 30) % 30;
+      if (forward >= 1 && forward <= DUE_DAY_FLOOR_WINDOW) {
+        expectedDay = dueDay;
+        fromDueDay = true;
+      }
+    }
+    const c = { day: expectedDay };
     const thisE = monthDate(today.getUTCFullYear(), today.getUTCMonth(), c.day).getTime();
     const prevE = monthDate(today.getUTCFullYear(), today.getUTCMonth() - 1, c.day).getTime();
     const expected = thisE <= todayMs ? thisE : prevE;
@@ -838,7 +887,9 @@ function lateText(label: string, cadence: LateCadence, occ: Occ[], today: Date):
     const sameMonth = expected === thisE;
     return {
       day: c.day,
-      text: `${label} usually posts around the ${ordinal(c.day)}; none seen yet ${sameMonth ? "this month" : "for last month"}.`,
+      text: fromDueDay
+        ? `${label} is due on the ${ordinal(c.day)}; none seen yet ${sameMonth ? "this month" : "for last month"}.`
+        : `${label} usually posts around the ${ordinal(c.day)}; none seen yet ${sameMonth ? "this month" : "for last month"}.`,
     };
   }
 
@@ -849,6 +900,48 @@ function lateText(label: string, cadence: LateCadence, occ: Occ[], today: Date):
   return {
     text: `${label} usually posts ${cadence === "weekly" ? "every week" : "every two weeks"}; none seen since ${shortDate(lastMs)}.`,
   };
+}
+
+/** Months of history a clearing lag rests on, and the least payments / the largest day spread it accepts. */
+const CLEARING_LOOKBACK_DAYS = 183;
+const CLEARING_MIN_PAYMENTS = 3;
+const CLEARING_MAX_SPREAD = 2;
+const CLEARING_MAX_LAG = 7;
+
+/**
+ * Clearing lag of a recorded MONTHLY outflow with a recorded day: its matched payments of the last six months post on
+ * a steady day (at most 2 days apart, circular) that is 1 to 7 days after the recorded day. Needs 3 payments.
+ * EXPLANATORY ONLY (nothing is moved or flagged from it).
+ */
+function clearingLagOf(ref: ModelledRef, occ: Occ[], today: Date): ClearingLag | null {
+  if (ref.cadence !== "monthly" || ref.day === null) return null;
+  const recent = occ.filter((o) => daysBetween(o.ms, today.getTime()) <= CLEARING_LOOKBACK_DAYS);
+  if (recent.length < CLEARING_MIN_PAYMENTS) return null;
+  const c = circularDays(recent.map((o) => new Date(o.ms).getUTCDate()));
+  if (c.spread > CLEARING_MAX_SPREAD) return null;
+  const lag = (slot(c.day) - slot(ref.day) + 30) % 30;
+  if (lag < 1 || lag > CLEARING_MAX_LAG) return null;
+  return { source: ref.source, sourceId: ref.sourceId, typicalDay: c.day, lagDays: lag, samples: recent.length };
+}
+
+/** "Usually clears about the 17th." (explanatory only). */
+export function clearingText(lag: Pick<ClearingLag, "typicalDay">): string {
+  return `Usually clears about the ${ordinal(lag.typicalDay)}.`;
+}
+
+/**
+ * Appends the clearing explanation to the `dateNote` of each DATED bill item whose source has a clearing lag. It never
+ * changes a date, an amount or a flag. Mutates the items in place.
+ */
+export function applyClearingNotes(items: UpcomingItem[], clearing: ClearingLag[] | undefined): void {
+  if (!clearing || clearing.length === 0) return;
+  const bySource = new Map(clearing.map((c) => [`${c.source}:${c.sourceId}`, c]));
+  for (const item of items) {
+    if (item.kind !== "bill" || !item.date) continue;
+    const lag = bySource.get(`${item.source}:${item.sourceId}`);
+    if (!lag) continue;
+    item.dateNote = item.dateNote ? `${item.dateNote} ${clearingText(lag)}` : clearingText(lag);
+  }
 }
 
 /** Latest amount against the prior ones. Returns null unless a real change was found. */
@@ -1036,14 +1129,23 @@ export function detectRecurring(input: DetectInput): DetectResult {
 
   // 4. Flags.
   const flags: Flag[] = [];
+  const clearing: ClearingLag[] = [];
 
   for (const ref of input.modelled) {
     if (ref.direction !== "outflow") continue;
+    // Clearing lag (explanatory text only). A bill is often paid from a different account than the one it is recorded
+    // on (Solar: recorded on the Heating & Electric envelope, paid from Primary Checking), so for a record tied to a
+    // budget category the tagged payments of ANY account are its history; the late flag below keeps the stricter match.
+    const lagRows = ref.tagKey ? matchRows({ ...ref, accountId: null }, prows, knownAccounts) : matchRows(ref, prows, knownAccounts);
+    if (lagRows) {
+      const lag = clearingLagOf(ref, occurrencesOf(lagRows).occ, today);
+      if (lag) clearing.push(lag);
+    }
     const rows = matchRows(ref, prows, knownAccounts);
     if (!rows) continue;
     const { occ } = occurrencesOf(rows);
     if (isLateCadence(ref.cadence)) {
-      const late = lateText(ref.label, ref.cadence, occ, today);
+      const late = lateText(ref.label, ref.cadence, occ, today, ref.cadence === "monthly" ? ref.day : null);
       if (late) {
         flags.push({ type: "late", entityId: ref.entityId, seriesKey: null, modelled: ref, text: late.text, usualDay: late.day });
       }
@@ -1081,7 +1183,7 @@ export function detectRecurring(input: DetectInput): DetectResult {
     })
     .sort((a, b) => FLAG_ORDER[a.type] - FLAG_ORDER[b.type] || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0));
 
-  return { suggestions, suppressed, suppressedCount: suppressed.length, flags: uniqueFlags, staleCount };
+  return { suggestions, suppressed, suppressedCount: suppressed.length, flags: uniqueFlags, staleCount, clearing };
 }
 
 // ── Dismissals (pure parse / serialize / apply; persistence is lib/settings.ts) ──
@@ -1152,6 +1254,8 @@ export interface DetectionBundle {
   suppressed: Series[];
   suppressedCount: number;
   staleCount: number;
+  /** Clearing lag of recorded monthly bills (explanatory text only). Optional: absent = none. */
+  clearing?: ClearingLag[];
 }
 
 /** Splits the detector's suggestions by the owner's dismissals; flags about a dismissed series are dropped. */
@@ -1165,5 +1269,6 @@ export function applyDismissals(result: DetectResult, dismissed: DismissedEntry[
     suppressed: result.suppressed,
     suppressedCount: result.suppressedCount,
     staleCount: result.staleCount,
+    ...(result.clearing ? { clearing: result.clearing } : {}),
   };
 }

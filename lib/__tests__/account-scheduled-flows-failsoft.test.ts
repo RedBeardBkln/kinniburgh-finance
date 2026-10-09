@@ -10,6 +10,7 @@ vi.mock("@/lib/db", () => {
       scheduledTransfer: { findMany: vi.fn(failing) },
       incomeSource: { findMany: vi.fn(async () => []) },
       scheduledBill: { findMany: vi.fn(async () => []) },
+      budget: { findMany: vi.fn(async () => []) },
     },
   };
 });

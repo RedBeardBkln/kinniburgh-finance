@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { Decimal } from "@prisma/client/runtime/library";
 import { monthlyEquivalentCents } from "@/lib/recurring-expenses";
 import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
+import { loadNetIncomeSources } from "@/lib/net-income-build";
 
 function fmt(cents: number): string {
   return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -59,10 +60,8 @@ export async function buildAdvisorContext(options: AdvisorContextOptions = {}): 
       include: { tags: { include: { tag: { select: { name: true } } } } },
       orderBy: { postedAt: "desc" },
     }),
-    db.incomeSource.findMany({
-      where: { active: true },
-      include: { entity: { select: { name: true } }, account: { select: { nickname: true } } },
-    }),
+    // Paychecks as TAKE-HOME (lib/net-income-build.ts): `amount` is the net figure, `grossAmount` the stored gross.
+    loadNetIncomeSources({ withAccount: true, withEntity: true }),
     db.recurringExpense.findMany({
       include: { entity: { select: { name: true } }, tag: { select: { name: true } } },
       orderBy: { name: "asc" },
@@ -223,7 +222,10 @@ export async function buildAdvisorContext(options: AdvisorContextOptions = {}): 
     tx("None configured.");
   } else {
     for (const s of incomeSources) {
-      li(`${s.description} (${s.entity.name}): ${fmtDollars(Number(s.amount))} ${s.cadence} → ${s.account.nickname}`);
+      const basis = s.netInfo.assumption
+        ? `gross ${fmtDollars(Number(s.grossAmount))} used, take-home unknown`
+        : `take-home${s.netInfo.variable ? " about" : ""} ${fmtDollars(Number(s.amount))} (gross ${fmtDollars(Number(s.grossAmount))})`;
+      li(`${s.description} (${s.entity?.name ?? ""}): ${basis} ${s.cadence} → ${s.account?.nickname ?? ""}`);
     }
   }
 

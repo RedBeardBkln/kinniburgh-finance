@@ -604,13 +604,19 @@ describe("de-duplication: same budget category", () => {
     expect(l.items[1]!.amount!.toFixed(2)).toBe("-420.00"); // the bill's amount is always the one shown
   });
 
-  it("Solar-shaped: day differs, amount within $1 -> day discrepancy only", () => {
+  it("Solar-shaped: day differs, amount within $1 -> dated by the budget with an info line, NOT a discrepancy", () => {
     const l = run({
       days: 30,
       bills: [tagged({ id: "sol", payee: "Solar", tag: "t-sol", expectedAmount: 505.7, autopayDay: 17 })],
       budgets: [budget({ id: "s1", tagId: "t-sol", period: "2026-10", budgeted: 506, payDay: 14 })],
     });
-    expect(l.items[0]!.discrepancies).toEqual([{ kind: "day", otherSource: "budget_line", thisDay: 17, otherDay: 14 }]);
+    // net-income-budget-dates: the Budget's date wins (the money has to be in the account then). The day
+    // mismatch used to be a "Records disagree" discrepancy; it is now an informational dateNote.
+    expect(dates(l)).toEqual(["2026-10-14"]);
+    expect(l.items[0]!.discrepancies).toEqual([]);
+    expect(l.items[0]!.dateNote).toBe(
+      "Dated by the budget (day 14) because the money has to be in the account then. The bill record says day 17. The bank may take a few days to clear it."
+    );
   });
 
   it("Doggy-shaped: weekly bill $310.56 vs budget $268 -> monthly_amount discrepancy", () => {

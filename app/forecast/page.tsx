@@ -9,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import {
   generateTransferOccurrences,
   generateIncomeOccurrences,
-  generateBillOccurrences,
   buildAccountForecast,
   findBreachDays,
 } from "@/lib/forecast";
@@ -22,6 +21,9 @@ import { Prisma } from "@prisma/client";
 import { analyzeCardFunding, shortfallIncludesEstimate, type CardDue, type CoverageStatus } from "@/lib/cc-funding";
 import { classifyCardDue, formatCalendarDate } from "@/lib/card-due";
 import { cardDuesInWindow, cardPaymentEvents } from "@/lib/card-next-statement";
+import { loadNetIncomeSources } from "@/lib/net-income-build";
+import { generateBillOccurrencesBudgetDated } from "@/lib/bill-dates";
+import { loadBudgetScheduleIndex } from "@/lib/bill-dates-build";
 import { loadCardProjections, type LoadedCardProjections } from "@/lib/card-next-statement-build";
 import { setAccountBalance, upsertIncomeSource } from "@/actions/envelope";
 import { ForecastAccountCard, type ChartPoint } from "@/components/forecast/forecast-account-card";
@@ -97,21 +99,23 @@ export default async function ForecastPage({ searchParams }: PageProps) {
 
   // Load all active scheduled transfers, income sources, and bills (Personal's
   // day-by-day engine only — business buckets don't use any of these).
-  const [transfers, incomeSources, scheduledBills] = isBusinessBucket
-    ? [[], [], []]
+  // Paychecks are TAKE-HOME pay (loadNetIncomeSources replaces the stored gross amount with the figure resolved from
+  // recent deposits / a confirmed paystub, with its basis), and bills are dated by their Budget row month by month
+  // (loadBudgetScheduleIndex; fail-soft: on an error the bill records' own dates are used, as before).
+  const noBudgetDates: Awaited<ReturnType<typeof loadBudgetScheduleIndex>> = { index: new Map(), failed: false };
+  const [transfers, incomeSources, scheduledBills, budgetDates] = isBusinessBucket
+    ? [[], [], [], noBudgetDates]
     : await Promise.all([
         db.scheduledTransfer.findMany({
           where: { active: true },
           include: { fromAccount: true, toAccount: true },
         }),
-        db.incomeSource.findMany({
-          where: { active: true },
-          include: { account: true, entity: true },
-        }),
+        loadNetIncomeSources({ withAccount: true, withEntity: true }),
         db.scheduledBill.findMany({
           where: { active: true, budgetTagId: { not: null } },
           include: { accrualEnvelope: { include: { draws: true } } },
         }),
+        loadBudgetScheduleIndex({ from: forecastStart, to: forecastEnd90 }),
       ]);
 
   // Maps a scheduled bill's linked AccrualEnvelope draws (if any) into the
@@ -346,7 +350,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     return [
       ...transfers.flatMap((t) => generateTransferOccurrences(t, from, to)),
       ...incomeSources.flatMap((s) => generateIncomeOccurrences(s, from, to)),
-      ...scheduledBills.flatMap((b) => generateBillOccurrences(b, from, to, billDraws(b))),
+      ...scheduledBills.flatMap((b) => generateBillOccurrencesBudgetDated(b, budgetDates.index, from, to, billDraws(b))),
     ].filter((e) => e.accountId === accountId);
   }
 
@@ -442,7 +446,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     ).filter((e) => e.accountId === acct.id);
 
     const billEvents = scheduledBills.flatMap((b) =>
-      generateBillOccurrences(b, forecastStart, forecastEnd90, billDraws(b))
+      generateBillOccurrencesBudgetDated(b, budgetDates.index, forecastStart, forecastEnd90, billDraws(b))
     ).filter((e) => e.accountId === acct.id);
 
     // Credit card statement payments this account really pays (inferred from past payments, any entity's card):
@@ -524,7 +528,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     ).filter((e) => e.accountId === primaryAcct.id);
 
     const billEventsForSchedule = scheduledBills.flatMap((b) =>
-      generateBillOccurrences(b, forecastStart, forecastEnd14, billDraws(b))
+      generateBillOccurrencesBudgetDated(b, budgetDates.index, forecastStart, forecastEnd14, billDraws(b))
     ).filter((e) => e.accountId === primaryAcct.id);
 
     // Card payments this account really pays (e.g. jetBlue from Primary Checking), estimates marked in the text.
@@ -659,6 +663,26 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           <p className="text-sm text-muted-foreground">
             30-day projection based on scheduled transfers, bills, and income
           </p>
+          {!isBusinessBucket && (
+            <div className="space-y-0.5">
+              <p className="text-xs text-muted-foreground">
+                Paychecks are take-home pay (the Income Sources table below shows the basis for each). Bills are dated
+                by their budget line when it has a date, because the money has to be in the account then; the bank may
+                clear a bill a few days later.
+              </p>
+              {incomeSources.some((s) => s.netInfo.assumption) && (
+                <p className="text-xs text-amber-700">
+                  At least one paycheck uses its gross amount because its take-home is unknown (flagged in the Income
+                  Sources table).
+                </p>
+              )}
+              {budgetDates.failed && (
+                <p className="text-xs text-muted-foreground">
+                  Budget dates could not be read just now, so bills use the dates on their own records.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Balance panel ────────────────────────────────────────────── */}
@@ -1081,7 +1105,8 @@ export default async function ForecastPage({ searchParams }: PageProps) {
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="px-0 py-2 font-medium">Description</th>
                     <th className="px-4 py-2 font-medium">Cadence</th>
-                    <th className="px-4 py-2 font-medium text-right">Amount</th>
+                    <th className="px-4 py-2 font-medium text-right">Take-home used</th>
+                    <th className="px-4 py-2 font-medium text-right">Gross</th>
                     <th className="px-4 py-2 font-medium">Account</th>
                   </tr>
                 </thead>
@@ -1097,13 +1122,29 @@ export default async function ForecastPage({ searchParams }: PageProps) {
                     }
                     return (
                       <tr key={s.id} className="border-b last:border-0">
-                        <td className="px-0 py-2 font-medium">{s.description}</td>
+                        <td className="px-0 py-2 font-medium">
+                          {s.description}
+                          <p
+                            className={`text-xs font-normal ${s.netInfo.assumption ? "text-amber-700" : "text-muted-foreground"}`}
+                          >
+                            {s.netInfo.label}
+                          </p>
+                          {s.netInfo.timing && (
+                            <p className="text-xs font-normal text-muted-foreground">{s.netInfo.timing.text}</p>
+                          )}
+                        </td>
                         <td className="px-4 py-2 text-muted-foreground">{cadenceLabel}</td>
-                        <td className="px-4 py-2 text-right text-green-600 font-medium">
-                          +{formatUSD(decimalToNumber(new Prisma.Decimal(s.amount)))}
+                        <td
+                          className={`px-4 py-2 text-right font-medium ${s.netInfo.assumption ? "text-amber-700" : "text-green-600"}`}
+                        >
+                          {s.netInfo.variable ? "~" : ""}+{formatUSD(decimalToNumber(new Prisma.Decimal(s.amount)))}
+                          {s.netInfo.assumption && <span className="block text-xs font-normal">gross, take-home unknown</span>}
+                        </td>
+                        <td className="px-4 py-2 text-right text-muted-foreground">
+                          {formatUSD(decimalToNumber(new Prisma.Decimal(s.grossAmount)))}
                         </td>
                         <td className="px-4 py-2 text-xs text-muted-foreground">
-                          {s.account.nickname} ···{s.account.mask}
+                          {s.account ? `${s.account.nickname} ···${s.account.mask ?? ""}` : ""}
                         </td>
                       </tr>
                     );
@@ -1159,7 +1200,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Amount</label>
+                  <label className="text-xs font-medium">Gross amount per paycheck</label>
                   <input
                     name="amount"
                     type="number"

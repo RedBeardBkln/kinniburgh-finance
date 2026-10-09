@@ -163,6 +163,11 @@ export interface UiItem {
   href: string;
   accountName: string | null;
   disagreements: string[];
+  /**
+   * An informational line about the item's DATE (a bill dated by its budget while the bill record says another day,
+   * plus when the bank usually clears it). Shown muted; NOT a disagreement. Absent = none.
+   */
+  dateNote?: string | null;
   notes: string[];
 }
 
@@ -297,6 +302,7 @@ function itemToUi(item: UpcomingItem, ctx: UiContext): UiItem {
     href: hrefFor(item.link, slug),
     accountName: item.accountId ? (ctx.accountNameById[item.accountId] ?? null) : null,
     disagreements: item.discrepancies.map((d) => disagreementText(item, d)),
+    ...(item.dateNote ? { dateNote: item.dateNote } : {}),
     notes: item.notes,
   };
 }

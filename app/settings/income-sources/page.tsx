@@ -42,7 +42,8 @@ export default async function IncomeSourcesPage() {
         <div>
           <h1 className="text-2xl font-semibold">Income Sources</h1>
           <p className="text-sm text-muted-foreground">
-            Recurring income events used by the 30-day forecast and low-balance alerts.
+            Recurring income events used by the 30-day forecast and low-balance alerts. Amounts here are the gross
+            paycheck; the forecast uses your take-home, worked out from your deposits and paystubs.
           </p>
         </div>
 
@@ -63,7 +64,7 @@ export default async function IncomeSourcesPage() {
                     <th className="px-4 py-2 font-medium">Entity</th>
                     <th className="px-4 py-2 font-medium">Account</th>
                     <th className="px-4 py-2 font-medium">Cadence</th>
-                    <th className="px-4 py-2 font-medium text-right">Amount</th>
+                    <th className="px-4 py-2 font-medium text-right">Gross amount</th>
                     <th className="px-4 py-2 font-medium text-center">Active</th>
                     <th className="px-4 py-2 font-medium text-right">Actions</th>
                   </tr>

@@ -101,9 +101,10 @@ export async function confirmPaystub(
 
 /**
  * Creates or updates the IncomeSource for an employee so the cash-flow
- * forecast reflects actual pay cadence and net take-home per paycheck.
- * The gross amount is used so pre-tax deductions still show as income in,
- * consistent with how budgets and actuals are tracked at the account level.
+ * forecast reflects the actual pay cadence. The stored amount is the GROSS
+ * paycheck (it is what the Income page and tax work use); the forecast itself
+ * uses take-home, worked out from recent deposits or this paystub's net pay
+ * (lib/net-income.ts), never this gross figure.
  * Uses the paystub's stored direct-deposit account; an explicit accountId
  * (from the review form) overrides it.
  */

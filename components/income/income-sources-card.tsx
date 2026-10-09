@@ -57,7 +57,7 @@ export function IncomeSourcesCard({ sources }: Props) {
               <tr className="border-b text-left text-muted-foreground">
                 <th className="px-4 py-2 font-medium">Source</th>
                 <th className="px-4 py-2 font-medium">Cadence</th>
-                <th className="px-4 py-2 font-medium text-right">Per paycheck</th>
+                <th className="px-4 py-2 font-medium text-right">Gross per paycheck</th>
                 <th className="px-4 py-2 font-medium">Deposits into</th>
               </tr>
             </thead>

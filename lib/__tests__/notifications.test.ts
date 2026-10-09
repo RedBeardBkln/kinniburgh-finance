@@ -24,10 +24,16 @@ vi.mock("@/lib/gl-code-resolver", () => ({ autoAssignGlCodes: vi.fn() }));
 // here they are handed in as plain data (mock at the function boundary).
 vi.mock("@/lib/card-next-statement-build", () => ({ loadCardProjections: vi.fn() }));
 vi.mock("@/lib/account-scheduled-flows", () => ({ loadScheduledFlows: vi.fn() }));
+// Paychecks (take-home) and the Budget date index are separate, individually tested loaders: handed in as data.
+vi.mock("@/lib/net-income-build", () => ({ loadNetIncomeSources: vi.fn() }));
+vi.mock("@/lib/bill-dates-build", () => ({ loadBudgetScheduleIndex: vi.fn() }));
 
 import { db } from "@/lib/db";
 import { loadCardProjections } from "@/lib/card-next-statement-build";
 import { loadScheduledFlows } from "@/lib/account-scheduled-flows";
+import { loadNetIncomeSources } from "@/lib/net-income-build";
+import { loadBudgetScheduleIndex } from "@/lib/bill-dates-build";
+import { buildBudgetScheduleIndex, type BudgetScheduleRow } from "@/lib/bill-dates";
 import type { CardProjection } from "@/lib/card-next-statement";
 import {
   checkBudgetOverspend,
@@ -55,12 +61,17 @@ const mockDb = db as unknown as {
 
 const mockLoadProjections = loadCardProjections as unknown as ReturnType<typeof vi.fn>;
 const mockLoadFlows = loadScheduledFlows as unknown as ReturnType<typeof vi.fn>;
+const mockLoadIncome = loadNetIncomeSources as unknown as ReturnType<typeof vi.fn>;
+const mockLoadBudgetIndex = loadBudgetScheduleIndex as unknown as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   // Default: no card projections (nothing known about payments), no scheduled flows
   mockLoadProjections.mockResolvedValue({ today: new Date(), projections: [], error: false });
   mockLoadFlows.mockResolvedValue([]);
+  // Default: no paychecks, and an empty Budget date index (bills use their own records' dates)
+  mockLoadIncome.mockResolvedValue([]);
+  mockLoadBudgetIndex.mockResolvedValue({ index: new Map(), failed: false });
   // Default: no existing notifications today (no duplicates)
   mockDb.notification.findFirst.mockResolvedValue(null);
   // Default: two users, no saved prefs (everything defaults to enabled)
@@ -226,7 +237,6 @@ describe("checkLowBalance", () => {
           },
         ],
         scheduledTransfersTo: [],
-        incomeSources: [],
       },
     ]);
 
@@ -265,7 +275,6 @@ describe("checkLowBalance", () => {
           },
         ],
         scheduledTransfersTo: [],
-        incomeSources: [],
       },
     ]);
 
@@ -291,7 +300,6 @@ describe("checkLowBalance", () => {
         minimumBalanceFee: new Decimal("15"),
         scheduledTransfersFrom: [],
         scheduledTransfersTo: [],
-        incomeSources: [],
       },
     ]);
     mockDb.transaction.findFirst.mockResolvedValue(null); // no existing fee this month
@@ -305,6 +313,63 @@ describe("checkLowBalance", () => {
     expect(mockDb.transaction.create).toHaveBeenCalledOnce();
     expect(mockDb.notification.create).not.toHaveBeenCalled();
     expect(count).toBe(0);
+  });
+
+  it("projects paychecks with the TAKE-HOME amount from the shared loader (per account), not the gross", async () => {
+    const tomorrow = new Date();
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const day = tomorrow.getUTCDate();
+    const account = {
+      id: "acc-td",
+      entityId: "entity-personal",
+      nickname: "TD Checking x4821",
+      accountType: "checking",
+      minimumBalance: new Decimal("250"),
+      currentBalance: new Decimal("255"),
+      currentBalanceAt: new Date(),
+      minimumBalanceFee: null,
+      scheduledTransfersFrom: [
+        {
+          id: "st-1",
+          fromAccountId: "acc-td",
+          toAccountId: "acc-other",
+          amount: new Decimal("300"),
+          cadence: "monthly",
+          dayRules: { dayOfMonth: day },
+          purpose: "Rent",
+          active: true,
+        },
+      ],
+      scheduledTransfersTo: [],
+    };
+    const paycheck = (amount: string) => ({
+      id: "inc-1",
+      accountId: "acc-td",
+      entityId: "entity-personal",
+      description: "payroll (Alpine Bio Inc)",
+      cadence: "monthly",
+      dayRules: { dayOfMonth: day },
+      amount: new Decimal(amount),
+      grossAmount: new Decimal("9000"),
+      amountBasis: "deposits",
+      active: true,
+    });
+    mockDb.account.findMany.mockResolvedValue([account]);
+
+    // take-home 100: 255 - 300 + 100 = 55, below the 250 minimum -> a low-balance notification
+    mockLoadIncome.mockResolvedValue([paycheck("100")]);
+    expect(await checkLowBalance()).toBe(1);
+    expect(mockLoadIncome).toHaveBeenCalledWith({ where: { accountId: "acc-td" } });
+
+    // the same source projected at 9,000 would hide the breach: this proves the loader's amount is the one used
+    vi.clearAllMocks();
+    mockDb.user.findMany.mockResolvedValue([{ id: "user-1", notificationPrefs: null }]);
+    mockDb.notification.findFirst.mockResolvedValue(null);
+    mockDb.notification.create.mockResolvedValue({ id: "n" });
+    mockDb.notification.update.mockResolvedValue({});
+    mockDb.account.findMany.mockResolvedValue([account]);
+    mockLoadIncome.mockResolvedValue([paycheck("9000")]);
+    expect(await checkLowBalance()).toBe(0);
   });
 });
 
@@ -408,6 +473,88 @@ describe("checkAccrualShortfall", () => {
 });
 
 // ── 4. Bill reminders ─────────────────────────────────────────────────────────
+
+/** Budget rows (monthly, the given pay day) for this month and the next, as the loader would return them. */
+function budgetIndexFor(entityId: string, tagId: string, payDay: number | null) {
+  const now = new Date();
+  const periods = [0, 1, 2].map((k) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + k, 1)).toISOString().slice(0, 7));
+  const rows: BudgetScheduleRow[] = periods.map((period) => ({
+    entityId,
+    tagId,
+    period,
+    payDay,
+    frequency: "monthly",
+    payDayOfWeek: null,
+    biweeklyAnchorDate: null,
+    payMonth: null,
+    annualAmountDue: null,
+  }));
+  return { index: buildBudgetScheduleIndex(rows), failed: false };
+}
+
+describe("checkBillReminders - dated by the Budget row", () => {
+  const taggedBill = (autopayDay: number | null) => ({
+    id: "bill-solar",
+    payee: "Solar",
+    entityId: "entity-personal",
+    budgetTagId: "tag-solar",
+    budgetEntityId: "entity-personal",
+    autopayDay,
+    frequency: "monthly",
+    amountType: "static",
+    expectedAmount: new Decimal("200"),
+    annualBudget: null,
+    active: true,
+    entity: { id: "entity-personal", name: "Personal" },
+  });
+
+  it("the query includes bills tied to a Budget line (so a bill with no day of its own can be dated by its Budget row)", async () => {
+    mockDb.scheduledBill.findMany.mockResolvedValue([]);
+    await checkBillReminders();
+    const where = (mockDb.scheduledBill.findMany.mock.calls[0]![0] as { where: { OR: unknown[] } }).where;
+    expect(where.OR).toContainEqual({ budgetTagId: { not: null } });
+  });
+
+  it("fires relative to the BUDGET date, not the bill record's later day", async () => {
+    const budgetDay = new Date();
+    budgetDay.setUTCDate(budgetDay.getUTCDate() + 2); // due in 2 days by the budget
+    const recordDay = new Date();
+    recordDay.setUTCDate(recordDay.getUTCDate() + 6); // the record says 6 days out: would NOT remind (default 3)
+    mockLoadBudgetIndex.mockResolvedValue(budgetIndexFor("entity-personal", "tag-solar", budgetDay.getUTCDate()));
+    mockDb.scheduledBill.findMany.mockResolvedValue([taggedBill(recordDay.getUTCDate())]);
+
+    expect(await checkBillReminders()).toBe(1);
+    const call = mockDb.notification.create.mock.calls[0]![0] as { data: { payload: Record<string, unknown> } };
+    expect(String(call.data.payload.dueDate).slice(0, 10)).toBe(budgetDay.toISOString().slice(0, 10));
+    expect(call.data.payload.amount).toBe("200.00");
+  });
+
+  it("with no Budget row the bill record's own day is used (unchanged behaviour)", async () => {
+    const recordDay = new Date();
+    recordDay.setUTCDate(recordDay.getUTCDate() + 2);
+    mockDb.scheduledBill.findMany.mockResolvedValue([taggedBill(recordDay.getUTCDate())]);
+    expect(await checkBillReminders()).toBe(1);
+  });
+
+  it("a tagged bill whose own day is empty is dated by its Budget row", async () => {
+    const budgetDay = new Date();
+    budgetDay.setUTCDate(budgetDay.getUTCDate() + 2);
+    mockLoadBudgetIndex.mockResolvedValue(budgetIndexFor("entity-personal", "tag-solar", budgetDay.getUTCDate()));
+    mockDb.scheduledBill.findMany.mockResolvedValue([taggedBill(null)]);
+    expect(await checkBillReminders()).toBe(1);
+  });
+
+  it("no reminder when no date can be resolved (no fabricated day 1), whether the index is empty, failed or the row has no day", async () => {
+    mockDb.scheduledBill.findMany.mockResolvedValue([taggedBill(null)]);
+    expect(await checkBillReminders()).toBe(0);
+    mockLoadBudgetIndex.mockResolvedValue({ index: new Map(), failed: true });
+    expect(await checkBillReminders()).toBe(0);
+    mockLoadBudgetIndex.mockResolvedValue(budgetIndexFor("entity-personal", "tag-solar", null));
+    expect(await checkBillReminders()).toBe(0);
+    expect(mockDb.notification.create).not.toHaveBeenCalled();
+  });
+});
+
 
 describe("checkBillReminders", () => {
   it("generates a notification for a bill due in 2 days", async () => {

@@ -101,6 +101,8 @@ export function shapeSchedule(rows: ScheduleRows): ToolOutput {
     monthly_amount: dollarsOf(centsOf(b.expectedAmount)),
     annual_budget: dollarsOf(centsOf(b.annualBudget)),
     timing: billTiming(b),
+    // Only when the bill's budget line dates it on a different day this month (the budget date is the one used).
+    ...(b.budgetDay !== undefined && b.budgetDay !== null ? { budget_day: b.budgetDay } : {}),
     active: b.active,
   }));
   const transfers = cap(rows.transfers, remaining, cut, "transfers").map((t) => ({
@@ -115,7 +117,11 @@ export function shapeSchedule(rows: ScheduleRows): ToolOutput {
     description: safeField(s.description, 80),
     entity: safeField(s.entity.name, 80),
     deposit_account: safeField(s.account.nickname, 60),
-    amount: dollarsOf(centsOf(s.amount)),
+    // The stored amount is the GROSS paycheck; the forecast uses take_home (null = unknown, gross used).
+    gross_amount: dollarsOf(centsOf(s.amount)),
+    take_home: s.takeHome === undefined || s.takeHome === null ? null : dollarsOf(centsOf(s.takeHome)),
+    take_home_basis: s.takeHomeBasis === "deposits" ? "recent deposits" : s.takeHomeBasis === "paystub" ? "confirmed paystub" : "unknown (gross used in the forecast)",
+    ...(s.takeHomeNote !== undefined ? { take_home_note: safeField(s.takeHomeNote, 160) } : {}),
     schedule: summarizeDayRules(s.cadence, s.dayRules),
     active: s.active,
   }));
@@ -129,6 +135,7 @@ export function shapeSchedule(rows: ScheduleRows): ToolOutput {
       ...(cut.length > 0 ? { sections_truncated: cut } : {}),
       notes: [
         "Bill amounts are monthly totals regardless of frequency (for an annual bill the monthly amount is the set-aside and annual_budget is the total due). Inactive items are listed with active=false and are not used in the forecast.",
+        "Income amounts: gross_amount is the stored gross paycheck; take_home is what the forecast uses (null when unknown, then the gross is used and the forecast is marked). A bill with budget_day is dated by its budget line on that day this month.",
       ],
     },
     rows: count,

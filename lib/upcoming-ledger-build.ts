@@ -10,7 +10,7 @@ import {
   type UpcomingLedger,
 } from "@/lib/upcoming-ledger";
 import { loadUpcomingLedgerInput } from "@/lib/upcoming-ledger-input";
-import { expandSeriesDates, type DetectionBundle } from "@/lib/recurring-detect";
+import { applyClearingNotes, expandSeriesDates, type DetectionBundle } from "@/lib/recurring-detect";
 import { fetchDetectionData, runDetection } from "@/lib/recurring-detect-build";
 import { toLedgerCardInputs } from "@/lib/card-next-statement";
 import { loadCardProjections } from "@/lib/card-next-statement-build";
@@ -87,6 +87,8 @@ export async function loadUpcomingLedger(args: {
   }
 
   const ledger = buildUpcomingLedger(input);
+  // The bank may clear a bill a few days after its (budget) date: say so as text only. Dates never move.
+  applyClearingNotes(ledger.items, detection?.clearing);
 
   return {
     ledger,
