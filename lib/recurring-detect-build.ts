@@ -62,7 +62,8 @@ export async function fetchDetectionData(args: {
         payeeNormalized: true,
         amount: true,
         postedAt: true,
-        account: { select: { accountType: true } },
+        // The nickname (never the number) only tells apart one payee seen on two accounts.
+        account: { select: { accountType: true, nickname: true } },
         tags: { select: { tagId: true } },
       },
     }),
@@ -73,6 +74,7 @@ export async function fetchDetectionData(args: {
     entityId: t.entityId,
     accountId: t.accountId,
     accountType: t.account.accountType,
+    accountName: t.account.nickname ?? null,
     payee: t.payeeNormalized,
     amount: new Decimal(t.amount.toString()),
     postedAt: t.postedAt,

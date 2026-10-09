@@ -20,6 +20,7 @@ import {
 } from "@/lib/forecast";
 import { cycleMonthsFor, isLumpSumFrequency } from "@/lib/annual-bill";
 import { monthlyEquivalentCents } from "@/lib/recurring-expenses";
+import { seriesKeyFromNotes } from "@/lib/recurring-series-marker";
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -84,6 +85,8 @@ export interface UpcomingItem {
   alsoRecordedAs: AlternateRecord[];
   discrepancies: Discrepancy[];
   notes: string[];
+  /** Set only on `UpcomingLedger.learned` items: the cadence of the learned series (one row per series in the UI). */
+  learnedCadence?: LearnedCadence;
 }
 
 export interface LedgerTotals {
@@ -177,6 +180,8 @@ export interface UpcomingRecurringRow {
   dueDay: number | null;
   nextDueDate: Date | string | null;
   tagId: string | null;
+  /** Only read for the "[pattern:...]" marker a recurring expense added from a detected pattern carries. */
+  notes?: string | null;
 }
 
 export interface UpcomingEnvelopeRow {
@@ -298,6 +303,11 @@ export interface ModelledRef {
   cadence: ModelledCadence | null;
   /** Amount of ONE payment when the record states it, else null. */
   expectedAmount: Decimal | null;
+  /**
+   * Set for a recurring expense created from a detected pattern: that pattern's series key (read from the notes
+   * marker). Ties the record to ITS series however it was renamed or tagged.
+   */
+  seriesKey?: string | null;
 }
 
 export interface UpcomingLedgerInput {
@@ -405,6 +415,36 @@ export function nameWords(name: string): string[] {
     .split(" ")
     .filter((w) => w.length >= 4 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
   return [...new Set(words)];
+}
+
+const TRAILING_QUALIFIER_RE = /\s*\(([^()]{1,60})\)\s*$/;
+
+function normalizeQualifier(q: string): string {
+  return q.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * The trailing "(...)" of a record name, normalized ("Maintenance Fee (Credit Cards)" -> "credit cards"), or null.
+ * It tells two same-named records apart ("... (Arbor Retreat)", or the account nickname the recurring-pattern
+ * review adds when one payee charges on two accounts).
+ */
+export function trailingQualifier(label: string): string | null {
+  const m = TRAILING_QUALIFIER_RE.exec(label);
+  if (!m) return null;
+  const q = normalizeQualifier(m[1] as string);
+  return q === "" ? null : q;
+}
+
+/** The name without its trailing "(...)". */
+export function stripTrailingQualifier(label: string): string {
+  return label.replace(TRAILING_QUALIFIER_RE, "");
+}
+
+/** Two names that both end in a "(...)" and the two differ are different obligations ("Fee (A)" vs "Fee (B)"). */
+export function qualifiersDiffer(a: string, b: string): boolean {
+  const qa = trailingQualifier(a);
+  const qb = trailingQualifier(b);
+  return qa !== null && qb !== null && qa !== qb;
 }
 
 // ── Schedule shapes: one place that decides "can this be dated?" and "is the amount known?" ──
@@ -730,6 +770,8 @@ type ObligationIdentity = Pick<Obligation, "entityId" | "accountId" | "label" | 
 function likelySameObligation(a: ObligationIdentity, b: ObligationIdentity): boolean {
   if (a.entityId !== b.entityId) return false;
   if (!accountsCompatible(a.accountId, b.accountId)) return false;
+  // "Maintenance Fee (Credit Cards)" and "Maintenance Fee (Slush Funds)" are two obligations, not one.
+  if (qualifiersDiffer(a.label, b.label)) return false;
   if (sharesDistinctiveWord(a.label, b.label)) return true;
   if (a.monthly && b.monthly && a.day != null && a.day === b.day && amountsClose(a.monthly, b.monthly)) return true;
   return false;
@@ -1409,21 +1451,21 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
     const notes = ["Looks recurring from your history, not in your budget"];
     if (row.amountMode === "varies" && lo && hi) notes.push(`Amount varies, about $${cents(lo).toFixed(2)} to $${cents(hi).toFixed(2)}`);
     for (const date of dates) {
-      learned.push(
-        baseItem(
-          { source: "learned_history", sourceId: row.key, entityId: row.entityId, accountId: row.accountId, label: row.payee },
-          {
-            date,
-            amount: cents(typical).negated(),
-            amountStatus: "known",
-            kind: "bill",
-            tier: "learned",
-            tierNote: row.why,
-            link: { page: "forecast", anchor: "looks-recurring" },
-            notes,
-          }
-        )
+      const item = baseItem(
+        { source: "learned_history", sourceId: row.key, entityId: row.entityId, accountId: row.accountId, label: row.payee },
+        {
+          date,
+          amount: cents(typical).negated(),
+          amountStatus: "known",
+          kind: "bill",
+          tier: "learned",
+          tierNote: row.why,
+          link: { page: "forecast", anchor: "looks-recurring" },
+          notes,
+        }
       );
+      item.learnedCadence = row.cadence;
+      learned.push(item);
     }
   }
 
@@ -1591,6 +1633,7 @@ export function collectModelledRefs(input: UpcomingLedgerInput): ModelledRef[] {
       day: recurringDay(r),
       cadence: refCadence(r.frequency),
       expectedAmount: r.amountCents > 0 ? new Decimal(r.amountCents).div(100) : null,
+      seriesKey: seriesKeyFromNotes(r.notes),
     });
   }
 

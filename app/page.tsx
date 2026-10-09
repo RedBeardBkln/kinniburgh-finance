@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -17,6 +18,7 @@ import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesti
 import { loadUpcomingLedger } from "@/lib/upcoming-ledger-build";
 import { toUiDetection, toUiLedger, type UiDetection, type UiLedger } from "@/lib/upcoming-ledger-view";
 import { UpcomingWidget } from "@/components/upcoming/upcoming-widget";
+import { UpcomingWidgetSkeleton } from "@/components/upcoming/upcoming-skeleton";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; period?: string }>;
@@ -100,34 +102,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     db.tag.findMany({ orderBy: { name: "asc" } }),
   ]);
 
-  // "Next 30 days" widget: about today, so only on the current month. Deliberately NOT part of the
-  // Promise.all above and fail-soft: if it throws, the widget shows a small notice and the rest of
-  // the dashboard is unaffected. Read-only; the page has already run auth().
-  let upcoming: UiLedger | null = null;
-  let upcomingDetection: UiDetection | null | undefined;
-  if (isCurrentPeriod) {
-    try {
-      const loaded = await loadUpcomingLedger({ entityId: entity?.id ?? null, days: 30, now });
-      upcoming = toUiLedger(loaded.ledger, {
-        days: 30,
-        bucketSlug: bucket,
-        isAggregate: entity === null,
-        entityNameById: loaded.entityNameById,
-        entitySlugById: loaded.entitySlugById,
-        accountNameById: loaded.accountNameById,
-        includeTransfers: false,
-      });
-      // Own try/catch, after the ledger exists: a throw here must never blank the agenda (null = pattern checks failed).
-      try {
-        upcomingDetection = loaded.detection ? toUiDetection(loaded.detection, loaded.entityNameById) : null;
-      } catch (err) {
-        upcomingDetection = null;
-        console.error("Recurring pattern view unavailable", err instanceof Error ? err.name : "UnknownError");
-      }
-    } catch (err) {
-      console.error("Upcoming ledger unavailable", err instanceof Error ? err.name : "UnknownError");
-    }
-  }
+  // "Next 30 days" widget: about today, so only on the current month. It is NOT loaded here: it renders through
+  // <UpcomingWidgetSection> inside a <Suspense> boundary below, so the ledger and the recurring-pattern checks never
+  // hold up the rest of the dashboard. The page has already run auth() above (the section loads read-only data
+  // only after that).
 
   const spendByTagId = new Map<string, Prisma.Decimal>(
     tagSpend.map((r) => [r.tagId, new Prisma.Decimal(r.total)])
@@ -301,7 +279,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         </div>
 
         {/* Next 30 days (current month only) */}
-        {isCurrentPeriod && <UpcomingWidget ledger={upcoming} bucketSlug={bucket} detection={upcomingDetection} />}
+        {isCurrentPeriod && (
+          <Suspense key={bucket} fallback={<UpcomingWidgetSkeleton days={30} />}>
+            <UpcomingWidgetSection entityId={entity?.id ?? null} isAggregate={entity === null} bucket={bucket} now={now} />
+          </Suspense>
+        )}
 
         {/* Budget lines table */}
         <Card>
@@ -443,6 +425,49 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       </DashboardClient>
     </AppShell>
   );
+}
+
+/**
+ * The "Next 30 days" widget, loaded behind <Suspense>. Fail-soft exactly as before the move: a ledger error shows the
+ * widget's small notice (ledger = null) and nothing else on the page changes. Read-only; the page has already run
+ * auth() before this component is ever rendered.
+ */
+async function UpcomingWidgetSection({
+  entityId,
+  isAggregate,
+  bucket,
+  now,
+}: {
+  entityId: string | null;
+  isAggregate: boolean;
+  bucket: string;
+  now: Date;
+}) {
+  // undefined = the ledger itself failed (nothing extra to say); null = only the pattern checks failed.
+  let upcoming: UiLedger | null = null;
+  let upcomingDetection: UiDetection | null | undefined;
+  try {
+    const loaded = await loadUpcomingLedger({ entityId, days: 30, now });
+    upcoming = toUiLedger(loaded.ledger, {
+      days: 30,
+      bucketSlug: bucket,
+      isAggregate,
+      entityNameById: loaded.entityNameById,
+      entitySlugById: loaded.entitySlugById,
+      accountNameById: loaded.accountNameById,
+      includeTransfers: false,
+    });
+    // Own try/catch, after the ledger exists: a throw here must never blank the agenda (null = pattern checks failed).
+    try {
+      upcomingDetection = loaded.detection ? toUiDetection(loaded.detection, loaded.entityNameById, upcoming.fromIso) : null;
+    } catch (err) {
+      upcomingDetection = null;
+      console.error("Recurring pattern view unavailable", err instanceof Error ? err.name : "UnknownError");
+    }
+  } catch (err) {
+    console.error("Upcoming ledger unavailable", err instanceof Error ? err.name : "UnknownError");
+  }
+  return <UpcomingWidget ledger={upcoming} bucketSlug={bucket} detection={upcomingDetection} />;
 }
 
 function shiftPeriod(year: number, month: number, delta: number): string {

@@ -36,6 +36,8 @@ function series(over: Partial<Series> = {}): Series {
     accountId: "acct-1",
     kind: "outflow",
     payee: "Netflix",
+    baseName: "Netflix",
+    accountName: null,
     cadence: "monthly",
     typicalDay: 5,
     dayRule: "usually around the 5th",
@@ -74,7 +76,8 @@ beforeEach(() => {
 
 describe("no way to inject an amount, name, date or frequency", () => {
   it("extra client fields are ignored: the row is built only from the server's own series", async () => {
-    const evil = { entityId: E1, seriesKey: KEY, amountCents: 1, name: "HACK", frequency: "weekly", dueDay: 31, tagId: E2, nextDueDate: "2000-01-01", notes: "x" };
+    // `name` and `tagId` are now accepted, validated inputs (see recurring-add-tag.test.ts); every other field is dropped.
+    const evil = { entityId: E1, seriesKey: KEY, amountCents: 1, frequency: "weekly", dueDay: 31, nextDueDate: "2000-01-01", notes: "x" };
     const res = await addSuggestedRecurringExpense(evil as unknown as { entityId: string; seriesKey: string });
     expect(res).toEqual({ success: true });
     const data = mockDb.recurringExpense.create.mock.calls[0]?.[0].data;
@@ -83,7 +86,7 @@ describe("no way to inject an amount, name, date or frequency", () => {
     expect(data.frequency).toBe("monthly");
     expect(data.dueDay).toBe(5);
     expect(data.tagId).toBeNull();
-    expect(data.notes).toBe("Added from a recurring pattern in your transactions.");
+    expect(data.notes).toBe(`Added from a recurring pattern in your transactions. [pattern:${KEY}]`);
     expect((data.nextDueDate as Date).toISOString()).toBe("2026-10-05T00:00:00.000Z");
   });
 

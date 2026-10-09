@@ -112,6 +112,8 @@ export async function loadUpcomingLedgerInput(args: {
         dueDay: true,
         nextDueDate: true,
         tagId: true,
+        // Read only for the "[pattern:...]" marker (lib/recurring-series-marker.ts); never displayed from here.
+        notes: true,
       },
     }),
     db.accrualEnvelope.findMany({

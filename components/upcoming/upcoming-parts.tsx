@@ -225,35 +225,50 @@ export function LearnedBadge() {
  * the owner has recorded). Renders nothing when there are none.
  */
 export function LearnedBlock({ ledger }: { ledger: UiLedger }) {
-  if (ledger.learned.length === 0) return null;
-  const count = ledger.learned.length;
-  const heading = `Looks recurring, not counted (${count} item${count === 1 ? "" : "s"}${
-    !ledger.isAggregate && Number(ledger.learnedTotal) > 0 ? `, ${approx(ledger.learnedTotal)}` : ""
+  const rows = ledger.learnedSeries;
+  if (rows.length === 0) return null;
+  const count = rows.length;
+  // One row per series. The money figure is each pattern's monthly equivalent summed once; it is labelled as a
+  // monthly pattern figure, never as something due, and is left out of the all-entities view (no blended money).
+  const heading = `Looks recurring, not counted (${count} pattern${count === 1 ? "" : "s"}${
+    !ledger.isAggregate && Number(ledger.learnedMonthly) > 0 ? `, ${approx(ledger.learnedMonthly)} a month` : ""
   })`;
   return (
     <section aria-label="Looks recurring, not counted" className="rounded-md border border-sky-200 px-3 py-2" data-testid="learned-block">
       <h3 className="text-sm font-semibold">{heading}</h3>
       <p className="text-xs text-muted-foreground">
         These repeat in your transaction history but are not in your bills or budget. They are not in the totals above.
+        One row per pattern, with the next expected date.
+        {!ledger.isAggregate && " The monthly figure spreads weekly and quarterly patterns over a month; it is not an amount due."}
       </p>
+      {ledger.isAggregate && ledger.learnedEntityCounts.length > 0 && (
+        <p className="text-xs text-muted-foreground" data-testid="learned-entity-counts">
+          {ledger.learnedEntityCounts.map((e) => `${e.entityName}: ${e.count}`).join(", ")}
+        </p>
+      )}
       <ul className="divide-y">
-        {ledger.learned.map((item) => (
-          <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-1.5 text-sm">
+        {rows.map((row) => (
+          <li key={row.key} className="py-1.5 text-sm">
             <div className="min-w-0 space-y-0.5">
               <div className="flex flex-wrap items-center gap-2">
-                {item.dateLabel && <span className="text-xs text-muted-foreground">{item.dateLabel}</span>}
-                <ItemLabel item={item} />
+                <Link href={row.href as Route} className="font-medium underline-offset-4 hover:underline">
+                  {row.label}
+                </Link>
                 <LearnedBadge />
-                {ledger.isAggregate && <EntityChip item={item} />}
+                {ledger.isAggregate && (
+                  <span className="rounded-full border bg-muted px-2 py-0.5 text-[10px] whitespace-nowrap text-muted-foreground">
+                    {row.entityName}
+                  </span>
+                )}
               </div>
-              {item.tierNote && <p className="text-xs text-muted-foreground">{item.tierNote}</p>}
-              {item.notes.map((n) => (
+              <p className="text-sm tabular-nums">{row.phrase}</p>
+              {row.why && <p className="text-xs text-muted-foreground">{row.why}</p>}
+              {row.notes.map((n) => (
                 <p key={n} className="text-xs text-muted-foreground">
                   {n}
                 </p>
               ))}
             </div>
-            <AmountText item={item} />
           </li>
         ))}
       </ul>

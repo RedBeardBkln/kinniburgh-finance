@@ -202,7 +202,7 @@ describe("learned block in the agenda and the widget", () => {
 
   it("agenda: a labelled block outside the counted total", () => {
     const html = renderToStaticMarkup(<UpcomingAgenda ledger={ui([learned])} bucketSlug="personal" horizon={30} showTransfers={false} />);
-    expect(html).toContain("Looks recurring, not counted (1 item, ~$40.00)");
+    expect(html).toContain("Looks recurring, not counted (1 pattern, ~$40.00 a month)");
     expect(html).toContain("Learned from history");
     expect(html).toContain("Gym Club");
     expect(html).toContain("not in the totals above");
@@ -218,7 +218,7 @@ describe("learned block in the agenda and the widget", () => {
 
   it("agenda: the all-entities view shows the count but no blended money", () => {
     const html = renderToStaticMarkup(<UpcomingAgenda ledger={ui([learned], { isAggregate: true })} bucketSlug="taxes" horizon={30} showTransfers={false} />);
-    expect(html).toContain("Looks recurring, not counted (1 item)");
+    expect(html).toContain("Looks recurring, not counted (1 pattern)");
   });
 
   it("widget never lists learned rows; it shows the one-line hint when given a detection", () => {

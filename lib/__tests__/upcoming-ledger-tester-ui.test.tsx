@@ -199,11 +199,20 @@ describe("wiring / safety (static)", () => {
     const home = read("app/page.tsx");
     expect(home.indexOf("auth()")).toBeGreaterThan(-1);
     expect(home.indexOf("auth()")).toBeLessThan(home.indexOf("loadUpcomingLedger("));
-    expect(home).toMatch(/if \(isCurrentPeriod\) \{\s*try \{/);
-    expect(home).toMatch(/\{isCurrentPeriod && <UpcomingWidget/);
+    // Since the Suspense change the load lives in an async server component defined after the page; the page body
+    // itself never calls the loader, and the component is only rendered (inside <Suspense>) on the current period.
+    const homeSection = home.indexOf("async function UpcomingWidgetSection");
+    expect(homeSection).toBeGreaterThan(-1);
+    expect(home.slice(0, homeSection)).not.toContain("loadUpcomingLedger(");
+    expect(home).toMatch(/\{isCurrentPeriod && \(\s*<Suspense[\s\S]{0,200}?<UpcomingWidgetSection/);
+    expect(home).not.toMatch(/\{isCurrentPeriod && <UpcomingWidget /);
     const fc = read("app/forecast/page.tsx");
     expect(fc.indexOf("auth()")).toBeGreaterThan(-1);
     expect(fc.indexOf("auth()")).toBeLessThan(fc.indexOf("loadUpcomingLedger("));
+    const fcSection = fc.indexOf("async function UpcomingSections");
+    expect(fcSection).toBeGreaterThan(-1);
+    expect(fc.slice(0, fcSection)).not.toContain("loadUpcomingLedger(");
+    expect(fc).toMatch(/<Suspense[\s\S]{0,300}?<UpcomingSections/);
   });
   it("the loader is the only DB-aware new file, has no write path and no raw SQL, and is imported only by the two pages", () => {
     const src = read("lib/upcoming-ledger-build.ts");

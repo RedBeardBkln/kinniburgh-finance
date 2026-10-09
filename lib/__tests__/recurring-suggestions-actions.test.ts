@@ -39,6 +39,8 @@ function series(over: Partial<Series> = {}): Series {
     accountId: "acct-1",
     kind: "outflow",
     payee: "Netflix",
+    baseName: "Netflix",
+    accountName: null,
     cadence: "monthly",
     typicalDay: 5,
     dayRule: "usually around the 5th",
@@ -101,7 +103,8 @@ describe("addSuggestedRecurringExpense", () => {
       tagId: null,
     });
     expect((data.nextDueDate as Date).toISOString()).toBe("2026-10-05T00:00:00.000Z");
-    expect(data.notes).toBe("Added from a recurring pattern in your transactions.");
+    // The note now ends with the stable "[pattern:<series key>]" marker (lib/recurring-series-marker.ts).
+    expect(data.notes).toBe(`Added from a recurring pattern in your transactions. [pattern:${KEY}]`);
     expect(revalidate).toHaveBeenCalledWith("/forecast");
     expect(revalidate).toHaveBeenCalledWith("/");
     expect(revalidate).toHaveBeenCalledWith("/budgets");

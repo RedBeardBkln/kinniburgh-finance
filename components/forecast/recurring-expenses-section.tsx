@@ -7,6 +7,7 @@ import {
   deleteRecurringExpense,
 } from "@/actions/recurring-expenses";
 import { monthlyEquivalentCents, FREQUENCY_LABELS } from "@/lib/recurring-expenses";
+import { visibleNotes } from "@/lib/recurring-series-marker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatUSD } from "@/lib/utils";
 
@@ -289,7 +290,9 @@ export function RecurringExpensesSection({ expenses, entities, tags, defaultEnti
                     >
                       <td className="px-4 py-2 font-medium">
                         {exp.name}
-                        {exp.notes && <span className="block text-xs text-muted-foreground font-normal">{exp.notes}</span>}
+                        {visibleNotes(exp.notes) && (
+                          <span className="block text-xs text-muted-foreground font-normal">{visibleNotes(exp.notes)}</span>
+                        )}
                       </td>
                       <td className="px-4 py-2 text-muted-foreground">
                         {FREQUENCY_LABELS[exp.frequency] ?? exp.frequency}

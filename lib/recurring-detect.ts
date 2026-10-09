@@ -18,6 +18,8 @@ import {
   amountsClose,
   nameWords,
   startOfDayUTC,
+  stripTrailingQualifier,
+  trailingQualifier,
   type LearnedCadence,
   type ModelledRef,
   type UpcomingSource,
@@ -38,6 +40,11 @@ export interface TxRow {
   amount: Decimal;
   postedAt: Date;
   tagIds: string[];
+  /**
+   * The account's nickname (never a number). Used only to tell apart two series of the same payee in one entity.
+   * Optional: without it a collision simply keeps the plain name.
+   */
+  accountName?: string | null;
 }
 
 export interface Series {
@@ -46,8 +53,15 @@ export interface Series {
   entityId: string;
   accountId: string;
   kind: "outflow" | "inflow";
-  /** Display name (Title Case of the canonical payee). */
+  /**
+   * Display and record name: Title Case of the canonical payee, plus " (Account nickname)" when another active series
+   * of the same entity has the same payee on a different account ("Maintenance Fee (Credit Cards)").
+   */
   payee: string;
+  /** The payee without any account suffix: what name matching uses. */
+  baseName: string;
+  /** Nickname of the account the series was seen on, or null when unknown. */
+  accountName: string | null;
   cadence: Cadence;
   /** Day of month (monthly / quarterly / annual); null for weekly / biweekly. */
   typicalDay: number | null;
@@ -67,7 +81,7 @@ export interface Series {
   /** Share (0..1) of the series' rows carrying `dominantTagId`. */
   tagShare: number;
   stale: boolean;
-  suppressedBy: null | { kind: "tag" | "name" | "amount_day"; label: string; source: UpcomingSource };
+  suppressedBy: null | { kind: "tag" | "name" | "amount_day" | "series"; label: string; source: UpcomingSource };
 }
 
 export interface Flag {
@@ -171,7 +185,6 @@ const LOOSE_DAY_SPREAD = 7;
 /** Suppression. */
 const TAG_SUPPRESS_SHARE_TENTHS = 5;
 const AMOUNT_DAY_WINDOW = 3;
-
 /** Late flag. Live: the Mortgage bill says day 1 but posts on the 2nd-5th, so grace counts from the OBSERVED day. */
 const MIN_LATE_MATCHES = 3;
 const LATE_GRACE_DAYS: Record<"monthly" | "weekly" | "biweekly", number> = { monthly: 5, weekly: 3, biweekly: 4 };
@@ -409,6 +422,8 @@ export function expandSeriesDates(series: Series, from: Date, to: Date): Date[] 
 interface PRow {
   entityId: string;
   accountId: string;
+  /** Account nickname (trimmed), null when unknown. */
+  acctName: string | null;
   dir: "out" | "in";
   canon: string;
   root: string;
@@ -592,6 +607,8 @@ function evaluateGroup(rows: PRow[], canon: string, today: Date): Internal | nul
     accountId: first.accountId,
     kind: first.dir === "out" ? "outflow" : "inflow",
     payee: titleCase(canon),
+    baseName: titleCase(canon),
+    accountName: first.acctName,
     cadence,
     typicalDay,
     dayRule,
@@ -615,14 +632,83 @@ function evaluateGroup(rows: PRow[], canon: string, today: Date): Internal | nul
 
 // ── Suppression ──────────────────────────────────────────────────────────────
 
-function suppressionFor(s: Series, rows: PRow[], modelled: ModelledRef[]): Series["suppressedBy"] {
+function normName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/** The ref label's trailing "(...)" when it names an account that appears in the history, else null. */
+function accountQualifier(label: string, knownAccounts: Set<string>): string | null {
+  const q = trailingQualifier(label);
+  return q !== null && knownAccounts.has(q) ? q : null;
+}
+
+/**
+ * True when a recorded item is qualified for a DIFFERENT account than this series ("Maintenance Fee (Credit Cards)"
+ * against the series on the Slush Funds account): adding one same-payee series must never hide the other.
+ */
+function refIsForOtherAccount(m: ModelledRef, s: Series, knownAccounts: Set<string>): boolean {
+  const own = trailingQualifier(s.payee);
+  // A record created from a pattern carries that pattern's key (the owner may have renamed it, even dropped the
+  // "(Account)" suffix). When this series is one of several same-payee series, a record made from another account's
+  // series is never about this one.
+  if (m.seriesKey && own !== null) {
+    const refAccount = m.seriesKey.split("|")[1];
+    if (refAccount && refAccount !== s.accountId) return true;
+  }
+  const q = trailingQualifier(m.label);
+  if (q === null) return false;
+  if (own !== null) return own !== q;
+  if (knownAccounts.has(q) && s.accountName) return normName(s.accountName) !== q;
+  return false;
+}
+
+/** The words of a recorded item's name; an account qualifier is not part of the payee's name. */
+function refNameWords(label: string, s: Series, knownAccounts: Set<string>): string[] {
+  const q = trailingQualifier(label);
+  const isAccountSuffix = q !== null && (knownAccounts.has(q) || q === trailingQualifier(s.payee));
+  return nameWords(isAccountSuffix ? stripTrailingQualifier(label) : label);
+}
+
+/**
+ * Two active series of one entity with the same payee (the same bank fee on two accounts) get the account nickname
+ * in their display / record name, so each can be added, recorded and suppressed on its own. The key is unchanged
+ * (it already carries the account id). A payee with a single series keeps its plain name.
+ */
+function disambiguateNames(series: Series[]): void {
+  const groups = new Map<string, Series[]>();
+  for (const s of series) {
+    const k = `${s.entityId}|${s.kind}|${s.baseName}`;
+    groups.set(k, [...(groups.get(k) ?? []), s]);
+  }
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    for (const s of list) {
+      if (s.accountName) s.payee = `${s.baseName} (${s.accountName})`;
+    }
+  }
+}
+
+function suppressionFor(s: Series, rows: PRow[], modelled: ModelledRef[], knownAccounts: Set<string>): Series["suppressedBy"] {
   const dir = s.kind === "outflow" ? "outflow" : "inflow";
-  const refs = modelled.filter((m) => m.direction === dir && m.entityId === s.entityId);
+  const sameScope = modelled.filter((m) => m.direction === dir && m.entityId === s.entityId);
+
+  // 0. Series: a recurring expense created FROM this pattern names it (its notes carry the series key), whatever the
+  // owner later called it. Recorded once, hidden once, and never able to hide a different series.
+  const made = sameScope.find((m) => m.seriesKey && keysRelated(m.seriesKey, s.key));
+  if (made) return { kind: "series", label: made.label, source: made.source };
+
+  const refs = sameScope.filter((m) => !refIsForOtherAccount(m, s, knownAccounts));
   if (refs.length === 0) return null;
 
-  // 1. Tag: at least half of the series' rows carry a tag a modelled record is tied to.
+  // 1. Tag: at least half of the series' rows carry a tag a modelled record is tied to. A RecurringExpense that
+  // carries a tag does NOT suppress by the tag alone: several recurring expenses now share a tag (Netflix and HBO Max
+  // under "Streaming", two bank fees under "Bank Fees"), so for it only the name or amount+day rules below can apply.
+  // Bills and Budget lines keep the tag rule (one record per category by the ledger's own precedence).
   const refByTag = new Map<string, ModelledRef>();
-  for (const m of refs) if (m.tagKey && !refByTag.has(m.tagKey)) refByTag.set(m.tagKey, m);
+  for (const m of refs) {
+    if (m.source === "recurring_expense") continue;
+    if (m.tagKey && !refByTag.has(m.tagKey)) refByTag.set(m.tagKey, m);
+  }
   if (refByTag.size > 0 && rows.length > 0) {
     const perTag = new Map<string, number>();
     for (const r of rows) {
@@ -640,11 +726,11 @@ function suppressionFor(s: Series, rows: PRow[], modelled: ModelledRef[]): Serie
   }
 
   // 2. Name: a shared distinctive word with a record of the same entity.
-  const words = nameWords(s.payee);
+  const words = nameWords(s.baseName);
   if (words.length > 0) {
     for (const m of refs) {
       if (!accountsCompatible(m.accountId, s.accountId)) continue;
-      const theirs = new Set(nameWords(m.label));
+      const theirs = new Set(refNameWords(m.label, s, knownAccounts));
       if (words.some((w) => theirs.has(w))) return { kind: "name", label: m.label, source: m.source };
     }
   }
@@ -664,9 +750,29 @@ function suppressionFor(s: Series, rows: PRow[], modelled: ModelledRef[]): Serie
 // ── History matching for recorded items ──────────────────────────────────────
 
 /** The rows that look like payments of a recorded item, or null. Tag first (one dominant payee only), then name, then amount+day. */
-function matchRows(ref: ModelledRef, rows: PRow[]): PRow[] | null {
+function matchRows(ref: ModelledRef, rows: PRow[], knownAccounts: Set<string>): PRow[] | null {
   const dir = ref.direction === "outflow" ? "out" : "in";
-  const pool = rows.filter((r) => r.entityId === ref.entityId && r.dir === dir && accountsCompatible(ref.accountId, r.accountId));
+  // A record created from a pattern is about that pattern's rows, whatever it was renamed to and whatever other
+  // recurring expenses share its tag (Netflix and HBO Max under one tag must not read each other's history).
+  if (ref.seriesKey) {
+    const parts = ref.seriesKey.split("|");
+    if (parts.length === 4) {
+      const own = rows.filter(
+        (r) =>
+          r.entityId === ref.entityId && r.dir === dir && r.accountId === parts[1] && (r.root === parts[3] || r.canon === parts[3])
+      );
+      if (own.length > 0) return own;
+    }
+  }
+  // A record named "Fee (Credit Cards)" is about that account's rows only.
+  const acctQ = accountQualifier(ref.label, knownAccounts);
+  const pool = rows.filter(
+    (r) =>
+      r.entityId === ref.entityId &&
+      r.dir === dir &&
+      accountsCompatible(ref.accountId, r.accountId) &&
+      (acctQ === null || (r.acctName !== null && normName(r.acctName) === acctQ))
+  );
   if (pool.length === 0) return null;
 
   if (ref.tagKey) {
@@ -689,7 +795,7 @@ function matchRows(ref: ModelledRef, rows: PRow[]): PRow[] | null {
     }
   }
 
-  const refWords = nameWords(ref.label);
+  const refWords = nameWords(acctQ !== null ? stripTrailingQualifier(ref.label) : ref.label);
   if (refWords.length > 0) {
     const named = pool.filter((r) => nameWords(r.canon).some((w) => refWords.includes(w)));
     if (named.length > 0) return named;
@@ -824,6 +930,7 @@ function filterRows(rows: TxRow[]): Omit<PRow, "root">[] {
     out.push({
       entityId: r.entityId,
       accountId: r.accountId,
+      acctName: r.accountName && r.accountName.trim() !== "" ? r.accountName.trim() : null,
       dir: isInflow ? "in" : "out",
       canon,
       abs,
@@ -913,9 +1020,14 @@ export function detectRecurring(input: DetectInput): DetectResult {
   const staleCount = internals.filter((i) => i.series.stale).length;
   const active = internals.filter((i) => !i.series.stale);
 
+  // Same payee on two accounts of one entity: name each after its account (before suppression reads the names).
+  disambiguateNames(active.map((i) => i.series));
+  const knownAccounts = new Set<string>();
+  for (const r of input.rows) if (r.accountName && normName(r.accountName) !== "") knownAccounts.add(normName(r.accountName));
+
   // 3. Suppression against what the owner already recorded.
   for (const i of active) {
-    i.series.suppressedBy = suppressionFor(i.series, rowsOfSeries.get(i.series.key) ?? [], input.modelled);
+    i.series.suppressedBy = suppressionFor(i.series, rowsOfSeries.get(i.series.key) ?? [], input.modelled, knownAccounts);
   }
   const byStrength = (a: Series, b: Series) =>
     CONFIDENCE_RANK[a.confidence] - CONFIDENCE_RANK[b.confidence] || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
@@ -927,7 +1039,7 @@ export function detectRecurring(input: DetectInput): DetectResult {
 
   for (const ref of input.modelled) {
     if (ref.direction !== "outflow") continue;
-    const rows = matchRows(ref, prows);
+    const rows = matchRows(ref, prows, knownAccounts);
     if (!rows) continue;
     const { occ } = occurrencesOf(rows);
     if (isLateCadence(ref.cadence)) {

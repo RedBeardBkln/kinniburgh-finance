@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -31,9 +32,21 @@ import { SpendPaceSection, type TagPaceRow } from "@/components/forecast/spend-p
 import { capForecastHorizon, prorateExpensesAcrossHorizon } from "@/lib/business-forecast";
 import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
 import { loadUpcomingLedger } from "@/lib/upcoming-ledger-build";
-import { parseHorizon, parseTransfersFlag, toUiDetection, toUiLedger, type UiDetection, type UiLedger } from "@/lib/upcoming-ledger-view";
+import { loadBudgetHints } from "@/lib/recurring-budget-hint-build";
+import {
+  parseHorizon,
+  parseTransfersFlag,
+  toTagOptions,
+  toUiDetection,
+  toUiLedger,
+  type Horizon,
+  type UiDetection,
+  type UiLedger,
+  type UiTagOption,
+} from "@/lib/upcoming-ledger-view";
 import { UpcomingAgenda } from "@/components/upcoming/upcoming-agenda";
 import { RecurringSuggestions } from "@/components/upcoming/recurring-suggestions";
+import { UpcomingAgendaSkeleton } from "@/components/upcoming/upcoming-skeleton";
 import {
   BusinessForecastSection,
   type ForecastAccount as BusinessForecastAccount,
@@ -633,34 +646,11 @@ export default async function ForecastPage({ searchParams }: PageProps) {
 
   const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-  // ── Upcoming agenda (30 / 60 / 90 days). Read-only, fail-soft: a loader error shows a small
-  // notice in the agenda card and leaves every other section untouched. ──
+  // ── Upcoming agenda (30 / 60 / 90 days) + "Looks recurring". Not loaded here: <UpcomingSections> loads them
+  // behind a <Suspense> boundary (below) so they never hold up the rest of the page. Read-only and fail-soft: a
+  // loader error shows a small notice in the agenda card and leaves every other section untouched. ──
   const upcomingHorizon = parseHorizon(params.horizon);
   const showTransfers = parseTransfersFlag(params.transfers);
-  let upcoming: UiLedger | null = null;
-  // undefined = the ledger itself failed (nothing extra to say); null = only the pattern checks failed.
-  let upcomingDetection: UiDetection | null | undefined;
-  try {
-    const loaded = await loadUpcomingLedger({ entityId: entity?.id ?? null, days: upcomingHorizon, now });
-    upcoming = toUiLedger(loaded.ledger, {
-      days: upcomingHorizon,
-      bucketSlug: bucket,
-      isAggregate: entity === null,
-      entityNameById: loaded.entityNameById,
-      entitySlugById: loaded.entitySlugById,
-      accountNameById: loaded.accountNameById,
-      includeTransfers: showTransfers,
-    });
-    // Own try/catch, after the ledger exists: a throw here must never blank the agenda (null = pattern checks failed).
-    try {
-      upcomingDetection = loaded.detection ? toUiDetection(loaded.detection, loaded.entityNameById) : null;
-    } catch (err) {
-      upcomingDetection = null;
-      console.error("Recurring pattern view unavailable", err instanceof Error ? err.name : "UnknownError");
-    }
-  } catch (err) {
-    console.error("Upcoming ledger unavailable", err instanceof Error ? err.name : "UnknownError");
-  }
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
@@ -959,15 +949,22 @@ export default async function ForecastPage({ searchParams }: PageProps) {
         </Card>
 
         {/* ── Upcoming agenda: every dated bill / paycheck / deadline, de-duplicated (lib/upcoming-ledger.ts) ── */}
-        <UpcomingAgenda
-          ledger={upcoming}
-          bucketSlug={bucket}
-          horizon={upcomingHorizon}
-          showTransfers={showTransfers}
-        />
-
-        {/* ── Looks recurring: patterns learned from past transactions, outside every total (lib/recurring-detect.ts) ── */}
-        <RecurringSuggestions detection={upcomingDetection} isAggregate={entity === null} />
+        {/* ── and Looks recurring: patterns learned from past transactions, outside every total (lib/recurring-detect.ts).
+            Both load behind one Suspense boundary; the key makes a horizon / bucket / transfers change show the skeleton again. ── */}
+        <Suspense
+          key={`${bucket}|${upcomingHorizon}|${showTransfers ? 1 : 0}`}
+          fallback={<UpcomingAgendaSkeleton horizon={upcomingHorizon} />}
+        >
+          <UpcomingSections
+            entityId={entity?.id ?? null}
+            isAggregate={entity === null}
+            bucket={bucket}
+            horizon={upcomingHorizon}
+            showTransfers={showTransfers}
+            now={now}
+            tagOptions={toTagOptions(allTags)}
+          />
+        </Suspense>
 
         {/* ── Category spend pace (Personal bucket only) ──────────────── */}
         {entity?.slug === "personal" && paceRows.length > 0 && (
@@ -1152,5 +1149,63 @@ export default async function ForecastPage({ searchParams }: PageProps) {
         )}
       </div>
     </AppShell>
+  );
+}
+
+/**
+ * The Upcoming agenda and the "Looks recurring" review list, loaded behind <Suspense>. Fail-soft exactly as before
+ * the move: a ledger error shows the agenda's small notice (ledger = null) and no recurring card; a failure of only
+ * the pattern checks shows the muted "unavailable" line. Read-only; the page has already run auth() before this
+ * component is ever rendered.
+ */
+async function UpcomingSections({
+  entityId,
+  isAggregate,
+  bucket,
+  horizon,
+  showTransfers,
+  now,
+  tagOptions,
+}: {
+  entityId: string | null;
+  isAggregate: boolean;
+  bucket: string;
+  horizon: Horizon;
+  showTransfers: boolean;
+  now: Date;
+  /** All budget tags (full path), for the inline Add step; the page already loaded them. */
+  tagOptions: UiTagOption[];
+}) {
+  // Read-only numbers for the Add step's pre-confirm Budgets notice; never rejects (null = the read failed), runs beside the ledger.
+  const budgetFactsPromise = loadBudgetHints({ entityId, now });
+  let upcoming: UiLedger | null = null;
+  // undefined = the ledger itself failed (nothing extra to say); null = only the pattern checks failed.
+  let upcomingDetection: UiDetection | null | undefined;
+  try {
+    const loaded = await loadUpcomingLedger({ entityId, days: horizon, now });
+    upcoming = toUiLedger(loaded.ledger, {
+      days: horizon,
+      bucketSlug: bucket,
+      isAggregate,
+      entityNameById: loaded.entityNameById,
+      entitySlugById: loaded.entitySlugById,
+      accountNameById: loaded.accountNameById,
+      includeTransfers: showTransfers,
+    });
+    // Own try/catch, after the ledger exists: a throw here must never blank the agenda (null = pattern checks failed).
+    try {
+      upcomingDetection = loaded.detection ? toUiDetection(loaded.detection, loaded.entityNameById, upcoming.fromIso) : null;
+    } catch (err) {
+      upcomingDetection = null;
+      console.error("Recurring pattern view unavailable", err instanceof Error ? err.name : "UnknownError");
+    }
+  } catch (err) {
+    console.error("Upcoming ledger unavailable", err instanceof Error ? err.name : "UnknownError");
+  }
+  return (
+    <>
+      <UpcomingAgenda ledger={upcoming} bucketSlug={bucket} horizon={horizon} showTransfers={showTransfers} />
+      <RecurringSuggestions detection={upcomingDetection} isAggregate={isAggregate} tagOptions={tagOptions} budgetFacts={await budgetFactsPromise} />
+    </>
   );
 }

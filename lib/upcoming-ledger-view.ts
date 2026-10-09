@@ -14,8 +14,10 @@ import type {
   UpcomingItem,
   UpcomingLedger,
   UpcomingSource,
+  LearnedCadence,
 } from "@/lib/upcoming-ledger";
 import type { Cadence, Confidence, DetectionBundle, Series } from "@/lib/recurring-detect";
+import { suggestedTagId } from "@/lib/recurring-add-step";
 
 // ── Money (integer cents on strings; never floats) ───────────────────────────
 
@@ -193,6 +195,39 @@ export interface UiLedger {
   learned: UiItem[];
   /** Positive 2-decimal magnitude of the learned items (its own subtotal). */
   learnedTotal: string;
+  /** The same learned items collapsed to ONE row per series (what the agenda shows). */
+  learnedSeries: UiLearnedSeries[];
+  /**
+   * Sum of the series' monthly-equivalent amounts, positive 2-decimal. A pattern figure ("about this much a month"),
+   * never a counted or due total.
+   */
+  learnedMonthly: string;
+  /** Series per entity (sorted by name): the all-entities view shows counts, never blended money. */
+  learnedEntityCounts: { entityName: string; count: number }[];
+}
+
+/** One history-learned recurring series, collapsed from its dated occurrences in the window. */
+export interface UiLearnedSeries {
+  /** Series key (the dated items carry it as their source id). */
+  key: string;
+  label: string;
+  entityId: string;
+  entityName: string;
+  href: string;
+  cadence: LearnedCadence;
+  /** First expected date inside the window. */
+  nextDateIso: string;
+  /** Positive 2-decimal amount of ONE payment. */
+  amount: string;
+  /** Positive 2-decimal monthly equivalent of that payment. */
+  monthly: string;
+  /** How many dates the series has inside the window (information only). */
+  datesInWindow: number;
+  /** "monthly, ~$21.26, next Nov 6". */
+  phrase: string;
+  /** The facts behind the pattern. */
+  why: string | null;
+  notes: string[];
 }
 
 export interface UiContext {
@@ -283,6 +318,87 @@ export function toUiLedger(ledger: UpcomingLedger, ctx: UiContext): UiLedger {
     transferSummary: { count: ledger.totals.transferCount, total: ledger.totals.transferTotal.toFixed(2) },
     learned: ledger.learned.map((i) => itemToUi(i, ctx)),
     learnedTotal: ledger.learnedTotals.outflow.toFixed(2),
+    ...collapseLearned(ledger.learned, ctx),
+  };
+}
+
+// ── Learned items, one row per series ────────────────────────────────────────
+
+const CADENCE_WORD: Record<LearnedCadence, string> = {
+  weekly: "weekly",
+  biweekly: "every two weeks",
+  monthly: "monthly",
+  quarterly: "quarterly",
+  annual: "yearly",
+};
+
+/** Monthly equivalent of one payment, in whole cents (integer math only). */
+function monthlyCents(cents: number, cadence: LearnedCadence): number {
+  switch (cadence) {
+    case "weekly":
+      return Math.round((cents * 52) / 12);
+    case "biweekly":
+      return Math.round((cents * 26) / 12);
+    case "monthly":
+      return cents;
+    case "quarterly":
+      return Math.round(cents / 3);
+    case "annual":
+      return Math.round(cents / 12);
+  }
+}
+
+/**
+ * Collapses the learned ledger items (one per occurrence in the window) into ONE row per series: the next expected
+ * date, the amount of one payment and a short cadence phrase ("monthly, ~$21.26, next Nov 6"). Order follows the
+ * first date of each series. The monthly figure is each series' monthly equivalent summed once; it is a pattern
+ * figure and never a counted total. `ledger.learned` itself is left exactly as the builder made it.
+ */
+export function collapseLearned(
+  learned: UpcomingItem[],
+  ctx: Pick<UiContext, "bucketSlug" | "entityNameById" | "entitySlugById">
+): { learnedSeries: UiLearnedSeries[]; learnedMonthly: string; learnedEntityCounts: { entityName: string; count: number }[] } {
+  const bySeries = new Map<string, { first: UpcomingItem; amount: string; count: number }>();
+  for (const item of learned) {
+    if (!item.date || !item.learnedCadence || !item.amount) continue;
+    const prior = bySeries.get(item.sourceId);
+    if (prior) prior.count += 1;
+    else bySeries.set(item.sourceId, { first: item, amount: item.amount.abs().toFixed(2), count: 1 });
+  }
+  const series: UiLearnedSeries[] = [];
+  let monthlySum = 0;
+  const perEntity = new Map<string, number>();
+  for (const [key, { first, amount, count }] of bySeries) {
+    const cadence = first.learnedCadence as LearnedCadence;
+    const monthly = monthlyCents(toCents(amount), cadence);
+    monthlySum += monthly;
+    const nextDateIso = (first.date as Date).toISOString().slice(0, 10);
+    const entityName = ctx.entityNameById[first.entityId] ?? "Unknown entity";
+    perEntity.set(entityName, (perEntity.get(entityName) ?? 0) + 1);
+    const slug = ctx.entitySlugById[first.entityId] ?? ctx.bucketSlug;
+    series.push({
+      key,
+      label: first.label,
+      entityId: first.entityId,
+      entityName,
+      href: hrefFor(first.link, slug),
+      cadence,
+      nextDateIso,
+      amount,
+      monthly: fromCents(monthly),
+      datesInWindow: count,
+      phrase: `${CADENCE_WORD[cadence]}, ${approx(amount)}, next ${formatShort(nextDateIso)}`,
+      why: first.tierNote ?? null,
+      // The block heading already says "looks recurring"; keep only the per-series note (amount varies).
+      notes: first.notes.filter((n) => !n.startsWith("Looks recurring from your history")),
+    });
+  }
+  return {
+    learnedSeries: series,
+    learnedMonthly: fromCents(monthlySum),
+    learnedEntityCounts: [...perEntity.entries()]
+      .map(([entityName, count]) => ({ entityName, count }))
+      .sort((a, b) => (a.entityName < b.entityName ? -1 : a.entityName > b.entityName ? 1 : 0)),
   };
 }
 
@@ -310,6 +426,22 @@ export interface UiSuggestion {
   nextLabel: string | null;
   /** True when the owner may turn it into a recurring expense (an outflow). */
   canAdd: boolean;
+  /** Budget tag the Add step pre-selects (one tag covers at least 60% of the series' rows), or null/absent = none. */
+  suggestedTagId?: string | null;
+  /** The amount of ONE payment in cents and its recurring-expense frequency: display only (the pre-confirm Budgets notice). The server re-derives them on Add. */
+  amountCents?: number;
+  recurringFrequency?: string;
+}
+
+/** A budget category the Add step offers: id plus the full hierarchy path the Budgets / Forecast pages show. */
+export interface UiTagOption {
+  id: string;
+  label: string;
+}
+
+/** Tag rows (all tags, name order) as plain options. Tags are household-wide: there is no archived or per-entity tag. */
+export function toTagOptions(tags: { id: string; name: string }[]): UiTagOption[] {
+  return tags.map((t) => ({ id: t.id, label: t.name }));
 }
 
 export interface UiFlag {
@@ -330,21 +462,29 @@ export interface UiDetection {
   suppressedCount: number;
 }
 
-const CADENCE_WORD: Record<Cadence, string> = {
-  weekly: "weekly",
-  biweekly: "every two weeks",
-  monthly: "monthly",
-  quarterly: "quarterly",
-  annual: "yearly",
-};
-
 function confidenceLabel(s: Series): string {
   if (s.confidence === "high") return "Strong pattern";
   if (s.confidence === "medium") return "Likely";
   return `Weak pattern, ${s.occurrences} times`;
 }
 
-function suggestionToUi(s: Series, entityNameById: Record<string, string>): UiSuggestion {
+/**
+ * "Next expected around Oct 14", or - when that date has already passed and the existing late rule has not flagged
+ * the series - the observational "Expected around Oct 6, not posted yet". Once the late rule flags it, the Heads up
+ * line carries the message and this label stays as it was.
+ */
+function nextLabelFor(s: Series, todayIso: string | undefined, flaggedLate: boolean): string {
+  const iso = s.nextExpected.toISOString().slice(0, 10);
+  if (todayIso && iso < todayIso && !flaggedLate) return `Expected around ${formatShort(iso)}, not posted yet`;
+  return `Next expected around ${formatShort(iso)}`;
+}
+
+function suggestionToUi(
+  s: Series,
+  entityNameById: Record<string, string>,
+  todayIso?: string,
+  lateKeys: Set<string> = new Set()
+): UiSuggestion {
   let summary = `${approx(s.typicalAmount.toFixed(2))} ${CADENCE_WORD[s.cadence]}`;
   if (s.amountMode === "varies") {
     summary += `, amount varies (${approx(s.minAmount.toFixed(2))} to ${approx(s.maxAmount.toFixed(2))})`;
@@ -363,25 +503,33 @@ function suggestionToUi(s: Series, entityNameById: Record<string, string>): UiSu
     confidence: s.confidence,
     confidenceLabel: confidenceLabel(s),
     why: `${why}.`,
-    nextLabel: dated ? `Next expected around ${formatShort(s.nextExpected.toISOString().slice(0, 10))}` : null,
+    nextLabel: dated ? nextLabelFor(s, todayIso, lateKeys.has(s.key)) : null,
     canAdd: s.kind === "outflow",
+    suggestedTagId: suggestedTagId(s),
+    amountCents: s.typicalAmount.times(100).toDecimalPlaces(0).toNumber(),
+    recurringFrequency: s.cadence === "annual" ? "annually" : s.cadence,
   };
 }
 
-/** Plain strings only: no Decimal / Date reaches a component. */
-export function toUiDetection(bundle: DetectionBundle, entityNameById: Record<string, string>): UiDetection {
+/**
+ * Plain strings only: no Decimal / Date reaches a component. `todayIso` (the ledger's first day, YYYY-MM-DD) lets a
+ * date that has passed read "Expected around ..., not posted yet"; without it every date reads "Next expected".
+ */
+export function toUiDetection(bundle: DetectionBundle, entityNameById: Record<string, string>, todayIso?: string): UiDetection {
+  const lateKeys = new Set<string>();
+  for (const f of bundle.flags) if (f.type === "late" && f.seriesKey) lateKeys.add(f.seriesKey);
   const flags: UiFlag[] = bundle.flags.map((f) => ({
     type: f.type,
     text: f.text,
     entityId: f.entityId,
     entityName: entityNameById[f.entityId] ?? "Unknown entity",
   }));
-  const all = bundle.suggestions.map((s) => suggestionToUi(s, entityNameById));
+  const all = bundle.suggestions.map((s) => suggestionToUi(s, entityNameById, todayIso, lateKeys));
   return {
     suggestions: all.filter((s) => s.kind === "outflow"),
     // A weak deposit pattern is not worth the owner's attention.
     deposits: all.filter((s) => s.kind === "inflow" && s.confidence !== "low"),
-    dismissed: bundle.dismissed.map((s) => suggestionToUi(s, entityNameById)),
+    dismissed: bundle.dismissed.map((s) => suggestionToUi(s, entityNameById, todayIso, lateKeys)),
     flags,
     lateCount: flags.filter((f) => f.type === "late").length,
     suppressedCount: bundle.suppressedCount,

@@ -1,6 +1,15 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { RECURRING_FOOTER, RECURRING_UNAVAILABLE, type UiDetection, type UiFlag, type UiSuggestion } from "@/lib/upcoming-ledger-view";
+import {
+  RECURRING_FOOTER,
+  RECURRING_UNAVAILABLE,
+  type UiDetection,
+  type UiFlag,
+  type UiSuggestion,
+  type UiTagOption,
+} from "@/lib/upcoming-ledger-view";
 import { SuggestionActions } from "@/components/upcoming/suggestion-actions";
+import { TagOptionsProvider } from "@/components/upcoming/tag-options";
+import type { TagBudgetFacts } from "@/lib/recurring-budget-hint";
 
 // "Looks recurring" review list (Forecast page). Presentational server
 // components; the only client code is the buttons leaf. Wording is observational: patterns, not bills.
@@ -35,7 +44,16 @@ function SuggestionRow({
       <p className="text-xs text-muted-foreground">{s.why}</p>
       {s.nextLabel && <p className="text-xs text-muted-foreground">{s.nextLabel}</p>}
       {mode !== "none" && (
-        <SuggestionActions entityId={s.entityId} seriesKey={s.key} mode={mode} canAdd={s.canAdd} />
+        <SuggestionActions
+          entityId={s.entityId}
+          seriesKey={s.key}
+          mode={mode}
+          canAdd={s.canAdd}
+          defaultName={s.payee}
+          suggestedTagId={s.suggestedTagId ?? null}
+          amountCents={s.amountCents}
+          recurringFrequency={s.recurringFrequency}
+        />
       )}
     </li>
   );
@@ -55,10 +73,17 @@ interface RecurringSuggestionsProps {
   detection: UiDetection | null | undefined;
   /** The all-entities views show an entity chip on every row. */
   isAggregate: boolean;
+  /** Budget categories for the inline Add step (all tags, full path, name order). Absent = the step offers "No tag" only. */
+  tagOptions?: UiTagOption[];
+  /**
+   * Per `entityId|tagId` budget facts for the pre-confirm Budgets notice (categories with a budget row or a scheduled
+   * bill only). undefined = not provided; null = the read failed (a generic line is shown instead).
+   */
+  budgetFacts?: Record<string, TagBudgetFacts> | null;
 }
 
 /** Forecast-page section (anchor `#looks-recurring`). */
-export function RecurringSuggestions({ detection, isAggregate }: RecurringSuggestionsProps) {
+export function RecurringSuggestions({ detection, isAggregate, tagOptions = [], budgetFacts }: RecurringSuggestionsProps) {
   if (detection === undefined) return null;
   return (
     <div id="looks-recurring" className="scroll-mt-20">
@@ -70,7 +95,9 @@ export function RecurringSuggestions({ detection, isAggregate }: RecurringSugges
           {detection === null ? (
             <p className="text-sm text-muted-foreground">{RECURRING_UNAVAILABLE}</p>
           ) : (
-            <DetectionBody detection={detection} isAggregate={isAggregate} />
+            <TagOptionsProvider tags={tagOptions} budgetFacts={budgetFacts}>
+              <DetectionBody detection={detection} isAggregate={isAggregate} />
+            </TagOptionsProvider>
           )}
         </CardContent>
       </Card>
