@@ -36,8 +36,10 @@ export function shapeBudgets(period: string, lines: readonly BudgetLineFacts[]):
       percent_used: percentOf(spent, available),
       overspent: available - spent < 0,
       auto_summed_from_children: l.autoSummed,
+      ...(l.carriedFrom ? { carried_from: l.carriedFrom } : {}),
     };
   });
+  const anyCarried = lines.slice(0, MAX_LINES).some((l) => Boolean(l.carriedFrom));
   return {
     data: {
       period,
@@ -46,6 +48,11 @@ export function shapeBudgets(period: string, lines: readonly BudgetLineFacts[]):
       notes: [
         "Budgeted amounts are monthly. Lines nested under a parent are auto-summed where the parent has no amount of its own, and totals use root lines only so nothing is double counted.",
         "Spent is net outflow on that exact tag and entity for the month, excluding internal transfers. This can differ from the Budgets page for lines linked to recurring expenses.",
+        ...(anyCarried
+          ? [
+              "Rows with carried_from have no budget row of their own for this month: the figures are the latest earlier month's row for that line, carried forward at read time (rollover and one-off additional amounts are not carried). The Budgets page shows nothing for that month until lines are added there. Electric, oil and firewood lines are not carried yet.",
+            ]
+          : []),
       ],
       ...(lines.length > MAX_LINES ? { omitted_lines: lines.length - MAX_LINES } : {}),
     },

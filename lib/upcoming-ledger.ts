@@ -18,6 +18,7 @@ import {
   type AccrualDrawLike,
 } from "@/lib/forecast";
 import { cycleMonthsFor, isLumpSumFrequency } from "@/lib/annual-bill";
+import { carriedNote } from "@/lib/budget-carry-forward";
 import {
   budgetKeyOfBill,
   buildBudgetScheduleIndex,
@@ -188,6 +189,8 @@ export interface UpcomingBudgetRow {
   biweeklyAnchorDate: Date | string | null;
   payMonth: number | null;
   annualAmountDue: Num | null;
+  /** Set when this row is a carried-forward copy of an earlier month's row (lib/budget-carry-forward.ts). */
+  carriedFrom?: string | null;
 }
 
 export interface UpcomingRecurringRow {
@@ -687,6 +690,8 @@ interface Obligation {
   day: number | null;
   /** Budget rows only: keep occurrences inside this YYYY-MM. */
   period?: string;
+  /** Budget rows only: set when the row is a carried-forward copy; the period it was copied from. */
+  carriedFrom?: string | null;
   /** Tagged winners: context for discrepancy detection. */
   budgetByPeriod?: Map<string, UpcomingBudgetRow>;
   recurringLosers?: UpcomingRecurringRow[];
@@ -1040,6 +1045,7 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
       monthly: budgetMonthly(b),
       day: billDay(payload),
       period: b.period,
+      carriedFrom: b.carriedFrom ?? null,
     };
   }
 
@@ -1208,12 +1214,14 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
 
   function decorate(o: Obligation, item: UpcomingItem): void {
     const period = periodOf(item.date ?? from);
+    if (o.source === "budget_line" && o.carriedFrom) item.notes.push(carriedNote(o.carriedFrom));
     if (o.source === "scheduled_bill" && o.budgetByPeriod) {
       const row = o.budgetByPeriod.get(period);
       if (row) {
         // A bill and its OWN Budget row can disagree on the day: the Budget's date wins (see dateNote below), so
         // only the amount can be a discrepancy between them.
         compare(o, alt("budget_line", row.id, budgetMonthly(row), billDay(budgetPayload(row))), item, true);
+        if (row.carriedFrom) item.notes.push(carriedNote(row.carriedFrom));
         if (o.bill) {
           const eff = effectiveSchedule(o.bill, scheduleIndex, period);
           const budgetDay = billDay(budgetPayload(row));

@@ -140,8 +140,11 @@ describe("checkBillReminders with the REAL Budget index loader over a mocked db"
   it("the loaded index asks the database only for the explicit schedule columns (no amounts)", async () => {
     mdb.scheduledBill.findMany.mockResolvedValue([bill()]);
     await checkBillReminders();
-    const arg = mdb.budget.findMany.mock.calls[0]![0] as { select: Record<string, true> };
-    expect(Object.keys(arg.select).sort()).toEqual(["annualAmountDue", "biweeklyAnchorDate", "entityId", "frequency", "payDay", "payDayOfWeek", "payMonth", "period", "tagId"]);
+    const arg = mdb.budget.findMany.mock.calls[0]![0] as { select: Record<string, unknown> };
+    // carry-forward-seasonal-energy: the read also needs the row id (a carried row's synthetic id) and the tag PATH
+    // (only to recognise the default variable lines); still no amounts other than annualAmountDue.
+    expect(Object.keys(arg.select).sort()).toEqual(["annualAmountDue", "biweeklyAnchorDate", "entityId", "frequency", "id", "payDay", "payDayOfWeek", "payMonth", "period", "tag", "tagId"]);
+    expect(arg.select.tag).toEqual({ select: { name: true } });
     expect(arg.select).not.toHaveProperty("budgeted");
   });
 });

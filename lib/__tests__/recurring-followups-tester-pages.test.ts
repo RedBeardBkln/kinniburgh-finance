@@ -125,8 +125,9 @@ describe("tester: where the loader may be imported", () => {
     expect(importers).toEqual(["app/forecast/page.tsx"]);
     const src = read("lib/recurring-budget-hint-build.ts");
     expect(src).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$executeRaw|\$queryRaw|\$transaction/);
-    expect((src.match(/\.findMany\(/g) ?? []).length).toBe(3);
-    expect((src.match(/select:/g) ?? []).length).toBe(3);
+    // the Budget read moved to the shared effective-budget loader (lib/budget-carry-forward-build.ts)
+    expect((src.match(/\.findMany\(/g) ?? []).length).toBe(2);
+    expect((src.match(/select:/g) ?? []).length).toBe(2);
     expect(src).not.toMatch(/include:/);
   });
 });

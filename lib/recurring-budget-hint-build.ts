@@ -1,10 +1,11 @@
 // DB-aware, READ-ONLY loader for the pre-confirm notice of the inline Add step (lib/recurring-budget-hint.ts).
 // No writes, no auth: like lib/upcoming-ledger-build.ts the CALLER (the Forecast page, which has already run auth())
-// owns access control. Three explicit-select reads, plain numbers out: no account number, name or note is read.
+// owns access control. Three explicit-select reads (the Budget one through lib/budget-carry-forward-build.ts), plain numbers out: no account number, name or note is read.
 // Fail-soft: any error returns null (the step then shows a generic line and still lets the owner add).
 
 import { Decimal } from "@prisma/client/runtime/library";
 import { db } from "@/lib/db";
+import { loadEffectiveBudgetRows } from "@/lib/budget-carry-forward-build";
 import { buildBudgetFacts, type TagBudgetFacts } from "@/lib/recurring-budget-hint";
 
 /** YYYY-MM the Budgets page opens on (it uses the UTC month of "now"). */
@@ -28,10 +29,8 @@ export async function loadBudgetHints(args: {
   const entityWhere = entityId ? { entityId } : {};
   try {
     const [budgets, bills, recurring] = await Promise.all([
-      db.budget.findMany({
-        where: { period: currentBudgetPeriod(now), ...entityWhere },
-        select: { entityId: true, tagId: true, budgeted: true, additionalAmountCents: true },
-      }),
+      // Effective rows (read-time carry-forward): a month with no row for a category uses the latest earlier row.
+      loadEffectiveBudgetRows({ periods: [currentBudgetPeriod(now)], entityId }),
       db.scheduledBill.findMany({
         where: { active: true, budgetTagId: { not: null }, ...entityWhere },
         select: { entityId: true, budgetEntityId: true, budgetTagId: true },

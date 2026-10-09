@@ -3,6 +3,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { monthlyEquivalentCents } from "@/lib/recurring-expenses";
 import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
 import { loadNetIncomeSources } from "@/lib/net-income-build";
+import { loadEffectiveBudgetRows } from "@/lib/budget-carry-forward-build";
 
 function fmt(cents: number): string {
   return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -51,10 +52,8 @@ export async function buildAdvisorContext(options: AdvisorContextOptions = {}): 
       orderBy: { nickname: "asc" },
     }),
     db.netWorthSnapshot.findFirst({ orderBy: { date: "desc" } }),
-    db.budget.findMany({
-      where: { period: currentPeriod },
-      include: { tag: true, entity: { select: { name: true } } },
-    }),
+    // Effective rows: a line with no row this month shows the latest earlier month's figures (read-time carry-forward).
+    loadEffectiveBudgetRows({ periods: [currentPeriod] }),
     db.transaction.findMany({
       where: { postedAt: { gte: ninetyDaysAgo }, archivedAt: null },
       include: { tags: { include: { tag: { select: { name: true } } } } },
@@ -179,7 +178,8 @@ export async function buildAdvisorContext(options: AdvisorContextOptions = {}): 
       if (rootBudgetIds.has(b.id)) totalBudgeted += resolvedAmt; // root-only: avoid double-counting
       totalActual += actual; // unchanged — actual spend is already exact-tag-only, never double-counted
       const status = variance >= 0 ? `under by ${fmtDollars(variance)}` : `OVER by ${fmtDollars(Math.abs(variance))}`;
-      li(`${b.tag.shortName} (${b.entity.name}): budgeted ${fmtDollars(resolvedAmt)}, spent ${fmtDollars(actual)} — ${status}`);
+      const carried = b.carriedFrom ? ` [carried forward from ${b.carriedFrom}]` : "";
+      li(`${b.tag.shortName} (${b.entity.name}): budgeted ${fmtDollars(resolvedAmt)}, spent ${fmtDollars(actual)} — ${status}${carried}`);
     }
     tx(`Total budgeted: ${fmtDollars(totalBudgeted)} | Total spent: ${fmtDollars(totalActual)} | Net: ${fmtDollars(totalBudgeted - totalActual)}`);
   }

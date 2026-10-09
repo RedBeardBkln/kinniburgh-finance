@@ -12,6 +12,7 @@ import {
 import { loadNetIncomeSources } from "./net-income-build";
 import { effectiveSchedule, generateBillOccurrencesBudgetDated, hasResolvableDay } from "./bill-dates";
 import { loadBudgetScheduleIndex } from "./bill-dates-build";
+import { loadEffectiveBudgetRows } from "./budget-carry-forward-build";
 import { sendPushToUser } from "./web-push";
 import { evaluateBudgetPace, PACE_TRAILING_MONTHS } from "./budget-pace";
 import type { MonthlySpendPoint } from "./budget-pace";
@@ -111,10 +112,8 @@ export async function checkBudgetOverspend(period: string): Promise<number> {
   const monthStart = new Date(Date.UTC(year, month - 1, 1));
   const monthEnd = new Date(Date.UTC(year, month, 1));
 
-  const budgets = await db.budget.findMany({
-    where: { period },
-    include: { tag: true, entity: true },
-  });
+  // Effective rows: when the month has no row for a line, the latest earlier month's row stands in (read-time carry-forward).
+  const budgets = await loadEffectiveBudgetRows({ periods: [period] });
 
   const tagSpendRows = await db.$queryRaw<{ tagId: string; total: string }[]>`
     SELECT tt."tagId", SUM(t.amount)::text AS total
@@ -186,10 +185,8 @@ export async function checkBudgetPace(period: string): Promise<number> {
   const monthStart = new Date(Date.UTC(year, month - 1, 1));
   const monthEnd = new Date(Date.UTC(year, month, 1));
 
-  const budgets = await db.budget.findMany({
-    where: { period },
-    include: { tag: true, entity: true },
-  });
+  // Effective rows: when the month has no row for a line, the latest earlier month's row stands in (read-time carry-forward).
+  const budgets = await loadEffectiveBudgetRows({ periods: [period] });
 
   const tagSpendRows = await db.$queryRaw<{ tagId: string; total: string }[]>`
     SELECT tt."tagId", SUM(t.amount)::text AS total

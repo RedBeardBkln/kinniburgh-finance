@@ -12,6 +12,11 @@
 // whose frequency differs from the bill's is not used (the amount per occurrence depends on the frequency, so
 // mixing them would silently change the amount).
 //
+// A month with no Budget row of its own may still have a CARRIED row (lib/budget-carry-forward.ts: the latest earlier
+// row of the same line, copied at read time). The index built by lib/bill-dates-build.ts holds those too, marked with
+// `carriedFrom`; this module treats them exactly like real rows, and `EffectiveSchedule.carriedFrom` tells a caller
+// that the date came from an earlier month's row.
+//
 // lib/forecast.ts is not edited: this wraps `generateBillOccurrences` month by month.
 
 import { Decimal } from "@prisma/client/runtime/library";
@@ -29,6 +34,8 @@ export interface BudgetScheduleRow {
   biweeklyAnchorDate: Date | string | null;
   payMonth: number | null;
   annualAmountDue: Decimal | string | number | null;
+  /** Set when this row is a carried-forward copy (lib/budget-carry-forward.ts): the period it was copied from. */
+  carriedFrom?: string | null;
 }
 
 /** `${entityId}|${tagId}` -> (YYYY-MM -> Budget schedule row). */
@@ -71,6 +78,8 @@ export interface EffectiveSchedule {
   budgetDay: number | null;
   /** The bill record's own day. */
   recordDay: number | null;
+  /** When the Budget row used is a carried-forward copy: the period it was copied from; else null. */
+  carriedFrom: string | null;
 }
 
 export function periodKey(year: number, month0: number): string {
@@ -162,11 +171,12 @@ export function effectiveSchedule(bill: BillScheduleInput, index: BudgetSchedule
   const key = budgetKeyOfBill(bill);
   const row = key ? index.get(key)?.get(period) : undefined;
   if (!row || !budgetRowUsable(row, bill)) {
-    return { fields: own, basis: "bill", budgetDay: null, recordDay: bill.autopayDay };
+    return { fields: own, basis: "bill", budgetDay: null, recordDay: bill.autopayDay, carriedFrom: null };
   }
+  const carriedFrom = row.carriedFrom ?? null;
   if (bill.amountType === "accrued") {
     // Accrued bills ignore frequency: only the day of month matters.
-    return { fields: { ...own, autopayDay: row.payDay }, basis: "budget", budgetDay: row.payDay, recordDay: bill.autopayDay };
+    return { fields: { ...own, autopayDay: row.payDay }, basis: "budget", budgetDay: row.payDay, recordDay: bill.autopayDay, carriedFrom };
   }
   return {
     fields: {
@@ -179,6 +189,7 @@ export function effectiveSchedule(bill: BillScheduleInput, index: BudgetSchedule
     basis: "budget",
     budgetDay: row.payDay,
     recordDay: bill.autopayDay,
+    carriedFrom,
   };
 }
 

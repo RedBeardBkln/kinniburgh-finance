@@ -255,8 +255,8 @@ describe("loadBudgetHints", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDb.budget.findMany.mockResolvedValue([
-      { entityId: E, tagId: TAG, budgeted: new Decimal("60.00"), additionalAmountCents: new Decimal("1500") },
-      { entityId: E, tagId: "t-parent", budgeted: null, additionalAmountCents: new Decimal("0") },
+      { id: "b1", entityId: E, tagId: TAG, period: "2026-10", budgeted: new Decimal("60.00"), additionalAmountCents: new Decimal("1500") },
+      { id: "b2", entityId: E, tagId: "t-parent", period: "2026-10", budgeted: null, additionalAmountCents: new Decimal("0") },
     ]);
     mockDb.scheduledBill.findMany.mockResolvedValue([{ entityId: E, budgetEntityId: null, budgetTagId: "t-bill" }]);
     mockDb.recurringExpense.findMany.mockResolvedValue([
@@ -278,8 +278,11 @@ describe("loadBudgetHints", () => {
   it("reads only: findMany with explicit selects, this period, this entity (no other db call exists on the mock)", async () => {
     await loadBudgetHints({ entityId: E, now: new Date("2026-10-09T15:00:00Z") });
     const b = mockDb.budget.findMany.mock.calls[0]?.[0];
-    expect(b.where).toEqual({ period: "2026-10", entityId: E });
-    expect(b.select).toEqual({ entityId: true, tagId: true, budgeted: true, additionalAmountCents: true });
+    // carry-forward-seasonal-energy: the Budget read goes through the effective-budget loader, which reads the entity's
+    // rows without a period filter (the carry needs earlier rows, the frontier needs later ones) and keeps the month.
+    expect(b.where).toEqual({ entityId: E });
+    expect(b.include).toBeUndefined();
+    expect(b.select).toMatchObject({ entityId: true, tagId: true, period: true, budgeted: true, additionalAmountCents: true });
     expect(mockDb.scheduledBill.findMany.mock.calls[0]?.[0].where).toEqual({ active: true, budgetTagId: { not: null }, entityId: E });
     expect(mockDb.recurringExpense.findMany.mock.calls[0]?.[0].where).toEqual({ tagId: { not: null }, entityId: E });
     expect(mockDb.recurringExpense.findMany.mock.calls[0]?.[0].select).toEqual({ entityId: true, tagId: true, amountCents: true, frequency: true });
@@ -287,7 +290,7 @@ describe("loadBudgetHints", () => {
 
   it("the all-entities view applies no entity filter", async () => {
     await loadBudgetHints({ entityId: null, now: new Date("2026-10-09T15:00:00Z") });
-    expect(mockDb.budget.findMany.mock.calls[0]?.[0].where).toEqual({ period: "2026-10" });
+    expect(mockDb.budget.findMany.mock.calls[0]?.[0].where).toEqual({});
   });
 
   it("fail-soft: a read error gives null (never throws), so the step can show its generic line", async () => {
@@ -312,8 +315,10 @@ describe("wiring (source)", () => {
     const src = read("lib/recurring-budget-hint-build.ts");
     expect(src).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$executeRaw|\$queryRaw|\$transaction/);
     expect(src).not.toMatch(/^"use server"/m);
-    expect(src.match(/\.findMany\(/g)).toHaveLength(3);
-    expect(src.match(/select:/g)).toHaveLength(3);
+    // two direct reads (bills, recurring); the Budget read is the shared effective-budget loader
+    expect(src).toMatch(/loadEffectiveBudgetRows\(\{ periods: \[currentBudgetPeriod\(now\)\], entityId \}\)/);
+    expect(src.match(/\.findMany\(/g)).toHaveLength(2);
+    expect(src.match(/select:/g)).toHaveLength(2);
     expect(src).not.toMatch(/nickname|mask|accountNumber|notes/);
   });
 

@@ -1,9 +1,10 @@
-// Budget reads for the assistant. DB-aware, explicit select only. The budgeted amounts are resolved exactly as lib/advisor-context.ts does
+// Budget reads for the assistant. DB-aware, explicit select only (through the effective-budget loader). The budgeted amounts are resolved exactly as lib/advisor-context.ts does
 // (nested lines auto-sum within an account, root lines only for totals), and spend per (entity, tag) comes from queries/spend.ts.
 // This can differ from the Budgets page for lines linked to recurring expenses (a pre-existing, separate adjustment on that page).
+// A month with no row for a line shows the latest earlier row of that line (lib/budget-carry-forward.ts, read-time only), marked `carriedFrom`.
 
 import { Decimal } from "@prisma/client/runtime/library";
-import { db } from "@/lib/db";
+import { loadEffectiveBudgetRows } from "@/lib/budget-carry-forward-build";
 import { getRootBudgetLineIds, resolveBudgetedAmounts } from "@/lib/budget-nesting";
 import { loadTagSpendForPeriod } from "@/lib/advisor/queries/spend";
 
@@ -21,33 +22,25 @@ export interface BudgetLineFacts {
   /** Net spend in the period as a positive magnitude for outflows (decimal string; negative when refunds exceed spend). */
   spent: string;
   isRoot: boolean;
+  /** The period the figures were carried forward from when the month has no row of its own; null otherwise. */
+  carriedFrom?: string | null;
+}
+
+function entityMatches(e: { name: string; slug: string | null }, wanted: string): boolean {
+  const w = wanted.toLowerCase();
+  return e.name.toLowerCase() === w || (e.slug !== null && e.slug.toLowerCase() === w);
+}
+
+function byText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 export async function loadBudgetFacts(period: string, bounds: { start: Date; end: Date }, entity: string | null): Promise<BudgetLineFacts[]> {
-  const [budgets, spendRows] = await Promise.all([
-    db.budget.findMany({
-      where: {
-        period,
-        ...(entity !== null
-          ? { entity: { OR: [{ name: { equals: entity, mode: "insensitive" as const } }, { slug: { equals: entity, mode: "insensitive" as const } }] } }
-          : {}),
-      },
-      orderBy: [{ entity: { name: "asc" } }, { tag: { name: "asc" } }],
-      take: 400,
-      select: {
-        id: true,
-        tagId: true,
-        accountId: true,
-        budgeted: true,
-        frequency: true,
-        rolloverEnabled: true,
-        rolloverAmount: true,
-        tag: { select: { name: true, shortName: true, parentId: true } },
-        entity: { select: { id: true, name: true } },
-      },
-    }),
-    loadTagSpendForPeriod(bounds.start, bounds.end),
-  ]);
+  const [effective, spendRows] = await Promise.all([loadEffectiveBudgetRows({ periods: [period] }), loadTagSpendForPeriod(bounds.start, bounds.end)]);
+  const budgets = effective
+    .filter((b) => entity === null || entityMatches(b.entity, entity))
+    .sort((a, b) => byText(a.entity.name, b.entity.name) || byText(a.tag.name, b.tag.name))
+    .slice(0, 400);
 
   const tagParentById = new Map(budgets.map((b) => [b.tagId, b.tag.parentId]));
   const byAccount = new Map<string, typeof budgets>();
@@ -76,5 +69,6 @@ export async function loadBudgetFacts(period: string, bounds: { start: Date; end
     rolloverAmount: (b.rolloverAmount ?? new Decimal(0)).toFixed(2),
     spent: (spendByKey.get(`${b.entity.id}:${b.tagId}`) ?? new Decimal(0)).negated().toFixed(2),
     isRoot: roots.has(b.id),
+    carriedFrom: b.carriedFrom,
   }));
 }

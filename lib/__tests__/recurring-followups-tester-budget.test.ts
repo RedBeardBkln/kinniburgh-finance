@@ -109,16 +109,21 @@ describe("tester: loader reads and period", () => {
     // 2026-11-01T02:00Z is still Oct 31 in New York, but /budgets uses getUTCMonth() => "2026-11"
     expect(currentBudgetPeriod(new Date("2026-11-01T02:00:00Z"))).toBe("2026-11");
     expect(currentBudgetPeriod(new Date("2026-10-31T23:59:59Z"))).toBe("2026-10");
-    mocks.budget.mockResolvedValue([]);
+    // carry-forward-seasonal-energy: the loader reads every period of the entity and the resolver keeps the month, so
+    // the month is proved through the output: only the 2026-11 row of a line in the latest month is returned.
+    mocks.budget.mockResolvedValue([
+      { id: "b-nov", entityId: "E", tagId: "A", period: "2026-11", budgeted: new Decimal("10.00"), additionalAmountCents: new Decimal("0") },
+      { id: "b-oct", entityId: "E", tagId: "B", period: "2026-10", budgeted: new Decimal("99.00"), additionalAmountCents: new Decimal("0") },
+    ]);
     mocks.bill.mockResolvedValue([]);
     mocks.rec.mockResolvedValue([]);
-    await loadBudgetHints({ entityId: null, now: new Date("2026-11-01T02:00:00Z") });
-    expect(mocks.budget.mock.calls.at(-1)?.[0].where).toEqual({ period: "2026-11" });
+    const facts = await loadBudgetHints({ entityId: null, now: new Date("2026-11-01T02:00:00Z") });
+    expect(Object.keys(facts ?? {})).toEqual(["E|A"]); // B ended (not in the latest month) and is not the current period
   });
 
   it("explicit selects, cents conversion of a Decimal budget, weekly 10.00 -> 4333, fail-soft null with the error class only", async () => {
     const { loadBudgetHints } = await import("@/lib/recurring-budget-hint-build");
-    mocks.budget.mockResolvedValue([{ entityId: "E", tagId: "T", budgeted: new Decimal("60.00"), additionalAmountCents: new Decimal("1500.00") }]);
+    mocks.budget.mockResolvedValue([{ id: "b1", entityId: "E", tagId: "T", period: "2026-10", budgeted: new Decimal("60.00"), additionalAmountCents: new Decimal("1500.00") }]);
     mocks.bill.mockResolvedValue([]);
     mocks.rec.mockResolvedValue([{ entityId: "E", tagId: "T", amountCents: 1000, frequency: "weekly" }]);
     const facts = await loadBudgetHints({ entityId: "E", now: new Date("2026-10-09T12:00:00Z") });

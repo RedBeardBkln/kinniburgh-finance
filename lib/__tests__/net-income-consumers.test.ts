@@ -153,11 +153,14 @@ describe("loadScheduledFlows (account funding flows)", () => {
 
   it("reads Budget rows with an explicit select of the schedule fields only", async () => {
     await loadScheduledFlows("a1", D("2026-10-09"), D("2026-10-31"));
-    const arg = flowDb.budget.findMany.mock.calls[0]![0] as { select: Record<string, boolean>; where: { period: { in: string[] } } };
-    expect(arg.where.period.in).toEqual(["2026-10"]);
+    const arg = flowDb.budget.findMany.mock.calls[0]![0] as { select: Record<string, unknown>; where: Record<string, unknown> };
+    // carry-forward-seasonal-energy: no period filter any more (the entity's latest month decides whether a line has
+    // ended, and the latest earlier row is what a month without a row carries); the resolver keeps only the window.
+    expect(arg.where).toBeUndefined();
     expect(Object.keys(arg.select).sort()).toEqual(
-      ["annualAmountDue", "biweeklyAnchorDate", "entityId", "frequency", "payDay", "payDayOfWeek", "payMonth", "period", "tagId"]
+      ["annualAmountDue", "biweeklyAnchorDate", "entityId", "frequency", "id", "payDay", "payDayOfWeek", "payMonth", "period", "tag", "tagId"]
     );
+    expect(arg.select.tag).toEqual({ select: { name: true } });
     expect(arg.select).not.toHaveProperty("budgeted");
   });
 
@@ -179,12 +182,13 @@ describe("loadBudgetScheduleIndex", () => {
 
   it("builds the index by entity|tag and period", async () => {
     flowDb.budget.findMany.mockResolvedValue([
-      { entityId: "e", tagId: "t", period: "2026-10", payDay: 14, frequency: "monthly", payDayOfWeek: null, biweeklyAnchorDate: null, payMonth: null, annualAmountDue: null },
+      { id: "b1", entityId: "e", tagId: "t", period: "2026-10", payDay: 14, frequency: "monthly", payDayOfWeek: null, biweeklyAnchorDate: null, payMonth: null, annualAmountDue: null },
     ]);
     const r = await loadBudgetScheduleIndex({ from: D("2026-10-09"), to: D("2026-11-15") });
     expect(r.failed).toBe(false);
     expect(r.index.get("e|t")?.get("2026-10")?.payDay).toBe(14);
-    expect((flowDb.budget.findMany.mock.calls[0]![0] as { where: { period: { in: string[] } } }).where.period.in).toEqual(["2026-10", "2026-11"]);
+    // the window is applied by the resolver: 2026-11 has no row, so it carries 2026-10 (the line is in the latest month)
+    expect(r.index.get("e|t")?.get("2026-11")).toMatchObject({ payDay: 14, carriedFrom: "2026-10" });
   });
   it("never rejects: an error gives an empty index and failed: true", async () => {
     flowDb.budget.findMany.mockRejectedValue(new Error("down"));

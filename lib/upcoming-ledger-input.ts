@@ -5,6 +5,7 @@
 // (which needs only the recorded items, not the built ledger).
 
 import { db } from "@/lib/db";
+import { loadEffectiveBudgetRows } from "@/lib/budget-carry-forward-build";
 import { loadNetIncomeSources } from "@/lib/net-income-build";
 import { CARD_PAST_DUE_LOOKBACK_DAYS, todayForNewYork, type UpcomingLedgerInput } from "@/lib/upcoming-ledger";
 
@@ -84,24 +85,9 @@ export async function loadUpcomingLedgerInput(args: {
         accrualEnvelope: { select: { draws: { select: { estimatedDate: true, estimatedAmount: true } } } },
       },
     }),
-    db.budget.findMany({
-      where: { period: { in: periodsTouched(from, to) }, ...entityWhere },
-      select: {
-        id: true,
-        tagId: true,
-        entityId: true,
-        accountId: true,
-        period: true,
-        budgeted: true,
-        payDay: true,
-        frequency: true,
-        payDayOfWeek: true,
-        biweeklyAnchorDate: true,
-        payMonth: true,
-        annualAmountDue: true,
-        tag: { select: { shortName: true } },
-      },
-    }),
+    // Effective Budget rows: a month with no row for a line carries the latest earlier row of that line (read-time,
+    // lib/budget-carry-forward.ts); the variable (seasonal) lines are not carried yet.
+    loadEffectiveBudgetRows({ periods: periodsTouched(from, to), entityId }),
     db.recurringExpense.findMany({
       where: entityWhere,
       select: {
@@ -219,6 +205,7 @@ export async function loadUpcomingLedgerInput(args: {
       biweeklyAnchorDate: b.biweeklyAnchorDate,
       payMonth: b.payMonth,
       annualAmountDue: b.annualAmountDue,
+      carriedFrom: b.carriedFrom,
     })),
     recurring,
     orphanEnvelopes: envelopes.map((e) => ({

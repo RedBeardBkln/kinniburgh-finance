@@ -24,6 +24,7 @@ import { cardDuesInWindow, cardPaymentEvents } from "@/lib/card-next-statement";
 import { loadNetIncomeSources } from "@/lib/net-income-build";
 import { generateBillOccurrencesBudgetDated } from "@/lib/bill-dates";
 import { loadBudgetScheduleIndex } from "@/lib/bill-dates-build";
+import { loadEffectiveBudgetRows } from "@/lib/budget-carry-forward-build";
 import { loadCardProjections, type LoadedCardProjections } from "@/lib/card-next-statement-build";
 import { setAccountBalance, upsertIncomeSource } from "@/actions/envelope";
 import { ForecastAccountCard, type ChartPoint } from "@/components/forecast/forecast-account-card";
@@ -180,14 +181,14 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       }
     }
 
-    // Budget rows for the touched periods, WITH tag — feeds both the entity-wide
+    // EFFECTIVE Budget rows for the touched periods, WITH tag — feeds both the entity-wide
     // prorated total (aggregatePeriodTotals) and the per-tag itemized breakdown
     // (periodTotalsByTag) from a single query, rather than a groupBy() for the
-    // total plus a second findMany() for the itemization.
-    const budgetRows = await db.budget.findMany({
-      where: { entityId: entity.id, period: { in: touchedPeriods } },
-      include: { tag: true },
-    });
+    // total plus a second findMany() for the itemization. A period with no row for a
+    // line carries the latest earlier row of that line (lib/budget-carry-forward.ts,
+    // read-time, nothing written). Nesting/auto-sum below runs AFTER the carry so
+    // carried rows nest exactly like real ones.
+    const budgetRows = await loadEffectiveBudgetRows({ periods: touchedPeriods, entityId: entity.id });
 
     // Nesting/auto-sum resolution — same-account AND same-period only (two
     // different periods' "Groceries" lines are unrelated).
@@ -555,10 +556,9 @@ export default async function ForecastPage({ searchParams }: PageProps) {
 
   const paceRows: TagPaceRow[] = [];
   if (entity?.slug === "personal") {
-    const paceBudgets = await db.budget.findMany({
-      where: { entityId: entity.id, period },
-      include: { tag: true },
-    });
+    // The current month's EFFECTIVE rows: from the first month with no Budget rows (2027-01) this is the carried
+    // forward set; rollover is not carried (computeBudgetSummary then sees none).
+    const paceBudgets = await loadEffectiveBudgetRows({ periods: [period], entityId: entity.id });
 
     const tagSpendRows = await db.$queryRaw<{ tagId: string; total: string }[]>`
       SELECT tt."tagId", SUM(t.amount)::text AS total
