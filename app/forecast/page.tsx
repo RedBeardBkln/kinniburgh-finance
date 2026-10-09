@@ -31,8 +31,9 @@ import { SpendPaceSection, type TagPaceRow } from "@/components/forecast/spend-p
 import { capForecastHorizon, prorateExpensesAcrossHorizon } from "@/lib/business-forecast";
 import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
 import { loadUpcomingLedger } from "@/lib/upcoming-ledger-build";
-import { parseHorizon, parseTransfersFlag, toUiLedger, type UiLedger } from "@/lib/upcoming-ledger-view";
+import { parseHorizon, parseTransfersFlag, toUiDetection, toUiLedger, type UiDetection, type UiLedger } from "@/lib/upcoming-ledger-view";
 import { UpcomingAgenda } from "@/components/upcoming/upcoming-agenda";
+import { RecurringSuggestions } from "@/components/upcoming/recurring-suggestions";
 import {
   BusinessForecastSection,
   type ForecastAccount as BusinessForecastAccount,
@@ -637,6 +638,8 @@ export default async function ForecastPage({ searchParams }: PageProps) {
   const upcomingHorizon = parseHorizon(params.horizon);
   const showTransfers = parseTransfersFlag(params.transfers);
   let upcoming: UiLedger | null = null;
+  // undefined = the ledger itself failed (nothing extra to say); null = only the pattern checks failed.
+  let upcomingDetection: UiDetection | null | undefined;
   try {
     const loaded = await loadUpcomingLedger({ entityId: entity?.id ?? null, days: upcomingHorizon, now });
     upcoming = toUiLedger(loaded.ledger, {
@@ -648,6 +651,13 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       accountNameById: loaded.accountNameById,
       includeTransfers: showTransfers,
     });
+    // Own try/catch, after the ledger exists: a throw here must never blank the agenda (null = pattern checks failed).
+    try {
+      upcomingDetection = loaded.detection ? toUiDetection(loaded.detection, loaded.entityNameById) : null;
+    } catch (err) {
+      upcomingDetection = null;
+      console.error("Recurring pattern view unavailable", err instanceof Error ? err.name : "UnknownError");
+    }
   } catch (err) {
     console.error("Upcoming ledger unavailable", err instanceof Error ? err.name : "UnknownError");
   }
@@ -955,6 +965,9 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           horizon={upcomingHorizon}
           showTransfers={showTransfers}
         />
+
+        {/* ── Looks recurring: patterns learned from past transactions, outside every total (lib/recurring-detect.ts) ── */}
+        <RecurringSuggestions detection={upcomingDetection} isAggregate={entity === null} />
 
         {/* ── Category spend pace (Personal bucket only) ──────────────── */}
         {entity?.slug === "personal" && paceRows.length > 0 && (

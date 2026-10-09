@@ -15,6 +15,7 @@ import type {
   UpcomingLedger,
   UpcomingSource,
 } from "@/lib/upcoming-ledger";
+import type { Cadence, Confidence, DetectionBundle, Series } from "@/lib/recurring-detect";
 
 // ── Money (integer cents on strings; never floats) ───────────────────────────
 
@@ -86,6 +87,7 @@ const SOURCE_LABELS: Record<UpcomingSource, string> = {
   projected_revenue: "Projected revenue",
   tax_deadline: "Tax deadline",
   policy_expiry: "Policy expiry",
+  learned_history: "Learned from history",
 };
 
 export function sourceLabel(source: UpcomingSource): string {
@@ -105,6 +107,7 @@ const RECORD_NAMES: Record<UpcomingSource, string> = {
   projected_revenue: "projected revenue",
   tax_deadline: "tax deadline",
   policy_expiry: "policy",
+  learned_history: "learned pattern",
 };
 
 export function tierLabel(tier: ConfidenceTier): string {
@@ -186,6 +189,10 @@ export interface UiLedger {
   entityTotals: { entityId: string; entityName: string; totals: UiTotals }[];
   biggest: UiItem | null;
   transferSummary: { count: number; total: string };
+  /** History-learned recurring bills: shown in their own block, NEVER part of any total above. */
+  learned: UiItem[];
+  /** Positive 2-decimal magnitude of the learned items (its own subtotal). */
+  learnedTotal: string;
 }
 
 export interface UiContext {
@@ -274,6 +281,110 @@ export function toUiLedger(ledger: UpcomingLedger, ctx: UiContext): UiLedger {
     entityTotals,
     biggest: ledger.biggest ? itemToUi(ledger.biggest, ctx) : null,
     transferSummary: { count: ledger.totals.transferCount, total: ledger.totals.transferTotal.toFixed(2) },
+    learned: ledger.learned.map((i) => itemToUi(i, ctx)),
+    learnedTotal: ledger.learnedTotals.outflow.toFixed(2),
+  };
+}
+
+// ── Recurring-pattern detection (lib/recurring-detect.ts) ─────────────────────
+
+export const RECURRING_UNAVAILABLE = "Recurring-pattern checks are unavailable right now.";
+export const RECURRING_FOOTER =
+  "Based on your last 18 months of transactions. These are patterns, not bills, and are not included in the totals above.";
+
+export interface UiSuggestion {
+  key: string;
+  entityId: string;
+  entityName: string;
+  payee: string;
+  kind: "outflow" | "inflow";
+  cadence: Cadence;
+  /** "~$28.70 monthly, usually around the 5th". */
+  summary: string;
+  confidence: Confidence;
+  /** "Strong pattern" / "Likely" / "Weak pattern, 3 times". */
+  confidenceLabel: string;
+  /** The facts behind the pattern, one sentence. */
+  why: string;
+  /** "Next expected around Oct 14", or null when the pattern is too weak to date. */
+  nextLabel: string | null;
+  /** True when the owner may turn it into a recurring expense (an outflow). */
+  canAdd: boolean;
+}
+
+export interface UiFlag {
+  type: "late" | "amount_change" | "history_differs";
+  text: string;
+  entityId: string;
+  entityName: string;
+}
+
+export interface UiDetection {
+  /** Outflow suggestions, strongest first. */
+  suggestions: UiSuggestion[];
+  /** Regular deposits (review list only; never on the calendar, no buttons). */
+  deposits: UiSuggestion[];
+  dismissed: UiSuggestion[];
+  flags: UiFlag[];
+  lateCount: number;
+  suppressedCount: number;
+}
+
+const CADENCE_WORD: Record<Cadence, string> = {
+  weekly: "weekly",
+  biweekly: "every two weeks",
+  monthly: "monthly",
+  quarterly: "quarterly",
+  annual: "yearly",
+};
+
+function confidenceLabel(s: Series): string {
+  if (s.confidence === "high") return "Strong pattern";
+  if (s.confidence === "medium") return "Likely";
+  return `Weak pattern, ${s.occurrences} times`;
+}
+
+function suggestionToUi(s: Series, entityNameById: Record<string, string>): UiSuggestion {
+  let summary = `${approx(s.typicalAmount.toFixed(2))} ${CADENCE_WORD[s.cadence]}`;
+  if (s.amountMode === "varies") {
+    summary += `, amount varies (${approx(s.minAmount.toFixed(2))} to ${approx(s.maxAmount.toFixed(2))})`;
+  }
+  if (s.cadence !== "weekly" && s.cadence !== "biweekly") summary += `, ${s.dayRule}`;
+  const why = s.why.join(", ");
+  const dated = s.confidence !== "low" && s.cadence !== "annual";
+  return {
+    key: s.key,
+    entityId: s.entityId,
+    entityName: entityNameById[s.entityId] ?? "Unknown entity",
+    payee: s.payee,
+    kind: s.kind,
+    cadence: s.cadence,
+    summary,
+    confidence: s.confidence,
+    confidenceLabel: confidenceLabel(s),
+    why: `${why}.`,
+    nextLabel: dated ? `Next expected around ${formatShort(s.nextExpected.toISOString().slice(0, 10))}` : null,
+    canAdd: s.kind === "outflow",
+  };
+}
+
+/** Plain strings only: no Decimal / Date reaches a component. */
+export function toUiDetection(bundle: DetectionBundle, entityNameById: Record<string, string>): UiDetection {
+  const flags: UiFlag[] = bundle.flags.map((f) => ({
+    type: f.type,
+    text: f.text,
+    entityId: f.entityId,
+    entityName: entityNameById[f.entityId] ?? "Unknown entity",
+  }));
+  const all = bundle.suggestions.map((s) => suggestionToUi(s, entityNameById));
+  return {
+    suggestions: all.filter((s) => s.kind === "outflow"),
+    // A weak deposit pattern is not worth the owner's attention.
+    deposits: all.filter((s) => s.kind === "inflow" && s.confidence !== "low"),
+    dismissed: bundle.dismissed.map((s) => suggestionToUi(s, entityNameById)),
+    flags,
+    lateCount: flags.filter((f) => f.type === "late").length,
+    suppressedCount: bundle.suppressedCount,
   };
 }
 

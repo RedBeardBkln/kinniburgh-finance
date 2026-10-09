@@ -15,7 +15,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { DashboardClient, type SerializedBudget } from "@/components/dashboard/dashboard-client";
 import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
 import { loadUpcomingLedger } from "@/lib/upcoming-ledger-build";
-import { toUiLedger, type UiLedger } from "@/lib/upcoming-ledger-view";
+import { toUiDetection, toUiLedger, type UiDetection, type UiLedger } from "@/lib/upcoming-ledger-view";
 import { UpcomingWidget } from "@/components/upcoming/upcoming-widget";
 
 interface PageProps {
@@ -104,6 +104,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // Promise.all above and fail-soft: if it throws, the widget shows a small notice and the rest of
   // the dashboard is unaffected. Read-only; the page has already run auth().
   let upcoming: UiLedger | null = null;
+  let upcomingDetection: UiDetection | null | undefined;
   if (isCurrentPeriod) {
     try {
       const loaded = await loadUpcomingLedger({ entityId: entity?.id ?? null, days: 30, now });
@@ -116,6 +117,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         accountNameById: loaded.accountNameById,
         includeTransfers: false,
       });
+      // Own try/catch, after the ledger exists: a throw here must never blank the agenda (null = pattern checks failed).
+      try {
+        upcomingDetection = loaded.detection ? toUiDetection(loaded.detection, loaded.entityNameById) : null;
+      } catch (err) {
+        upcomingDetection = null;
+        console.error("Recurring pattern view unavailable", err instanceof Error ? err.name : "UnknownError");
+      }
     } catch (err) {
       console.error("Upcoming ledger unavailable", err instanceof Error ? err.name : "UnknownError");
     }
@@ -293,7 +301,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         </div>
 
         {/* Next 30 days (current month only) */}
-        {isCurrentPeriod && <UpcomingWidget ledger={upcoming} bucketSlug={bucket} />}
+        {isCurrentPeriod && <UpcomingWidget ledger={upcoming} bucketSlug={bucket} detection={upcomingDetection} />}
 
         {/* Budget lines table */}
         <Card>

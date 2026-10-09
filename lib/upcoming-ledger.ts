@@ -34,9 +34,13 @@ export type UpcomingSource =
   | "rental_payout"
   | "projected_revenue"
   | "tax_deadline"
-  | "policy_expiry";
+  | "policy_expiry"
+  | "learned_history";
 
-/** "learned" is reserved for step 2 of the forecast upgrade: defined here, NEVER populated. */
+/**
+ * "learned" items come from lib/recurring-detect.ts (patterns found in past transactions). They are
+ * placed ONLY in `UpcomingLedger.learned`, never in `items`, `undated`, `pastDue` or any total.
+ */
 export type ConfidenceTier = "scheduled" | "estimated" | "learned";
 export type ItemKind = "bill" | "card" | "transfer" | "income" | "deadline";
 export type AmountStatus = "known" | "unknown" | "not_applicable";
@@ -112,6 +116,16 @@ export interface UpcomingLedger {
   totalsByEntity: Record<string, LedgerTotals>;
   /** Largest counted outflow; ties go to the earlier date. */
   biggest: UpcomingItem | null;
+  /**
+   * History-learned recurring bills (tier "learned", source "learned_history"), dated, inside the window.
+   * NEVER part of items / totals / totalsByEntity / biggest: a guess must not double count a bill the
+   * owner has under another name. Empty when the input carries no `learned` rows.
+   */
+  learned: UpcomingItem[];
+  /** Positive magnitude of the learned outflows and how many learned items there are. Shown separately. */
+  learnedTotals: { outflow: Decimal; count: number };
+  /** Learned rows dropped because they looked like an obligation the ledger already keeps. */
+  learnedDropped: number;
 }
 
 // ── Input row types (structural, not Prisma types) ───────────────────────────
@@ -242,6 +256,50 @@ export interface UpcomingPolicyRow {
   archivedAt?: Date | string | null;
 }
 
+/** Cadences the detector can learn (mirrors lib/recurring-detect.ts; kept structural so this file never imports it). */
+export type LearnedCadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual";
+
+/** A history-learned series, already expanded to the dates inside the window by the caller. */
+export interface LearnedSeriesRow {
+  key: string;
+  entityId: string;
+  accountId: string | null;
+  payee: string;
+  kind: "outflow" | "inflow";
+  cadence: LearnedCadence;
+  /** Typical (median) amount per occurrence, positive. */
+  amount: Num;
+  minAmount: Num;
+  maxAmount: Num;
+  amountMode: "fixed" | "varies";
+  confidence: "low" | "medium" | "high";
+  /** Plain-words facts behind the pattern. */
+  why: string;
+  /** Expected occurrence dates (any may fall outside the window; those are ignored). */
+  dates: Date[];
+}
+
+export type ModelledCadence = LearnedCadence | "semiannual";
+
+/** An obligation the owner has already recorded, in the shape the detector needs to suppress / compare. */
+export interface ModelledRef {
+  source: UpcomingSource;
+  sourceId: string;
+  entityId: string;
+  accountId: string | null;
+  label: string;
+  direction: "outflow" | "inflow";
+  /** `${entityId}|${tagId}` when the record is tied to a budget category. */
+  tagKey: string | null;
+  /** Monthly-equivalent amount, for comparison only. */
+  monthly: Decimal | null;
+  /** Day of month it is paid on, or null (weekly / biweekly / unset). */
+  day: number | null;
+  cadence: ModelledCadence | null;
+  /** Amount of ONE payment when the record states it, else null. */
+  expectedAmount: Decimal | null;
+}
+
 export interface UpcomingLedgerInput {
   from: Date;
   days: number;
@@ -258,6 +316,8 @@ export interface UpcomingLedgerInput {
   projectedRevenue?: UpcomingProjectedRevenueRow[];
   taxDeadlines?: UpcomingTaxDeadlineRow[];
   policies?: UpcomingPolicyRow[];
+  /** History-learned series (lib/recurring-detect.ts). Optional: without it the ledger is exactly as before. */
+  learned?: LearnedSeriesRow[];
 }
 
 export const CARD_PAST_DUE_LOOKBACK_DAYS = 14;
@@ -649,7 +709,7 @@ function recurringShape(r: UpcomingRecurringRow): Shape {
 
 // ── Duplicate detection helpers ──────────────────────────────────────────────
 
-function accountsCompatible(a: string | null, b: string | null): boolean {
+export function accountsCompatible(a: string | null, b: string | null): boolean {
   return !a || !b || a === b;
 }
 
@@ -660,12 +720,14 @@ function sharesDistinctiveWord(a: string, b: string): boolean {
   return wa.some((w) => wb.has(w));
 }
 
-function amountsClose(a: Decimal, b: Decimal): boolean {
+export function amountsClose(a: Decimal, b: Decimal): boolean {
   const tol = Decimal.max(ONE, Decimal.max(a.abs(), b.abs()).times("0.05"));
   return a.minus(b).abs().lte(tol);
 }
 
-function likelySameObligation(a: Obligation, b: Obligation): boolean {
+type ObligationIdentity = Pick<Obligation, "entityId" | "accountId" | "label" | "monthly" | "day">;
+
+function likelySameObligation(a: ObligationIdentity, b: ObligationIdentity): boolean {
   if (a.entityId !== b.entityId) return false;
   if (!accountsCompatible(a.accountId, b.accountId)) return false;
   if (sharesDistinctiveWord(a.label, b.label)) return true;
@@ -1315,15 +1377,67 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
     );
   }
 
+  // ── 9. Learned (history-detected) series. Shown OUTSIDE every total: a guessed series could double count a
+  // bill the owner has under another name. Only high / medium outflow series that have a date inside the window
+  // are placed; low confidence and annual series are review-list suggestions only and never get a date. Each
+  // row is re-checked against the obligations this ledger keeps (belt and braces on top of the detector's own
+  // suppression) and dropped when it looks like one of them. ──
+  const learned: UpcomingItem[] = [];
+  let learnedDropped = 0;
+  for (const row of input.learned ?? []) {
+    if (row.kind !== "outflow" || row.cadence === "annual" || row.confidence === "low") continue;
+    if (!inScope(row.entityId)) continue;
+    const typical = positive(row.amount);
+    if (!typical) continue;
+    const dates = row.dates.map(startOfDayUTC).filter(inWindow);
+    if (dates.length === 0) continue;
+    const perMonth =
+      row.cadence === "weekly" ? typical.times(52).div(12) : row.cadence === "biweekly" ? typical.times(26).div(12) : row.cadence === "quarterly" ? typical.div(3) : typical;
+    const identity: ObligationIdentity = {
+      entityId: row.entityId,
+      accountId: row.accountId,
+      label: row.payee,
+      monthly: cents(perMonth),
+      day: row.cadence === "weekly" || row.cadence === "biweekly" ? null : (dates[0] as Date).getUTCDate(),
+    };
+    if (kept.some((k) => likelySameObligation(identity, k))) {
+      learnedDropped += 1;
+      continue;
+    }
+    const lo = positive(row.minAmount);
+    const hi = positive(row.maxAmount);
+    const notes = ["Looks recurring from your history, not in your budget"];
+    if (row.amountMode === "varies" && lo && hi) notes.push(`Amount varies, about $${cents(lo).toFixed(2)} to $${cents(hi).toFixed(2)}`);
+    for (const date of dates) {
+      learned.push(
+        baseItem(
+          { source: "learned_history", sourceId: row.key, entityId: row.entityId, accountId: row.accountId, label: row.payee },
+          {
+            date,
+            amount: cents(typical).negated(),
+            amountStatus: "known",
+            kind: "bill",
+            tier: "learned",
+            tierNote: row.why,
+            link: { page: "forecast", anchor: "looks-recurring" },
+            notes,
+          }
+        )
+      );
+    }
+  }
+
   // ── Finish: ids, order, totals ──
   items.sort(compareItems);
   undated.sort(compareItems);
   pastDue.sort(compareItems);
   heldBack.sort(compareItems);
+  learned.sort(compareItems);
   uniquifyIds(items);
   uniquifyIds(undated);
   uniquifyIds(pastDue);
   uniquifyIds(heldBack);
+  uniquifyIds(learned);
 
   const totalsByEntity: Record<string, LedgerTotals> = {};
   for (const item of [...items, ...undated]) {
@@ -1338,5 +1452,181 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
     if (!biggest || !biggest.amount || item.amount.abs().gt(biggest.amount.abs())) biggest = item;
   }
 
-  return { from, to, items, undated, pastDue, heldBack, totals, totalsByEntity, biggest };
+  let learnedOutflow = new Decimal(0);
+  for (const item of learned) if (item.amount) learnedOutflow = learnedOutflow.plus(item.amount.abs());
+
+  return {
+    from,
+    to,
+    items,
+    undated,
+    pastDue,
+    heldBack,
+    totals,
+    totalsByEntity,
+    biggest,
+    learned,
+    learnedTotals: { outflow: learnedOutflow, count: learned.length },
+    learnedDropped,
+  };
+}
+
+// ── Modelled references (for lib/recurring-detect.ts) ─────────────────────────
+
+function refCadence(frequency: string | null | undefined): ModelledCadence {
+  switch (frequency) {
+    case "weekly":
+    case "biweekly":
+    case "quarterly":
+    case "semiannual":
+      return frequency;
+    case "annual":
+    case "annually":
+      return "annual";
+    default:
+      return "monthly";
+  }
+}
+
+/** One payment of a weekly / biweekly schedule whose stored amount is the MONTHLY total (the generators' convention). */
+function perPayment(monthly: Decimal | null, cadence: ModelledCadence | null): Decimal | null {
+  if (!monthly) return null;
+  if (cadence === "weekly") return cents(monthly.times(12).div(52));
+  if (cadence === "biweekly") return cents(monthly.times(12).div(26));
+  return monthly;
+}
+
+/**
+ * The obligations the owner has already recorded, in the shape the recurring-pattern detector needs. Applies
+ * the SAME filters as buildUpcomingLedger (active bills, Budget rows that carry a schedule, recurring expenses,
+ * accrual envelopes with draws, active paychecks; entity scope) and the same Stage A rule: one record per budget
+ * category (bill beats budget schedule beats recurring expense). Pure: no clock, no DB.
+ */
+export function collectModelledRefs(input: UpcomingLedgerInput): ModelledRef[] {
+  const scope = input.entityId ?? null;
+  const inScope = (entityId: string) => scope === null || entityId === scope;
+  const refs: ModelledRef[] = [];
+  const taggedSeen = new Set<string>();
+
+  for (const b of input.bills ?? []) {
+    if (!b.active || !inScope(b.entityId)) continue;
+    const frequency = b.frequency ?? "monthly";
+    const accrued = b.amountType === "accrued";
+    const payload: BillPayload = {
+      id: b.id,
+      accountId: b.accountId,
+      payee: b.payee,
+      amountType: b.amountType,
+      expectedAmount: b.expectedAmount,
+      autopayDay: b.autopayDay,
+      annualBudget: b.annualBudget,
+      frequency,
+      payDayOfWeek: b.payDayOfWeek ?? null,
+      biweeklyAnchorDate: b.biweeklyAnchorDate ?? null,
+      payMonth: b.payMonth ?? null,
+    };
+    const tagKey = b.budgetTagId ? `${b.budgetEntityId ?? b.entityId}|${b.budgetTagId}` : null;
+    if (tagKey) taggedSeen.add(tagKey);
+    refs.push({
+      source: "scheduled_bill",
+      sourceId: b.id,
+      entityId: b.entityId,
+      accountId: b.accountId,
+      label: b.payee,
+      direction: "outflow",
+      tagKey,
+      monthly: billMonthly(payload),
+      day: billDay(payload),
+      cadence: accrued ? null : refCadence(frequency),
+      expectedAmount: accrued
+        ? null
+        : isLumpSumFrequency(frequency)
+          ? positive(b.annualBudget)
+          : perPayment(positive(b.expectedAmount), refCadence(frequency)),
+    });
+  }
+
+  // Budget rows with a schedule: one ref per category (the latest loaded period), unless a bill already holds it.
+  const latestByKey = new Map<string, UpcomingBudgetRow>();
+  for (const b of input.budgets ?? []) {
+    if (!inScope(b.entityId) || !budgetHasSchedule(b)) continue;
+    const key = `${b.entityId}|${b.tagId}`;
+    const prev = latestByKey.get(key);
+    if (!prev || prev.period < b.period) latestByKey.set(key, b);
+  }
+  for (const key of [...latestByKey.keys()].sort()) {
+    if (taggedSeen.has(key)) continue;
+    const b = latestByKey.get(key) as UpcomingBudgetRow;
+    taggedSeen.add(key);
+    const frequency = b.frequency || "monthly";
+    refs.push({
+      source: "budget_line",
+      sourceId: b.id,
+      entityId: b.entityId,
+      accountId: b.accountId,
+      label: b.tagName,
+      direction: "outflow",
+      tagKey: key,
+      monthly: budgetMonthly(b),
+      day: billDay(budgetPayload(b)),
+      cadence: refCadence(frequency),
+      // A Budget amount is a MONTHLY total; weekly / biweekly schedules are divided per payment, lump sums are unknown.
+      expectedAmount: isLumpSumFrequency(frequency) || frequency === "quarterly" ? null : perPayment(positive(b.budgeted), refCadence(frequency)),
+    });
+  }
+
+  for (const r of input.recurring ?? []) {
+    if (!inScope(r.entityId)) continue;
+    const tagKey = r.tagId ? `${r.entityId}|${r.tagId}` : null;
+    if (tagKey && taggedSeen.has(tagKey)) continue;
+    refs.push({
+      source: "recurring_expense",
+      sourceId: r.id,
+      entityId: r.entityId,
+      accountId: null,
+      label: r.name,
+      direction: "outflow",
+      tagKey,
+      monthly: recurringMonthly(r),
+      day: recurringDay(r),
+      cadence: refCadence(r.frequency),
+      expectedAmount: r.amountCents > 0 ? new Decimal(r.amountCents).div(100) : null,
+    });
+  }
+
+  for (const e of input.orphanEnvelopes ?? []) {
+    if (!inScope(e.entityId) || e.draws.length === 0) continue;
+    refs.push({
+      source: "accrual_draw",
+      sourceId: e.id,
+      entityId: e.entityId,
+      accountId: e.accountId,
+      label: e.name,
+      direction: "outflow",
+      tagKey: null,
+      monthly: null,
+      day: null,
+      cadence: null,
+      expectedAmount: null,
+    });
+  }
+
+  for (const s of input.incomeSources ?? []) {
+    if (!s.active || !inScope(s.entityId)) continue;
+    refs.push({
+      source: "income_source",
+      sourceId: s.id,
+      entityId: s.entityId,
+      accountId: s.accountId,
+      label: s.description,
+      direction: "inflow",
+      tagKey: null,
+      monthly: null,
+      day: null,
+      cadence: s.cadence === "weekly" || s.cadence === "biweekly" || s.cadence === "monthly" ? s.cadence : null,
+      expectedAmount: positive(s.amount),
+    });
+  }
+
+  return refs;
 }

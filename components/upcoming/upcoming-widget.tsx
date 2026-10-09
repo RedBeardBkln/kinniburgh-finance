@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatShort, groupByDate, truncateItems, type UiLedger } from "@/lib/upcoming-ledger-view";
+import { formatShort, groupByDate, truncateItems, type UiDetection, type UiLedger } from "@/lib/upcoming-ledger-view";
+import { RecurringHint } from "@/components/upcoming/recurring-hint";
 import {
   AmountText,
   Disagreements,
@@ -20,10 +21,12 @@ interface UpcomingWidgetProps {
   /** null = the loader failed: show a small notice and nothing else (the dashboard must not break). */
   ledger: UiLedger | null;
   bucketSlug: string;
+  /** Recurring-pattern checks: undefined = none to show, null = they failed (one muted line). */
+  detection?: UiDetection | null;
 }
 
 /** Dashboard "Next 30 days" card. Presentational, no hooks. */
-export function UpcomingWidget({ ledger, bucketSlug }: UpcomingWidgetProps) {
+export function UpcomingWidget({ ledger, bucketSlug, detection }: UpcomingWidgetProps) {
   if (!ledger) {
     return <p className="text-xs text-muted-foreground">Upcoming items are unavailable right now.</p>;
   }
@@ -47,6 +50,7 @@ export function UpcomingWidget({ ledger, bucketSlug }: UpcomingWidgetProps) {
       </CardHeader>
       <CardContent className="space-y-3">
         <SummaryStrip ledger={ledger} />
+        <RecurringHint detection={detection} bucketSlug={bucketSlug} />
 
         {groups.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nothing due in the next {ledger.days} days.</p>

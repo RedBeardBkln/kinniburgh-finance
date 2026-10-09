@@ -16,6 +16,7 @@ import {
   EntityChip,
   EstimateBadge,
   ItemLabel,
+  LearnedBlock,
   SummaryStrip,
   TransferNote,
   UPCOMING_FOOTER,
@@ -152,6 +153,8 @@ function AgendaBody({
           })}
         </div>
       )}
+
+      <LearnedBlock ledger={ledger} />
 
       <div className="flex flex-wrap items-center gap-3">
         <TransferNote ledger={ledger} />

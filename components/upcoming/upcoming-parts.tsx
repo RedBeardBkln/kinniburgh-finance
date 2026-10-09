@@ -212,6 +212,55 @@ export function Disclosures({ ledger, open }: { ledger: UiLedger; open: boolean 
   );
 }
 
+export function LearnedBadge() {
+  return (
+    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-medium whitespace-nowrap text-sky-700">
+      Learned from history
+    </span>
+  );
+}
+
+/**
+ * History-learned recurring bills. A block of its own, OUTSIDE every total (the summary strip counts only bills
+ * the owner has recorded). Renders nothing when there are none.
+ */
+export function LearnedBlock({ ledger }: { ledger: UiLedger }) {
+  if (ledger.learned.length === 0) return null;
+  const count = ledger.learned.length;
+  const heading = `Looks recurring, not counted (${count} item${count === 1 ? "" : "s"}${
+    !ledger.isAggregate && Number(ledger.learnedTotal) > 0 ? `, ${approx(ledger.learnedTotal)}` : ""
+  })`;
+  return (
+    <section aria-label="Looks recurring, not counted" className="rounded-md border border-sky-200 px-3 py-2" data-testid="learned-block">
+      <h3 className="text-sm font-semibold">{heading}</h3>
+      <p className="text-xs text-muted-foreground">
+        These repeat in your transaction history but are not in your bills or budget. They are not in the totals above.
+      </p>
+      <ul className="divide-y">
+        {ledger.learned.map((item) => (
+          <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-1.5 text-sm">
+            <div className="min-w-0 space-y-0.5">
+              <div className="flex flex-wrap items-center gap-2">
+                {item.dateLabel && <span className="text-xs text-muted-foreground">{item.dateLabel}</span>}
+                <ItemLabel item={item} />
+                <LearnedBadge />
+                {ledger.isAggregate && <EntityChip item={item} />}
+              </div>
+              {item.tierNote && <p className="text-xs text-muted-foreground">{item.tierNote}</p>}
+              {item.notes.map((n) => (
+                <p key={n} className="text-xs text-muted-foreground">
+                  {n}
+                </p>
+              ))}
+            </div>
+            <AmountText item={item} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function TransferNote({ ledger }: { ledger: UiLedger }) {
   if (ledger.transferSummary.count === 0) return null;
   return (
