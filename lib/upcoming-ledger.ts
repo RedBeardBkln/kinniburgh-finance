@@ -87,6 +87,8 @@ export interface UpcomingItem {
   notes: string[];
   /** Set only on `UpcomingLedger.learned` items: the cadence of the learned series (one row per series in the UI). */
   learnedCadence?: LearnedCadence;
+  /** Set only on a past-due card statement whose paid-statement check ran and found no payment. */
+  paymentCheck?: "none_found";
 }
 
 export interface LedgerTotals {
@@ -115,6 +117,11 @@ export interface UpcomingLedger {
   pastDue: UpcomingItem[];
   /** Suspected untagged duplicates, NOT counted (reason in notes). */
   heldBack: UpcomingItem[];
+  /**
+   * Card statements on file that the paid-statement check found PAID (the item notes say when and how). Shown as a
+   * muted line, never part of items / pastDue / totals. Empty unless the input carried `paid` evidence.
+   */
+  paidCards: UpcomingItem[];
   totals: LedgerTotals;
   totalsByEntity: Record<string, LedgerTotals>;
   /** Largest counted outflow; ties go to the earlier date. */
@@ -192,12 +199,41 @@ export interface UpcomingEnvelopeRow {
   draws: AccrualDrawLike[];
 }
 
+/** Evidence that a card's statement on file was paid (lib/card-next-statement.ts `detectStatementPaid`). */
+export interface UpcomingCardPaid {
+  /** Date of the payment on the card. */
+  date: Date;
+  amount: Decimal;
+  /** Plain words: "a payment received on the card". */
+  via: string;
+}
+
 export interface UpcomingCardRow {
   id: string;
   nickname: string;
   entityId: string;
   ccDueDate: Date | string;
   ccStatementBalance: Num | null;
+  /**
+   * Result of the paid-statement check. undefined = no check ran (the row behaves exactly as before); null = the
+   * check ran and found no payment; an object = paid, with the evidence.
+   */
+  paid?: UpcomingCardPaid | null;
+}
+
+/** An ESTIMATED future statement payment for a card (lib/card-next-statement.ts). */
+export interface UpcomingCardEstimateRow {
+  cardId: string;
+  entityId: string;
+  nickname: string;
+  /** UTC midnight. */
+  dueDate: Date;
+  /** Positive. */
+  amount: Decimal;
+  confidence: "high" | "medium" | "low";
+  /** Plain, observational basis of the estimate. */
+  why: string;
+  kind: "cycle_to_date" | "typical_month";
 }
 
 export interface UpcomingTransferRow {
@@ -320,6 +356,11 @@ export interface UpcomingLedgerInput {
   recurring?: UpcomingRecurringRow[];
   orphanEnvelopes?: UpcomingEnvelopeRow[];
   cards?: UpcomingCardRow[];
+  /**
+   * Estimated future card statements, each counted (tier "estimated") on its due date inside the window. Optional:
+   * without it the ledger is exactly as before.
+   */
+  cardEstimates?: UpcomingCardEstimateRow[];
   transfers?: UpcomingTransferRow[];
   incomeSources?: UpcomingIncomeRow[];
   rentalBookings?: UpcomingRentalRow[];
@@ -348,6 +389,11 @@ function dateKey(d: Date): string {
 
 function periodOf(d: Date): string {
   return d.toISOString().slice(0, 7);
+}
+
+/** "Oct 4": a calendar date stored as UTC midnight, formatted in UTC (never shifted a day by New York time). */
+function shortDate(d: Date): string {
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 function toDate(v: Date | string): Date | null {
@@ -856,6 +902,7 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
   const undated: UpcomingItem[] = [];
   const pastDue: UpcomingItem[] = [];
   const heldBack: UpcomingItem[] = [];
+  const paidCards: UpcomingItem[] = [];
 
   const inWindow = (d: Date) => d.getTime() >= from.getTime() && d.getTime() < to.getTime();
 
@@ -1200,6 +1247,23 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
     const balance = dec(c.ccStatementBalance);
     if (balance && !balance.gt(ZERO)) continue; // zero / negative balance: nothing to pay
     const unknown = balance === null;
+    const inLookback = day.getTime() >= lookbackStart.getTime() && day.getTime() < from.getTime();
+
+    // Paid-statement check ran and found evidence: a muted "paid" line, never an item, past-due row or total.
+    if (c.paid && (inWindow(day) || inLookback)) {
+      paidCards.push(
+        baseItem(o, {
+          date: day,
+          amount: unknown ? null : cents((balance as Decimal).negated()),
+          amountStatus: unknown ? "unknown" : "known",
+          kind: "card",
+          tier: "scheduled",
+          link: { page: "accounts" },
+          notes: [`Paid ${shortDate(c.paid.date)} (${c.paid.via}); not counted`],
+        })
+      );
+      continue;
+    }
 
     if (inWindow(day)) {
       const events = generateCardStatementPayment(
@@ -1226,19 +1290,55 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
           })
         );
       }
-    } else if (day.getTime() >= lookbackStart.getTime() && day.getTime() < from.getTime()) {
-      pastDue.push(
-        baseItem(o, {
-          date: day,
-          amount: unknown ? null : cents((balance as Decimal).negated()),
-          amountStatus: unknown ? "unknown" : "known",
-          kind: "card",
-          tier: "scheduled",
-          link: { page: "accounts" },
-          notes: ["Past its due date; it may already be paid"],
-        })
-      );
+    } else if (inLookback) {
+      // c.paid === null: the check ran and found no payment, so say that instead of "may already be paid".
+      const checked = c.paid === null;
+      const item = baseItem(o, {
+        date: day,
+        amount: unknown ? null : cents((balance as Decimal).negated()),
+        amountStatus: unknown ? "unknown" : "known",
+        kind: "card",
+        tier: "scheduled",
+        link: { page: "accounts" },
+        notes: [
+          checked
+            ? "Past its due date; no payment was found in your synced transactions yet (a sync may be behind)"
+            : "Past its due date; it may already be paid",
+        ],
+      });
+      if (checked) item.paymentCheck = "none_found";
+      pastDue.push(item);
     }
+  }
+
+  // ── 2b. Estimated future card statements (the owner pays every card in full). Counted, tier "estimated". ──
+  for (const e of input.cardEstimates ?? []) {
+    if (!inScope(e.entityId)) continue;
+    const day = startOfDayUTC(e.dueDate);
+    if (!inWindow(day)) continue;
+    const amount = positive(e.amount);
+    if (!amount) continue;
+    items.push(
+      baseItem(
+        {
+          source: "card_statement",
+          sourceId: `${e.cardId}:est:${periodOf(day)}`,
+          entityId: e.entityId,
+          accountId: e.cardId,
+          label: `${e.nickname} statement due`,
+        },
+        {
+          date: day,
+          amount: cents(amount).negated(),
+          amountStatus: "known",
+          kind: "card",
+          tier: "estimated",
+          tierNote: e.why,
+          link: { page: "accounts" },
+          notes: ["Estimate: the statement has not been issued yet"],
+        }
+      )
+    );
   }
 
   // ── 3. Outgoing envelope transfers (counted separately, never in outflow) ──
@@ -1474,11 +1574,13 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
   undated.sort(compareItems);
   pastDue.sort(compareItems);
   heldBack.sort(compareItems);
+  paidCards.sort(compareItems);
   learned.sort(compareItems);
   uniquifyIds(items);
   uniquifyIds(undated);
   uniquifyIds(pastDue);
   uniquifyIds(heldBack);
+  uniquifyIds(paidCards);
   uniquifyIds(learned);
 
   const totalsByEntity: Record<string, LedgerTotals> = {};
@@ -1504,6 +1606,7 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
     undated,
     pastDue,
     heldBack,
+    paidCards,
     totals,
     totalsByEntity,
     biggest,

@@ -83,6 +83,16 @@ function allMonthDays(from: Date, to: Date, daysOfMonth: number[]): Date[] {
   return result.sort((a, b) => a.getTime() - b.getTime());
 }
 
+/**
+ * Monthly due dates in [from, to) for a statement that falls on `anchorDay` (1-31) of every month. A thin,
+ * exported wrapper over allMonthDays, so a day-31 anchor is clamped to the last day of a short month (Feb 28/29,
+ * Apr/Jun/Sep/Nov 30) and the next month goes back to 31. Behaviour of allMonthDays is unchanged.
+ */
+export function monthlyDueDates(anchorDay: number, from: Date, to: Date): Date[] {
+  if (!Number.isInteger(anchorDay) || anchorDay < 1 || anchorDay > 31) return [];
+  return allMonthDays(from, to, [anchorDay]);
+}
+
 /** Returns all biweekly dates in [from, to) given an anchor date and interval. */
 function allBiweekly(
   from: Date,
@@ -467,6 +477,42 @@ export function generateCardStatementPayment(
       type: "bill",
     },
   ];
+}
+
+/** A card's ESTIMATED future statement payments (lib/card-next-statement.ts), as plain data. */
+export interface CardEstimateLike {
+  nickname: string;
+  /** Account that funds the card payment. */
+  fundingAccountId: string;
+  estimates: { dueDate: Date; amount: Decimal }[];
+}
+
+/**
+ * Projects each estimated future statement as one outflow on its due date, into the funding account. Every card is
+ * paid in full, so the whole estimated statement is the payment. The description says "(estimate)" so a forecast
+ * line is never mistaken for a statement that has been issued. Zero / negative amounts are skipped.
+ */
+export function generateCardEstimatePayments(
+  card: CardEstimateLike,
+  from: Date,
+  to: Date
+): ScheduleEvent[] {
+  const events: ScheduleEvent[] = [];
+  for (const est of card.estimates) {
+    if (!est.amount.greaterThan(0)) continue;
+    const due = new Date(
+      Date.UTC(est.dueDate.getUTCFullYear(), est.dueDate.getUTCMonth(), est.dueDate.getUTCDate())
+    );
+    if (due < from || due >= to) continue;
+    events.push({
+      date: due,
+      amount: est.amount.negated(),
+      description: `${card.nickname} statement payment (estimate)`,
+      accountId: card.fundingAccountId,
+      type: "bill",
+    });
+  }
+  return events.sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
 // ── Suggested transfer increase ───────────────────────────────────────────────

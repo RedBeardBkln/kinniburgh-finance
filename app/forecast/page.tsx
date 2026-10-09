@@ -10,7 +10,6 @@ import {
   generateTransferOccurrences,
   generateIncomeOccurrences,
   generateBillOccurrences,
-  generateCardStatementPayment,
   buildAccountForecast,
   findBreachDays,
 } from "@/lib/forecast";
@@ -20,8 +19,10 @@ import { computeBudgetSummary } from "@/lib/budget";
 import { PACE_TRAILING_MONTHS } from "@/lib/budget-pace";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
-import { analyzeCardFunding } from "@/lib/cc-funding";
+import { analyzeCardFunding, shortfallIncludesEstimate, type CardDue, type CoverageStatus } from "@/lib/cc-funding";
 import { classifyCardDue, formatCalendarDate } from "@/lib/card-due";
+import { cardDuesInWindow, cardPaymentEvents } from "@/lib/card-next-statement";
+import { loadCardProjections, type LoadedCardProjections } from "@/lib/card-next-statement-build";
 import { setAccountBalance, upsertIncomeSource } from "@/actions/envelope";
 import { ForecastAccountCard, type ChartPoint } from "@/components/forecast/forecast-account-card";
 import { listRecurringExpenses } from "@/actions/recurring-expenses";
@@ -329,76 +330,96 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     }
   }
 
-  // Load credit cards with statement data; they draw from the Credit Cards
-  // funding account (x2631) per spec 02.
-  const creditCards = await db.account.findMany({
-    where: {
-      accountType: "credit_card",
-      archivedAt: null,
-      ccDueDate: { not: null },
-      ...(entity && { entityId: entity.id }),
-    },
-    select: {
-      id: true,
-      nickname: true,
-      ccDueDate: true,
-      ccStatementBalance: true,
-    },
-  });
-  const ccFundingAccount = tdAccounts.find((a) => a.nickname === "Credit Cards");
+  // Credit card statements: every card is paid in full each month, so a card's payment is its WHOLE statement
+  // balance. lib/card-next-statement.ts reads past payments to (a) see whether the statement on file was already
+  // paid, (b) infer which account really pays each card (never assumed; "not determined" = the card is not
+  // assigned to any account) and (c) estimate the NEXT statements, shown as estimates with their basis. Read-only
+  // and fail-soft: on an error the card payments are left out and a notice says so.
+  const cardLoad: LoadedCardProjections = isBusinessBucket
+    ? { today: forecastStart, projections: [], error: false }
+    : await loadCardProjections({ now });
+  const cardProjections = cardLoad.projections;
+  const entityNameById = new Map(entities.map((e) => [e.id, e.name]));
 
-  // Credit card funding analysis: cards vs the funding account's minimum
-  let ccFundingAnalysis: {
-    status: "covered" | "shortfall" | "at_risk";
+  // The account's scheduled movements other than card payments (same generators and bill filter as the chart).
+  function nonCardEvents(accountId: string, from: Date, to: Date) {
+    return [
+      ...transfers.flatMap((t) => generateTransferOccurrences(t, from, to)),
+      ...incomeSources.flatMap((s) => generateIncomeOccurrences(s, from, to)),
+      ...scheduledBills.flatMap((b) => generateBillOccurrences(b, from, to, billDraws(b))),
+    ].filter((e) => e.accountId === accountId);
+  }
+
+  // Credit card funding analysis, one per account that pays cards: the whole statements (and estimates) due in
+  // 30 days against that account's balance, its scheduled transfers / paychecks / bills, and its minimum.
+  interface FundingView {
+    account: (typeof tdAccounts)[number];
+    status: CoverageStatus;
     totalDue: Prisma.Decimal;
+    estimatedTotalDue: Prisma.Decimal;
     shortfall: Prisma.Decimal | null;
     firstShortfallDate: Date | null;
-    cards: { accountNickname: string; dueDate: Date; statementBalance: Prisma.Decimal }[];
+    /** What it takes to keep the minimum through the lowest point of the 30 days (>= shortfall). */
+    peakShortfall: Prisma.Decimal | null;
+    peakShortfallDate: Date | null;
+    cards: CardDue[];
     minimumBalance: Prisma.Decimal | null;
-  } | null = null;
-
-  if (ccFundingAccount && ccFundingAccount.currentBalance) {
-    const horizonStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    /** Statements on file that were found paid (muted lines). */
+    paidLines: { nickname: string; amount: Prisma.Decimal; paidOn: Date }[];
+  }
+  const ccFundingAnalyses: FundingView[] = [];
+  {
+    const horizonStart = forecastStart;
     const horizonEnd = new Date(horizonStart.getTime() + 30 * 86400000);
-    const activeCards = creditCards
-      .filter(
-        (c) =>
-          c.ccStatementBalance !== null &&
-          c.ccDueDate !== null &&
-          c.ccDueDate >= horizonStart &&
-          c.ccDueDate < horizonEnd
-      )
-      .map((c) => ({
-        accountNickname: c.nickname,
-        dueDate: c.ccDueDate!,
-        statementBalance: new Prisma.Decimal(c.ccStatementBalance!.toString()),
-        minimumPayment: null,
-      }));
-
-    if (activeCards.length > 0) {
+    for (const acct of tdAccounts) {
+      if (!acct.currentBalance) continue;
+      const mine = cardProjections.filter((p) => p.funding?.accountId === acct.id);
+      const dues = mine.flatMap((p) => cardDuesInWindow(p, horizonStart, horizonEnd));
+      if (dues.length === 0) continue;
       const result = analyzeCardFunding({
-        currentBalance: new Prisma.Decimal(ccFundingAccount.currentBalance.toString()),
-        minimumBalance: ccFundingAccount.minimumBalance
-          ? new Prisma.Decimal(ccFundingAccount.minimumBalance.toString())
-          : null,
-        cards: activeCards,
+        currentBalance: new Prisma.Decimal(acct.currentBalance.toString()),
+        minimumBalance: acct.minimumBalance ? new Prisma.Decimal(acct.minimumBalance.toString()) : null,
+        cards: dues,
         from: horizonStart,
         to: horizonEnd,
+        otherFlows: nonCardEvents(acct.id, horizonStart, horizonEnd).map((e) => ({ date: e.date, amount: e.amount })),
       });
-      ccFundingAnalysis = {
+      ccFundingAnalyses.push({
+        account: acct,
         status: result.status,
         totalDue: new Prisma.Decimal(result.totalDue.toString()),
+        estimatedTotalDue: new Prisma.Decimal(result.estimatedTotalDue.toString()),
         shortfall: result.shortfall ? new Prisma.Decimal(result.shortfall.toString()) : null,
         firstShortfallDate: result.firstShortfallDate,
-        cards: activeCards.map((c) => ({
-          accountNickname: c.accountNickname,
-          dueDate: c.dueDate,
-          statementBalance: c.statementBalance,
-        })),
-        minimumBalance: ccFundingAccount.minimumBalance
-          ? new Prisma.Decimal(ccFundingAccount.minimumBalance.toString())
-          : null,
-      };
+        peakShortfall: result.peakShortfall ? new Prisma.Decimal(result.peakShortfall.toString()) : null,
+        peakShortfallDate: result.peakShortfallDate,
+        cards: result.cards,
+        minimumBalance: acct.minimumBalance ? new Prisma.Decimal(acct.minimumBalance.toString()) : null,
+        // Only a payment from the last 30 days (older ones are history, not news).
+        paidLines: mine.flatMap((p) =>
+          p.onFile?.paid && p.onFile.paid.date.getTime() >= horizonStart.getTime() - 30 * 86400000
+            ? [{ nickname: p.nickname, amount: p.onFile.amount, paidOn: p.onFile.paid.date }]
+            : []
+        ),
+      });
+    }
+  }
+  // Notes shown once, muted, under the funding cards.
+  const cardNotes: string[] = [];
+  if (cardLoad.error) {
+    cardNotes.push("Credit card payments could not be loaded just now, so they are missing from the projections on this page.");
+  }
+  const undeterminedCards = cardProjections.filter(
+    (p) => !p.funding && (p.onFile?.paid === null || p.estimates.length > 0)
+  );
+  if (undeterminedCards.length > 0) {
+    cardNotes.push(
+      `Funding account not determined for ${undeterminedCards.map((p) => p.nickname).join(", ")} (past payments do not clearly match one account), so ${undeterminedCards.length === 1 ? "that card is" : "those cards are"} not in the account projections.`
+    );
+  }
+  for (const p of cardProjections) {
+    if (p.estimates.length === 0 && p.skipReasons.length > 0 && (p.funding || p.onFile)) {
+      cardNotes.push(`No next-statement estimate for ${p.nickname}: ${p.skipReasons.join("; ")}.`);
     }
   }
 
@@ -424,22 +445,11 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       generateBillOccurrences(b, forecastStart, forecastEnd90, billDraws(b))
     ).filter((e) => e.accountId === acct.id);
 
-    // Credit card statement payments funded by this account (Credit Cards x2631)
-    const cardEvents = ccFundingAccount && acct.id === ccFundingAccount.id
-      ? creditCards.flatMap((card) =>
-          generateCardStatementPayment(
-            {
-              id: card.id,
-              nickname: card.nickname,
-              fundingAccountId: acct.id,
-              ccDueDate: card.ccDueDate!,
-              ccStatementBalance: card.ccStatementBalance,
-            },
-            forecastStart,
-            forecastEnd90
-          )
-        )
-      : [];
+    // Credit card statement payments this account really pays (inferred from past payments, any entity's card):
+    // the unpaid statement on file plus the estimated next statements (descriptions say "(estimate)").
+    const cardEvents = cardProjections
+      .filter((p) => p.funding?.accountId === acct.id)
+      .flatMap((p) => cardPaymentEvents(p, forecastStart, forecastEnd90));
 
     const allEvents = [...transferEvents, ...incomeEvents, ...billEvents, ...cardEvents];
     const forecast = buildAccountForecast(startBal, allEvents, minBal, forecastStart, forecastEnd90);
@@ -498,9 +508,10 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     };
   });
 
-  // 14-day schedule for Primary Checking (or Credit Cards funding account
-  // when it exists and Primary Checking isn't present)
-  const primaryAcct = tdAccounts.find((a) => a.nickname === "Primary Checking") ?? ccFundingAccount;
+  // 14-day schedule for Primary Checking (or the "Credit Cards" account when Primary Checking isn't present).
+  // This is only which account the schedule is shown for; no card is assigned to an account by its nickname.
+  const primaryAcct =
+    tdAccounts.find((a) => a.nickname === "Primary Checking") ?? tdAccounts.find((a) => a.nickname === "Credit Cards");
   const schedule14: { date: string; description: string; amount: number; type: string }[] = [];
 
   if (primaryAcct) {
@@ -516,22 +527,10 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       generateBillOccurrences(b, forecastStart, forecastEnd14, billDraws(b))
     ).filter((e) => e.accountId === primaryAcct.id);
 
-    const cardEventsForSchedule =
-      ccFundingAccount && primaryAcct.id === ccFundingAccount.id
-        ? creditCards.flatMap((card) =>
-            generateCardStatementPayment(
-              {
-                id: card.id,
-                nickname: card.nickname,
-                fundingAccountId: primaryAcct.id,
-                ccDueDate: card.ccDueDate!,
-                ccStatementBalance: card.ccStatementBalance,
-              },
-              forecastStart,
-              forecastEnd14
-            )
-          )
-        : [];
+    // Card payments this account really pays (e.g. jetBlue from Primary Checking), estimates marked in the text.
+    const cardEventsForSchedule = cardProjections
+      .filter((p) => p.funding?.accountId === primaryAcct.id)
+      .flatMap((p) => cardPaymentEvents(p, forecastStart, forecastEnd14));
 
     for (const ev of [...xferEvents, ...incEvents, ...billEventsForSchedule, ...cardEventsForSchedule].sort((a, b) => a.date.getTime() - b.date.getTime())) {
       schedule14.push({
@@ -785,125 +784,185 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           )}
         </div>
 
-        {/* ── Credit card funding analysis (cards vs x2631) ──────────── */}
-        {ccFundingAnalysis && ccFundingAnalysis.cards.length > 0 && (
-          <Card
-            className={
-              ccFundingAnalysis.status === "shortfall"
-                ? "border-destructive/50"
-                : ccFundingAnalysis.status === "at_risk"
-                ? "border-amber-300"
-                : ""
-            }
-          >
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Credit Card Funding</CardTitle>
-                <span
-                  className={`rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${
-                    ccFundingAnalysis.status === "shortfall"
-                      ? "border-red-200 bg-red-50 text-red-700"
-                      : ccFundingAnalysis.status === "at_risk"
-                      ? "border-amber-200 bg-amber-50 text-amber-700"
-                      : "border-green-200 bg-green-50 text-green-700"
-                  }`}
-                >
-                  {ccFundingAnalysis.status === "shortfall"
-                    ? "Shortfall — transfer needed"
-                    : ccFundingAnalysis.status === "at_risk"
-                    ? "Tight cushion"
-                    : "Covered"}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Statement payments draw from {ccFundingAccount?.nickname} (x{ccFundingAccount?.mask}).
-                Paying each statement balance by its due date avoids interest; the account must
-                also hold its ${ccFundingAnalysis.minimumBalance?.toNumber() ?? 250} minimum.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="py-2 font-medium whitespace-nowrap">Card</th>
-                      <th className="py-2 px-3 font-medium text-right whitespace-nowrap">Statement due</th>
-                      <th className="py-2 px-3 font-medium whitespace-nowrap">Due date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ccFundingAnalysis.cards.map((card) => {
-                      const info = classifyCardDue(card.dueDate);
-                      return (
-                        <tr key={card.accountNickname} className="border-b last:border-0">
-                          <td className="py-2 font-medium">{card.accountNickname}</td>
-                          <td className="py-2 px-3 text-right tabular-nums text-amber-700 dark:text-amber-300 font-medium">
-                            {formatUSD(card.statementBalance.toNumber())}
-                          </td>
-                          <td className="py-2 px-3">
-                            <span
-                              className={
-                                info.urgency === "overdue"
-                                  ? "font-medium text-destructive"
-                                  : info.urgency === "imminent"
-                                  ? "font-medium text-amber-600"
-                                  : "text-muted-foreground"
-                              }
-                            >
-                              {formatCalendarDate(card.dueDate, "long")}
-                              {info.urgency === "overdue" && " (overdue)"}
-                              {info.urgency === "imminent" && " (tomorrow/today)"}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t bg-muted/30">
-                      <td className="py-2 font-semibold">Total due (30 days)</td>
-                      <td className="py-2 px-3 text-right font-semibold tabular-nums">
-                        {formatUSD(ccFundingAnalysis.totalDue.toNumber())}
-                      </td>
-                      <td />
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {ccFundingAnalysis.status === "shortfall" && ccFundingAnalysis.shortfall && (
-                <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm">
-                  <p>
-                    Current balance{" "}
-                    <span className="font-medium">
-                      {formatUSD(Number(ccFundingAccount?.currentBalance ?? 0))}
-                    </span>{" "}
-                    — after all payments the account dips below the minimum on{" "}
-                    <span className="font-medium text-destructive">
-                      {ccFundingAnalysis.firstShortfallDate ? formatCalendarDate(ccFundingAnalysis.firstShortfallDate, "long") : null}
-                    </span>
-                    . Transfer{" "}
-                    <span className="font-bold text-destructive">
-                      {formatUSD(ccFundingAnalysis.shortfall.toNumber())}
-                    </span>{" "}
-                    to cover the payments and the minimum balance requirement and avoid the $15
-                    monthly low balance fee.
-                  </p>
+        {/* ── Credit card funding analysis: one card per account that really pays cards (inferred from past payments) ── */}
+        {ccFundingAnalyses
+          .filter((fa) => fa.cards.length > 0)
+          .map((fa) => (
+            <Card
+              key={fa.account.id}
+              className={
+                fa.status === "shortfall"
+                  ? "border-destructive/50"
+                  : fa.status === "at_risk"
+                  ? "border-amber-300"
+                  : ""
+              }
+            >
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Credit Card Funding — {fa.account.nickname}</CardTitle>
+                  <span
+                    className={`rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${
+                      fa.status === "shortfall"
+                        ? "border-red-200 bg-red-50 text-red-700"
+                        : fa.status === "at_risk"
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : "border-green-200 bg-green-50 text-green-700"
+                    }`}
+                  >
+                    {fa.status === "shortfall"
+                      ? "Shortfall — transfer needed"
+                      : fa.status === "at_risk"
+                      ? "Tight cushion"
+                      : "Covered"}
+                  </span>
                 </div>
-              )}
-              {ccFundingAnalysis.status === "at_risk" && (
-                <p className="text-xs text-amber-600">
-                  Covered, but less than $50 of cushion remains after all payments — a small
-                  surprise could trigger the low balance fee.
+                <p className="text-xs text-muted-foreground">
+                  Statement payments draw from {fa.account.nickname} (x{fa.account.mask}), as seen in your past
+                  payments. Every card is paid in full, so each line is the whole statement balance. The account
+                  must also hold its ${fa.minimumBalance?.toNumber() ?? 250} minimum. The projection includes this
+                  account&apos;s scheduled transfers, paychecks and bills, but not other deposits or spending.
                 </p>
-              )}
-              {ccFundingAnalysis.status === "covered" && (
-                <p className="text-xs text-green-600">
-                  All statement payments are covered while holding the minimum balance.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-2 font-medium whitespace-nowrap">Card</th>
+                        <th className="py-2 px-3 font-medium text-right whitespace-nowrap">Statement due</th>
+                        <th className="py-2 px-3 font-medium whitespace-nowrap">Due date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fa.cards.map((card) => {
+                        const info = classifyCardDue(card.dueDate);
+                        const otherEntity =
+                          card.entityId && card.entityId !== fa.account.entityId
+                            ? (entityNameById.get(card.entityId) ?? "another entity")
+                            : null;
+                        return (
+                          <tr key={`${card.accountNickname}-${card.dueDate.toISOString()}`} className="border-b last:border-0 align-top">
+                            <td className="py-2 font-medium">
+                              {card.accountNickname}
+                              {otherEntity && (
+                                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                  ({otherEntity} card)
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-right tabular-nums text-amber-700 dark:text-amber-300 font-medium">
+                              {card.estimate ? "~" : ""}
+                              {formatUSD(card.statementBalance.toNumber())}
+                              {card.estimate && (
+                                <>
+                                  {" "}
+                                  <span
+                                    className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium whitespace-nowrap text-amber-700"
+                                    title={card.estimate.why}
+                                  >
+                                    estimate
+                                  </span>
+                                  <span className="block text-xs font-normal text-muted-foreground">
+                                    Estimate {card.estimate.why}
+                                  </span>
+                                </>
+                              )}
+                            </td>
+                            <td className="py-2 px-3">
+                              <span
+                                className={
+                                  info.urgency === "overdue"
+                                    ? "font-medium text-destructive"
+                                    : info.urgency === "imminent"
+                                    ? "font-medium text-amber-600"
+                                    : "text-muted-foreground"
+                                }
+                              >
+                                {formatCalendarDate(card.dueDate, "long")}
+                                {info.urgency === "overdue" && " (overdue)"}
+                                {info.urgency === "imminent" && " (tomorrow/today)"}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t bg-muted/30">
+                        <td className="py-2 font-semibold">Total due (30 days)</td>
+                        <td className="py-2 px-3 text-right font-semibold tabular-nums">
+                          {formatUSD(fa.totalDue.toNumber())}
+                          {fa.estimatedTotalDue.greaterThan(0) && (
+                            <span className="block text-xs font-normal text-muted-foreground">
+                              includes ~{formatUSD(fa.estimatedTotalDue.toNumber())} of estimates
+                            </span>
+                          )}
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {fa.status === "shortfall" && fa.shortfall && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm">
+                    <p>
+                      Current balance{" "}
+                      <span className="font-medium">
+                        {formatUSD(Number(fa.account.currentBalance ?? 0))}
+                      </span>{" "}
+                      — after all payments the account dips below the minimum on{" "}
+                      <span className="font-medium text-destructive">
+                        {fa.firstShortfallDate ? formatCalendarDate(fa.firstShortfallDate, "long") : null}
+                      </span>
+                      . Transfer{" "}
+                      <span className="font-bold text-destructive">
+                        {formatUSD(fa.shortfall.toNumber())}
+                      </span>{" "}
+                      to cover the payments and the minimum balance requirement and avoid the $15
+                      monthly low balance fee
+                      {shortfallIncludesEstimate(fa.cards, fa.firstShortfallDate) ? " (the amount includes estimated statements)" : ""}.
+                      {fa.peakShortfall && fa.peakShortfallDate && fa.peakShortfall.greaterThan(fa.shortfall) && (
+                        <>
+                          {" "}
+                          The balance keeps falling after that: covering every payment through{" "}
+                          {formatCalendarDate(fa.peakShortfallDate, "long")} takes about{" "}
+                          <span className="font-medium">{formatUSD(fa.peakShortfall.toNumber())}</span> in total
+                          {fa.estimatedTotalDue.greaterThan(0) ? ", which includes estimated statements" : ""}.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                )}
+                {fa.status === "at_risk" && (
+                  <p className="text-xs text-amber-600">
+                    Covered, but less than $50 of cushion remains after all payments — a small
+                    surprise could trigger the low balance fee.
+                  </p>
+                )}
+                {fa.status === "covered" && (
+                  <p className="text-xs text-green-600">
+                    All statement payments are covered while holding the minimum balance.
+                  </p>
+                )}
+                {fa.paidLines.map((line) => (
+                  <p key={line.nickname} className="text-xs text-muted-foreground">
+                    {line.nickname}: the {formatUSD(line.amount.toNumber())} statement on file was paid{" "}
+                    {formatCalendarDate(line.paidOn)}, so it is not counted above.
+                  </p>
+                ))}
+              </CardContent>
+            </Card>
+          ))}
+        {cardNotes.length > 0 && (
+          <div className="space-y-1" data-testid="card-notes">
+            {cardNotes.map((note) => (
+              <p key={note} className="text-xs text-muted-foreground">
+                {note}
+              </p>
+            ))}
+          </div>
         )}
 
         {/* ── 14-day schedule for Primary Checking ────────────────────── */}

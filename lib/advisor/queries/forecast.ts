@@ -1,14 +1,20 @@
 // Forecast inputs for the assistant: the Personal balance projection's rows, loaded read-only with explicit selects. This MIRRORS the Personal
 // engine of app/forecast/page.tsx (checking accounts with a minimum balance, active transfers / income sources / budget-linked bills with
-// their accrual draws, and credit cards with a statement due date). The page loads inline and has no exported loader, so a drift between the
-// two is possible; the pure builder lives in tools/get-forecast.ts and uses the same lib/forecast.ts generators as the page.
+// their accrual draws). The page loads inline and has no exported loader, so a drift between the two is possible; the pure builder lives in
+// tools/get-forecast.ts and uses the same lib/forecast.ts generators as the page. Credit cards come from the SAME read-only loader the page,
+// the Upcoming ledger and the notifications use (lib/card-next-statement-build.ts, explicit selects): the paying account of each card is
+// inferred from past payments, a paid statement is dropped and the next statements are estimates. No account is assumed by its nickname.
 // The business-bucket forecast (revenue-based) is NOT covered.
 
 import type { Decimal } from "@prisma/client/runtime/library";
 import { db } from "@/lib/db";
+import type { CardProjection } from "@/lib/card-next-statement";
+import { loadCardProjections } from "@/lib/card-next-statement-build";
 
 export interface ForecastAccountRow {
   id: string;
+  /** The account's entity, to label a card of ANOTHER entity that this account pays. */
+  entityId?: string;
   nickname: string;
   mask: string | null;
   currentBalance: Decimal | null;
@@ -52,28 +58,26 @@ export interface ForecastBillRow {
   accrualEnvelope: { draws: { estimatedDate: Date; estimatedAmount: Decimal }[] } | null;
 }
 
-export interface ForecastCardRow {
-  id: string;
-  nickname: string;
-  ccDueDate: Date | null;
-  ccStatementBalance: Decimal | null;
-}
-
 export interface ForecastInputs {
   accounts: ForecastAccountRow[];
   transfers: ForecastTransferRow[];
   incomes: ForecastIncomeRow[];
   bills: ForecastBillRow[];
-  cards: ForecastCardRow[];
+  /** Card statements: inferred paying account, paid check and estimated next statements (all entities' cards). */
+  cardProjections: CardProjection[];
+  /** True when the card projections could not be read: card payments are then missing and the tool says so. */
+  cardProjectionsFailed: boolean;
+  /** Entity names by id, for the "(<entity> card)" label. */
+  entityNameById: Record<string, string>;
 }
 
-export async function loadForecastInputs(): Promise<ForecastInputs> {
-  const [accounts, transfers, incomes, bills, cards] = await Promise.all([
+export async function loadForecastInputs(now: Date = new Date()): Promise<ForecastInputs> {
+  const [accounts, transfers, incomes, bills, loadedCards, entities] = await Promise.all([
     db.account.findMany({
       where: { archivedAt: null, accountType: "checking", minimumBalance: { not: null }, entity: { type: "personal" } },
       orderBy: { nickname: "asc" },
       take: 10,
-      select: { id: true, nickname: true, mask: true, currentBalance: true, currentBalanceAt: true, minimumBalance: true },
+      select: { id: true, entityId: true, nickname: true, mask: true, currentBalance: true, currentBalanceAt: true, minimumBalance: true },
     }),
     db.scheduledTransfer.findMany({
       where: { active: true },
@@ -103,11 +107,16 @@ export async function loadForecastInputs(): Promise<ForecastInputs> {
         accrualEnvelope: { select: { draws: { select: { estimatedDate: true, estimatedAmount: true } } } },
       },
     }),
-    db.account.findMany({
-      where: { accountType: "credit_card", archivedAt: null, ccDueDate: { not: null }, entity: { type: "personal" } },
-      take: 30,
-      select: { id: true, nickname: true, ccDueDate: true, ccStatementBalance: true },
-    }),
+    loadCardProjections({ now }),
+    db.entity.findMany({ where: { archivedAt: null }, take: 20, select: { id: true, name: true } }),
   ]);
-  return { accounts, transfers, incomes, bills, cards };
+  return {
+    accounts,
+    transfers,
+    incomes,
+    bills,
+    cardProjections: loadedCards.projections,
+    cardProjectionsFailed: loadedCards.error,
+    entityNameById: Object.fromEntries(entities.map((e) => [e.id, e.name])),
+  };
 }

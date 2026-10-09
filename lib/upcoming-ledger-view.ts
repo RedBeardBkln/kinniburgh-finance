@@ -185,6 +185,13 @@ export interface UiLedger {
   items: UiItem[];
   undated: UiItem[];
   pastDue: UiItem[];
+  /**
+   * True when every past-due row is a card statement whose paid-statement check ran and found no payment: the box then
+   * says "no payment found yet" instead of "may already be paid". Absent / false = the original wording.
+   */
+  pastDueChecked?: boolean;
+  /** Card statements found paid (a muted line, never counted). Absent = none. */
+  paidCards?: UiItem[];
   heldBack: UiItem[];
   totals: UiTotals;
   /** One entry per entity, sorted by name. The aggregate view shows these, never a blended total. */
@@ -311,6 +318,8 @@ export function toUiLedger(ledger: UpcomingLedger, ctx: UiContext): UiLedger {
     items: ledger.items.filter(keep).map((i) => itemToUi(i, ctx)),
     undated: ledger.undated.map((i) => itemToUi(i, ctx)),
     pastDue: ledger.pastDue.map((i) => itemToUi(i, ctx)),
+    pastDueChecked: ledger.pastDue.length > 0 && ledger.pastDue.every((i) => i.paymentCheck === "none_found"),
+    paidCards: ledger.paidCards.map((i) => itemToUi(i, ctx)),
     heldBack: ledger.heldBack.map((i) => itemToUi(i, ctx)),
     totals: totalsToUi(ledger.totals),
     entityTotals,

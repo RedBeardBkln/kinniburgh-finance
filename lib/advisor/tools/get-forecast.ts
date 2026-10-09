@@ -1,5 +1,8 @@
 // Tool: get_forecast. The builder is PURE (over the same lib/forecast.ts generators the Forecast page uses) and unit-tested; the rows come
 // from queries/forecast.ts. Personal checking accounts with a minimum balance only; the business-bucket forecast is not covered.
+// Card payments are the same as on the Forecast page: every card is paid in full, so each is a whole statement balance, taken from the
+// account that really pays the card (inferred from past payments, lib/card-next-statement.ts); a statement found paid is left out; the
+// next statements are estimates labelled as such; a card whose paying account is not determined is assigned to no account.
 
 import { Decimal } from "@prisma/client/runtime/library";
 import { z } from "zod";
@@ -10,7 +13,8 @@ import { safeField } from "@/lib/advisor/scrub";
 import { centsOf, dollarsOf, isoDay, isoDateTime } from "@/lib/advisor/tools/format";
 import { optional, parseInput, shortText } from "@/lib/advisor/tools/parse";
 import { defineTool, type ToolOutput } from "@/lib/advisor/tools/types";
-import { buildAccountForecast, findBreachDays, generateBillOccurrences, generateCardStatementPayment, generateIncomeOccurrences, generateTransferOccurrences, type ScheduleEvent } from "@/lib/forecast";
+import { cardPaymentEvents } from "@/lib/card-next-statement";
+import { buildAccountForecast, findBreachDays, generateBillOccurrences, generateIncomeOccurrences, generateTransferOccurrences, type ScheduleEvent } from "@/lib/forecast";
 
 export const MIN_FORECAST_DAYS = 7;
 export const MAX_FORECAST_DAYS = 90;
@@ -18,8 +22,6 @@ export const DEFAULT_FORECAST_DAYS = 30;
 const MAX_EVENTS = 60;
 const MAX_ACCOUNTS = 10;
 const FIRST_BREACHES = 5;
-/** The card-funding account's nickname, as app/forecast/page.tsx finds it. */
-export const CARD_FUNDING_NICKNAME = "Credit Cards";
 
 const schema = z.object({ account: optional(shortText), days: optional(z.number().int().min(1).max(365)) }).strict();
 type Input = z.output<typeof schema>;
@@ -34,7 +36,6 @@ export function buildForecastView(inputs: ForecastInputs, now: Date, days: numbe
   const horizon = clampForecastDays(days);
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const end = new Date(start.getTime() + horizon * DAY_MS);
-  const funding = inputs.accounts.find((a) => a.nickname === CARD_FUNDING_NICKNAME) ?? null;
   const wanted = accountFilter?.trim().toLowerCase();
   const chosen = inputs.accounts.filter((a) => wanted === undefined || a.nickname.toLowerCase() === wanted).slice(0, MAX_ACCOUNTS);
 
@@ -60,14 +61,15 @@ export function buildForecastView(inputs: ForecastInputs, now: Date, days: numbe
     const billEvents = inputs.bills
       .flatMap((b) => generateBillOccurrences(b, start, end, (b.accrualEnvelope?.draws ?? []).map((d) => ({ estimatedDate: d.estimatedDate, estimatedAmount: d.estimatedAmount }))))
       .filter((e) => e.accountId === acct.id);
-    const cardEvents =
-      funding !== null && acct.id === funding.id
-        ? inputs.cards.flatMap((card) =>
-            card.ccDueDate === null
-              ? []
-              : generateCardStatementPayment({ id: card.id, nickname: card.nickname, fundingAccountId: acct.id, ccDueDate: card.ccDueDate, ccStatementBalance: card.ccStatementBalance }, start, end),
-          )
-        : [];
+    // The cards THIS account pays (inferred), of any entity; a card of another entity is labelled with its entity.
+    const cardEvents = inputs.cardProjections
+      .filter((p) => p.funding?.accountId === acct.id)
+      .flatMap((p) => {
+        const otherEntity = acct.entityId !== undefined && p.entityId !== acct.entityId ? (inputs.entityNameById[p.entityId] ?? "another entity") : null;
+        return cardPaymentEvents(p, start, end).map((e) =>
+          otherEntity === null ? e : { ...e, description: e.description.replace(" statement payment", ` (${otherEntity} card) statement payment`) },
+        );
+      });
     const events = [...transferEvents, ...incomeEvents, ...billEvents, ...cardEvents];
     const startBalance = acct.currentBalance !== null ? new Decimal(acct.currentBalance.toString()) : new Decimal(0);
     const minBalance = acct.minimumBalance !== null ? new Decimal(acct.minimumBalance.toString()) : null;
@@ -102,7 +104,10 @@ export function buildForecastView(inputs: ForecastInputs, now: Date, days: numbe
     amount: dollarsOf(centsOf(event.amount)),
     type: event.type,
     account: safeField(nameById.get(event.accountId) ?? account, 60),
+    ...(event.description.endsWith("(estimate)") ? { estimate: true } : {}),
   }));
+  // Cards that exist but whose paying account could not be determined (never assigned to an account), by nickname only.
+  const unassigned = inputs.cardProjections.filter((p) => !p.funding && (p.onFile?.paid === null || p.estimates.length > 0)).map((p) => safeField(p.nickname, 60));
 
   return {
     data: {
@@ -112,9 +117,13 @@ export function buildForecastView(inputs: ForecastInputs, now: Date, days: numbe
       accounts,
       events: shown,
       ...(sorted.length > shown.length ? { events_truncated: true, event_count: sorted.length } : {}),
+      ...(unassigned.length > 0 ? { cards_without_paying_account: unassigned } : {}),
       notes: [
         "A projection from scheduled transfers, income sources, bills and credit card statement payments only; actual spending is not predicted. It starts from the last known balance, which may be a day or more old. Transfers appear as an outflow on one account and an inflow on the other.",
         "Only the household's personal checking accounts with a minimum balance are projected. The business-account forecast is not covered here; see the Forecast page.",
+        "Every card is paid in full, so a card payment is the whole statement balance, drawn from the account that paid that card in the past. A statement already found paid is left out. Statements not issued yet are estimates (marked estimate: true, with '(estimate)' in the description), based on this cycle's charges or a typical month; they can change.",
+        ...(inputs.cardProjectionsFailed ? ["Credit card payments could not be loaded just now, so they are missing from this projection."] : []),
+        ...(unassigned.length > 0 ? ["Cards listed under cards_without_paying_account are not in any account projection because past payments do not clearly show which account pays them."] : []),
       ],
     },
     rows: accounts.length,
@@ -138,7 +147,7 @@ export const getForecastTool = defineTool<Input>({
   parse: (raw) => parseInput(schema, raw),
   label: "Projecting balances",
   summarizeArgs: (i) => `days=${clampForecastDays(i.days)}, account=${i.account === undefined ? "all" : "set"}`,
-  run: async (ctx, i) => buildForecastView(await loadForecastInputs(), ctx.now, clampForecastDays(i.days), i.account),
+  run: async (ctx, i) => buildForecastView(await loadForecastInputs(ctx.now), ctx.now, clampForecastDays(i.days), i.account),
   maxChars: LIMITS.toolResultChars,
   phase: 2,
 });

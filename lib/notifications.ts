@@ -701,11 +701,15 @@ export async function checkDocumentExpiry(): Promise<number> {
 // ── Check: Credit card payment due (avoid interest) ───────────────────────────
 
 import { classifyCardDue, shouldRemindCardPayment } from "./card-due";
+import { cardDuesInWindow } from "./card-next-statement";
+import { loadCardProjections } from "./card-next-statement-build";
 
 /**
  * Reminds before each credit card's payment due date with the statement
- * balance — paying that amount by the due date avoids interest charges.
- * Escalates separately for overdue statements.
+ * balance — every card is paid in full, so the whole statement balance is
+ * what avoids interest charges. Escalates separately for statements past their
+ * due date, but ONLY when no payment was found: a statement the card's own
+ * transactions (or a matching bank payment) show as paid sends nothing.
  */
 export async function checkCardPaymentsDue(): Promise<number> {
   const cards = await db.account.findMany({
@@ -718,6 +722,10 @@ export async function checkCardPaymentsDue(): Promise<number> {
   });
 
   const now = new Date();
+  // Paid-statement evidence (read-only, fail-soft). When it cannot be loaded nothing is claimed paid, and the
+  // past-due text below only says that no payment was FOUND.
+  const loaded = await loadCardProjections({ now });
+  const projectionByCard = new Map(loaded.projections.map((p) => [p.cardId, p]));
   const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
   const eligibleUserIds = users
     .filter((u) => {
@@ -734,6 +742,9 @@ export async function checkCardPaymentsDue(): Promise<number> {
     const dueDate = card.ccDueDate!;
     const info = classifyCardDue(dueDate, now);
     const balance = card.ccStatementBalance;
+
+    // Evidence the statement on file was paid: no reminder and no overdue alert for it.
+    if (projectionByCard.get(card.id)?.onFile?.paid) continue;
 
     // Standard reminder inside the window
     if (shouldRemindCardPayment(dueDate, now)) {
@@ -772,14 +783,19 @@ export async function checkCardPaymentsDue(): Promise<number> {
       });
       generated++;
     }
-    // Escalated overdue notice (fires daily until a sync shows a new cycle)
+    // Past-due notice when no payment was found (fires daily until a sync shows a payment or a new cycle)
     else if (info.urgency === "overdue" && balance) {
       const scopeKey = `card_overdue:${card.id}:${dueDate.toISOString().slice(0, 10)}`;
       if (await alreadyNotifiedToday(scopeKey)) continue;
 
       const overdueDays = Math.abs(info.daysUntilDue);
-      const title = `Overdue card statement: ${card.nickname}`;
-      const body = `${card.nickname} was due ${overdueDays} day${overdueDays !== 1 ? "s" : ""} ago — ${formatUSD(balance)} unpaid. Interest may already be accruing on new purchases.`;
+      // loaded.error: no search for a payment ran, so do not say none was found.
+      const title = loaded.error
+        ? `Card statement past its due date: ${card.nickname}`
+        : `Card statement past its due date, no payment found: ${card.nickname}`;
+      const body = loaded.error
+        ? `${card.nickname} was due ${overdueDays} day${overdueDays !== 1 ? "s" : ""} ago (statement ${formatUSD(balance)}); payments could not be checked just now, so check the card.`
+        : `${card.nickname} was due ${overdueDays} day${overdueDays !== 1 ? "s" : ""} ago (statement ${formatUSD(balance)}); no matching payment was found in your synced transactions. A sync may be behind, so check the card.`;
 
       await createNotification({
         type: "cc_payment_overdue",
@@ -804,20 +820,47 @@ export async function checkCardPaymentsDue(): Promise<number> {
 
 // ── Check: Credit card funding shortfall (cards vs x2631) ────────────────────
 
-import { analyzeCardFunding, buildFundingMessage, type CardDue } from "./cc-funding";
+import { analyzeCardFunding, buildFundingMessage } from "./cc-funding";
+import { loadScheduledFlows } from "./account-scheduled-flows";
+import type { CardProjection } from "./card-next-statement";
 
 /**
- * Projects the credit-card funding account (x2631 "Credit Cards") across all
- * upcoming card statement payments. Notifies when the autopayments would dip
- * it below the $250 minimum — with the exact transfer needed to avoid the
- * $15 monthly low-balance fee. Also fires a gentler warning when the cushion
- * after all payments is under $50.
+ * Projects each account that really pays credit cards across the card
+ * statement payments due in the next 30 days. The paying account is INFERRED
+ * from past payments (lib/card-next-statement.ts), never assumed: a card whose
+ * paying account is not determined is left out. Every card is paid in full, so
+ * the whole statement balance is used. Statements not yet issued are included
+ * only when their estimate is high or medium confidence, marked as estimates;
+ * a rough (low confidence) estimate never triggers a notification. Scheduled
+ * transfers, paychecks and bills into or out of the account are applied, so a
+ * transfer already planned is not reported as a shortfall. Notifies when the
+ * payments would dip the account below its minimum — with the exact transfer
+ * needed to avoid the monthly low-balance fee. Also fires a gentler warning
+ * when the cushion after all payments is under $50.
  */
 export async function checkCcFundingShortfall(): Promise<number> {
-  // The funding account: TD checking named "Credit Cards" with a minimum rule
+  const now = new Date();
+  const loaded = await loadCardProjections({ now });
+  if (loaded.error || loaded.projections.length === 0) return 0;
+
+  const projectionsByAccount = new Map<string, CardProjection[]>();
+  for (const p of loaded.projections) {
+    if (!p.funding) continue;
+    projectionsByAccount.set(p.funding.accountId, [...(projectionsByAccount.get(p.funding.accountId) ?? []), p]);
+  }
+
+  let generated = 0;
+  for (const [accountId, projections] of projectionsByAccount) {
+    generated += await notifyFundingAccount(accountId, projections, now);
+  }
+  return generated;
+}
+
+async function notifyFundingAccount(accountId: string, projections: CardProjection[], now: Date): Promise<number> {
+  // A checking account with a minimum-balance rule (the rule is what a shortfall breaks)
   const fundingAccount = await db.account.findFirst({
     where: {
-      nickname: "Credit Cards",
+      id: accountId,
       accountType: "checking",
       archivedAt: null,
       minimumBalance: { not: null },
@@ -825,32 +868,17 @@ export async function checkCcFundingShortfall(): Promise<number> {
   });
   if (!fundingAccount || fundingAccount.currentBalance === null) return 0;
 
-  // All credit cards on the same entity with live statement data
-  const cards = await db.account.findMany({
-    where: {
-      accountType: "credit_card",
-      archivedAt: null,
-      entityId: fundingAccount.entityId,
-      ccDueDate: { not: null },
-      ccStatementBalance: { not: null },
-    },
-    orderBy: { ccDueDate: "asc" },
-  });
-  if (cards.length === 0) return 0;
-
-  const from = startOfDayUTC(new Date());
+  const from = startOfDayUTC(now);
   const to = new Date(from.getTime() + 30 * 86400000);
 
-  const cardDues: CardDue[] = cards
-    .map((c) => ({
-      accountNickname: c.nickname,
-      dueDate: c.ccDueDate!,
-      statementBalance: new Decimal(c.ccStatementBalance!.toString()),
-      minimumPayment: c.ccMinimumPayment ? new Decimal(c.ccMinimumPayment.toString()) : null,
-    }))
-    // Only cards with a due date inside the 30-day window
-    .filter((c) => c.dueDate >= from && c.dueDate < to);
+  // Cards of any entity that this account pays (a business card can be paid from a personal account)
+  const cardDues = projections.flatMap((p) => cardDuesInWindow(p, from, to, { minConfidence: "medium" }));
   if (cardDues.length === 0) return 0;
+
+  // Known inflows (planned transfers, paychecks) decide whether a payment is a shortfall. If they cannot be read,
+  // skip this account's alert for this run: an alert computed without them may over-report.
+  const otherFlows = await loadScheduledFlows(fundingAccount.id, from, to);
+  if (otherFlows === null) return 0;
 
   const result = analyzeCardFunding({
     currentBalance: new Decimal(fundingAccount.currentBalance.toString()),
@@ -860,6 +888,7 @@ export async function checkCcFundingShortfall(): Promise<number> {
     cards: cardDues,
     from,
     to,
+    otherFlows,
   });
 
   // Only notify on shortfall or tight cushion — "covered" stays silent
@@ -902,10 +931,12 @@ export async function checkCcFundingShortfall(): Promise<number> {
       totalDue: result.totalDue.toFixed(2),
       shortfall: result.shortfall?.toFixed(2) ?? null,
       firstShortfallDate: result.firstShortfallDate?.toISOString() ?? null,
+      estimatedTotalDue: result.estimatedTotalDue.toFixed(2),
       cards: cardDues.map((c) => ({
         nickname: c.accountNickname,
         dueDate: c.dueDate.toISOString(),
         statementBalance: c.statementBalance.toFixed(2),
+        estimated: c.estimate !== undefined,
       })),
     },
     userIds: eligibleUserIds,

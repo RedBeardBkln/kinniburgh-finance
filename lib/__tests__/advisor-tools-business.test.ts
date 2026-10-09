@@ -4,7 +4,7 @@ import { FORBIDDEN_OUTPUT_KEY_PATTERN } from "@/lib/advisor/exclusions";
 import { scrubDeep } from "@/lib/advisor/scrub";
 import { BUSINESS_TOOLS } from "@/lib/advisor/tools/business-tools";
 import { MAX_PNL_LINES, getEntityPnlTool, shapePnl } from "@/lib/advisor/tools/get-entity-pnl";
-import { CARD_FUNDING_NICKNAME, buildForecastView, clampForecastDays, getForecastTool } from "@/lib/advisor/tools/get-forecast";
+import { buildForecastView, clampForecastDays, getForecastTool } from "@/lib/advisor/tools/get-forecast";
 import { defaultRentalRange, getRentalIncomeTool, shapeRental } from "@/lib/advisor/tools/get-rental-income";
 import { listRecurringAndScheduledTool, shapeSchedule, summarizeDayRules } from "@/lib/advisor/tools/list-recurring-and-scheduled";
 import { findSchemaProblems } from "@/lib/advisor/tools/registry";
@@ -12,6 +12,7 @@ import { findRedactionIssues } from "@/lib/tax-review/redact";
 import { findOwnerBannedWording } from "@/lib/tax-wording";
 import type { PnlEntity, PnlFacts } from "@/lib/advisor/queries/pnl";
 import type { ForecastInputs } from "@/lib/advisor/queries/forecast";
+import type { CardProjection } from "@/lib/card-next-statement";
 import type { RentalRow } from "@/lib/advisor/queries/rental";
 import type { ScheduleRows } from "@/lib/advisor/queries/schedule";
 
@@ -281,16 +282,33 @@ describe("list_recurring_and_scheduled", () => {
 
 // ── get_forecast ──────────────────────────────────────────────────────────────
 const dec = (s: string) => new Decimal(s);
+/** A card projection: paid by account `fundingId` (null = not determined), statement on file unpaid unless `paid`. */
+function card(over: Partial<CardProjection> & { fundingId?: string | null; due?: string; amount?: string } = {}): CardProjection {
+  const { fundingId, due, amount, ...rest } = over;
+  const id = fundingId === undefined ? "a2" : fundingId;
+  return {
+    cardId: "c1",
+    nickname: "Visa",
+    entityId: "ent-p",
+    funding: id === null ? null : { accountId: id, accountNickname: "x", matches: 5, of: 5 },
+    onFile: { dueDate: new Date(`${due ?? "2026-10-10"}T00:00:00Z`), amount: dec(amount ?? "800.00"), paid: null, isFuture: true },
+    estimates: [],
+    skipReasons: [],
+    ...rest,
+  };
+}
 function inputs(over: Partial<ForecastInputs> = {}): ForecastInputs {
   return {
     accounts: [
-      { id: "a1", nickname: "Primary Checking", mask: "1234", currentBalance: dec("300.00"), currentBalanceAt: new Date("2026-10-01T10:00:00Z"), minimumBalance: dec("250.00") },
-      { id: "a2", nickname: CARD_FUNDING_NICKNAME, mask: "2631", currentBalance: dec("1000.00"), currentBalanceAt: new Date("2026-10-01T10:00:00Z"), minimumBalance: dec("250.00") },
+      { id: "a1", entityId: "ent-p", nickname: "Primary Checking", mask: "1234", currentBalance: dec("300.00"), currentBalanceAt: new Date("2026-10-01T10:00:00Z"), minimumBalance: dec("250.00") },
+      { id: "a2", entityId: "ent-p", nickname: "Credit Cards", mask: "2631", currentBalance: dec("1000.00"), currentBalanceAt: new Date("2026-10-01T10:00:00Z"), minimumBalance: dec("250.00") },
     ],
     transfers: [{ id: "t1", fromAccountId: "a1", toAccountId: "a2", amount: dec("100.00"), cadence: "monthly", dayRules: { dayOfMonth: 15 }, purpose: "Top-up", active: true }],
     incomes: [],
     bills: [],
-    cards: [{ id: "c1", nickname: "Visa", ccDueDate: new Date("2026-10-10T00:00:00Z"), ccStatementBalance: dec("800.00") }],
+    cardProjections: [card()],
+    cardProjectionsFailed: false,
+    entityNameById: { "ent-p": "Personal", "ent-ekc": "EK Consulting" },
     ...over,
   };
 }
@@ -321,12 +339,55 @@ describe("get_forecast", () => {
     expectClean(out.data);
   });
 
-  it("pays the card statement from the Credit Cards account on the due date", () => {
+  it("pays the card statement from the account that pays that card (inferred) on the due date", () => {
     const d = buildForecastView(inputs(), FNOW, 30, "Credit Cards").data as { accounts: Record<string, unknown>[]; events: { date: string; description: string; amount: number }[] };
     expect(d.events.some((e) => e.date === "2026-10-10" && e.description === "Visa statement payment" && e.amount === -800)).toBe(true);
     // 1000 - 800 = 200 on the due date (below the 250 minimum), +100 from the transfer on the 15th = 300
     expect(d.accounts[0]).toMatchObject({ projected_minimum_balance: 200, projected_minimum_date: "2026-10-10", ending_balance: 300 });
     expect(d.accounts[0]!.breach_days).toBe(5);
+  });
+
+  it("draws each card from ITS inferred account: a card paid from Primary Checking is not put on the other account", () => {
+    const d = buildForecastView(inputs({ cardProjections: [card({ cardId: "j", nickname: "jetBlue", fundingId: "a1", amount: "51.26", due: "2026-10-12" })] }), FNOW, 30).data as {
+      events: { description: string; account: string }[];
+    };
+    expect(d.events.find((e) => e.description === "jetBlue statement payment")?.account).toBe("Primary Checking");
+  });
+
+  it("drops a statement found paid, counts estimates as labelled estimates and labels a card of another entity", () => {
+    const paid = card({
+      onFile: { dueDate: new Date("2026-10-05T00:00:00Z"), amount: dec("623.19"), paid: { date: new Date("2026-10-04T00:00:00Z"), amount: dec("623.19"), rule: "payment_inflows", via: "x" }, isFuture: false },
+      cardId: "b",
+      nickname: "Barclay",
+      estimates: [
+        { kind: "cycle_to_date", dueDate: new Date("2026-10-20T00:00:00Z"), amount: dec("2914.91"), confidence: "high", why: "w", closeDate: null, daysToClose: 2, upTo: null },
+        { kind: "typical_month", dueDate: new Date("2026-11-20T00:00:00Z"), amount: dec("700"), confidence: "low", why: "w", closeDate: null, daysToClose: null, upTo: null },
+      ],
+    });
+    const cap = card({ cardId: "k", nickname: "Capital One", entityId: "ent-ekc", amount: "792.68", due: "2026-10-12" });
+    const out = buildForecastView(inputs({ cardProjections: [paid, cap] }), FNOW, 60, "Credit Cards");
+    const d = out.data as { events: { date: string; description: string; amount: number; estimate?: true }[]; accounts: Record<string, unknown>[] };
+    const cardEvents = d.events.filter((e) => /statement payment/.test(e.description));
+    expect(cardEvents.map((e) => [e.date, e.description, e.amount, e.estimate])).toEqual([
+      ["2026-10-12", "Capital One (EK Consulting card) statement payment", -792.68, undefined],
+      ["2026-10-20", "Barclay statement payment (estimate)", -2914.91, true],
+      ["2026-11-20", "Barclay statement payment (estimate)", -700, true],
+    ]);
+    expect(cardEvents.some((e) => e.date === "2026-10-05")).toBe(false); // the paid statement is not a payment
+    expectClean(out.data);
+  });
+
+  it("assigns a card with an undetermined paying account to no account and says so", () => {
+    const out = buildForecastView(inputs({ cardProjections: [card({ fundingId: null, nickname: "Mystery" })] }), FNOW, 30);
+    const d = out.data as { events: { description: string }[]; cards_without_paying_account?: string[]; notes: string[] };
+    expect(d.events.some((e) => /statement payment/.test(e.description))).toBe(false);
+    expect(d.cards_without_paying_account).toEqual(["Mystery"]);
+    expect(d.notes.join(" ")).toContain("cards_without_paying_account");
+  });
+
+  it("says card payments are missing when the projections could not be loaded", () => {
+    const d = buildForecastView(inputs({ cardProjections: [], cardProjectionsFailed: true }), FNOW, 30).data as { notes: string[] };
+    expect(d.notes.join(" ")).toContain("Credit card payments could not be loaded");
   });
 
   it("names the projected accounts when the requested one is unknown, and handles no accounts", () => {

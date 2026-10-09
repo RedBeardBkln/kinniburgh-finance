@@ -6,7 +6,10 @@ import type { DetectionData } from "@/lib/recurring-detect-build";
 
 const inputMock = vi.hoisted(() => vi.fn());
 const fetchMock = vi.hoisted(() => vi.fn());
+const cardsMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/upcoming-ledger-input", () => ({ loadUpcomingLedgerInput: inputMock }));
+// loadUpcomingLedger also reads the card projections (read-only DB reads): mocked here so no test touches a real database.
+vi.mock("@/lib/card-next-statement-build", () => ({ loadCardProjections: cardsMock }));
 vi.mock("@/lib/recurring-detect-build", async (orig) => {
   const real = await orig<typeof import("@/lib/recurring-detect-build")>();
   return { ...real, fetchDetectionData: fetchMock };
@@ -41,6 +44,7 @@ function history(): DetectionData {
 beforeEach(() => {
   vi.clearAllMocks();
   inputMock.mockResolvedValue(ledgerInput());
+  cardsMock.mockResolvedValue({ today: FROM, projections: [], error: false });
   fetchMock.mockResolvedValue(history());
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });

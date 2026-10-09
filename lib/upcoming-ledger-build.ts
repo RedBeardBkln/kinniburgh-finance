@@ -12,6 +12,8 @@ import {
 import { loadUpcomingLedgerInput } from "@/lib/upcoming-ledger-input";
 import { expandSeriesDates, type DetectionBundle } from "@/lib/recurring-detect";
 import { fetchDetectionData, runDetection } from "@/lib/recurring-detect-build";
+import { toLedgerCardInputs } from "@/lib/card-next-statement";
+import { loadCardProjections } from "@/lib/card-next-statement-build";
 
 export interface LoadedUpcomingLedger {
   ledger: UpcomingLedger;
@@ -37,12 +39,24 @@ export async function loadUpcomingLedger(args: {
   // (a failure is handled when the result is used; the catch here only prevents an unhandled rejection).
   const detectionData = fetchDetectionData({ entityId, today: todayForNewYork(now) });
   detectionData.catch(() => undefined);
+  // Card statement projections (paid-statement check + estimated next statements): read-only, never rejects. On
+  // error the ledger shows the statements on file exactly as before.
+  const cardProjections = loadCardProjections({ now });
 
   const { input, from, to, entityNameById, entitySlugById, accountNameById } = await loadUpcomingLedgerInput({
     entityId,
     days,
     now,
   });
+
+  const loadedCards = await cardProjections;
+  if (!loadedCards.error) {
+    const cardInputs = toLedgerCardInputs(loadedCards.projections);
+    input.cards = (input.cards ?? []).map((c) =>
+      cardInputs.paidByCardId.has(c.id) ? { ...c, paid: cardInputs.paidByCardId.get(c.id) ?? null } : c
+    );
+    input.cardEstimates = cardInputs.estimates;
+  }
 
   // Recurring-pattern detection is an add-on: any failure leaves the ledger exactly as it was and the UI shows
   // one muted notice. Read-only (one transaction query + the dismissal setting).

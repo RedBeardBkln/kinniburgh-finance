@@ -135,7 +135,7 @@ const DEPOSIT_ACCOUNT_TYPES = new Set(["checking", "savings"]);
  * counted twice if offered as a recurring expense.
  */
 const SKIP_PAYEE_RE =
-  /\b(?:xfer|transfer|zelle|venmo|paypal inst|betterment|provisional|acctverify|creditcard|card pay|interest|payroll|refund|reversal|return)|\batm\b|crcardpmt|\bepayment\b|\bmobile pmt\b|\bcard pmt\b|barclaycard|\bamex\b|american express/;
+  /\b(?:xfer|transfer|zelle|venmo|paypal inst|betterment|provisional|acctverify|creditcard|card pay|interest|payroll|refund|reversal|return)|\batm\b|crcardpmt|\bepayment\b|\bmobile pmt\b|\bcard pmt\b|barclaycard|\bbarclays\b|\bautopay pymt\b|\bamex\b|american express/;
 
 /** Rows per distinct day above which the group is "several charges, not one bill" (live: Google Workspace, 20 rows on 9 days). */
 const SAME_DAY_ROW_RATIO = 1.5;

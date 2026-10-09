@@ -20,8 +20,15 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/web-push", () => ({ sendPushToUser: vi.fn() }));
 vi.mock("@/lib/gl-code-resolver", () => ({ autoAssignGlCodes: vi.fn() }));
+// The card projections and the funding account's scheduled flows are separate, individually tested modules;
+// here they are handed in as plain data (mock at the function boundary).
+vi.mock("@/lib/card-next-statement-build", () => ({ loadCardProjections: vi.fn() }));
+vi.mock("@/lib/account-scheduled-flows", () => ({ loadScheduledFlows: vi.fn() }));
 
 import { db } from "@/lib/db";
+import { loadCardProjections } from "@/lib/card-next-statement-build";
+import { loadScheduledFlows } from "@/lib/account-scheduled-flows";
+import type { CardProjection } from "@/lib/card-next-statement";
 import {
   checkBudgetOverspend,
   checkLowBalance,
@@ -46,8 +53,14 @@ const mockDb = db as unknown as {
   transactionTag: { create: ReturnType<typeof vi.fn> };
 };
 
+const mockLoadProjections = loadCardProjections as unknown as ReturnType<typeof vi.fn>;
+const mockLoadFlows = loadScheduledFlows as unknown as ReturnType<typeof vi.fn>;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: no card projections (nothing known about payments), no scheduled flows
+  mockLoadProjections.mockResolvedValue({ today: new Date(), projections: [], error: false });
+  mockLoadFlows.mockResolvedValue([]);
   // Default: no existing notifications today (no duplicates)
   mockDb.notification.findFirst.mockResolvedValue(null);
   // Default: two users, no saved prefs (everything defaults to enabled)
@@ -714,35 +727,143 @@ describe("checkCardPaymentsDue", () => {
     expect(count).toBe(0);
     expect(mockDb.notification.create).not.toHaveBeenCalled();
   });
+
+  // ── paid-statement evidence (the already-paid Barclay statement must stop alerting) ──
+  const paidEvidence = { date: new Date(), amount: new Decimal("500"), rule: "payment_inflows" as const, via: "a payment received on the card" };
+  const cardProjection = (over: Partial<CardProjection>): CardProjection => ({
+    cardId: "card-1",
+    nickname: "Barclay Card",
+    entityId: "entity-personal",
+    funding: null,
+    onFile: { dueDate: new Date(), amount: new Decimal("500"), paid: null, isFuture: false },
+    estimates: [],
+    skipReasons: [],
+    ...over,
+  });
+  const barclayRow = (dueDate: Date) => ({
+    id: "card-1",
+    nickname: "Barclay Card",
+    ccDueDate: dueDate,
+    ccStatementBalance: new Decimal("500"),
+    entity: { id: "entity-personal" },
+  });
+
+  it("sends NO past-due alert for a statement the card's own payments show as paid", async () => {
+    const overdueDate = new Date();
+    overdueDate.setUTCDate(overdueDate.getUTCDate() - 4);
+    mockDb.account.findMany.mockResolvedValue([barclayRow(overdueDate)]);
+    mockLoadProjections.mockResolvedValue({
+      today: new Date(),
+      projections: [cardProjection({ onFile: { dueDate: overdueDate, amount: new Decimal("500"), paid: paidEvidence, isFuture: false } })],
+      error: false,
+    });
+    expect(await checkCardPaymentsDue()).toBe(0);
+    expect(mockDb.notification.create).not.toHaveBeenCalled();
+  });
+
+  it("sends no due-soon reminder either once the statement is found paid early", async () => {
+    const dueDate = new Date();
+    dueDate.setUTCDate(dueDate.getUTCDate() + 2);
+    mockDb.account.findMany.mockResolvedValue([barclayRow(dueDate)]);
+    mockLoadProjections.mockResolvedValue({
+      today: new Date(),
+      projections: [cardProjection({ onFile: { dueDate, amount: new Decimal("500"), paid: paidEvidence, isFuture: true } })],
+      error: false,
+    });
+    expect(await checkCardPaymentsDue()).toBe(0);
+    expect(mockDb.notification.create).not.toHaveBeenCalled();
+  });
+
+  it("with no payment found the past-due text says so, and never claims 'unpaid' or interest accruing", async () => {
+    const overdueDate = new Date();
+    overdueDate.setUTCDate(overdueDate.getUTCDate() - 4);
+    mockDb.account.findMany.mockResolvedValue([barclayRow(overdueDate)]);
+    mockLoadProjections.mockResolvedValue({
+      today: new Date(),
+      projections: [cardProjection({ onFile: { dueDate: overdueDate, amount: new Decimal("500"), paid: null, isFuture: false } })],
+      error: false,
+    });
+    expect(await checkCardPaymentsDue()).toBe(1);
+    const payload = (mockDb.notification.create.mock.calls[0]![0] as { data: { payload: { title: string; body: string } } }).data.payload;
+    expect(payload.body).toContain("no matching payment was found in your synced transactions");
+    expect(payload.body).toContain("$500");
+    expect(`${payload.title} ${payload.body}`).not.toMatch(/unpaid|accruing|minimum/i);
+  });
+
+  it("a card with no projection because the evidence could not be loaded says it could not check, not that none was found", async () => {
+    const overdueDate = new Date();
+    overdueDate.setUTCDate(overdueDate.getUTCDate() - 4);
+    mockDb.account.findMany.mockResolvedValue([barclayRow(overdueDate)]);
+    mockLoadProjections.mockResolvedValue({ today: new Date(), projections: [], error: true });
+    expect(await checkCardPaymentsDue()).toBe(1);
+    const body = (mockDb.notification.create.mock.calls[0]![0] as { data: { payload: { body: string } } }).data.payload.body;
+    // no search ran: it must NOT say none was found
+    expect(body).toContain("payments could not be checked just now");
+    expect(body).not.toContain("no matching payment was found");
+    expect(body).not.toMatch(/unpaid|accruing/i);
+    const title = (mockDb.notification.create.mock.calls[0]![0] as { data: { payload: { title: string } } }).data.payload.title;
+    expect(title).not.toContain("no payment found");
+  });
 });
 
 // ── 7. Credit card funding shortfall (Tester-added) ──────────────────────────
+//
+// The paying account is INFERRED (CardProjection.funding), never assumed by nickname; paid statements and rough
+// estimates never notify; the account's scheduled flows are applied.
+
+const dayOffset = (n: number): Date => {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + n));
+};
+
+function projection(over: Partial<CardProjection> & { fundingAccountId?: string | null } = {}): CardProjection {
+  const { fundingAccountId, ...rest } = over;
+  const id = fundingAccountId === undefined ? "acc-funding" : fundingAccountId;
+  return {
+    cardId: "card-1",
+    nickname: "Barclay Card",
+    entityId: "entity-personal",
+    funding: id === null ? null : { accountId: id, accountNickname: "Credit Cards", matches: 5, of: 5 },
+    onFile: { dueDate: dayOffset(5), amount: new Decimal("400"), paid: null, isFuture: true },
+    estimates: [],
+    skipReasons: [],
+    ...rest,
+  };
+}
+
+const estimateRow = (confidence: "high" | "medium" | "low", amount: string, inDays = 20) => ({
+  kind: "cycle_to_date" as const,
+  dueDate: dayOffset(inDays),
+  amount: new Decimal(amount),
+  confidence,
+  why: "estimated from this cycle's charges so far; the statement closes in about 2 days",
+  closeDate: null,
+  daysToClose: 2,
+  upTo: null,
+});
 
 describe("checkCcFundingShortfall", () => {
-  const dueDate = () => {
-    const d = new Date();
-    d.setUTCDate(d.getUTCDate() + 5);
-    return d;
-  };
-
-  function mockFundingScenario() {
+  function mockFunding(balance = "100") {
     mockDb.account.findFirst.mockResolvedValue({
       id: "acc-funding",
       entityId: "entity-personal",
       nickname: "Credit Cards",
-      currentBalance: new Decimal("100"),
+      currentBalance: new Decimal(balance),
       minimumBalance: new Decimal("250"),
       minimumBalanceFee: new Decimal("15"),
     });
-    mockDb.account.findMany.mockResolvedValue([
-      {
-        id: "card-1",
-        nickname: "Barclay Card",
-        ccDueDate: dueDate(),
-        ccStatementBalance: new Decimal("400"),
-        ccMinimumPayment: null,
-      },
-    ]);
+  }
+  function mockProjections(projections: CardProjection[]) {
+    mockLoadProjections.mockResolvedValue({ today: new Date(), projections, error: false });
+  }
+  const createdBody = (): string => {
+    const call = mockDb.notification.create.mock.calls[0]![0] as { data: { payload: { body: string } } };
+    return call.data.payload.body;
+  };
+
+  function mockFundingScenario() {
+    mockFunding("100");
+    mockProjections([projection()]);
   }
 
   it("excludes a user who opted out of cc_funding_shortfall alerts", async () => {
@@ -769,5 +890,113 @@ describe("checkCcFundingShortfall", () => {
     const count = await checkCcFundingShortfall();
     expect(count).toBe(0);
     expect(mockDb.notification.create).not.toHaveBeenCalled();
+  });
+
+  it("looks up the INFERRED funding account by id, not a hard-coded nickname", async () => {
+    mockFundingScenario();
+    await checkCcFundingShortfall();
+    const where = (mockDb.account.findFirst.mock.calls[0]![0] as { where: Record<string, unknown> }).where;
+    expect(where["id"]).toBe("acc-funding");
+    expect(where).not.toHaveProperty("nickname");
+  });
+
+  it("a card of another entity that the account pays (Capital One) is included", async () => {
+    mockFunding("500");
+    mockProjections([
+      projection({ cardId: "card-b", nickname: "Barclay Card", onFile: { dueDate: dayOffset(40), amount: new Decimal("1"), paid: null, isFuture: true } }),
+      projection({
+        cardId: "card-c",
+        nickname: "Capital One",
+        entityId: "entity-ekc",
+        onFile: { dueDate: dayOffset(3), amount: new Decimal("792.68"), paid: null, isFuture: true },
+      }),
+    ]);
+    expect(await checkCcFundingShortfall()).toBe(1);
+    expect(createdBody()).toContain("Capital One");
+    expect(createdBody()).toContain("$792.68");
+  });
+
+  it("a card whose funding account is not determined is left out entirely", async () => {
+    mockFunding("100");
+    mockProjections([projection({ fundingAccountId: null })]);
+    expect(await checkCcFundingShortfall()).toBe(0);
+    expect(mockDb.account.findFirst).not.toHaveBeenCalled();
+    expect(mockDb.notification.create).not.toHaveBeenCalled();
+  });
+
+  it("a statement already found paid is not counted", async () => {
+    mockFunding("100");
+    mockProjections([
+      projection({ onFile: { dueDate: dayOffset(2), amount: new Decimal("623.19"), paid: { date: dayOffset(-1), amount: new Decimal("623.19"), rule: "payment_inflows", via: "x" }, isFuture: true } }),
+    ]);
+    expect(await checkCcFundingShortfall()).toBe(0);
+    expect(mockDb.notification.create).not.toHaveBeenCalled();
+  });
+
+  it("a high-confidence estimate can trigger the alert and is described as an estimate", async () => {
+    mockFunding("500");
+    mockProjections([projection({ onFile: null, estimates: [estimateRow("high", "2914.91")] })]);
+    expect(await checkCcFundingShortfall()).toBe(1);
+    const body = createdBody();
+    expect(body).toContain("expected statement payment of about $2,914.91");
+    expect(body).toContain("an estimate");
+    expect(body).not.toContain("statement due balance");
+    const payload = (mockDb.notification.create.mock.calls[0]![0] as { data: { payload: Record<string, unknown> } }).data.payload;
+    expect(payload["estimatedTotalDue"]).toBe("2914.91");
+  });
+
+  it("a rough (low-confidence) estimate never triggers a notification", async () => {
+    mockFunding("500");
+    mockProjections([projection({ onFile: null, estimates: [estimateRow("low", "2914.91")] })]);
+    expect(await checkCcFundingShortfall()).toBe(0);
+    expect(mockDb.notification.create).not.toHaveBeenCalled();
+  });
+
+  it("scheduled money moving into the account is applied, so a planned transfer is not a shortfall", async () => {
+    mockFunding("500");
+    mockProjections([projection({ onFile: null, estimates: [estimateRow("medium", "2000", 10)] })]);
+    mockLoadFlows.mockResolvedValue([{ date: dayOffset(5), amount: new Decimal("3000") }]);
+    expect(await checkCcFundingShortfall()).toBe(0);
+    expect(mockLoadFlows).toHaveBeenCalledWith("acc-funding", expect.any(Date), expect.any(Date));
+  });
+
+  it("nothing is sent when the projections could not be loaded", async () => {
+    mockFunding("100");
+    mockLoadProjections.mockResolvedValue({ today: new Date(), projections: [], error: true });
+    expect(await checkCcFundingShortfall()).toBe(0);
+    expect(mockDb.notification.create).not.toHaveBeenCalled();
+  });
+
+  it("no notification text mentions a minimum payment", async () => {
+    mockFundingScenario();
+    await checkCcFundingShortfall();
+    expect(createdBody().toLowerCase()).not.toContain("minimum payment");
+  });
+
+  it("when the scheduled flows cannot be read the alert is SKIPPED for that account (it could over-report), and nothing throws", async () => {
+    mockFunding("500");
+    mockProjections([projection({ onFile: null, estimates: [estimateRow("high", "2914.91")] })]);
+    mockLoadFlows.mockResolvedValue(null);
+    await expect(checkCcFundingShortfall()).resolves.toBe(0);
+    expect(mockDb.notification.create).not.toHaveBeenCalled();
+  });
+
+  it("an account whose flows are unavailable does not stop another account's alert", async () => {
+    mockDb.account.findFirst.mockImplementation(async (args: { where: { id: string } }) => ({
+      id: args.where.id,
+      entityId: "entity-personal",
+      nickname: args.where.id === "acc-a" ? "Account A" : "Account B",
+      currentBalance: new Decimal("100"),
+      minimumBalance: new Decimal("250"),
+      minimumBalanceFee: new Decimal("15"),
+    }));
+    mockProjections([
+      projection({ cardId: "c-a", nickname: "Card A", fundingAccountId: "acc-a" }),
+      projection({ cardId: "c-b", nickname: "Card B", fundingAccountId: "acc-b" }),
+    ]);
+    mockLoadFlows.mockImplementation(async (id: string) => (id === "acc-a" ? null : []));
+    expect(await checkCcFundingShortfall()).toBe(1);
+    const payload = (mockDb.notification.create.mock.calls[0]![0] as { data: { payload: { fundingAccountNickname: string } } }).data.payload;
+    expect(payload.fundingAccountNickname).toBe("Account B");
   });
 });

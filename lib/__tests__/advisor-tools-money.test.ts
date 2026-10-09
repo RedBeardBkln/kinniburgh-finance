@@ -102,7 +102,6 @@ describe("list_accounts shaper", () => {
       minimumBalance: D("500"),
       ccDueDate: null,
       ccStatementBalance: null,
-      ccMinimumPayment: null,
       ccApr: null,
       archivedAt: null,
       entity: { name: "Personal" },
@@ -114,14 +113,15 @@ describe("list_accounts shaper", () => {
   it("returns balances, last four and the credit card block; never the poisoned fields", () => {
     const out = shapeAccounts([
       row({}),
-      row({ nickname: "Card", accountType: "credit_card", ccDueDate: new Date("2026-10-25T00:00:00Z"), ccStatementBalance: D("320.10"), ccMinimumPayment: D("35"), ccApr: D("24.990"), mask: "99" }),
+      row({ nickname: "Card", accountType: "credit_card", ccDueDate: new Date("2026-10-25T00:00:00Z"), ccStatementBalance: D("320.10"), ccApr: D("24.990"), mask: "99" }),
       row({ nickname: "Acct 123456789 ref", mask: "123456789" }),
     ]);
     expectClean(out);
     const rows = (out.data as { rows: Record<string, unknown>[] }).rows;
     expect(rows[0]).toMatchObject({ nickname: "Primary Checking", last4: "4421", currentBalance: 1500.5, balanceAsOf: "2026-10-07T14:30Z", minimumBalance: 500, entity: "Personal", institution: "Seacoast", archived: false });
     expect(rows[0]).not.toHaveProperty("creditCard");
-    expect(rows[1]!.creditCard).toEqual({ dueDate: "2026-10-25", statementBalance: 320.1, minimumPayment: 35, apr: 24.99 });
+    expect(rows[1]!.creditCard).toEqual({ dueDate: "2026-10-25", statementBalance: 320.1, apr: 24.99 });
+    expect(rows[1]!.creditCard).not.toHaveProperty("minimumPayment");
     expect(rows[1]!.last4).toBeNull(); // not exactly four digits
     expect(rows[2]!.last4).toBeNull();
     expect(String(rows[2]!.nickname)).not.toContain("123456789");

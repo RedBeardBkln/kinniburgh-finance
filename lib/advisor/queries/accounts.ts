@@ -13,7 +13,6 @@ export interface AccountRow {
   minimumBalance: { toString(): string } | null;
   ccDueDate: Date | null;
   ccStatementBalance: { toString(): string } | null;
-  ccMinimumPayment: { toString(): string } | null;
   ccApr: { toString(): string } | null;
   archivedAt: Date | null;
   entity: { name: string };
@@ -40,7 +39,6 @@ export async function loadAccounts(opts: { entity?: string; includeArchived: boo
       minimumBalance: true,
       ccDueDate: true,
       ccStatementBalance: true,
-      ccMinimumPayment: true,
       ccApr: true,
       archivedAt: true,
       entity: { select: { name: true } },

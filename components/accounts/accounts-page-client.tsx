@@ -29,7 +29,6 @@ export interface SerializedAccount {
   currentBalanceAt: string | null;
   ccDueDate: string | null;
   ccStatementBalance: string | null;
-  ccMinimumPayment: string | null;
   ccApr: string | null;
   ccDataAt: string | null;
   entityId: string;

@@ -181,10 +181,14 @@ export function Disclosures({ ledger, open }: { ledger: UiLedger; open: boolean 
       {ledger.pastDue.length > 0 && (
         <details open={open} className="rounded-md border px-3 py-2">
           <summary className="cursor-pointer text-sm font-medium">
-            Past due date, may already be paid ({ledger.pastDue.length})
+            {ledger.pastDueChecked
+              ? `Past due date, no payment found yet (${ledger.pastDue.length})`
+              : `Past due date, may already be paid (${ledger.pastDue.length})`}
           </summary>
           <p className="mt-1 text-xs text-muted-foreground">
-            The last statement on file is past its due date. It may already be paid; these are not in the totals.
+            {ledger.pastDueChecked
+              ? "The last statement on file is past its due date and no matching payment was found in your synced transactions. A sync may be behind; these are not in the totals."
+              : "The last statement on file is past its due date. It may already be paid; these are not in the totals."}
           </p>
           <ul className="divide-y">
             {ledger.pastDue.map((item) => (
@@ -192,6 +196,16 @@ export function Disclosures({ ledger, open }: { ledger: UiLedger; open: boolean 
             ))}
           </ul>
         </details>
+      )}
+      {(ledger.paidCards ?? []).length > 0 && (
+        <div className="rounded-md border px-3 py-2" data-testid="paid-cards">
+          <p className="text-sm font-medium">Card statements already paid ({(ledger.paidCards ?? []).length})</p>
+          <ul className="divide-y">
+            {(ledger.paidCards ?? []).map((item) => (
+              <MiniRow key={item.id} item={item} showEntity={showEntity} />
+            ))}
+          </ul>
+        </div>
       )}
       {ledger.heldBack.length > 0 && (
         <details open={open} className="rounded-md border px-3 py-2">

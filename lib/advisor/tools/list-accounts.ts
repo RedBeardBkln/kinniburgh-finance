@@ -21,7 +21,6 @@ export function shapeAccounts(rows: readonly AccountRow[]): ToolOutput {
         ? {
             dueDate: isoDay(a.ccDueDate),
             statementBalance: dollars(a.ccStatementBalance),
-            minimumPayment: dollars(a.ccMinimumPayment),
             apr: a.ccApr === null ? null : Number(a.ccApr.toString()),
           }
         : null;
@@ -46,7 +45,7 @@ export function shapeAccounts(rows: readonly AccountRow[]): ToolOutput {
 export const listAccountsTool = defineTool<Input>({
   name: "list_accounts",
   description:
-    "Lists the household's accounts with nickname, institution, type, entity (Personal or one of the three LLCs), last four digits, current balance and when it was last updated, minimum balance, and for credit cards the due date, statement balance, minimum payment and APR. Use it for balances and account questions; use get_net_worth_history for trends. Returns up to 60 accounts.",
+    "Lists the household's accounts with nickname, institution, type, entity (Personal or one of the three LLCs), last four digits, current balance and when it was last updated, minimum balance, and for credit cards the due date, statement balance and APR (every card is paid in full each month, so no payment smaller than the statement balance is relevant). Use it for balances and account questions; use get_net_worth_history for trends. Returns up to 60 accounts.",
   inputJsonSchema: {
     type: "object",
     properties: {

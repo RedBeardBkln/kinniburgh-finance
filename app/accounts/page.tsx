@@ -53,7 +53,6 @@ export default async function AccountsPage({ searchParams }: PageProps) {
     currentBalanceAt: a.currentBalanceAt?.toISOString() ?? null,
     ccDueDate: a.ccDueDate?.toISOString() ?? null,
     ccStatementBalance: a.ccStatementBalance?.toString() ?? null,
-    ccMinimumPayment: a.ccMinimumPayment?.toString() ?? null,
     ccApr: a.ccApr?.toString() ?? null,
     ccDataAt: a.ccDataAt?.toISOString() ?? null,
     entityId: a.entityId,
