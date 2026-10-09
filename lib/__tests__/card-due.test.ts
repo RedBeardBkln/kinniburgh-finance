@@ -44,3 +44,21 @@ describe("shouldRemindCardPayment", () => {
     expect(shouldRemindCardPayment(d("2026-08-25"), d("2026-08-31"))).toBe(false);
   });
 });
+import { formatCalendarDate } from "../card-due";
+
+describe("formatCalendarDate", () => {
+  it("shows a UTC-midnight due date as that same calendar day, not the evening before", () => {
+    const due = new Date("2026-10-12T00:00:00.000Z");
+    expect(formatCalendarDate(due)).toBe("Oct 12");
+    expect(formatCalendarDate(due, "long")).toBe("October 12");
+    // The old America/New_York formatting rendered this as the day before.
+    expect(
+      due.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" })
+    ).toBe("Oct 11");
+  });
+
+  it("handles month and year boundaries", () => {
+    expect(formatCalendarDate(new Date("2027-01-01T00:00:00.000Z"))).toBe("Jan 1");
+    expect(formatCalendarDate(new Date("2026-12-31T00:00:00.000Z"), "long")).toBe("December 31");
+  });
+});

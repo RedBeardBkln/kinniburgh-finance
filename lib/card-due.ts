@@ -36,3 +36,15 @@ export function shouldRemindCardPayment(dueDate: Date, now: Date = new Date()): 
   // Past-due is handled with its own escalated message until resolved.
   return daysUntilDue >= 0 && daysUntilDue <= CARD_REMINDER_WINDOW_DAYS;
 }
+
+/**
+ * Formats a calendar-date-only value (a due date or a projected date). Plaid due dates and
+ * forecast days are stored as UTC midnight, so they MUST be formatted in UTC: formatting
+ * UTC midnight in America/New_York shows the previous evening, i.e. the day before.
+ */
+export function formatCalendarDate(
+  date: Date,
+  month: "short" | "long" = "short"
+): string {
+  return date.toLocaleDateString("en-US", { month, day: "numeric", timeZone: "UTC" });
+}

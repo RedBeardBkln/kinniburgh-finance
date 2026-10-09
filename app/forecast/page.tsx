@@ -20,7 +20,7 @@ import { PACE_TRAILING_MONTHS } from "@/lib/budget-pace";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import { analyzeCardFunding } from "@/lib/cc-funding";
-import { classifyCardDue } from "@/lib/card-due";
+import { classifyCardDue, formatCalendarDate } from "@/lib/card-due";
 import { setAccountBalance, upsertIncomeSource } from "@/actions/envelope";
 import { ForecastAccountCard, type ChartPoint } from "@/components/forecast/forecast-account-card";
 import { listRecurringExpenses } from "@/actions/recurring-expenses";
@@ -850,11 +850,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
                                   : "text-muted-foreground"
                               }
                             >
-                              {card.dueDate.toLocaleDateString("en-US", {
-                                month: "long",
-                                day: "numeric",
-                                timeZone: "America/New_York",
-                              })}
+                              {formatCalendarDate(card.dueDate, "long")}
                               {info.urgency === "overdue" && " (overdue)"}
                               {info.urgency === "imminent" && " (tomorrow/today)"}
                             </span>
@@ -884,11 +880,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
                     </span>{" "}
                     — after all payments the account dips below the minimum on{" "}
                     <span className="font-medium text-destructive">
-                      {ccFundingAnalysis.firstShortfallDate?.toLocaleDateString("en-US", {
-                        month: "long",
-                        day: "numeric",
-                        timeZone: "America/New_York",
-                      })}
+                      {ccFundingAnalysis.firstShortfallDate ? formatCalendarDate(ccFundingAnalysis.firstShortfallDate, "long") : null}
                     </span>
                     . Transfer{" "}
                     <span className="font-bold text-destructive">

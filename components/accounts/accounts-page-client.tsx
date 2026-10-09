@@ -13,6 +13,7 @@ import {
   reassignAccountEntity,
 } from "@/actions/accounts";
 import { ACCOUNT_TYPE_OPTIONS } from "@/lib/account-types";
+import { formatCalendarDate } from "@/lib/card-due";
 
 const NEW_INSTITUTION_SENTINEL = "__new__";
 
@@ -94,11 +95,7 @@ function DueDateCell({ dueDate }: { dueDate: string }) {
   const now = new Date();
   const daysUntil = Math.ceil((d.getTime() - now.getTime()) / 86400000);
 
-  const formatted = new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "America/New_York",
-  }).format(d);
+  const formatted = formatCalendarDate(d);
 
   if (daysUntil < 0) {
     return (
@@ -555,7 +552,7 @@ export function AccountsPageClient({ accounts, institutions, entities, pendingPl
                 Statement data refreshed for {syncResult.cardsUpdated.length} card{syncResult.cardsUpdated.length !== 1 ? "s" : ""}:{" "}
                 {syncResult.cardsUpdated
                   .map((c) => {
-                    const due = c.dueDate ? new Date(c.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "no due date";
+                    const due = c.dueDate ? formatCalendarDate(new Date(c.dueDate)) : "no due date";
                     const bal = c.statementBalance ? `$${parseFloat(c.statementBalance).toFixed(2)}` : "no balance";
                     return `${c.accountNickname} (${bal} due ${due})`;
                   })
