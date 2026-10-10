@@ -10,6 +10,9 @@ const cardsMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/upcoming-ledger-input", () => ({ loadUpcomingLedgerInput: inputMock }));
 // loadUpcomingLedger also reads the card projections (read-only DB reads): mocked here so no test touches a real database.
 vi.mock("@/lib/card-next-statement-build", () => ({ loadCardProjections: cardsMock }));
+// ... and the seasonal-estimate plans (also a read-only DB load, step 2): handed in as data, none here.
+const seasonalMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/seasonal-energy-build", () => ({ loadSeasonalPlansSafe: seasonalMock }));
 vi.mock("@/lib/recurring-detect-build", async (orig) => {
   const real = await orig<typeof import("@/lib/recurring-detect-build")>();
   return { ...real, fetchDetectionData: fetchMock };
@@ -45,6 +48,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   inputMock.mockResolvedValue(ledgerInput());
   cardsMock.mockResolvedValue({ today: FROM, projections: [], error: false });
+  seasonalMock.mockResolvedValue({ plans: [], failed: false });
   fetchMock.mockResolvedValue(history());
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });

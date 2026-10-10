@@ -25,6 +25,11 @@ import { loadNetIncomeSources } from "@/lib/net-income-build";
 import { generateBillOccurrencesBudgetDated } from "@/lib/bill-dates";
 import { loadBudgetScheduleIndex } from "@/lib/bill-dates-build";
 import { loadEffectiveBudgetRows } from "@/lib/budget-carry-forward-build";
+import { carriedCaption } from "@/lib/budget-carry-forward";
+import { planAmountForMonth, planForBill, planForLine, type BillSeasonalPlan } from "@/lib/seasonal-energy";
+import { loadSeasonalEnergySafe, loadSeasonalPlansSafe } from "@/lib/seasonal-energy-build";
+import { toUiSite } from "@/lib/seasonal-energy-view";
+import { SeasonalCard } from "@/components/forecast/seasonal-card";
 import { loadCardProjections, type LoadedCardProjections } from "@/lib/card-next-statement-build";
 import { setAccountBalance, upsertIncomeSource } from "@/actions/envelope";
 import { ForecastAccountCard, type ChartPoint } from "@/components/forecast/forecast-account-card";
@@ -104,8 +109,11 @@ export default async function ForecastPage({ searchParams }: PageProps) {
   // recent deposits / a confirmed paystub, with its basis), and bills are dated by their Budget row month by month
   // (loadBudgetScheduleIndex; fail-soft: on an error the bill records' own dates are used, as before).
   const noBudgetDates: Awaited<ReturnType<typeof loadBudgetScheduleIndex>> = { index: new Map(), failed: false };
-  const [transfers, incomeSources, scheduledBills, budgetDates] = isBusinessBucket
-    ? [[], [], [], noBudgetDates]
+  // Seasonal estimates (lib/seasonal-energy.ts) for the Electric / Oil bills whose model gate has passed; a gated model
+  // has no plan, so those bills keep the flat figure. Read-only and fail-soft (failed = the flat figures are used).
+  const noSeasonal: { plans: BillSeasonalPlan[]; failed: boolean } = { plans: [], failed: false };
+  const [transfers, incomeSources, scheduledBills, budgetDates, seasonalLoad] = isBusinessBucket
+    ? [[], [], [], noBudgetDates, noSeasonal]
     : await Promise.all([
         db.scheduledTransfer.findMany({
           where: { active: true },
@@ -117,6 +125,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           include: { accrualEnvelope: { include: { draws: true } } },
         }),
         loadBudgetScheduleIndex({ from: forecastStart, to: forecastEnd90 }),
+        loadSeasonalPlansSafe({ now }),
       ]);
 
   // Maps a scheduled bill's linked AccrualEnvelope draws (if any) into the
@@ -149,6 +158,8 @@ export default async function ForecastPage({ searchParams }: PageProps) {
   // − scheduled transfers out − projected expenses (prorated from Budget rows).
   // See lib/business-forecast.ts for the horizon-capping/proration math.
   const businessAccounts: BusinessForecastAccount[] = [];
+  // Quiet caption when the expense figures use budgets carried forward from an earlier month (incl. the flat seasonal lines).
+  let businessCarriedCaption: string | null = null;
   if (isBusinessBucket && entity) {
     const businessCheckingAccounts = await db.account.findMany({
       where: { entityId: entity.id, archivedAt: null, accountType: "checking" },
@@ -189,6 +200,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     // read-time, nothing written). Nesting/auto-sum below runs AFTER the carry so
     // carried rows nest exactly like real ones.
     const budgetRows = await loadEffectiveBudgetRows({ periods: touchedPeriods, entityId: entity.id });
+    businessCarriedCaption = carriedCaption(budgetRows);
 
     // Nesting/auto-sum resolution — same-account AND same-period only (two
     // different periods' "Groceries" lines are unrelated).
@@ -351,7 +363,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     return [
       ...transfers.flatMap((t) => generateTransferOccurrences(t, from, to)),
       ...incomeSources.flatMap((s) => generateIncomeOccurrences(s, from, to)),
-      ...scheduledBills.flatMap((b) => generateBillOccurrencesBudgetDated(b, budgetDates.index, from, to, billDraws(b))),
+      ...scheduledBills.flatMap((b) => generateBillOccurrencesBudgetDated(b, budgetDates.index, from, to, billDraws(b), planForBill(seasonalLoad.plans, b))),
     ].filter((e) => e.accountId === accountId);
   }
 
@@ -447,7 +459,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     ).filter((e) => e.accountId === acct.id);
 
     const billEvents = scheduledBills.flatMap((b) =>
-      generateBillOccurrencesBudgetDated(b, budgetDates.index, forecastStart, forecastEnd90, billDraws(b))
+      generateBillOccurrencesBudgetDated(b, budgetDates.index, forecastStart, forecastEnd90, billDraws(b), planForBill(seasonalLoad.plans, b))
     ).filter((e) => e.accountId === acct.id);
 
     // Credit card statement payments this account really pays (inferred from past payments, any entity's card):
@@ -529,7 +541,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
     ).filter((e) => e.accountId === primaryAcct.id);
 
     const billEventsForSchedule = scheduledBills.flatMap((b) =>
-      generateBillOccurrencesBudgetDated(b, budgetDates.index, forecastStart, forecastEnd14, billDraws(b))
+      generateBillOccurrencesBudgetDated(b, budgetDates.index, forecastStart, forecastEnd14, billDraws(b), planForBill(seasonalLoad.plans, b))
     ).filter((e) => e.accountId === primaryAcct.id);
 
     // Card payments this account really pays (e.g. jetBlue from Primary Checking), estimates marked in the text.
@@ -609,8 +621,13 @@ export default async function ForecastPage({ searchParams }: PageProps) {
 
     for (const b of paceBudgets) {
       const actualSpend = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
+      // A seasonal line whose model gate has passed is measured against the model's estimate for this calendar month
+      // (labelled on the row); a gated line keeps its budget figure.
+      const seasonalPlan = planForLine(seasonalLoad.plans, b.entityId, b.tagId);
+      const seasonalTarget = seasonalPlan ? planAmountForMonth(seasonalPlan, pMonth) : null;
+      const flatBudget = resolvedPaceBudgetById.get(b.id) ?? new Prisma.Decimal(0);
       const summary = computeBudgetSummary({
-        budgeted: resolvedPaceBudgetById.get(b.id) ?? new Prisma.Decimal(0),
+        budgeted: seasonalTarget ?? flatBudget,
         rolloverAmount: b.rolloverAmount ?? new Prisma.Decimal(0),
         actualSpend,
       });
@@ -642,6 +659,17 @@ export default async function ForecastPage({ searchParams }: PageProps) {
         confidence: spendForecast.confidence,
         method: spendForecast.method,
         trailingMonthsUsed: spendForecast.trailingMonthsUsed,
+        ...(seasonalPlan && seasonalTarget
+          ? {
+              estimate: {
+                confidence: seasonalPlan.confidence,
+                basis: seasonalPlan.shortBasis,
+                flatBudget: flatBudget.toNumber(),
+                // Oil arrives in lumps, so a mid-month "over / under pace" flag would mislead: no flag for it.
+                lumpy: seasonalPlan.kind === "oil",
+              },
+            }
+          : {}),
       });
     }
     paceRows.sort((a, b) => b.projectedPercentOfBudget - a.projectedPercentOfBudget);
@@ -679,6 +707,17 @@ export default async function ForecastPage({ searchParams }: PageProps) {
               {budgetDates.failed && (
                 <p className="text-xs text-muted-foreground">
                   Budget dates could not be read just now, so bills use the dates on their own records.
+                </p>
+              )}
+              {seasonalLoad.plans.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {seasonalLoad.plans.length === 1 ? "One bill uses" : `${seasonalLoad.plans.length} bills use`} a seasonal estimate
+                  instead of a flat amount (marked &quot;(estimate)&quot;); the basis is under Seasonal bills below.
+                </p>
+              )}
+              {seasonalLoad.failed && (
+                <p className="text-xs text-muted-foreground">
+                  Seasonal estimates could not be read just now, so electric and oil bills use their flat amounts.
                 </p>
               )}
             </div>
@@ -751,6 +790,11 @@ export default async function ForecastPage({ searchParams }: PageProps) {
         {/* ── Business-bucket financial forecast (Sudden Valley / EK Consulting) ── */}
         {isBusinessBucket && entity && businessAccounts.length > 0 && (
           <BusinessForecastSection entityName={entity.name} accounts={businessAccounts} />
+        )}
+        {isBusinessBucket && businessCarriedCaption && (
+          <p className="text-xs text-muted-foreground" data-testid="carried-caption">
+            {businessCarriedCaption}
+          </p>
         )}
 
         {/* ── Breach warnings ──────────────────────────────────────────── */}
@@ -1062,6 +1106,11 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           />
         )}
 
+        {/* ── Seasonal bills: Electric (Eversource) / Oil / Firewood estimates from existing payments + the oil price input ── */}
+        <Suspense key={`seasonal|${bucket}`} fallback={null}>
+          <SeasonalSections entityId={entity?.id ?? null} now={now} />
+        </Suspense>
+
         {/* ── Recurring expenses ───────────────────────────────────────── */}
         <RecurringExpensesSection
           expenses={recurringExpenses.map((e) => ({
@@ -1250,6 +1299,26 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       </div>
     </AppShell>
   );
+}
+
+/**
+ * The Seasonal bills card(s), loaded behind <Suspense>. Read-only and fail-soft: on an error one muted line says the
+ * budget figures are in use. The page has already run auth() before this component is rendered. Shows the entity in
+ * view only; the all-entities view shows every entity that has seasonal lines.
+ */
+async function SeasonalSections({ entityId, now }: { entityId: string | null; now: Date }) {
+  const loaded = await loadSeasonalEnergySafe({ now });
+  if (loaded.failed) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="seasonal-unavailable">
+        Seasonal estimates could not be read just now, so the budget and bill figures are in use.
+      </p>
+    );
+  }
+  const sites = loaded.sites
+    .filter((s) => entityId === null || s.entityId === entityId)
+    .map((s) => toUiSite(s, now, { pricesCorrupt: loaded.pricesCorrupt.includes(s.entityId) }));
+  return <SeasonalCard sites={sites} />;
 }
 
 /**

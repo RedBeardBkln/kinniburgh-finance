@@ -14,6 +14,7 @@ import { applyClearingNotes, expandSeriesDates, type DetectionBundle } from "@/l
 import { fetchDetectionData, runDetection } from "@/lib/recurring-detect-build";
 import { toLedgerCardInputs } from "@/lib/card-next-statement";
 import { loadCardProjections } from "@/lib/card-next-statement-build";
+import { loadSeasonalPlansSafe } from "@/lib/seasonal-energy-build";
 
 export interface LoadedUpcomingLedger {
   ledger: UpcomingLedger;
@@ -42,12 +43,18 @@ export async function loadUpcomingLedger(args: {
   // Card statement projections (paid-statement check + estimated next statements): read-only, never rejects. On
   // error the ledger shows the statements on file exactly as before.
   const cardProjections = loadCardProjections({ now });
+  // Seasonal estimates (Electric / Oil bills whose model gate has passed): read-only, never rejects. On error the
+  // ledger keeps the flat bill amounts exactly as before.
+  const seasonalPlans = loadSeasonalPlansSafe({ now });
 
   const { input, from, to, entityNameById, entitySlugById, accountNameById } = await loadUpcomingLedgerInput({
     entityId,
     days,
     now,
   });
+
+  const loadedSeasonal = await seasonalPlans;
+  if (loadedSeasonal.plans.length > 0) input.seasonal = loadedSeasonal.plans;
 
   const loadedCards = await cardProjections;
   if (!loadedCards.error) {

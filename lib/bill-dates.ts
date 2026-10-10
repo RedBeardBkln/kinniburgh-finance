@@ -17,11 +17,19 @@
 // `carriedFrom`; this module treats them exactly like real rows, and `EffectiveSchedule.carriedFrom` tells a caller
 // that the date came from an earlier month's row.
 //
+// Seasonal estimates (lib/seasonal-energy.ts): when a caller passes a BillSeasonalPlan for a MONTHLY bill (Electric
+// (Eversource), Oil), the amount of its events comes from the plan instead of the bill's flat figure; this is the one
+// place the "amount is always the bill's" rule above has an exception, and only when the plan's gate has passed (a
+// gated model produces no plan). Hand-entered accrual draws always win inside their date range: the model fills only the
+// months AFTER the last hand-entered draw's month (an accrued bill otherwise has no events at all past its last draw), unless the
+// plan carries the owner's opt-in `replaceDraws`. Every model-made event is labelled "(estimate)" and carries `estimate`.
+//
 // lib/forecast.ts is not edited: this wraps `generateBillOccurrences` month by month.
 
 import { Decimal } from "@prisma/client/runtime/library";
 import { generateBillOccurrences, type AccrualDrawLike, type ScheduleEvent } from "@/lib/forecast";
 import { isLumpSumFrequency } from "@/lib/annual-bill";
+import { planAmountFor, type BillSeasonalPlan, type Confidence } from "@/lib/seasonal-energy";
 
 export interface BudgetScheduleRow {
   entityId: string;
@@ -206,18 +214,94 @@ export function hasResolvableDay(eff: EffectiveSchedule, bill: Pick<BillDateBill
   return eff.fields.autopayDay != null;
 }
 
+/** Why an event's amount is an estimate: set on events the seasonal model made or re-amounted. */
+export interface SeasonalEventMark {
+  kind: "electric" | "oil";
+  basis: string;
+  confidence: Confidence;
+}
+
+export type SeasonalScheduleEvent = ScheduleEvent & { estimate?: SeasonalEventMark };
+
+export interface SeasonalOptions {
+  /**
+   * An accrued bill's model events are emitted only in months whose effective schedule has a pay day (the Upcoming
+   * ledger never guesses a date). Off = the engine's own fallback of the 1st, as for an accrued bill with no draws.
+   */
+  requireTailDay?: boolean;
+}
+
+function startOfDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/**
+ * Events of a MONTHLY bill with the plan's amounts. null = the plan does not apply (weekly / biweekly / lump-sum bills
+ * keep their own amounts), so the caller falls through to the ordinary path.
+ */
+function seasonalEvents(
+  bill: BillDateBill,
+  index: BudgetScheduleIndex,
+  from: Date,
+  to: Date,
+  draws: AccrualDrawLike[],
+  plan: BillSeasonalPlan,
+  opts: SeasonalOptions
+): SeasonalScheduleEvent[] | null {
+  const accrued = bill.amountType === "accrued";
+  if (!accrued && (bill.frequency ?? "monthly") !== "monthly") return null;
+  if (!(from < to)) return [];
+  const mark: SeasonalEventMark = { kind: plan.kind, basis: plan.shortBasis, confidence: plan.confidence };
+  const useDraws = plan.replaceDraws ? [] : draws;
+  const events: SeasonalScheduleEvent[] = [];
+  let modelFrom = from;
+
+  if (accrued && useDraws.length > 0) {
+    // Hand-entered draws win inside their range, exactly as before.
+    events.push(...generateBillOccurrences(bill, from, to, useDraws));
+    let lastDraw = 0;
+    for (const d of useDraws) {
+      const t = startOfDay(new Date(d.estimatedDate)).getTime();
+      if (t > lastDraw) lastDraw = t;
+    }
+    // From the first of the month AFTER the last draw: a month never holds both a hand-entered draw and a model event.
+    const last = new Date(lastDraw);
+    const after = new Date(Date.UTC(last.getUTCFullYear(), last.getUTCMonth() + 1, 1));
+    if (after > modelFrom) modelFrom = after;
+  }
+
+  if (modelFrom < to) {
+    // The bill's own monthly dating (Budget row or record), with a placeholder amount that the plan replaces.
+    const dating: BillDateBill = { ...bill, expectedAmount: 1, annualBudget: 12 };
+    for (const ev of generateBillOccurrencesBudgetDated(dating, index, modelFrom, to, [])) {
+      const amount = planAmountFor(plan, ev.date);
+      if (!amount || !amount.greaterThan(0)) continue; // no outflow estimated for this month
+      if (accrued && opts.requireTailDay && effectiveSchedule(bill, index, ev.date.toISOString().slice(0, 7)).fields.autopayDay == null) continue;
+      events.push({ ...ev, amount: amount.negated(), description: `${bill.payee} (estimate)`, estimate: mark });
+    }
+  }
+  return events.sort((a, b) => a.date.getTime() - b.date.getTime());
+}
+
 /**
  * Outflow events for a bill in [from, to), dated month by month from the Budget row where one is usable. With an
  * empty index, an untagged bill, or an accrued bill with real draw dates, the result is exactly
- * `generateBillOccurrences(bill, from, to, draws)`.
+ * `generateBillOccurrences(bill, from, to, draws)`. With a seasonal `plan` (see the header) the amounts of a monthly
+ * bill come from the plan and hand-entered draws still win inside their range.
  */
 export function generateBillOccurrencesBudgetDated(
   bill: BillDateBill,
   index: BudgetScheduleIndex,
   from: Date,
   to: Date,
-  draws: AccrualDrawLike[] = []
+  draws: AccrualDrawLike[] = [],
+  plan: BillSeasonalPlan | null = null,
+  opts: SeasonalOptions = {}
 ): ScheduleEvent[] {
+  if (plan) {
+    const seasonal = seasonalEvents(bill, index, from, to, draws, plan, opts);
+    if (seasonal) return seasonal;
+  }
   const key = budgetKeyOfBill(bill);
   if ((bill.amountType === "accrued" && draws.length > 0) || !key || index.size === 0 || !index.has(key)) {
     return generateBillOccurrences(bill, from, to, draws);

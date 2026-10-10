@@ -37,9 +37,19 @@ export function shapeBudgets(period: string, lines: readonly BudgetLineFacts[]):
       overspent: available - spent < 0,
       auto_summed_from_children: l.autoSummed,
       ...(l.carriedFrom ? { carried_from: l.carriedFrom } : {}),
+      ...(l.seasonalEstimate
+        ? {
+            seasonal_estimate: {
+              amount: dollarsOf(centsOf(l.seasonalEstimate.amount)),
+              confidence: l.seasonalEstimate.confidence,
+              basis: safeField(l.seasonalEstimate.basis, 200),
+            },
+          }
+        : {}),
     };
   });
   const anyCarried = lines.slice(0, MAX_LINES).some((l) => Boolean(l.carriedFrom));
+  const anySeasonal = lines.slice(0, MAX_LINES).some((l) => l.seasonalEstimate !== undefined);
   return {
     data: {
       period,
@@ -50,7 +60,12 @@ export function shapeBudgets(period: string, lines: readonly BudgetLineFacts[]):
         "Spent is the net signed amount on that exact tag and entity for the month, excluding paired internal transfers. It is NOT the dashboard's Spent figure (which leaves out card payments, mortgage and loan-account entries and income, counts nested sub-tags under the nearest budget line, and nets refunds), so the two can differ; for example the Mortgage line reads differently. It can also differ from the Budgets page for lines linked to recurring expenses.",
         ...(anyCarried
           ? [
-              "Rows with carried_from have no budget row of their own for this month: the figures are the latest earlier month's row for that line, carried forward at read time (rollover and one-off additional amounts are not carried). The Budgets page shows nothing for that month until lines are added there. Electric, oil and firewood lines are not carried yet.",
+              "Rows with carried_from have no budget row of their own for this month: the figures are the latest earlier month's row for that line, carried forward at read time (rollover and one-off additional amounts are not carried). The Budgets page shows nothing for that month until lines are added there. Electric, oil and firewood lines carry their budget figure forward the same way, as the fallback for the seasonal estimate.",
+            ]
+          : []),
+        ...(anySeasonal
+          ? [
+              "Rows with seasonal_estimate carry the seasonal model's ESTIMATE for this calendar month beside the budget figure (it does not replace budgeted here). It is built from the household's own payments, only once there was enough history, and its confidence and basis are given; it is an estimate, not a guarantee.",
             ]
           : []),
       ],

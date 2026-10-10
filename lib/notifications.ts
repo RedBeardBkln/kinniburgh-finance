@@ -13,6 +13,8 @@ import { loadNetIncomeSources } from "./net-income-build";
 import { effectiveSchedule, generateBillOccurrencesBudgetDated, hasResolvableDay } from "./bill-dates";
 import { loadBudgetScheduleIndex } from "./bill-dates-build";
 import { loadEffectiveBudgetRows } from "./budget-carry-forward-build";
+import { budgetAlertNote, planForLine } from "./seasonal-energy";
+import { loadSeasonalPlansSafe } from "./seasonal-energy-build";
 import { sendPushToUser } from "./web-push";
 import { evaluateBudgetPace, PACE_TRAILING_MONTHS } from "./budget-pace";
 import type { MonthlySpendPoint } from "./budget-pace";
@@ -129,6 +131,8 @@ export async function checkBudgetOverspend(period: string): Promise<number> {
   const spendByTagId = new Map(tagSpendRows.map((r) => [r.tagId, new Decimal(r.total)]));
   const resolvedByBudgetId = resolveBudgetsByAccount(budgets);
   const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
+  // Seasonal estimates (fail-soft: none on any error) only to say, in the alert, that the seasonal card expects another amount.
+  const seasonal = await loadSeasonalPlansSafe({ now: new Date() });
   let generated = 0;
 
   for (const budget of budgets) {
@@ -157,7 +161,8 @@ export async function checkBudgetOverspend(period: string): Promise<number> {
     const days = daysRemaining(period);
     const pct = Math.round(summary.percentUsed);
     const title = `Budget alert: ${budget.tag.shortName}`;
-    const body = `${budget.tag.shortName} is at ${formatUSD(actualSpend.abs())} of ${formatUSD(summary.effectiveBudget)} (${pct}%)${days > 0 ? ` — ${days} days left this month` : ""}.`;
+    const note = budgetAlertNote(budget.carriedFrom, planForLine(seasonal.plans, budget.entityId, budget.tagId), month);
+    const body = `${budget.tag.shortName} is at ${formatUSD(actualSpend.abs())} of ${formatUSD(summary.effectiveBudget)} (${pct}%)${days > 0 ? ` — ${days} days left this month` : ""}.${note ? ` ${note}` : ""}`;
 
     await createNotification({
       type: "overspend",
@@ -223,6 +228,7 @@ export async function checkBudgetPace(period: string): Promise<number> {
 
   const resolvedByBudgetId = resolveBudgetsByAccount(budgets);
   const users = await db.user.findMany({ select: { id: true, notificationPrefs: true } });
+  const seasonal = await loadSeasonalPlansSafe({ now: new Date() });
   let generated = 0;
 
   for (const budget of budgets) {
@@ -258,12 +264,14 @@ export async function checkBudgetPace(period: string): Promise<number> {
     const scopeKey = `pace:${budget.tagId}:${period}`;
     if (await alreadyNotifiedToday(scopeKey)) continue;
 
+    const paceNote = budgetAlertNote(budget.carriedFrom, planForLine(seasonal.plans, budget.entityId, budget.tagId), month);
     const title = `Trending over budget: ${budget.tag.shortName}`;
     const body =
       `${budget.tag.shortName} is on pace to reach ${formatUSD(evaluation.forecast.projectedTotal)} ` +
       `by month end, above the ${formatUSD(summary.effectiveBudget)} budget — projected from ` +
       `${formatUSD(actualSpend)} spent so far plus the last ${evaluation.forecast.trailingMonthsUsed} ` +
-      `month${evaluation.forecast.trailingMonthsUsed === 1 ? "" : "s"} of history.`;
+      `month${evaluation.forecast.trailingMonthsUsed === 1 ? "" : "s"} of history.` +
+      (paceNote ? ` ${paceNote}` : "");
 
     await createNotification({
       type: "budget_pace",

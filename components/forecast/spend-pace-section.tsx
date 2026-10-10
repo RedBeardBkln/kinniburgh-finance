@@ -18,6 +18,17 @@ export interface TagPaceRow {
   confidence: "low" | "medium" | "high";
   method: "blended" | "pace_only";
   trailingMonthsUsed: number;
+  /**
+   * Set when `budgeted` is the seasonal model's estimate for this month instead of the budget figure
+   * (lib/seasonal-energy.ts; only after its gate passed). `flatBudget` is the budget line it replaced here.
+   */
+  estimate?: {
+    confidence: "low" | "medium" | "high";
+    basis: string;
+    flatBudget: number;
+    /** Lumpy bill (oil arrives in deliveries): shown as an estimate, with no over / under pace flag. */
+    lumpy: boolean;
+  };
 }
 
 interface SpendPaceSectionProps {
@@ -27,6 +38,13 @@ interface SpendPaceSectionProps {
 }
 
 function StatusBadge({ row }: { row: TagPaceRow }) {
+  if (row.estimate?.lumpy) {
+    return (
+      <span className="rounded-full border border-muted-foreground/30 bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground whitespace-nowrap">
+        Lumpy bill: no pace flag
+      </span>
+    );
+  }
   if (row.confidence === "low") {
     return (
       <span className="rounded-full border border-muted-foreground/30 bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground whitespace-nowrap">
@@ -85,7 +103,22 @@ export function SpendPaceSection({ periodLabel, rows }: SpendPaceSectionProps) {
                     {formatUSD(row.actualSpend)}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
+                    {row.estimate ? "~" : ""}
                     {formatUSD(row.budgeted)}
+                    {row.estimate && (
+                      <>
+                        {" "}
+                        <span
+                          className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                          title={row.estimate.basis}
+                        >
+                          estimate
+                        </span>
+                        <span className="block text-xs font-normal">
+                          seasonal estimate ({row.estimate.confidence} confidence); budget line {formatUSD(row.estimate.flatBudget)}
+                        </span>
+                      </>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums font-medium">
                     {row.confidence === "low" ? "~" : ""}

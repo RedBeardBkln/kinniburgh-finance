@@ -7,6 +7,8 @@ vi.mock("@/lib/db", () => ({
   db: {
     $queryRaw: vi.fn(),
     budget: { findMany: vi.fn() },
+    // The seasonal-lines setting is read by the shared Budget loader; a read error now fails the read (step 2).
+    appSetting: { findUnique: vi.fn() },
     account: { findMany: vi.fn(), findFirst: vi.fn() },
     accrualEnvelope: { findMany: vi.fn() },
     scheduledBill: { findMany: vi.fn() },
@@ -57,6 +59,7 @@ beforeEach(() => {
   mdb.notification.update.mockResolvedValue({});
   mdb.user.findMany.mockResolvedValue([{ id: "u1", notificationPrefs: null }]);
   mdb.budget.findMany.mockResolvedValue([]);
+  (db as unknown as { appSetting: { findUnique: Fn } }).appSetting.findUnique.mockResolvedValue(null);
   mdb.transaction.findMany.mockResolvedValue([]);
   mdb.paystub.findMany.mockResolvedValue([]);
   mdb.incomeSource.findMany.mockResolvedValue([]);

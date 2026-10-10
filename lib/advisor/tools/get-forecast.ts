@@ -16,6 +16,7 @@ import { defineTool, type ToolOutput } from "@/lib/advisor/tools/types";
 import { cardPaymentEvents } from "@/lib/card-next-statement";
 import { buildAccountForecast, findBreachDays, generateIncomeOccurrences, generateTransferOccurrences, type ScheduleEvent } from "@/lib/forecast";
 import { generateBillOccurrencesBudgetDated } from "@/lib/bill-dates";
+import { planForBill } from "@/lib/seasonal-energy";
 
 export const MIN_FORECAST_DAYS = 7;
 export const MAX_FORECAST_DAYS = 90;
@@ -70,7 +71,14 @@ export function buildForecastView(inputs: ForecastInputs, now: Date, days: numbe
     const budgetIndex = inputs.budgetIndex ?? new Map();
     const billEvents = inputs.bills
       .flatMap((b) =>
-        generateBillOccurrencesBudgetDated(b, budgetIndex, start, end, (b.accrualEnvelope?.draws ?? []).map((d) => ({ estimatedDate: d.estimatedDate, estimatedAmount: d.estimatedAmount }))),
+        generateBillOccurrencesBudgetDated(
+          b,
+          budgetIndex,
+          start,
+          end,
+          (b.accrualEnvelope?.draws ?? []).map((d) => ({ estimatedDate: d.estimatedDate, estimatedAmount: d.estimatedAmount })),
+          planForBill(inputs.seasonalPlans, b),
+        ),
       )
       .filter((e) => e.accountId === acct.id);
     // The cards THIS account pays (inferred), of any entity; a card of another entity is labelled with its entity.
@@ -120,6 +128,9 @@ export function buildForecastView(inputs: ForecastInputs, now: Date, days: numbe
   }));
   // Cards that exist but whose paying account could not be determined (never assigned to an account), by nickname only.
   const grossUnknownPaychecks = inputs.incomes.filter((s) => s.amountBasis === "gross_unknown").length;
+  const seasonalNotes = (inputs.seasonalPlans ?? []).map(
+    (p) => `${safeField(p.lineLabel, 60)}: events marked estimate: true use a seasonal estimate instead of a flat amount (${p.confidence} confidence). ${safeField(p.shortBasis, 160)}. A hand-entered draw always wins inside its date range.`,
+  );
   const unassigned = inputs.cardProjections.filter((p) => !p.funding && (p.onFile?.paid === null || p.estimates.length > 0)).map((p) => safeField(p.nickname, 60));
 
   return {
@@ -137,6 +148,7 @@ export function buildForecastView(inputs: ForecastInputs, now: Date, days: numbe
         "Paychecks are take-home pay (the median of recent deposits or the latest confirmed paystub), not the gross amount; an income source whose take-home is unknown uses its gross and its events are marked '(gross, take-home unknown)'. Bills are dated by their budget line when it has a date, because the money has to be in the account then; the bank may clear a bill a few days later.",
         ...(grossUnknownPaychecks > 0 ? [`${grossUnknownPaychecks} income source(s) use the gross amount because take-home is unknown, so the projection may be too high.`] : []),
         "Every card is paid in full, so a card payment is the whole statement balance, drawn from the account that paid that card in the past. A statement already found paid is left out. Statements not issued yet are estimates (marked estimate: true, with '(estimate)' in the description), based on this cycle's charges or a typical month; they can change.",
+        ...seasonalNotes,
         ...(inputs.cardProjectionsFailed ? ["Credit card payments could not be loaded just now, so they are missing from this projection."] : []),
         ...(unassigned.length > 0 ? ["Cards listed under cards_without_paying_account are not in any account projection because past payments do not clearly show which account pays them."] : []),
       ],

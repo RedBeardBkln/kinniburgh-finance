@@ -17,8 +17,10 @@
 // come back. Without this rule, deleting a finished bill from the last month would resurrect it for ever.
 //
 // Variable lines (Electric (Eversource), Oil, Firewood, per entity; the set is an owner-editable AppSetting,
-// `seasonal_budget_lines`) are EXCLUDED from flat carry-forward until the seasonal model ships: they keep the
-// behaviour they had before this feature (own rows only, "No budget line for <period>" elsewhere).
+// `seasonal_budget_lines`) are flagged `variable: true`. The resolver can leave them out of the flat carry
+// (`carryVariable: false`, its default, which the pure tests pin), but the shared loader asks for `carryVariable: true`
+// since the seasonal model (lib/seasonal-energy.ts, step 2) exists: the budgeted figure is the FALLBACK that carries
+// forward, and a consumer asks the model first and uses the flat figure only while the model's gate has not passed.
 
 import { Decimal } from "@prisma/client/runtime/library";
 
@@ -48,6 +50,11 @@ export type ResolvedBudgetRow<T extends CarryRowBase> = T & {
 export interface ResolveOptions {
   /** `${entityId}|${tagId}` keys of the variable lines. Default: none. */
   variableKeys?: ReadonlySet<string>;
+  /**
+   * Carry a variable line's flat figure forward like any other line (it is the fallback for the seasonal model).
+   * Default false: a variable line then returns its own rows only.
+   */
+  carryVariable?: boolean;
 }
 
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -121,7 +128,7 @@ export function resolveBudgetRows<T extends CarryRowBase>(
         out.push({ ...hit, source: "own", carriedFrom: null, variable });
         continue;
       }
-      if (variable) continue; // variable lines keep their pre-existing behaviour until the seasonal model ships
+      if (variable && !opts.carryVariable) continue; // flat carry of a variable line is opt-in (the loader opts in)
       const frontier = frontierByEntity.get(hit.entityId);
       const last = list[list.length - 1] as T;
       if (frontier === undefined || last.period !== frontier) continue; // ended line: not in the entity's latest month
@@ -216,4 +223,24 @@ export function variableLineKeys(
 /** Quiet note for a carried figure, e.g. "Budget figure carried forward from 2026-12". */
 export function carriedNote(carriedFrom: string): string {
   return `Budget figure carried forward from ${carriedFrom}`;
+}
+
+/**
+ * One quiet caption for a screen that adds up Budget figures (the business-bucket forecast): null when every row is the
+ * month's own; otherwise "Budget figure carried forward from 2026-12 for N lines ...", naming the variable (seasonal)
+ * lines that were carried flat as the fallback for the seasonal estimate.
+ */
+export function carriedCaption(
+  rows: ReadonlyArray<{ carriedFrom?: string | null; variable?: boolean; tag?: { shortName?: string } | null }>
+): string | null {
+  const carried = rows.filter((r) => Boolean(r.carriedFrom));
+  if (carried.length === 0) return null;
+  const periods = [...new Set(carried.map((r) => r.carriedFrom as string))].sort();
+  const seasonal = [...new Set(carried.filter((r) => r.variable).map((r) => r.tag?.shortName).filter((n): n is string => Boolean(n)))].sort();
+  const lines = new Set(carried.map((r) => (r.tag?.shortName ?? "") + "|" + (r.carriedFrom ?? ""))).size;
+  let text = `${carriedNote(periods.join(", "))} for the months that have no budget row of their own (${lines} line${lines === 1 ? "" : "s"}).`;
+  if (seasonal.length > 0) {
+    text += ` This includes the seasonal lines ${seasonal.join(", ")}: their flat figure stands in until a seasonal estimate is available.`;
+  }
+  return text;
 }

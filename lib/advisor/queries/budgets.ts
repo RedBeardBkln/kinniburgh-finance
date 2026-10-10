@@ -5,6 +5,8 @@
 
 import { Decimal } from "@prisma/client/runtime/library";
 import { loadEffectiveBudgetRows } from "@/lib/budget-carry-forward-build";
+import { monthOfPeriod, periodOfDate, planAmountForMonth, planForLine } from "@/lib/seasonal-energy";
+import { loadSeasonalPlansSafe } from "@/lib/seasonal-energy-build";
 import { getRootBudgetLineIds, resolveBudgetedAmounts } from "@/lib/budget-nesting";
 import { loadTagSpendForPeriod } from "@/lib/advisor/queries/spend";
 
@@ -24,6 +26,11 @@ export interface BudgetLineFacts {
   isRoot: boolean;
   /** The period the figures were carried forward from when the month has no row of its own; null otherwise. */
   carriedFrom?: string | null;
+  /**
+   * The seasonal model's estimate for this line and calendar month, only for the current or a later month and only once
+   * its gate has passed (lib/seasonal-energy.ts). It sits BESIDE the budget figure and does not replace it here.
+   */
+  seasonalEstimate?: { amount: string; confidence: string; basis: string };
 }
 
 function entityMatches(e: { name: string; slug: string | null }, wanted: string): boolean {
@@ -36,7 +43,13 @@ function byText(a: string, b: string): number {
 }
 
 export async function loadBudgetFacts(period: string, bounds: { start: Date; end: Date }, entity: string | null): Promise<BudgetLineFacts[]> {
-  const [effective, spendRows] = await Promise.all([loadEffectiveBudgetRows({ periods: [period] }), loadTagSpendForPeriod(bounds.start, bounds.end)]);
+  const [effective, spendRows, seasonal] = await Promise.all([
+    loadEffectiveBudgetRows({ periods: [period] }),
+    loadTagSpendForPeriod(bounds.start, bounds.end),
+    loadSeasonalPlansSafe({ now: new Date() }),
+  ]);
+  const showSeasonal = period >= periodOfDate(new Date());
+  const monthIdx = monthOfPeriod(period) - 1;
   const budgets = effective
     .filter((b) => entity === null || entityMatches(b.entity, entity))
     .sort((a, b) => byText(a.entity.name, b.entity.name) || byText(a.tag.name, b.tag.name))
@@ -58,17 +71,22 @@ export async function loadBudgetFacts(period: string, bounds: { start: Date; end
   }
   const spendByKey = new Map(spendRows.map((r) => [`${r.entityId}:${r.tagId}`, new Decimal(r.total)]));
 
-  return budgets.map((b) => ({
-    tagPath: b.tag.name,
-    shortName: b.tag.shortName,
-    entity: b.entity.name,
-    frequency: b.frequency,
-    budgeted: (resolved.get(b.id) ?? new Decimal(0)).toFixed(2),
-    autoSummed: b.budgeted === null,
-    rolloverEnabled: b.rolloverEnabled,
-    rolloverAmount: (b.rolloverAmount ?? new Decimal(0)).toFixed(2),
-    spent: (spendByKey.get(`${b.entity.id}:${b.tagId}`) ?? new Decimal(0)).negated().toFixed(2),
-    isRoot: roots.has(b.id),
-    carriedFrom: b.carriedFrom,
-  }));
+  return budgets.map((b) => {
+    const plan = showSeasonal ? planForLine(seasonal.plans, b.entity.id, b.tagId) : null;
+    const planAmount = plan ? planAmountForMonth(plan, monthIdx + 1) : null;
+    return {
+      tagPath: b.tag.name,
+      shortName: b.tag.shortName,
+      entity: b.entity.name,
+      frequency: b.frequency,
+      budgeted: (resolved.get(b.id) ?? new Decimal(0)).toFixed(2),
+      autoSummed: b.budgeted === null,
+      rolloverEnabled: b.rolloverEnabled,
+      rolloverAmount: (b.rolloverAmount ?? new Decimal(0)).toFixed(2),
+      spent: (spendByKey.get(`${b.entity.id}:${b.tagId}`) ?? new Decimal(0)).negated().toFixed(2),
+      isRoot: roots.has(b.id),
+      carriedFrom: b.carriedFrom,
+      ...(plan && planAmount ? { seasonalEstimate: { amount: planAmount.toFixed(2), confidence: plan.confidence, basis: plan.shortBasis } } : {}),
+    };
+  });
 }

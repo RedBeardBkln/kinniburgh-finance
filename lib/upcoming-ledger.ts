@@ -26,7 +26,10 @@ import {
   generateBillOccurrencesBudgetDated,
   periodsBetween,
   type BudgetScheduleIndex,
+  type SeasonalEventMark,
+  type SeasonalScheduleEvent,
 } from "@/lib/bill-dates";
+import { planAmountFor, planForBill, type BillSeasonalPlan } from "@/lib/seasonal-energy";
 import { monthlyEquivalentCents } from "@/lib/recurring-expenses";
 import { seriesKeyFromNotes } from "@/lib/recurring-series-marker";
 
@@ -398,6 +401,12 @@ export interface UpcomingLedgerInput {
   policies?: UpcomingPolicyRow[];
   /** History-learned series (lib/recurring-detect.ts). Optional: without it the ledger is exactly as before. */
   learned?: LearnedSeriesRow[];
+  /**
+   * Seasonal estimates (lib/seasonal-energy.ts) for the Electric / Oil bills whose model gate has passed. A bill with a
+   * plan is shown with the plan's amount, tier "estimated" and a note carrying the basis; hand-entered draws still win
+   * inside their range. Optional: without it the ledger is exactly as before.
+   */
+  seasonal?: BillSeasonalPlan[];
 }
 
 export const CARD_PAST_DUE_LOOKBACK_DAYS = 14;
@@ -617,9 +626,11 @@ function billShape(payload: BillPayload, draws: AccrualDrawLike[]): Shape {
 interface ExpandedEvent {
   date: Date;
   amount: Decimal | null; // positive magnitude, null = unknown
+  /** Set when the amount is a seasonal-model estimate (lib/seasonal-energy.ts). */
+  estimate?: SeasonalEventMark;
 }
 
-function expandShape(shape: Shape, from: Date, to: Date): ExpandedEvent[] {
+function expandShape(shape: Shape, from: Date, to: Date, plan: BillSeasonalPlan | null = null): ExpandedEvent[] {
   const out: ExpandedEvent[] = [];
   for (const base of shape.payloads) {
     const payload: BillPayload = { ...base };
@@ -644,9 +655,10 @@ function expandShape(shape: Shape, from: Date, to: Date): ExpandedEvent[] {
 
     // The payload already carries the schedule of its month (Budget row or bill record, see budgetDatedEvents), so no
     // Budget index is needed here: an empty index is exactly the plain generator.
-    for (const ev of generateBillOccurrencesBudgetDated(payload, NO_BUDGET_INDEX, from, to, draws)) {
-      const unknown = shape.unknownAmount || unknownDrawDates.has(dateKey(ev.date));
-      out.push({ date: ev.date, amount: unknown ? null : cents(ev.amount.abs()) });
+    for (const ev of generateBillOccurrencesBudgetDated(payload, NO_BUDGET_INDEX, from, to, draws, plan, { requireTailDay: true })) {
+      const estimate = (ev as SeasonalScheduleEvent).estimate;
+      const unknown = !estimate && (shape.unknownAmount || unknownDrawDates.has(dateKey(ev.date)));
+      out.push({ date: ev.date, amount: unknown ? null : cents(ev.amount.abs()), ...(estimate ? { estimate } : {}) });
     }
   }
   return out.sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -1246,6 +1258,7 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
   function budgetDatedEvents(o: Obligation): { events: ExpandedEvent[]; datedMonths: number } | null {
     const b = o.bill;
     if (!b || (o.shape.accrued && o.shape.draws.length > 0)) return null;
+    const plan = planForBill(input.seasonal, b);
     const key = budgetKeyOfBill(b);
     if (!key || !scheduleIndex.has(key)) return null;
     const events: ExpandedEvent[] = [];
@@ -1257,7 +1270,7 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
       const shape = billShape(billPayloadFor(b, period), b.draws ?? []);
       if (shape.undatedReason) continue;
       datedMonths += 1;
-      events.push(...expandShape(shape, from > monthStart ? from : monthStart, to < nextMonth ? to : nextMonth));
+      events.push(...expandShape(shape, from > monthStart ? from : monthStart, to < nextMonth ? to : nextMonth, plan));
     }
     return { events: events.sort((a, c) => a.date.getTime() - c.date.getTime()), datedMonths };
   }
@@ -1265,31 +1278,36 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
   function itemsFor(o: Obligation): { dated: UpcomingItem[]; undatedItem: UpcomingItem | null } {
     const shape = o.shape;
     const monthDated = budgetDatedEvents(o);
+    const plan = o.bill ? planForBill(input.seasonal, o.bill) : null;
     if (shape.undatedReason && !(monthDated && monthDated.datedMonths > 0)) {
       // Budget rows: only the row for the current month reports "day not set" (not one per period).
       if (o.period && o.period !== fromPeriod) return { dated: [], undatedItem: null };
-      const amount = shape.undatedAmount ? cents(shape.undatedAmount) : null;
+      // An accrued bill with no draws and no day: the monthly figure is this month's seasonal estimate when a plan exists.
+      const planAmount = plan && shape.accrued && shape.draws.length === 0 ? planAmountFor(plan, from) : null;
+      const amount = planAmount ? cents(planAmount) : shape.undatedAmount ? cents(shape.undatedAmount) : null;
       const item = baseItem(o, {
         date: null,
         amount: amount ? amount.negated() : null,
         amountStatus: amount ? "known" : "unknown",
         kind: "bill",
-        tier: shape.tier,
+        tier: planAmount ? "estimated" : shape.tier,
         tierNote: shape.undatedReason,
         link: linkFor(o, null),
-        notes: [
-          amount
-            ? shape.undatedAmountMeans === "monthly"
-              ? "Amount shown is the monthly figure"
-              : "Amount shown is the full payment"
-            : "Amount not set",
-        ],
+        notes: planAmount && plan
+          ? ["Amount shown is this month's seasonal estimate", plan.shortBasis]
+          : [
+              amount
+                ? shape.undatedAmountMeans === "monthly"
+                  ? "Amount shown is the monthly figure"
+                  : "Amount shown is the full payment"
+                : "Amount not set",
+            ],
       });
       decorate(o, item);
       return { dated: [], undatedItem: item };
     }
 
-    let events = monthDated && monthDated.datedMonths > 0 ? monthDated.events : expandShape(shape, from, to);
+    let events = monthDated && monthDated.datedMonths > 0 ? monthDated.events : expandShape(shape, from, to, plan);
     if (o.period) {
       const [y, m] = o.period.split("-").map(Number) as [number, number];
       const start = Date.UTC(y, m - 1, 1);
@@ -1302,10 +1320,10 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
         amount: e.amount ? e.amount.negated() : null,
         amountStatus: e.amount ? "known" : "unknown",
         kind: "bill",
-        tier: shape.tier,
-        tierNote: shape.tierNote,
+        tier: e.estimate ? "estimated" : shape.tier,
+        tierNote: e.estimate ? `seasonal estimate, ${e.estimate.confidence} confidence` : shape.tierNote,
         link: linkFor(o, e.date),
-        notes: e.amount ? [] : ["Amount not set"],
+        notes: e.amount ? (e.estimate ? [e.estimate.basis] : []) : ["Amount not set"],
       });
       decorate(o, item);
       return item;

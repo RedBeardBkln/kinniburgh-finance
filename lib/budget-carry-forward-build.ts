@@ -13,11 +13,14 @@
 //   - loadEffectiveBudgetRowsSafe never rejects: { rows: [], failed: true }, logs err.name only;
 //   - loadEffectiveScheduleRows   the schedule-only read for the date index (lib/bill-dates-build.ts), which wraps it
 //                                 in its own fail-soft catch.
-// An unreadable or missing seasonal-lines setting is not an error: the default set applies.
+// A MISSING seasonal-lines setting (no row, or a value that is not a JSON list) means the default set applies. A READ
+// ERROR of the setting is an error like a Budget read error (it throws / counts as failed): once the owner can edit the
+// set, a transient failure must not silently swap his set for the default one for that request.
 
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
+  DEFAULT_SEASONAL_TAG_PATHS,
   isBudgetPeriod,
   parseSeasonalLinesSetting,
   resolveBudgetRows,
@@ -80,14 +83,41 @@ export interface LoadedEffectiveBudgets {
   failed: boolean;
 }
 
+/** null = absent or not a list (the default set applies). THROWS when the read itself fails. */
 async function readSeasonalLines(): Promise<SeasonalLine[] | null> {
-  try {
-    const row = await db.appSetting.findUnique({ where: { key: SEASONAL_LINES_KEY }, select: { value: true } });
-    return parseSeasonalLinesSetting(row?.value);
-  } catch (err) {
-    console.error("Seasonal budget lines setting unreadable, default set applies", err instanceof Error ? err.name : "UnknownError");
-    return null; // unreadable setting: the default set applies
+  const row = await db.appSetting.findUnique({ where: { key: SEASONAL_LINES_KEY }, select: { value: true } });
+  return parseSeasonalLinesSetting(row?.value);
+}
+
+export interface VariableLine {
+  entityId: string;
+  tagId: string;
+  /** Full tag path, e.g. "Utilities / Oil". */
+  tagName: string;
+}
+
+/**
+ * The seasonal (variable) lines: the owner's setting when present, else the default tag paths wherever a Budget row
+ * exists for them. Read-only, explicit selects. Throws when the setting or a table cannot be read (the seasonal
+ * loader counts that as failed).
+ */
+export async function loadVariableLines(): Promise<VariableLine[]> {
+  const setting = await readSeasonalLines();
+  if (setting !== null) {
+    if (setting.length === 0) return [];
+    const tags = await db.tag.findMany({ where: { id: { in: setting.map((s) => s.tagId) } }, select: { id: true, name: true } });
+    const nameById = new Map(tags.map((t) => [t.id, t.name]));
+    return setting.flatMap((s) => {
+      const name = nameById.get(s.tagId);
+      return name === undefined ? [] : [{ entityId: s.entityId, tagId: s.tagId, tagName: name }];
+    });
   }
+  const rows = await db.budget.findMany({
+    where: { tag: { name: { in: [...DEFAULT_SEASONAL_TAG_PATHS] } } },
+    distinct: ["entityId", "tagId"],
+    select: { entityId: true, tagId: true, tag: { select: { name: true } } },
+  });
+  return rows.map((r) => ({ entityId: r.entityId, tagId: r.tagId, tagName: r.tag.name }));
 }
 
 async function resolveLoaded<T extends CarryRowBase & { tag?: { name?: string } | null }>(
@@ -95,7 +125,7 @@ async function resolveLoaded<T extends CarryRowBase & { tag?: { name?: string } 
   periods: readonly string[]
 ): Promise<Array<ResolvedBudgetRow<T>>> {
   const variableKeys = variableLineKeys(rows, await readSeasonalLines());
-  return resolveBudgetRows(rows, periods, { variableKeys });
+  return resolveBudgetRows(rows, periods, { variableKeys, carryVariable: true });
 }
 
 /**

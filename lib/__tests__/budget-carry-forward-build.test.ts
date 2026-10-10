@@ -82,7 +82,8 @@ describe("loadEffectiveBudgetRows", () => {
     expect(mockDb.budget.findMany).not.toHaveBeenCalled();
   });
 
-  it("default variable lines (by tag path) are not carried; their own rows still come back flagged", async () => {
+  // Step 2: the variable lines now carry their flat figure as the FALLBACK for the seasonal model (flagged variable).
+  it("default variable lines (by tag path) are flagged and carry their flat figure as the fallback", async () => {
     mockDb.budget.findMany.mockResolvedValue([
       dbRow("elec", "Utilities / Electric (Eversource)", "2026-12"),
       dbRow("oil", "Utilities / Oil", "2026-12"),
@@ -92,23 +93,30 @@ describe("loadEffectiveBudgetRows", () => {
     const own = await loadEffectiveBudgetRows({ periods: ["2026-12"] });
     expect(own.filter((r) => r.variable).map((r) => r.tagId).sort()).toEqual(["elec", "oil", "wood"]);
     const later = await loadEffectiveBudgetRows({ periods: ["2027-01"] });
-    expect(later.map((r) => r.tagId)).toEqual(["sol"]);
+    expect(later.map((r) => r.tagId).sort()).toEqual(["elec", "oil", "sol", "wood"]);
+    expect(later.filter((r) => r.variable).map((r) => r.tagId).sort()).toEqual(["elec", "oil", "wood"]);
+    expect(later.every((r) => r.source === "carried" && r.carriedFrom === "2026-12")).toBe(true);
   });
 
   it("the owner's setting replaces the default set", async () => {
     mockDb.appSetting.findUnique.mockResolvedValue({ value: JSON.stringify([{ entityId: P, tagId: "sol" }]) });
     mockDb.budget.findMany.mockResolvedValue([dbRow("oil", "Utilities / Oil", "2026-12"), dbRow("sol", "Utilities / Solar", "2026-12")]);
     const later = await loadEffectiveBudgetRows({ periods: ["2027-01"] });
-    expect(later.map((r) => r.tagId)).toEqual(["oil"]); // Oil now carries; Solar is the variable one
+    expect(later.map((r) => r.tagId).sort()).toEqual(["oil", "sol"]);
+    expect(later.filter((r) => r.variable).map((r) => r.tagId)).toEqual(["sol"]); // Oil is no longer variable; Solar is
     expect(mockDb.appSetting.findUnique).toHaveBeenCalledWith({ where: { key: "seasonal_budget_lines" }, select: { value: true } });
   });
 
-  it("a garbage or unreadable setting falls back to the default set and never throws", async () => {
+  it("a garbage setting value falls back to the default set; a setting READ ERROR throws (step 2, Reviewer note on step 1)", async () => {
     mockDb.budget.findMany.mockResolvedValue([dbRow("oil", "Utilities / Oil", "2026-12"), dbRow("sol", "Utilities / Solar", "2026-12")]);
     mockDb.appSetting.findUnique.mockResolvedValue({ value: "{not json" });
-    expect((await loadEffectiveBudgetRows({ periods: ["2027-01"] })).map((r) => r.tagId)).toEqual(["sol"]);
+    const garbage = await loadEffectiveBudgetRows({ periods: ["2027-01"] });
+    expect(garbage.filter((r) => r.variable).map((r) => r.tagId)).toEqual(["oil"]); // the default set applied
+    // An unreadable setting must not silently swap the owner's set for the default one: the read fails instead.
     mockDb.appSetting.findUnique.mockRejectedValue(new Error("down"));
-    expect((await loadEffectiveBudgetRows({ periods: ["2027-01"] })).map((r) => r.tagId)).toEqual(["sol"]);
+    await expect(loadEffectiveBudgetRows({ periods: ["2027-01"] })).rejects.toThrow("down");
+    const safe = await loadEffectiveBudgetRowsSafe({ periods: ["2027-01"] });
+    expect(safe).toEqual({ rows: [], failed: true });
   });
 
   it("a Budget read error is thrown (consumers that already propagated it keep doing so)", async () => {
@@ -154,7 +162,8 @@ describe("the loader module is read-only", () => {
     expect(src).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$executeRaw|\$queryRaw|\$transaction/);
     expect(src).not.toMatch(/^"use server"/m);
     expect(src).not.toMatch(/\binclude:/);
-    expect(src.match(/\.findMany\(/g)).toHaveLength(2);
+    // two Budget reads (rows, schedule rows) + the variable-lines helper's Tag and distinct Budget reads
+    expect(src.match(/\.findMany\(/g)).toHaveLength(4);
     expect(src.match(/\.findUnique\(/g)).toHaveLength(1);
   });
 });

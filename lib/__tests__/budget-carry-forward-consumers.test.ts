@@ -99,18 +99,18 @@ describe("the Budget date index carries forward", () => {
     mockDb.budget.findMany.mockResolvedValue([
       dbRow(P, "t-sol", "Utilities / Solar", "2026-12", { payDay: 14 }),
       dbRow(P, "t-gone", "Utilities / Old Gym", "2026-11", { payDay: 3 }), // dropped from 2026-12: ended
-      dbRow(P, "t-elec", "Utilities / Electric (Eversource)", "2026-12", { payDay: 20 }), // variable: not carried yet
+      dbRow(P, "t-elec", "Utilities / Electric (Eversource)", "2026-12", { payDay: 20 }), // variable: carries its flat figure as the seasonal model's fallback (step 2)
     ]);
   });
 
-  it("a 2027 window holds the 2026-12 Solar row for each month, marked carriedFrom; ended and variable lines are absent", async () => {
+  it("a 2027 window holds the 2026-12 Solar row for each month, marked carriedFrom; the ended line is absent, the variable line carries too (step 2)", async () => {
     const r = await loadBudgetScheduleIndex({ from: D("2027-01-01"), to: D("2027-04-01") });
     expect(r.failed).toBe(false);
     const solar = r.index.get(`${P}|t-sol`)!;
     expect([...solar.keys()].sort()).toEqual(["2027-01", "2027-02", "2027-03"]);
     expect(solar.get("2027-02")).toMatchObject({ payDay: 14, carriedFrom: "2026-12" });
     expect(r.index.has(`${P}|t-gone`)).toBe(false);
-    expect(r.index.has(`${P}|t-elec`)).toBe(false);
+    expect(r.index.get(`${P}|t-elec`)!.get("2027-02")).toMatchObject({ payDay: 20, carriedFrom: "2026-12" });
   });
 
   it("the bill is dated by the carried Budget day in 2027 (the record says 17)", async () => {
@@ -127,10 +127,10 @@ describe("the Budget date index carries forward", () => {
     expect(effectiveSchedule(solarBill, index, "2026-12")).toMatchObject({ basis: "budget", carriedFrom: null });
   });
 
-  it("a variable line keeps the bill record's own day (current behaviour) in 2027", async () => {
+  it("a variable line is dated by its carried Budget day in 2027 (step 2: the flat figure is the fallback)", async () => {
     const { index } = await loadBudgetScheduleIndex({ from: D("2027-01-01"), to: D("2027-02-01") });
     const elec = { ...solarBill, id: "bill-elec", payee: "Electric (Eversource)", autopayDay: 20, budgetTagId: "t-elec" };
-    expect(effectiveSchedule(elec, index, "2027-01")).toMatchObject({ basis: "bill", carriedFrom: null });
+    expect(effectiveSchedule(elec, index, "2027-01")).toMatchObject({ basis: "budget", budgetDay: 20, carriedFrom: "2026-12" });
   });
 
   it("a Budget read error is fail-soft: empty index, failed true", async () => {
@@ -263,10 +263,11 @@ describe("advisor budgets (get_budget_status)", () => {
   });
   const bounds = { start: D("2027-01-01"), end: D("2027-02-01") };
 
-  it("a month with no rows shows the carried lines with carriedFrom; rollover is not carried; Oil (variable) is not shown", async () => {
+  it("a month with no rows shows the carried lines with carriedFrom; rollover is not carried; Oil (variable) carries its flat figure as the fallback", async () => {
     const facts = await loadBudgetFacts("2027-01", bounds, null);
     expect(facts.map((f) => [f.shortName, f.carriedFrom, f.budgeted])).toEqual([
       ["Groceries", "2026-12", "1200.00"],
+      ["Oil", "2026-12", "308.00"],
       ["Insurance", "2026-12", "80.00"],
     ]);
     expect(facts[0]!.rolloverAmount).toBe("0.00");

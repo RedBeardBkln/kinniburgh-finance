@@ -17,6 +17,8 @@ import { getEntityBySlug } from "@/lib/entity";
 import { loadNetIncomeSources } from "@/lib/net-income-build";
 import { effectiveSchedule, generateBillOccurrencesBudgetDated } from "@/lib/bill-dates";
 import { loadBudgetScheduleIndex } from "@/lib/bill-dates-build";
+import { planForBill } from "@/lib/seasonal-energy";
+import { loadSeasonalPlansSafe } from "@/lib/seasonal-energy-build";
 
 async function requireAuth() {
   const session = await auth();
@@ -508,6 +510,8 @@ export async function getEnvelopeForecastData(bucket: string = "personal"): Prom
   });
   // Bills are dated by their Budget row month by month (fail-soft: the bill records' own dates on error).
   const budgetDates = await loadBudgetScheduleIndex({ from, to });
+  // Seasonal estimates for Electric / Oil (only after their gate passed; fail-soft: flat amounts on any error).
+  const seasonal = await loadSeasonalPlansSafe({ now: from });
   const thisPeriod = from.toISOString().slice(0, 7);
   // The day / weekday a bill is paid on this month: the Budget row's when it has a usable schedule.
   const billTiming = (b: (typeof accounts)[number]["scheduledBills"][number]) => {
@@ -540,7 +544,7 @@ export async function getEnvelopeForecastData(bucket: string = "personal"): Prom
         estimatedDate: d.estimatedDate,
         estimatedAmount: d.estimatedAmount,
       }));
-      events.push(...generateBillOccurrencesBudgetDated(b, budgetDates.index, from, to, draws));
+      events.push(...generateBillOccurrencesBudgetDated(b, budgetDates.index, from, to, draws, planForBill(seasonal.plans, b)));
     }
     // Paychecks are TAKE-HOME (lib/net-income-build.ts), never the stored gross amount.
     for (const s of await loadNetIncomeSources({ where: { accountId: account.id } })) {

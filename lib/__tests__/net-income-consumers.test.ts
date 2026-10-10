@@ -8,6 +8,8 @@ const { flowDb, loadIncome } = vi.hoisted(() => ({
     scheduledTransfer: { findMany: vi.fn() },
     scheduledBill: { findMany: vi.fn() },
     budget: { findMany: vi.fn() },
+    // The seasonal-lines setting is read by the shared Budget loader; a read error now fails the read (step 2).
+    appSetting: { findUnique: vi.fn().mockResolvedValue(null) },
   },
   loadIncome: vi.fn(),
 }));

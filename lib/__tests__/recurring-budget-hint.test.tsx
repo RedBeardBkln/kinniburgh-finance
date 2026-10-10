@@ -16,6 +16,8 @@ vi.mock("@/actions/recurring-suggestions", () => ({
 
 const mockDb = vi.hoisted(() => ({
   budget: { findMany: vi.fn() },
+  // The seasonal-lines setting is read by the shared Budget loader; a read error now fails the read (step 2).
+  appSetting: { findUnique: vi.fn() },
   scheduledBill: { findMany: vi.fn() },
   recurringExpense: { findMany: vi.fn() },
 }));
@@ -254,6 +256,7 @@ describe("the review list passes the numbers down without per-row copies", () =>
 describe("loadBudgetHints", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDb.appSetting.findUnique.mockResolvedValue(null);
     mockDb.budget.findMany.mockResolvedValue([
       { id: "b1", entityId: E, tagId: TAG, period: "2026-10", budgeted: new Decimal("60.00"), additionalAmountCents: new Decimal("1500") },
       { id: "b2", entityId: E, tagId: "t-parent", period: "2026-10", budgeted: null, additionalAmountCents: new Decimal("0") },

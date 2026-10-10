@@ -14,6 +14,8 @@ import { loadNetIncomeSources } from "@/lib/net-income-build";
 import type { NetBasis } from "@/lib/net-income";
 import { loadBudgetScheduleIndex } from "@/lib/bill-dates-build";
 import type { BudgetScheduleIndex } from "@/lib/bill-dates";
+import type { BillSeasonalPlan } from "@/lib/seasonal-energy";
+import { loadSeasonalPlansSafe } from "@/lib/seasonal-energy-build";
 
 export interface ForecastAccountRow {
   id: string;
@@ -84,12 +86,14 @@ export interface ForecastInputs {
   entityNameById: Record<string, string>;
   /** Budget schedule rows for the projection window: a bill is dated by its Budget row. Absent / empty = the bill records' dates. */
   budgetIndex?: BudgetScheduleIndex;
+  /** Seasonal estimates for Electric / Oil bills whose model gate has passed (lib/seasonal-energy.ts). Absent / empty = flat amounts. */
+  seasonalPlans?: BillSeasonalPlan[];
 }
 
 export async function loadForecastInputs(now: Date = new Date()): Promise<ForecastInputs> {
   const windowEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + 91 * 86_400_000);
   const windowStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const [accounts, transfers, incomeRows, bills, loadedCards, entities, budgetDates] = await Promise.all([
+  const [accounts, transfers, incomeRows, bills, loadedCards, entities, budgetDates, seasonal] = await Promise.all([
     db.account.findMany({
       where: { archivedAt: null, accountType: "checking", minimumBalance: { not: null }, entity: { type: "personal" } },
       orderBy: { nickname: "asc" },
@@ -127,6 +131,7 @@ export async function loadForecastInputs(now: Date = new Date()): Promise<Foreca
     loadCardProjections({ now }),
     db.entity.findMany({ where: { archivedAt: null }, take: 20, select: { id: true, name: true } }),
     loadBudgetScheduleIndex({ from: windowStart, to: windowEnd }),
+    loadSeasonalPlansSafe({ now }),
   ]);
   const incomes: ForecastIncomeRow[] = incomeRows.map((s) => ({
     id: s.id,
@@ -145,6 +150,7 @@ export async function loadForecastInputs(now: Date = new Date()): Promise<Foreca
     incomes,
     bills,
     budgetIndex: budgetDates.index,
+    seasonalPlans: seasonal.plans,
     cardProjections: loadedCards.projections,
     cardProjectionsFailed: loadedCards.error,
     entityNameById: Object.fromEntries(entities.map((e) => [e.id, e.name])),

@@ -86,7 +86,7 @@ export async function loadUpcomingLedgerInput(args: {
       },
     }),
     // Effective Budget rows: a month with no row for a line carries the latest earlier row of that line (read-time,
-    // lib/budget-carry-forward.ts); the variable (seasonal) lines are not carried yet.
+    // lib/budget-carry-forward.ts); the variable (seasonal) lines carry their flat figure as the fallback for the seasonal model.
     loadEffectiveBudgetRows({ periods: periodsTouched(from, to), entityId }),
     db.recurringExpense.findMany({
       where: entityWhere,

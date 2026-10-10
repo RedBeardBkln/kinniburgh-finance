@@ -154,12 +154,12 @@ describe("TESTER: loader call shape", () => {
     expect(desc.map((r) => [r.carriedFrom, r.budgeted?.toString()])).toEqual([["2026-12", "999"]]);
   });
 
-  it("a setting row with a null / non-JSON / non-array value falls back to the default (Oil stays non-carried)", async () => {
+  it("a setting row with a null / non-JSON / non-array value falls back to the default (Oil is the variable line; both carry in step 2)", async () => {
     mockDb.budget.findMany.mockResolvedValue([dbRow(P, "oil", "Utilities / Oil", "2026-12"), dbRow(P, "sol", "Utilities / Solar", "2026-12")]);
     for (const value of [null, "", "garbage", "{}", "42"]) {
       mockDb.appSetting.findUnique.mockResolvedValue({ value });
       const r = await loadEffectiveBudgetRows({ periods: ["2027-01"] });
-      expect(r.map((x) => x.tag.name), String(value)).toEqual(["Utilities / Solar"]);
+      expect(r.map((x) => [x.tag.name, x.variable]).sort(), String(value)).toEqual([["Utilities / Oil", true], ["Utilities / Solar", false]]);
     }
   });
 
@@ -170,11 +170,10 @@ describe("TESTER: loader call shape", () => {
     expect(r.map((x) => [x.tag.name, x.source])).toEqual([["Utilities / Oil", "carried"]]);
   });
 
-  it("a thrown setting read (e.g. table missing) never breaks the Budget read", async () => {
+  it("a thrown setting read (e.g. table missing) FAILS the read (step 2): the owner's set is never silently swapped for the default", async () => {
     mockDb.appSetting.findUnique.mockRejectedValue(new Error("relation does not exist"));
     mockDb.budget.findMany.mockResolvedValue([dbRow(P, "sol", "Utilities / Solar", "2026-12")]);
-    const r = await loadEffectiveBudgetRows({ periods: ["2027-01"] });
-    expect(r).toHaveLength(1);
+    await expect(loadEffectiveBudgetRows({ periods: ["2027-01"] })).rejects.toThrow("relation does not exist");
   });
 
   it("the schedule-only read (date index) has NO period filter and is not entity-scoped: the frontier needs later rows, the carry needs earlier ones", async () => {
@@ -205,7 +204,7 @@ describe("TESTER: loader call shape", () => {
 });
 
 describe("TESTER: notifications on a month with no row", () => {
-  it("overspend: a variable line (Oil) and an ended line produce NO alert even at 200% of their old budget", async () => {
+  it("overspend: an ended line produces NO alert; a variable line (Oil) alerts against its carried figure like any other (step 2)", async () => {
     mockDb.budget.findMany.mockResolvedValue([
       dbRow(P, "oil", "Utilities / Oil", "2026-12", { budgeted: new Decimal("100") }),
       dbRow(P, "gone", "Utilities / Old Gym", "2026-11", { budgeted: new Decimal("100") }),
@@ -216,9 +215,9 @@ describe("TESTER: notifications on a month with no row", () => {
       { tagId: "gone", total: "-200" },
       { tagId: "keep", total: "-95" },
     ]);
-    expect(await checkBudgetOverspend("2027-01")).toBe(1);
-    const payload = (mockDb.notification.create.mock.calls[0]![0] as { data: { payload: { tagName: string } } }).data.payload;
-    expect(payload.tagName).toBe("Solar");
+    expect(await checkBudgetOverspend("2027-01")).toBe(2);
+    const tagNames = mockDb.notification.create.mock.calls.map((c) => (c[0] as { data: { payload: { tagName: string } } }).data.payload.tagName).sort();
+    expect(tagNames).toEqual(["Oil", "Solar"]); // the ended "Old Gym" never alerts
   });
 
   it("overspend for the source month itself is unchanged: own rows only, own rollover", async () => {
@@ -269,7 +268,7 @@ describe("TESTER: assistant overview context", () => {
     mockDb.scheduledTransfer.findMany.mockResolvedValue([]);
   };
 
-  it("marks a carried line and not an own line; Oil (variable) is absent in a month with no row; totals use the carried figures", async () => {
+  it("marks a carried line and not an own line; Oil (variable) carries its flat figure in a month with no row; totals use the carried figures", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2027-01-15T12:00:00Z"));
     prime();
@@ -279,8 +278,8 @@ describe("TESTER: assistant overview context", () => {
     ]);
     const text = await buildAdvisorContext();
     expect(text).toMatch(/Solar \(Personal\): budgeted \$506\.00, spent \$0\.00 .* \[carried forward from 2026-12\]/);
-    expect(text).not.toMatch(/Oil \(Personal\)/);
-    expect(text).toMatch(/Total budgeted: \$506\.00/);
+    expect(text).toMatch(/Oil \(Personal\): budgeted \$308\.00.* \[carried forward from 2026-12\]/);
+    expect(text).toMatch(/Total budgeted: \$814\.00/);
   });
 
   it("an own month has no marker at all", async () => {
