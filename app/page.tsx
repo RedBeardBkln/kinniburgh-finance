@@ -16,6 +16,7 @@ import { DashboardClient } from "@/components/dashboard/dashboard-client";
 import { DrillButton } from "@/components/dashboard/drill-button";
 import { BudgetLinesTable } from "@/components/dashboard/budget-lines-table";
 import { resolveEffectiveBudgets } from "@/lib/budget-effective";
+import { loadEffectiveBudgetRows, loadFirstEditContextSafe } from "@/lib/budget-carry-forward-build";
 import { buildMonthSpend, currentPeriodNY, isValidPeriod } from "@/lib/month-spend";
 import { loadMonthTransactions } from "@/lib/month-spend-build";
 import { loadOwnAccountByMask } from "@/lib/own-account-masks-build";
@@ -57,19 +58,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const [budgetRows, tagRows, accounts, scheduledTransfers, recurringRows, monthTxs, ownAccountByMask] = await Promise.all([
     settle(
       "budget lines",
-      db.budget.findMany({
-        where: { ...(entity && { entityId: entity.id }), period },
-        select: {
-          id: true,
-          tagId: true,
-          accountId: true,
-          budgeted: true,
-          additionalAmountCents: true,
-          rolloverAmount: true,
-          account: { select: { nickname: true, entity: { select: { name: true } } } },
-        },
-        orderBy: [{ account: { nickname: "asc" } }, { tag: { name: "asc" } }],
-      })
+      // The month's EFFECTIVE lines (shared loader): its own rows plus lines carried forward from the latest earlier
+      // month, the same rows /budgets shows, so Total Budgeted agrees between the two screens.
+      loadEffectiveBudgetRows({ periods: [period], entityId: entity?.id ?? null }).then((rows) =>
+        rows.sort((a, b) => a.account.nickname.localeCompare(b.account.nickname) || a.tag.name.localeCompare(b.tag.name))
+      )
     ),
     settle("tags", db.tag.findMany({ select: { id: true, name: true, shortName: true, parentId: true }, orderBy: { name: "asc" } })),
     settle(
@@ -118,6 +111,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     settle("own account masks", loadOwnAccountByMask()),
   ]);
 
+  // A line that is only carried in this month saves the carried budget when it is edited here; count the months so the
+  // line dialog can say so before the owner changes anything (read only, fail-soft: without it the note drops the count).
+  const editContext = budgetRows?.some((b) => b.source === "carried")
+    ? await loadFirstEditContextSafe({ period, entityId: entity?.id ?? null })
+    : null;
+
   // "Next 30 days" widget: about today, so only on the current month. It is NOT loaded here: it renders through
   // <UpcomingWidgetSection> inside a <Suspense> boundary below, so the ledger and the recurring-pattern checks never
   // hold up the rest of the dashboard. The page has already run auth() above (the section loads read-only data
@@ -154,6 +153,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         tags: tagRows,
         budgets: budgetRows.map((b) => ({
           id: b.id,
+          entityId: b.entityId,
+          carriedFrom: b.carriedFrom,
           tagId: b.tagId,
           accountId: b.accountId,
           accountName: b.account.nickname,
@@ -187,6 +188,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         isAllEntities: entity === null,
         periodQuery: isCurrentPeriod ? "" : `&period=${period}`,
         ownAccountByMask,
+        firstEditMonths: editContext?.saveMonths ?? null,
       });
     } catch (err) {
       drill = null;

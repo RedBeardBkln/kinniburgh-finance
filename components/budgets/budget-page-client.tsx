@@ -10,6 +10,7 @@ import { BudgetLineEditor } from "./budget-line-editor";
 import { formatUSD } from "@/lib/utils";
 import { nestBudgetLines, type NestedBudgetRow } from "@/lib/budget-nesting";
 import { formatSchedule, scheduleSortKey } from "@/lib/schedule-display";
+import { endLineConfirmText } from "@/lib/budget-first-edit-note";
 
 type RecurringExpenseSummary = {
   id: string;
@@ -20,7 +21,15 @@ type RecurringExpenseSummary = {
 };
 
 export interface SerializedBudgetLine {
+  /** A real Budget id, or a synthetic `carried:...` key for a carried line. Only a React/Map key: never sent to an action. */
   id: string;
+  entityId: string;
+  /** "carried" = no row of its own this month; the figures are copied from `carriedFrom` until the first change. */
+  source: "own" | "carried";
+  carriedFrom: string | null;
+  carriedFromLabel: string | null;
+  /** Saved months AFTER the month shown that already hold this line (ending it removes them); null = could not be read. */
+  laterSavedMonths: number | null;
   tagId: string;
   tagName: string;
   accountId: string;
@@ -94,6 +103,8 @@ interface BudgetPageClientProps {
   totalActual: number;
   /** Plain note under Total Spent when some spending sits outside every budget line (null = nothing to say). */
   spentNote?: string | null;
+  /** One quiet notice when some lines of this month are carried forward (null = none). */
+  carriedNotice?: string | null;
   totalRemaining: number;
   periodLabel: string;
   entityName: string;
@@ -101,7 +112,7 @@ interface BudgetPageClientProps {
 }
 
 interface BudgetRowForEdit {
-  id: string;
+  entityId: string;
   tagId: string;
   tagName: string;
   accountId: string;
@@ -124,6 +135,7 @@ export function BudgetPageClient({
   totalBudgeted,
   totalActual,
   spentNote = null,
+  carriedNotice = null,
   totalRemaining,
   periodLabel,
   entityName,
@@ -161,7 +173,8 @@ export function BudgetPageClient({
     });
   }
 
-  async function saveAdditional(budgetId: string, currentCents: number) {
+  async function saveAdditional(line: SerializedBudgetLine, currentCents: number) {
+    const budgetId = line.id;
     const raw = additionalEdits[budgetId];
     if (raw === undefined) return;
     const dollars = parseFloat(raw);
@@ -169,8 +182,13 @@ export function BudgetPageClient({
     const cents = Math.round(dollars * 100);
     if (cents === currentCents) return;
     setSavingAdditional(budgetId);
-    await updateBudgetAdditionalAmount(budgetId, cents);
+    const result = await updateBudgetAdditionalAmount({ entityId: line.entityId, tagId: line.tagId, period }, cents);
     setSavingAdditional(null);
+    if ("error" in result) {
+      alert(result.error);
+      router.refresh();
+      return;
+    }
     setAdditionalEdits((prev) => { const n = { ...prev }; delete n[budgetId]; return n; });
     router.refresh();
   }
@@ -179,7 +197,7 @@ export function BudgetPageClient({
     setModal({
       type: "edit",
       row: {
-        id: b.id,
+        entityId: b.entityId,
         tagId: b.tagId,
         tagName: b.tagName,
         accountId: b.accountId,
@@ -197,12 +215,15 @@ export function BudgetPageClient({
     });
   }
 
-  function onDelete(id: string) {
-    if (!confirm("Delete this budget line? The linked scheduled bill will also be deactivated.")) return;
-    setDeletingId(id);
+  // "End line" ends the line from this month on (owner decision: no one-month skip). The confirm says how many saved
+  // later months go with it.
+  function onDelete(b: SerializedBudgetLine) {
+    if (!confirm(endLineConfirmText(b.tagName, periodLabel, b.laterSavedMonths))) return;
+    setDeletingId(b.id);
     startTransition(async () => {
-      await deleteBudget(id);
+      const result = await deleteBudget({ entityId: b.entityId, tagId: b.tagId, period });
       setDeletingId(null);
+      if ("error" in result) alert(result.error);
       router.refresh();
     });
   }
@@ -270,6 +291,15 @@ export function BudgetPageClient({
             </button>
           </div>
         </div>
+
+        {carriedNotice && (
+          <p
+            data-testid="carried-notice"
+            className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+          >
+            {carriedNotice}
+          </p>
+        )}
 
         {/* Annual-bill funding warnings */}
         {(underfundedAnnual.length > 0 || annualReserveAlerts.length > 0) && (
@@ -392,6 +422,11 @@ export function BudgetPageClient({
                               ) : (
                                 depth > 0 ? (tagShortNameById.get(b.tagId) ?? b.tagName) : b.tagName
                               )}
+                              {b.source === "carried" && b.carriedFromLabel && (
+                                <span className="block text-[11px] font-normal text-muted-foreground">
+                                  Carried from {b.carriedFromLabel}
+                                </span>
+                              )}
                             </td>
                             <td className="px-4 py-2 text-muted-foreground">
                               {b.frequency !== "monthly" || b.payDay ? (
@@ -419,7 +454,11 @@ export function BudgetPageClient({
                                   {formatUSD(b.budgeted)}
                                 </span>
                               ) : (
-                                <BudgetLineEditor budgetId={b.id} currentBudgeted={b.budgeted} rawBudgeted={b.budgetedRaw} />
+                                <BudgetLineEditor
+                                  locator={{ entityId: b.entityId, tagId: b.tagId, period }}
+                                  currentBudgeted={b.budgeted}
+                                  rawBudgeted={b.budgetedRaw}
+                                />
                               )}
                             </td>
                             <td className={`px-4 py-2 text-right text-xs ${b.rolloverAmount < 0 ? "text-destructive" : b.rolloverAmount === 0 ? "text-muted-foreground" : "text-green-600"}`}>
@@ -453,11 +492,11 @@ export function BudgetPageClient({
                                   Edit
                                 </button>
                                 <button
-                                  onClick={() => onDelete(b.id)}
+                                  onClick={() => onDelete(b)}
                                   disabled={deletingId === b.id}
                                   className="text-xs text-destructive hover:underline disabled:opacity-50"
                                 >
-                                  Delete
+                                  End line
                                 </button>
                               </div>
                             </td>
@@ -512,9 +551,9 @@ export function BudgetPageClient({
                                         onChange={(e) =>
                                           setAdditionalEdits((prev) => ({ ...prev, [b.id]: e.target.value }))
                                         }
-                                        onBlur={() => saveAdditional(b.id, b.additionalAmountCents)}
+                                        onBlur={() => saveAdditional(b, b.additionalAmountCents)}
                                         onKeyDown={(e) => {
-                                          if (e.key === "Enter") void saveAdditional(b.id, b.additionalAmountCents);
+                                          if (e.key === "Enter") void saveAdditional(b, b.additionalAmountCents);
                                         }}
                                         className="w-24 rounded border px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                                         disabled={savingAdditional === b.id}

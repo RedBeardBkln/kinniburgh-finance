@@ -194,11 +194,13 @@ describe("TESTER: loader call shape", () => {
     await loadEffectiveBudgetRows({ periods: ["2027-01"] });
     const arg = mockDb.budget.findMany.mock.calls[0]![0] as { select: Record<string, unknown>; take: number; orderBy: unknown };
     expect(Object.keys(arg.select).sort()).toEqual(
-      ["accountId", "additionalAmountCents", "annualAmountDue", "biweeklyAnchorDate", "budgeted", "entity", "entityId", "frequency", "id", "payDay", "payDayOfWeek", "payMonth", "period", "rolloverAmount", "rolloverEnabled", "tag", "tagId"]
+      ["account", "accountId", "additionalAmountCents", "annualAmountDue", "biweeklyAnchorDate", "budgeted", "entity", "entityId", "frequency", "id", "payDay", "payDayOfWeek", "payMonth", "period", "rolloverAmount", "rolloverEnabled", "tag", "tagId"]
     );
     expect(arg.take).toBe(5000);
     expect(arg.select.entity).toEqual({ select: { id: true, name: true, slug: true } });
     expect(arg.select.tag).toEqual({ select: { id: true, name: true, shortName: true, parentId: true } });
+    // label fields only for the screens that show the paying account (no balance, mask or number)
+    expect(arg.select.account).toEqual({ select: { nickname: true, entity: { select: { name: true } } } });
     expect(arg.orderBy).toEqual([{ period: "desc" }]);
   });
 });

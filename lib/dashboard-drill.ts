@@ -6,6 +6,7 @@
 // Client-safe: no Decimal, no database, no server imports. All arithmetic here is integer cents.
 import { CLASS_CHIPS, CLASS_LABELS, CLASS_WHY, type TxClass } from "@/lib/month-spend-labels";
 import { rowLabel } from "@/lib/dashboard-budget-tree";
+import { carriedEditNote } from "@/lib/budget-first-edit-note";
 
 export interface DrillTx {
   id: string;
@@ -26,8 +27,12 @@ export interface DrillTx {
 }
 
 export interface DrillLine {
-  /** The Budget row id. */
+  /** The Budget row id, or a synthetic `carried:...` key for a line carried forward from an earlier month. */
   id: string;
+  /** The entity that owns the line (with tagId and the page's period it names the line to the edit action). */
+  entityId: string;
+  /** The month the figures were carried from when the line has no row of its own in the month shown; else null. */
+  carriedFrom: string | null;
   tagId: string;
   /** Full tag path. */
   label: string;
@@ -129,6 +134,8 @@ export interface DrillData {
   totalBudgetedCents: number;
   overspentCount: number;
   entityBreakdown: { entity: string; spentCents: number }[] | null;
+  /** entity id -> the months a first change in this month would save (null = not counted); for the carried-line note. */
+  firstEditMonths: Record<string, string[]> | null;
   accounts: DrillAccount[];
   transfers: DrillTransfer[];
 }
@@ -190,7 +197,16 @@ export interface DrillView {
   infoRows: { label: string; value: string }[];
   notes: string[];
   links: { label: string; href: string }[];
-  lineEdit: { budgetId: string; rawCents: number | null; resolvedCents: number } | null;
+  /** Which line the inline amount edit changes: a locator (never a Budget id, a carried line has none). */
+  lineEdit: {
+    entityId: string;
+    tagId: string;
+    period: string;
+    rawCents: number | null;
+    resolvedCents: number;
+    /** Muted note when the line is only carried in this month: what a change saves (null = the line has a row of its own). */
+    carriedNote: string | null;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -662,7 +678,14 @@ function lineView(data: DrillData, lineId: string): DrillView {
     ],
     notes,
     links: [{ label: "Open Budgets", href: data.hrefs.budgets }],
-    lineEdit: { budgetId: line.id, rawCents: line.rawCents, resolvedCents: line.budgetCents },
+    lineEdit: {
+      entityId: line.entityId,
+      tagId: line.tagId,
+      period: data.period,
+      rawCents: line.rawCents,
+      resolvedCents: line.budgetCents,
+      carriedNote: line.carriedFrom ? carriedEditNote(line.carriedFrom, data.firstEditMonths?.[line.entityId] ?? null) : null,
+    },
   };
 }
 

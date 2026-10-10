@@ -20,6 +20,8 @@ import { buildMonthSpend, currentPeriodNY, isValidPeriod } from "@/lib/month-spe
 import { loadMonthTransactions } from "@/lib/month-spend-build";
 import { loadOwnAccountByMask } from "@/lib/own-account-masks-build";
 import { centsText } from "@/lib/dashboard-drill";
+import { loadEffectiveBudgetRows, loadFirstEditContextSafe } from "@/lib/budget-carry-forward-build";
+import { carriedMonthNotice, formatPeriodLabel, periodRange, shiftPeriod } from "@/lib/budget-materialize";
 import { toCents as decimalToCents } from "@/lib/dashboard-drill-build";
 
 interface PageProps {
@@ -41,12 +43,11 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
   const entity = await getEntityBySlug(bucket);
   const bucketLabel = entity?.navLabel ?? entity?.name ?? "All Entities";
 
-  const [budgets, accounts, tags, recurringExpenses, budgetedTagIdsAllEntities] = await Promise.all([
-    db.budget.findMany({
-      where: { ...(entity && { entityId: entity.id }), period },
-      include: { tag: true, account: { include: { institution: true } } },
-      orderBy: [{ account: { nickname: "asc" } }, { tag: { name: "asc" } }],
-    }),
+  const [effectiveRows, accounts, tags, recurringExpenses] = await Promise.all([
+    // The month's EFFECTIVE lines (shared resolver): the month's own rows plus lines carried forward from the latest
+    // earlier month, so this screen shows what the forecast uses. Read once for every entity; the frontier that
+    // decides whether a line has ended is per entity anyway.
+    loadEffectiveBudgetRows({ periods: [period] }),
     db.account.findMany({
       where: { archivedAt: null, accountType: { in: ["checking", "savings"] } },
       orderBy: { nickname: "asc" },
@@ -56,11 +57,18 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
       where: entity ? { entityId: entity.id } : {},
       orderBy: { name: "asc" },
     }),
-    // A tag can only have one budget line per period across the whole
-    // household — once any entity has budgeted it, it's off the table for
-    // every other entity too. Scoped by period only (not entityId).
-    db.budget.findMany({ where: { period }, select: { tagId: true } }),
   ]);
+
+  // Lines of the bucket in view, ordered like the old query (account nickname, then category).
+  const budgets = effectiveRows
+    .filter((r) => !entity || r.entityId === entity.id)
+    .sort((a, b) => a.account.nickname.localeCompare(b.account.nickname) || a.tag.name.localeCompare(b.tag.name));
+  // How much a first change would save and how much ending a line would remove, counted by the same planner the write
+  // uses, so the owner is told BEFORE confirming. Fail-soft: without it the wording drops the counts.
+  const editContext = await loadFirstEditContextSafe({ period, entityId: entity?.id ?? null });
+  // A tag can only have one budget line per period across the whole household — once any entity has budgeted it
+  // (its own row or a carried one), it's off the table for every other entity too. All entities, this period.
+  const budgetedTagIdsAllEntities = effectiveRows.map((r) => r.tagId);
 
   // Build monthly sum per tagId for recurring expenses
   const recurringByTagId = new Map<string, Array<{ id: string; name: string; amountCents: number; frequency: string; monthlyEquivCents: number }>>();
@@ -137,6 +145,11 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
     });
     return {
       id: b.id,
+      entityId: b.entityId,
+      source: b.source,
+      carriedFrom: b.carriedFrom,
+      carriedFromLabel: b.carriedFrom ? formatPeriodLabel(b.carriedFrom) : null,
+      laterSavedMonths: editContext ? (editContext.laterSavedMonths[`${b.entityId}|${b.tagId}`] ?? 0) : null,
       tagId: b.tagId,
       tagName: b.tag.shortName,
       accountId: b.accountId,
@@ -173,12 +186,22 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
 
   // Account-level check: an account holding annual bills' accruing funds should
   // actually hold at least what those bills have accrued by now.
+  // (Balances are read only for the accounts that hold annual bills; the effective rows carry labels, not balances.)
+  const balanceByAccountId = new Map<string, { currentBalance: Prisma.Decimal | null; currentBalanceAt: Date | null }>();
+  if (annualByAccountId.size > 0) {
+    const balanceRows = await db.account.findMany({
+      where: { id: { in: [...annualByAccountId.keys()] } },
+      select: { id: true, currentBalance: true, currentBalanceAt: true },
+    });
+    for (const a of balanceRows) balanceByAccountId.set(a.id, a);
+  }
   const annualReserveAlerts = budgets
     .filter((b, i, arr) => arr.findIndex((x) => x.accountId === b.accountId) === i)
     .flatMap((b) => {
       const accrued = annualByAccountId.get(b.accountId);
       if (!accrued) return [];
-      const balance = b.account.currentBalance;
+      const acct = balanceByAccountId.get(b.accountId);
+      const balance = acct?.currentBalance ?? null;
       const reserve = assessAccountReserve(
         balance !== null ? toCents(new Prisma.Decimal(balance)) : null,
         accrued
@@ -188,7 +211,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
         {
           accountName: b.account.nickname,
           balance: decimalToNumber(new Prisma.Decimal(balance ?? 0)),
-          balanceAsOf: b.account.currentBalanceAt?.toISOString().slice(0, 10) ?? null,
+          balanceAsOf: acct?.currentBalanceAt?.toISOString().slice(0, 10) ?? null,
           reserved: reserve.reservedCents / 100,
           shortfall: reserve.shortfallCents / 100,
         },
@@ -208,12 +231,11 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
     : `Includes ${centsText(decimalToCents(outsideLines))} not in any budget line` +
       (spendModel.untagged.txIds.length > 0 ? ` (${centsText(decimalToCents(spendModel.untagged.spend))} untagged)` : "");
 
-  // Build period options (Jan–Dec of current year)
-  const periodOptions = Array.from({ length: 12 }, (_, i) => {
-    const m = String(i + 1).padStart(2, "0");
-    const p = `${now.getUTCFullYear()}-${m}`;
-    return { value: p, label: formatPeriod(p) };
-  });
+  // Period options: the last 12 months through the next 12 (crossing years), plus the month in the URL if outside.
+  const optionPeriods = periodRange(shiftPeriod(defaultPeriod, -12), shiftPeriod(defaultPeriod, 12));
+  if (!optionPeriods.includes(period)) optionPeriods.push(period);
+  optionPeriods.sort();
+  const periodOptions = optionPeriods.map((p) => ({ value: p, label: formatPeriodLabel(p) }));
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
@@ -230,14 +252,18 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
           budgets={serializedBudgets}
           accounts={accounts.map((a) => ({ id: a.id, nickname: a.nickname, mask: a.mask }))}
           tags={tags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName, parentId: t.parentId }))}
-          budgetedTagIdsAllEntities={budgetedTagIdsAllEntities.map((b) => b.tagId)}
+          budgetedTagIdsAllEntities={budgetedTagIdsAllEntities}
           entityId={entity?.id ?? ""}
           period={period}
           totalBudgeted={totalBudgeted}
           totalActual={totalActual}
           spentNote={spentNote}
+          carriedNotice={carriedMonthNotice(
+            budgets.map((b) => ({ source: b.source, carriedFrom: b.carriedFrom, entityId: b.entityId, entityName: b.entity.name })),
+            editContext?.saveMonths ?? null
+          )}
           totalRemaining={totalRemaining}
-          periodLabel={formatPeriod(period)}
+          periodLabel={formatPeriodLabel(period)}
           entityName={bucketLabel}
           annualReserveAlerts={annualReserveAlerts}
         />
@@ -248,12 +274,4 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
 
 function toCents(d: Prisma.Decimal): number {
   return d.times(100).toDecimalPlaces(0).toNumber();
-}
-
-function formatPeriod(period: string): string {
-  const [year, month] = period.split("-");
-  return new Date(Number(year), Number(month) - 1, 1).toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-  });
 }

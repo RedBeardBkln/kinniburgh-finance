@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { projectPeriodEndSpend, type MonthlySpendPoint } from "./spend-forecast";
 import { resolveBudgetedAmounts } from "./budget-nesting";
+import { loadEffectiveBudgetRows } from "./budget-carry-forward-build";
 import {
   previousPeriod,
   periodMidpointDate,
@@ -137,10 +138,9 @@ export async function buildMonthlyReviewData(period: string): Promise<ReviewData
   const { start: monthStart, end: monthEnd } = monthBounds(year, month);
 
   // ── Budget health + forward projection ──────────────────────────────────────
-  const budgets = await db.budget.findMany({
-    where: { period },
-    include: { tag: true, entity: true },
-  });
+  // The month's EFFECTIVE lines (own rows plus lines carried forward), the same rows the Budgets page and the
+  // dashboard show; read through the shared loader, never from the Budget table directly.
+  const budgets = await loadEffectiveBudgetRows({ periods: [period] });
 
   const tagSpendRows = await db.$queryRaw<{ entityId: string; tagId: string; total: string }[]>`
     SELECT t."entityId", tt."tagId", SUM(t.amount)::text AS total
@@ -279,10 +279,7 @@ export async function buildMonthlyReviewData(period: string): Promise<ReviewData
 
   // ── Retrospective forecast accuracy (prior period) ───────────────────────────
   const priorPeriod = previousPeriod(period);
-  const priorBudgets = await db.budget.findMany({
-    where: { period: priorPeriod },
-    include: { tag: true, entity: true },
-  });
+  const priorBudgets = await loadEffectiveBudgetRows({ periods: [priorPeriod] });
 
   let forecastAccuracyPeriod: string | null = null;
   let forecastAccuracy: ReviewData["forecastAccuracy"] = [];

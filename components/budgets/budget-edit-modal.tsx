@@ -48,7 +48,8 @@ const DAY_OF_WEEK_OPTIONS = [
 interface BudgetEditModalProps {
   mode: "edit" | "add";
   budget?: {
-    id: string;
+    /** The line's own entity (the page may show several entities at once). */
+    entityId: string;
     tagId: string;
     tagName: string;
     accountId: string;
@@ -175,7 +176,7 @@ export function BudgetEditModal({
           annualAmountDue,
         });
       } else {
-        result = await updateBudget(budget!.id, {
+        result = await updateBudget({ entityId: budget!.entityId, tagId: budget!.tagId, period }, {
           budgeted,
           payDay: usesDayOfMonth ? (payDayStr ? parseInt(payDayStr, 10) : null) : null,
           accountId,

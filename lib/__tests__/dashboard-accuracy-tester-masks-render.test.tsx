@@ -68,7 +68,7 @@ function build(opts: { all: boolean; current: boolean }): DrillData {
     model,
     txs,
     tags: shortTags,
-    budgets: lines.map((l) => ({ id: l.id, tagId: l.tagId, accountId: l.accountId, accountName: "Primary Checking", entityName: "Personal", rawBudgeted: l.explicit, rollover: new Decimal(0) })),
+    budgets: lines.map((l) => ({ id: l.id, entityId: "ent-1", tagId: l.tagId, accountId: l.accountId, accountName: "Primary Checking", entityName: "Personal", rawBudgeted: l.explicit, rollover: new Decimal(0) })),
     effective: eff,
     accounts: [
       { id: "a-chk", nickname: "Primary Checking", institutionName: "TD", entityName: "Personal", accountType: "checking", currentBalance: null, currentBalanceAt: null },

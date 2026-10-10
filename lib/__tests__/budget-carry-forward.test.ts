@@ -199,6 +199,30 @@ describe("resolveBudgetRows: the ended-line guard (owner answer 1)", () => {
     expect(out.every((r) => r.carriedFrom === "2026-09")).toBe(true);
   });
 
+  it("a month in which the entity has rows is authoritative: a line absent from it stays absent (no gap carry); an empty month still carries", () => {
+    // x: 2026-09 and 2026-12; y: 2026-09 and 2026-12; 2026-10 holds only z (so x and y are absent there on purpose)
+    const rows = [
+      row(P, "x", "2026-09"), row(P, "y", "2026-09"),
+      row(P, "z", "2026-10"),
+      row(P, "x", "2026-12"), row(P, "y", "2026-12"), row(P, "z", "2026-12"),
+    ];
+    // 2026-10 has a row (z), so x and y are NOT carried into it; 2026-11 has no row at all, so all three carry into it
+    expect(resolveBudgetRows(rows, ["2026-10"]).map((r) => [r.tagId, r.source])).toEqual([["z", "own"]]);
+    expect(resolveBudgetRows(rows, ["2026-11"]).map((r) => [r.tagId, r.carriedFrom]).sort()).toEqual([["x", "2026-09"], ["y", "2026-09"], ["z", "2026-10"]]);
+  });
+
+  it("re-adding an ended line in a later month changes no earlier month that has rows (owner decision 2026-10-10)", () => {
+    const base = [
+      row(P, "old", "2026-10"), row(P, "a", "2026-10"),
+      row(P, "a", "2026-11"), row(P, "b", "2026-11"),
+      row(P, "a", "2026-12"), row(P, "b", "2026-12"),
+    ];
+    const before = resolveBudgetRows(base, ["2026-10", "2026-11", "2026-12"]).map((r) => r.period + r.tagId);
+    const after = resolveBudgetRows([...base, row(P, "old", "2027-01")], ["2026-10", "2026-11", "2026-12", "2027-01", "2027-02"]);
+    expect(after.filter((r) => r.period <= "2026-12").map((r) => r.period + r.tagId)).toEqual(before);
+    expect(after.filter((r) => r.tagId === "old" && r.period >= "2027-01").map((r) => [r.period, r.source])).toEqual([["2027-01", "own"], ["2027-02", "carried"]]);
+  });
+
   it("the frontier is the entity's LATEST period even when it is later than the requested one (gap months)", () => {
     // line present 2026-09 and 2026-12, absent 10 and 11: the month between is filled from 09 because the line is in the frontier
     const rows = [row(P, "x", "2026-09"), row(P, "x", "2026-12"), row(P, "y", "2026-09")];
@@ -316,6 +340,8 @@ function oracle(rows: Row[], period: string, entityId: string, tagId: string, va
   const same = rows.filter((r) => r.entityId === entityId && r.tagId === tagId);
   const own = same.find((r) => r.period === period);
   if (own) return { source: "own", from: own.period };
+  // owner decision 2026-10-10: a month in which the entity has rows is authoritative; nothing is carried into it
+  if (rows.some((r) => r.entityId === entityId && r.period === period)) return null;
   if (variable) return null;
   const earlier = same.filter((r) => r.period < period);
   if (earlier.length === 0) return null;

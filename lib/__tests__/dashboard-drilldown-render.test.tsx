@@ -44,7 +44,7 @@ function makeData(): DrillData {
     model,
     txs,
     tags: tags.map((t) => ({ ...t, shortName: t.name.split(" / ").pop()! })),
-    budgets: lines.map((l) => ({ id: l.id, tagId: l.tagId, accountId: l.accountId, accountName: "Checking", rawBudgeted: l.explicit, rollover: D(0) })),
+    budgets: lines.map((l) => ({ id: l.id, entityId: "ent-1", tagId: l.tagId, accountId: l.accountId, accountName: "Checking", rawBudgeted: l.explicit, rollover: D(0) })),
     effective,
     accounts: [{ id: "acc-checking", nickname: "Checking", institutionName: "Test Bank", accountType: "checking", currentBalance: D("10"), currentBalanceAt: null }],
     transfers: [],

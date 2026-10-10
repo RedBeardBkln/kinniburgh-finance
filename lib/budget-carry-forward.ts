@@ -4,13 +4,21 @@
 // years. Budget rows only exist for months the owner has curated (2026-01 .. 2026-12 today), so for any month with
 // no row for an entity + tag, the EFFECTIVE budget line is the latest EARLIER row of that same entity + tag.
 //
-// This is a READ-TIME view. Nothing is written, no Budget row is created, and /budgets, the dashboard, the monthly
-// review and the CSV export do not use it. A carried row is a synthetic copy:
+// This is a READ-TIME view. Nothing is written here. Every screen (/budgets, the dashboard, the monthly review, the CSV
+// export, the forecast) reads it through the shared loader; the first edit of a month saves the carried set as real rows
+// (lib/budget-materialize*.ts), and because a saved copy equals the carried one the view never changes when that
+// happens. A carried row is a synthetic copy:
 //   - copied: budgeted (null stays null = auto-sum from children), accountId, payDay, frequency, payDayOfWeek,
 //     biweeklyAnchorDate, payMonth, annualAmountDue, rolloverEnabled (flag only, for display);
 //   - NOT carried: rolloverAmount (a computed carry-in from the prior month, becomes null), additionalAmountCents
 //     (a one-off extra for that month, becomes 0), and the id (synthetic `carried:<sourceId>:<period>`; a carried row
 //     is never handed to an action).
+//
+// Authoritative months (owner decision 2026-10-10): a month in which the entity HAS budget rows is authoritative for
+// that month. A line absent from such a month stays absent there; it is never carried into it. Carry-forward applies
+// only to months in which the entity has NO rows at all (months after its latest month, or an entity-level empty gap),
+// from the latest earlier own row of the line. So adding or re-adding a line in a later month can never make it
+// reappear in an earlier month that has rows of its own.
 //
 // Ended-line guard (owner answer 1): a line carries forward only if it also exists in the entity's frontier, i.e.
 // the entity's latest period that has any rows. A line the owner dropped from the latest month has ended and does not
@@ -82,6 +90,7 @@ export function isCarriedId(id: string): boolean {
  * period to carry from, and ALL later rows too, so the entity's frontier (its latest period with rows) is the real
  * one. Rows with an invalid period are ignored. For each requested period and each line known to the entity:
  *   own row for the period            -> returned as `own`
+ *   else the entity has rows in that period (the month is authoritative) -> nothing
  *   else latest earlier row, if the line is in the entity's frontier and is not variable -> `carried`
  *   else                              -> nothing (a variable line, an ended line, or a line that starts later)
  * Output is ordered by period, then entity, then tag, so it is deterministic.
@@ -97,8 +106,12 @@ export function resolveBudgetRows<T extends CarryRowBase>(
 
   const byLine = new Map<string, T[]>();
   const frontierByEntity = new Map<string, string>();
+  const periodsWithRows = new Map<string, Set<string>>();
   for (const r of allRows) {
     if (!isBudgetPeriod(r.period)) continue;
+    const seen = periodsWithRows.get(r.entityId);
+    if (seen) seen.add(r.period);
+    else periodsWithRows.set(r.entityId, new Set([r.period]));
     const key = budgetLineKey(r.entityId, r.tagId);
     const list = byLine.get(key);
     if (list) list.push(r);
@@ -128,6 +141,8 @@ export function resolveBudgetRows<T extends CarryRowBase>(
         out.push({ ...hit, source: "own", carriedFrom: null, variable });
         continue;
       }
+      // A month in which the entity has rows is authoritative: a line absent from it stays absent.
+      if (periodsWithRows.get(hit.entityId)?.has(period)) continue;
       if (variable && !opts.carryVariable) continue; // flat carry of a variable line is opt-in (the loader opts in)
       const frontier = frontierByEntity.get(hit.entityId);
       const last = list[list.length - 1] as T;
@@ -136,6 +151,20 @@ export function resolveBudgetRows<T extends CarryRowBase>(
     }
   }
   return out;
+}
+
+/**
+ * The ONE entry point for "the effective view" as the app uses it: variable (seasonal) lines carry their flat figure
+ * too. The loader (reads) and the materialization planner (writes) both call this, so the option cannot drift between
+ * what the screens show and what the first edit saves. `variableKeys` only labels rows (`variable`); with
+ * `carryVariable: true` it never changes which rows come out, so a caller that only needs the rows may omit it.
+ */
+export function resolveEffectiveRows<T extends CarryRowBase>(
+  allRows: readonly T[],
+  periods: readonly string[],
+  variableKeys?: ReadonlySet<string>
+): Array<ResolvedBudgetRow<T>> {
+  return resolveBudgetRows(allRows, periods, { variableKeys: variableKeys ?? new Set<string>(), carryVariable: true });
 }
 
 function carryRow<T extends CarryRowBase>(src: T, period: string, variable: boolean): ResolvedBudgetRow<T> {

@@ -308,7 +308,7 @@ function LineBudgetEditor({ edit }: { edit: NonNullable<DrillView["lineEdit"]> }
   function save() {
     setError(null);
     startSave(async () => {
-      const result = await updateBudgetLine(edit.budgetId, input);
+      const result = await updateBudgetLine({ entityId: edit.entityId, tagId: edit.tagId, period: edit.period }, input);
       if ("error" in result) setError(result.error);
       else {
         setEditing(false);
@@ -353,6 +353,11 @@ function LineBudgetEditor({ edit }: { edit: NonNullable<DrillView["lineEdit"]> }
         >
           {edit.rawCents === null ? `Auto (${centsText(edit.resolvedCents)})` : centsText(edit.resolvedCents)}
         </button>
+      )}
+      {edit.carriedNote && (
+        <p data-testid="carried-edit-note" className="mt-1 text-xs text-muted-foreground">
+          {edit.carriedNote}
+        </p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>

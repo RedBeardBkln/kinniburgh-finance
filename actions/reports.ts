@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { z } from "zod";
 import { Decimal } from "@prisma/client/runtime/library";
 import { resolveBudgetedAmounts } from "@/lib/budget-nesting";
+import { loadEffectiveBudgetRows } from "@/lib/budget-carry-forward-build";
 
 async function requireAuth() {
   const session = await auth();
@@ -74,11 +75,10 @@ export async function exportBudgetCsv(period: string): Promise<string> {
   await requireAuth();
   z.string().regex(/^\d{4}-\d{2}$/).parse(period);
 
-  const budgets = await db.budget.findMany({
-    where: { period },
-    include: { tag: true, entity: true },
-    orderBy: [{ entity: { name: "asc" } }, { tag: { name: "asc" } }],
-  });
+  // The month's EFFECTIVE lines for every entity (own rows plus lines carried forward), through the shared loader.
+  const budgets = (await loadEffectiveBudgetRows({ periods: [period] })).sort(
+    (a, b) => a.entity.name.localeCompare(b.entity.name) || a.tag.name.localeCompare(b.tag.name)
+  );
 
   // Nesting/auto-sum resolution — same-account only (Account.entityId is a
   // single non-null FK, so grouping by accountId alone is already entity-safe).

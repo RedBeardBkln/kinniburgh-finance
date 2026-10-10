@@ -61,7 +61,9 @@ describe("dashboard accuracy: client-safe files stay client-safe", () => {
 
 describe("dashboard accuracy: boundaries with other work", () => {
   it.each(DASHBOARD_UI)("%s does not import the carry-forward modules or the advisor", (file) => {
-    const src = read(file);
+    // budget-auto-carry-ui: the dashboard PAGE reads the effective budget lines through the shared loader (its client
+    // components still never import the carry-forward modules)
+    const src = file === "app/page.tsx" ? read(file).replace('"@/lib/budget-carry-forward-build"', '""') : read(file);
     expect(src).not.toMatch(/budget-carry-forward/);
     expect(src).not.toMatch(/from "@\/lib\/advisor|from "@\/lib\/bill-dates|from "@\/lib\/upcoming-ledger-(?!build|view)/);
   });
@@ -139,9 +141,9 @@ describe("/budgets uses the same model as the dashboard", () => {
     expect(budgets).not.toMatch(/\$queryRaw/);
     expect(budgets).toMatch(/totalActual = -decimalToNumber\(spendModel\.spent\)/);
   });
-  it("still reads real Budget rows itself and never the carry-forward loader (pinned by the carry-forward guards)", () => {
-    expect(budgets).toMatch(/db\.budget\.findMany/);
-    expect(budgets).not.toMatch(/carried|loadEffective|budget-carry-forward/);
+  it("reads the EFFECTIVE view through the shared loader (budget-auto-carry-ui) and never the Budget table itself", () => {
+    expect(budgets).toMatch(/loadEffectiveBudgetRows\(\{ periods: \[period\] \}\)/);
+    expect(budgets).not.toMatch(/\bdb\.budget\./);
   });
 });
 

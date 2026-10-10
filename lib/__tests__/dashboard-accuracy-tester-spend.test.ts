@@ -522,7 +522,7 @@ describe("tester: drill payload fuzz (every view re-adds; rows + exclusions cove
         model,
         txs: w.txs,
         tags: TAGS.map((t) => ({ ...t, shortName: t.name.split(" / ").pop()! })),
-        budgets: w.lines.map((l) => ({ id: l.id, tagId: l.tagId, accountId: l.accountId, accountName: accNames[l.accountId]!, rawBudgeted: l.explicit, rollover: l.rollover })),
+        budgets: w.lines.map((l) => ({ id: l.id, entityId: "ent-1", tagId: l.tagId, accountId: l.accountId, accountName: accNames[l.accountId]!, rawBudgeted: l.explicit, rollover: l.rollover })),
         effective: eff,
         accounts: Object.entries(accNames).map(([id, nickname]) => ({ id, nickname, institutionName: "Bank", accountType: "checking", currentBalance: null, currentBalanceAt: null })),
         transfers: [],

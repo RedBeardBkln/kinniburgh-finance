@@ -2,11 +2,12 @@
 
 import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { updateBudgetLine } from "@/actions/budgets";
+import { updateBudgetLine, type BudgetLineLocator } from "@/actions/budgets";
 import { formatUSD } from "@/lib/utils";
 
 interface BudgetLineEditorProps {
-  budgetId: string;
+  /** Which line (entity + category + month). Never a Budget id: a carried line has none. */
+  locator: BudgetLineLocator;
   currentBudgeted: number; // resolved/effective dollars as number, for display
   /** The raw stored value — null when this line is blank/auto-summed from
    * its nested children. Used to prefill edit mode so an unmodified Save
@@ -14,7 +15,7 @@ interface BudgetLineEditorProps {
   rawBudgeted: number | null;
 }
 
-export function BudgetLineEditor({ budgetId, currentBudgeted, rawBudgeted }: BudgetLineEditorProps) {
+export function BudgetLineEditor({ locator, currentBudgeted, rawBudgeted }: BudgetLineEditorProps) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(rawBudgeted !== null ? rawBudgeted.toFixed(2) : "");
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +37,7 @@ export function BudgetLineEditor({ budgetId, currentBudgeted, rawBudgeted }: Bud
 
   function save() {
     startTransition(async () => {
-      const result = await updateBudgetLine(budgetId, value);
+      const result = await updateBudgetLine(locator, value);
       if ("error" in result) {
         setError(result.error);
         return;

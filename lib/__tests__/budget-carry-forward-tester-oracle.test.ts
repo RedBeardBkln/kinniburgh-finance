@@ -98,6 +98,8 @@ function oracle(rows: Row[], wanted: string[], variable: Set<string>): Expected[
         out.push({ period: p, entityId: e, tagId: t, source: "own", carriedFrom: null, from: own, variable: isVar });
         continue;
       }
+      // owner decision 2026-10-10: a month in which the entity has rows is authoritative; nothing is carried into it
+      if (valid.some((r) => r.entityId === e && ord(r.period) === ord(p))) continue;
       let found: Row | undefined;
       for (let o = ord(p) - 1; o >= minOrd.get(line)!; o--) {
         const hit = table.get(`${e}|${t}|${o}`);
@@ -119,7 +121,7 @@ const keyOf = (x: { period: string; entityId: string; tagId: string }) => `${x.p
 
 describe("TESTER: resolver vs independent month-stepping oracle", () => {
   it("agrees with the oracle on 4000 random worlds, shuffled input, with every branch exercised", () => {
-    const counts = { own: 0, carried: 0, endedSkipped: 0, variableSkipped: 0, gapCarried: 0, backwardSkipped: 0, yearBoundary: 0, outlier: 0 };
+    const counts = { own: 0, carried: 0, endedSkipped: 0, variableSkipped: 0, authoritativeSkipped: 0, gapCarried: 0, backwardSkipped: 0, yearBoundary: 0, outlier: 0 };
     for (let seed = 1; seed <= 4000; seed++) {
       const rnd = mulberry32(seed);
       const nEnt = 1 + Math.floor(rnd() * 3);
@@ -215,6 +217,7 @@ describe("TESTER: resolver vs independent month-stepping oracle", () => {
           const earlier = lineRows.some((r) => ord(r.period) < ord(p));
           if (!earlier) counts.backwardSkipped++;
           else if (variable.has(line)) counts.variableSkipped++;
+          else if (lineRows.some((r) => ord(r.period) === Math.max(...uniq.filter((u) => u.entityId === line.split("|")[0] && /^\d{4}-(0[1-9]|1[0-2])$/.test(u.period)).map((u) => ord(u.period)))) && uniq.some((u) => u.entityId === line.split("|")[0] && u.period === p)) counts.authoritativeSkipped++;
           else counts.endedSkipped++;
         }
       }
@@ -250,7 +253,10 @@ describe("TESTER: resolver vs independent month-stepping oracle", () => {
   });
 });
 
-describe("TESTER: the frontier hazard is real and documented", () => {
+// (renamed by budget-auto-carry-ui round 1) These tests pin the RESOLVER IN ISOLATION: the entity's latest month decides
+// which lines carry. The app no longer produces the situation (every write keeps the latest month complete and a month
+// that has rows is authoritative), but the pure function's behavior is unchanged and is pinned here.
+describe("TESTER (resolver in isolation): one far-future row moves the entity's latest month, so other lines stop carrying past it", () => {
   const rnd = mulberry32(5);
   const mk = (id: string, tag: string, period: string) => mkRow(id, "P", tag, period, rnd);
   const base = [mk("a12", "A", "2026-12"), mk("b12", "B", "2026-12"), mk("a11", "A", "2026-11")];

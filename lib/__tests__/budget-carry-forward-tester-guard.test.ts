@@ -62,14 +62,13 @@ describe("TESTER: the broader Budget-access scanner detects what the plain regex
 });
 
 describe("TESTER: the real tree reads the Budget table only from the allow-listed files, in ANY form", () => {
+  // Updated deliberately by budget-auto-carry-ui: the Budgets page, the dashboard, the monthly review and the CSV export
+  // now read the EFFECTIVE view through the loader; the write module is new.
   const ALLOW = new Set([
     "lib/budget-carry-forward-build.ts",
-    "app/budgets/page.tsx",
+    "lib/budget-materialize-build.ts",
     "actions/budgets.ts",
     "actions/recurring-suggestions.ts",
-    "actions/reports.ts",
-    "app/page.tsx",
-    "lib/monthly-review-build.ts",
   ]);
   const files = ["app", "lib", "actions", "components"].flatMap((d) => walk(d));
   it("scans a meaningful number of files", () => expect(files.length).toBeGreaterThan(400));
@@ -77,22 +76,23 @@ describe("TESTER: the real tree reads the Budget table only from the allow-liste
     const hits = files.filter((f) => budgetTableAccessForms(readFileSync(join(root, f), "utf8")).length > 0).sort();
     expect(hits.filter((f) => !ALLOW.has(f)), `unexpected readers: ${hits.join(", ")}`).toEqual([]);
   });
-  it("the allow-listed non-loader files are all real-row screens/actions: none of them imports the loader or the resolver", () => {
-    for (const f of ALLOW) {
-      if (f === "lib/budget-carry-forward-build.ts") continue;
+  it("the write-side files never import the loader or the resolver's database code", () => {
+    for (const f of ["actions/budgets.ts", "actions/recurring-suggestions.ts"]) {
       expect(readFileSync(join(root, f), "utf8"), f).not.toMatch(/budget-carry-forward/);
     }
   });
-  it("no server action file and no 'use server' file imports the carry-forward modules (a carried synthetic id can never reach an action)", () => {
+  it("no 'use server' file reads the effective view except the CSV export (a carried synthetic id can never reach an action)", () => {
     const bad = files.filter((f) => {
       const s = readFileSync(join(root, f), "utf8");
       return /budget-carry-forward/.test(s) && (f.startsWith("actions/") || /^["']use server["']/m.test(s)) && !f.startsWith("lib/budget-carry-forward");
     });
-    expect(bad).toEqual([]);
+    expect(bad).toEqual(["actions/reports.ts"]);
   });
-  it("any code that parses a Budget id for an update refuses the synthetic 'carried:' ids at its boundary, or never receives them", () => {
-    // The Budgets actions take ids from /budgets rows (real rows only). Pin that /budgets never sees carried rows.
-    const page = readFileSync(join(root, "app/budgets/page.tsx"), "utf8");
-    expect(page).not.toMatch(/carried|loadEffective/);
+  it("a carried row can reach a client only as display data: no client component calls an action with a row id", () => {
+    // The Budget actions take a LOCATOR { entityId, tagId, period }. A synthetic `carried:` id is only a React key.
+    for (const f of ["components/budgets/budget-page-client.tsx", "components/budgets/budget-line-editor.tsx", "components/budgets/budget-edit-modal.tsx", "components/dashboard/drilldown-dialog.tsx"]) {
+      const s = readFileSync(join(root, f), "utf8");
+      expect(s, f).not.toMatch(/(?:updateBudgetLine|updateBudget|updateBudgetAdditionalAmount|deleteBudget)\(\s*(?:budgetId|b\.id|id|edit\.budgetId|budget!?\.id)\b/);
+    }
   });
 });

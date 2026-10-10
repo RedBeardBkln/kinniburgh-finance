@@ -279,7 +279,7 @@ describe("tester: own-account transfer rule, oracle fuzz in reconciliation world
           model: model2,
           txs: w.txs,
           tags: TAGS.map((t) => ({ ...t, shortName: t.name.split(" / ").pop()! })),
-          budgets: lines.map((l) => ({ id: l.id, tagId: l.tagId, accountId: l.accountId, accountName: w.accts.find((a) => a.id === l.accountId)!.nick, rawBudgeted: l.explicit, rollover: new Decimal(0) })),
+          budgets: lines.map((l) => ({ id: l.id, entityId: "ent-1", tagId: l.tagId, accountId: l.accountId, accountName: w.accts.find((a) => a.id === l.accountId)!.nick, rawBudgeted: l.explicit, rollover: new Decimal(0) })),
           effective: eff,
           accounts: w.accts.filter((a) => !a.archived).map((a) => ({ id: a.id, nickname: a.nick, institutionName: "Bank", accountType: a.type, currentBalance: null, currentBalanceAt: null })),
           transfers: [],

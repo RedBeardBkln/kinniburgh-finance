@@ -33,7 +33,7 @@ function payload(txs: SpendTx[], tags: SpendTag[], lines: SpendLineInput[], extr
     model,
     txs,
     tags: tags.map((t) => ({ ...t, shortName: shortOf(t.name) })),
-    budgets: lines.map((l) => ({ id: l.id, tagId: l.tagId, accountId: l.accountId, accountName: "Account " + l.accountId, entityName: l.accountId === "acc-b" ? "Sudden Valley" : "Personal", rawBudgeted: l.explicit, rollover: l.rollover })),
+    budgets: lines.map((l) => ({ id: l.id, entityId: l.accountId === "acc-b" ? "ent-2" : "ent-1", tagId: l.tagId, accountId: l.accountId, accountName: "Account " + l.accountId, entityName: l.accountId === "acc-b" ? "Sudden Valley" : "Personal", rawBudgeted: l.explicit, rollover: l.rollover })),
     effective,
     accounts: [
       { id: "acc-checking", nickname: "Checking", institutionName: "Test Bank", accountType: "checking", currentBalance: D("1000.50"), currentBalanceAt: new Date("2026-10-09T08:00:00Z") },
@@ -117,12 +117,28 @@ describe("drill-down payload: September 2026", () => {
     expect(v.sections.flatMap((s) => s.rows).some((r) => r.chips.includes("Refund") && r.tone === "credit")).toBe(true);
   });
 
+  it("S2: a line that is only carried in this month says so in the line dialog, with how many months a change saves", () => {
+    const carried = {
+      ...data,
+      lines: data.lines.map((l) => (l.id === "L-mort" ? { ...l, carriedFrom: "2026-08" } : l)),
+      firstEditMonths: { "ent-1": ["2026-09"] },
+    };
+    const one = buildDrillView(carried, { kind: "line", lineId: "L-mort" }).lineEdit!;
+    expect(one.carriedNote).toBe("Carried from August 2026: this month has no saved budget of its own yet. Changing the amount saves the carried budget for this month.");
+    const many = buildDrillView({ ...carried, firstEditMonths: { "ent-1": ["2026-09", "2026-10", "2026-11"] } }, { kind: "line", lineId: "L-mort" }).lineEdit!;
+    expect(many.carriedNote).toContain("saves the carried budget for 3 months (September 2026 to November 2026)");
+    // count unknown: the note still warns that earlier empty months may be saved
+    expect(buildDrillView({ ...carried, firstEditMonths: null }, { kind: "line", lineId: "L-mort" }).lineEdit!.carriedNote).toContain("and for any empty month before it");
+    // a line with a row of its own has no note
+    expect(buildDrillView(data, { kind: "line", lineId: "L-mort" }).lineEdit!.carriedNote).toBeNull();
+  });
+
   it("Mortgage line view shows the cash payment, not 0", () => {
     const mort = data.lines.find((l) => l.id === "L-mort")!;
     const v = buildDrillView(data, { kind: "line", lineId: mort.id });
     expect(v.headline.cents).toBe(433569);
     expect(sumCountedRows(v)).toBe(433569);
-    expect(v.lineEdit).toEqual({ budgetId: "L-mort", rawCents: 470000, resolvedCents: 470000 });
+    expect(v.lineEdit).toEqual({ entityId: "ent-1", tagId: mort.tagId, period: "2026-09", rawCents: 470000, resolvedCents: 470000, carriedNote: null });
   });
 
   it("a parent line view shows its nested lines, and the rows add up to the parent's total", () => {

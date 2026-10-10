@@ -33,6 +33,8 @@ vi.mock("@/lib/db", () => ({
     scheduledTransfer: { findMany: m.transferFind },
     recurringExpense: { findMany: m.recurringFind },
     transaction: { findMany: m.txFind },
+    // the shared effective-budget loader reads the seasonal-lines setting (absent = the default set)
+    appSetting: { findUnique: async () => null },
   },
 }));
 vi.mock("@/components/app-shell", () => ({ AppShell: (p: { children: React.ReactNode }) => p.children }));
@@ -70,8 +72,8 @@ function arrange() {
   m.auth.mockResolvedValue({ user: { name: "Eric" } });
   m.getEntityBySlug.mockResolvedValue({ id: "e1", name: "Personal", slug: "personal", navLabel: "Personal", type: "personal" });
   m.budgetFind.mockResolvedValue([
-    { id: "b-food", tagId: "t-food", accountId: "acc1", budgeted: null, additionalAmountCents: new Decimal(0), rolloverAmount: null, account: { nickname: "Checking", entity: { name: "Personal" } } },
-    { id: "b-groc", tagId: "t-groc", accountId: "acc1", budgeted: new Decimal("400.00"), additionalAmountCents: new Decimal(0), rolloverAmount: null, account: { nickname: "Checking", entity: { name: "Personal" } } },
+    { id: "b-food", entityId: "e1", period: "2026-01", tagId: "t-food", tag: { name: "Food & Drink" }, accountId: "acc1", budgeted: null, additionalAmountCents: new Decimal(0), rolloverAmount: null, account: { nickname: "Checking", entity: { name: "Personal" } } },
+    { id: "b-groc", entityId: "e1", period: "2026-01", tagId: "t-groc", tag: { name: "Food & Drink / Groceries" }, accountId: "acc1", budgeted: new Decimal("400.00"), additionalAmountCents: new Decimal(0), rolloverAmount: null, account: { nickname: "Checking", entity: { name: "Personal" } } },
   ]);
   m.tagFind.mockResolvedValue(TAGS);
   m.accountFind.mockResolvedValue([
@@ -175,7 +177,8 @@ describe("tester: dashboard page", () => {
 
   it("a per-entity bucket scopes budgets, accounts, scheduled transfers and recurring to that entity", async () => {
     await render();
-    expect(m.budgetFind.mock.calls[0]![0].where).toEqual({ entityId: "e1", period: "2026-01" });
+    // the shared loader reads the entity's rows (no period filter: the frontier needs the later months) and resolves in memory
+    expect(m.budgetFind.mock.calls[0]![0].where).toEqual({ entityId: "e1" });
     expect(m.accountFind.mock.calls[0]![0].where).toEqual({ entityId: "e1", archivedAt: null });
     expect(m.transferFind.mock.calls[0]![0].where).toEqual({ active: true, fromAccount: { entityId: "e1" } });
     expect(m.recurringFind.mock.calls[0]![0].where).toEqual({ entityId: "e1" });

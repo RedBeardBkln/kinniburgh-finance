@@ -23,13 +23,14 @@ import {
   DEFAULT_SEASONAL_TAG_PATHS,
   isBudgetPeriod,
   parseSeasonalLinesSetting,
-  resolveBudgetRows,
+  resolveEffectiveRows,
   SEASONAL_LINES_KEY,
   variableLineKeys,
   type CarryRowBase,
   type ResolvedBudgetRow,
   type SeasonalLine,
 } from "@/lib/budget-carry-forward";
+import { planMaterialization } from "@/lib/budget-materialize";
 
 const MAX_ROWS = 5000;
 
@@ -52,6 +53,9 @@ const EFFECTIVE_BUDGET_SELECT = {
   rolloverAmount: true,
   tag: { select: { id: true, name: true, shortName: true, parentId: true } },
   entity: { select: { id: true, name: true, slug: true } },
+  // Label fields for the screens that show the account a line is paid from (/budgets, the dashboard). No balance,
+  // mask or number: the Budgets page reads balances with its own account query.
+  account: { select: { nickname: true, entity: { select: { name: true } } } },
 } satisfies Prisma.BudgetSelect;
 
 export type LoadedBudgetRow = Prisma.BudgetGetPayload<{ select: typeof EFFECTIVE_BUDGET_SELECT }>;
@@ -125,7 +129,7 @@ async function resolveLoaded<T extends CarryRowBase & { tag?: { name?: string } 
   periods: readonly string[]
 ): Promise<Array<ResolvedBudgetRow<T>>> {
   const variableKeys = variableLineKeys(rows, await readSeasonalLines());
-  return resolveBudgetRows(rows, periods, { variableKeys, carryVariable: true });
+  return resolveEffectiveRows(rows, periods, variableKeys);
 }
 
 /**
@@ -171,4 +175,71 @@ export async function loadEffectiveScheduleRows(opts: { periods: readonly string
     select: SCHEDULE_SELECT,
   });
   return resolveLoaded(rows, periods);
+}
+
+// ── What a first edit would save (read-only; wording lives in lib/budget-first-edit-note.ts) ─────────────────
+
+/** The columns the planner copies, so it can be run on the rows read here. Explicit select, no relations. */
+const PLAN_SELECT = {
+  id: true,
+  entityId: true,
+  tagId: true,
+  accountId: true,
+  period: true,
+  budgeted: true,
+  additionalAmountCents: true,
+  payDay: true,
+  frequency: true,
+  payDayOfWeek: true,
+  biweeklyAnchorDate: true,
+  payMonth: true,
+  annualAmountDue: true,
+  rolloverEnabled: true,
+  rolloverAmount: true,
+} satisfies Prisma.BudgetSelect;
+
+export interface FirstEditContext {
+  /** entity id -> the months a first change in `period` would save (ascending, `period` last); empty = nothing to save. */
+  saveMonths: Record<string, string[]>;
+  /** `${entityId}|${tagId}` -> how many SAVED months after `period` already hold the line (ending it removes them too). */
+  laterSavedMonths: Record<string, number>;
+}
+
+/**
+ * For the screens that must tell the owner, BEFORE a change, how much it saves or removes. Same planner the write uses,
+ * run on the rows read here, so the numbers match what the write will do. Throws when the read fails.
+ */
+export async function loadFirstEditContext(opts: { period: string; entityId?: string | null }): Promise<FirstEditContext> {
+  const empty: FirstEditContext = { saveMonths: {}, laterSavedMonths: {} };
+  if (!isBudgetPeriod(opts.period)) return empty;
+  const rows = await db.budget.findMany({
+    where: opts.entityId ? { entityId: opts.entityId } : {},
+    orderBy: [{ period: "desc" }],
+    take: MAX_ROWS,
+    select: PLAN_SELECT,
+  });
+  const byEntity = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const list = byEntity.get(r.entityId);
+    if (list) list.push(r);
+    else byEntity.set(r.entityId, [r]);
+    if (r.period > opts.period) {
+      const key = `${r.entityId}|${r.tagId}`;
+      empty.laterSavedMonths[key] = (empty.laterSavedMonths[key] ?? 0) + 1;
+    }
+  }
+  for (const [entityId, list] of byEntity) {
+    empty.saveMonths[entityId] = planMaterialization(list, entityId, opts.period).months;
+  }
+  return empty;
+}
+
+/** Same as loadFirstEditContext but never rejects: null when it could not be read (the wording then drops the counts). */
+export async function loadFirstEditContextSafe(opts: { period: string; entityId?: string | null }): Promise<FirstEditContext | null> {
+  try {
+    return await loadFirstEditContext(opts);
+  } catch (err) {
+    console.error("Budget first-edit context unavailable", err instanceof Error ? err.name : "UnknownError");
+    return null;
+  }
 }

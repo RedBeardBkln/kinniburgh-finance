@@ -14,6 +14,9 @@ export function toCents(d: Decimal): number {
 
 export interface DrillBudgetRow {
   id: string;
+  entityId: string;
+  /** The month the figures were carried from when this line has no row of its own in the month shown; else null. */
+  carriedFrom?: string | null;
   tagId: string;
   accountId: string;
   accountName: string;
@@ -46,6 +49,8 @@ export interface DrillTransferInput {
 }
 
 export interface DrillBuildInput {
+  /** entity id -> the months a first change in the month shown would save (from the loader); null/absent = not counted. */
+  firstEditMonths?: Record<string, string[]> | null;
   model: MonthSpendModel;
   txs: SpendTx[];
   tags: (SpendTag & { shortName: string })[];
@@ -187,6 +192,8 @@ export function buildDrillData(input: DrillBuildInput): DrillData {
       const percentUsed = effectiveCents === 0 ? 0 : Math.min(Math.abs(rolledCents) / Math.abs(effectiveCents) * 100, 999);
       lines.push({
         id: b.id,
+        entityId: b.entityId,
+        carriedFrom: b.carriedFrom ?? null,
         tagId: b.tagId,
         label: row.line.fullName,
         shortName: row.line.shortName,
@@ -284,6 +291,7 @@ export function buildDrillData(input: DrillBuildInput): DrillData {
     totalBudgetedCents: toCents(effective.totalBudgeted),
     overspentCount: model.lines.filter((l) => l.countsAsOverspent).length,
     entityBreakdown,
+    firstEditMonths: input.firstEditMonths ?? null,
     accounts,
     transfers,
   };

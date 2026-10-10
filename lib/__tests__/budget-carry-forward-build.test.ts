@@ -70,7 +70,7 @@ describe("loadEffectiveBudgetRows", () => {
     expect(arg.orderBy).toEqual([{ period: "desc" }]);
     expect(arg.take).toBe(5000);
     expect(Object.keys(arg.select).sort()).toEqual(
-      ["accountId", "additionalAmountCents", "annualAmountDue", "biweeklyAnchorDate", "budgeted", "entity", "entityId", "frequency", "id", "payDay", "payDayOfWeek", "payMonth", "period", "rolloverAmount", "rolloverEnabled", "tag", "tagId"]
+      ["account", "accountId", "additionalAmountCents", "annualAmountDue", "biweeklyAnchorDate", "budgeted", "entity", "entityId", "frequency", "id", "payDay", "payDayOfWeek", "payMonth", "period", "rolloverAmount", "rolloverEnabled", "tag", "tagId"]
     );
     await loadEffectiveBudgetRows({ periods: ["2027-01"] });
     expect(mockDb.budget.findMany.mock.calls[1]![0].where).toEqual({});
@@ -162,8 +162,9 @@ describe("the loader module is read-only", () => {
     expect(src).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$executeRaw|\$queryRaw|\$transaction/);
     expect(src).not.toMatch(/^"use server"/m);
     expect(src).not.toMatch(/\binclude:/);
-    // two Budget reads (rows, schedule rows) + the variable-lines helper's Tag and distinct Budget reads
-    expect(src.match(/\.findMany\(/g)).toHaveLength(4);
+    // two Budget reads (rows, schedule rows) + the variable-lines helper's Tag and distinct Budget reads + the
+    // first-edit context read (budget-auto-carry-ui round 1: counts what a first change saves / an end removes)
+    expect(src.match(/\.findMany\(/g)).toHaveLength(5);
     expect(src.match(/\.findUnique\(/g)).toHaveLength(1);
   });
 });
