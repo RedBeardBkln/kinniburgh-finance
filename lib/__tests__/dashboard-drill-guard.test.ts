@@ -164,3 +164,48 @@ describe("posted dates are shown as the calendar day", () => {
     }
   });
 });
+
+describe("browser-check fixes: own-account masks and page order", () => {
+  const page = read("app/page.tsx");
+  const budgets = read("app/budgets/page.tsx");
+
+  it("the mask loader is read-only, active accounts only, and selects nothing but id and mask", () => {
+    const src = read("lib/own-account-masks-build.ts");
+    expect(src).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$executeRaw|\$queryRaw/);
+    expect(src).toMatch(/archivedAt: null/);
+    expect(src).toMatch(/select:\s*\{\s*id: true,\s*mask: true,?\s*\}/);
+    expect(src).not.toMatch(/console\./);
+  });
+
+  it("the dashboard and /budgets feed the SAME mask map to the model, so Total Spent still agrees", () => {
+    expect(page).toMatch(/loadOwnAccountByMask\(\)/);
+    expect(page).toMatch(/\{ ownAccountByMask \}/);
+    expect(budgets).toMatch(/ownAccountByMask: await loadOwnAccountByMask\(\)/);
+  });
+
+  it("the model recognises a transfer only through the validated mask map, never by payee text alone", () => {
+    const src = read("lib/month-spend.ts");
+    expect(src).toMatch(/ownAccountByMask \? parseOwnTransferLabel\(tx\.payee\) : null/);
+    expect(src).toMatch(/counterpart !== tx\.accountId/);
+    expect(src).not.toMatch(/\b(?:account|acct)\.mask\b/); // it never reads the Account table itself
+  });
+
+  it("no mask or raw transfer label reaches the client payload (the drill builder redacts it)", () => {
+    const src = read("lib/dashboard-drill-build.ts");
+    expect(src).toMatch(/displayPayee\(t\.payee, input\.ownAccountByMask, nicknameById\)/);
+    expect(src).toMatch(/hideTransferMask\(payee\)/); // the digits are hidden for every transfer-shaped label (see lib/own-transfer-label.ts)
+    expect(read("lib/own-transfer-label.ts")).toMatch(/x\*\*\*\*/);
+  });
+
+  it("the title and month navigation are handed to DashboardClient as the header, which renders first", () => {
+    expect(page).toMatch(/<DashboardClient\s+data=\{drill\}\s+allTags=\{tagRows \?\? \[\]\}\s+header=\{/);
+    const client = read("components/dashboard/dashboard-client.tsx");
+    expect(client.indexOf("{header}")).toBeGreaterThan(-1);
+    expect(client.indexOf("{header}")).toBeLessThan(client.indexOf("<SpendCategoryCards"));
+  });
+
+  it("the scheduled-transfer badge shows the plain cadence, not the stored enum", () => {
+    expect(page).toMatch(/cadenceText\(st\.cadence\)/);
+    expect(page).not.toMatch(/\{st\.cadence\}/);
+  });
+});

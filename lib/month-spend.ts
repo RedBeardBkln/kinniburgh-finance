@@ -17,6 +17,7 @@
 import { Decimal } from "@prisma/client/runtime/library";
 
 import { EXCLUDED_CLASSES, type TxClass } from "@/lib/month-spend-labels";
+import { parseOwnTransferLabel } from "@/lib/own-transfer-label";
 
 export { EXCLUDED_CLASSES, CLASS_LABELS, CLASS_WHY, CLASS_CHIPS, type TxClass } from "@/lib/month-spend-labels";
 
@@ -195,14 +196,40 @@ function isBusinessChain(chain: SpendTag[]): boolean {
   return chainHas(chain, (t) => t.name === BUSINESS_ROOT);
 }
 
-/** Decide the class of one transaction. Uses the tag tree and account type only, never a guess from the payee text. */
-export function classifyTx(tx: SpendTx, tagById: Map<string, SpendTag>): { cls: TxClass; reason: string } {
+/**
+ * Account masks that identify exactly ONE active account of the household (mask -> account id), built by the caller from
+ * the Account table. A mask shared by two accounts, or belonging to an archived or foreign account, must NOT be in it.
+ * It is used only to classify a bank-labelled transfer and is never shown or put in a payload.
+ */
+export type OwnAccountByMask = ReadonlyMap<string, string>;
+
+/**
+ * Decide the class of one transaction. Uses the tag tree, the account type and (only for the bank's own transfer wording,
+ * validated against the household's active account masks) the transfer label; never a guess from other payee text.
+ */
+export function classifyTx(
+  tx: SpendTx,
+  tagById: Map<string, SpendTag>,
+  ownAccountByMask?: OwnAccountByMask
+): { cls: TxClass; reason: string } {
   if (tx.transferPairId) return { cls: "own_transfer", reason: "Paired transfer between your own accounts" };
   if (tx.accountType === "mortgage" || tx.accountType === "loan") {
     return { cls: "loan_account", reason: "Entry on a mortgage or loan account" };
   }
   const chains = tx.tagIds.map((id) => tagChain(id, tagById));
   if (chains.some(isTransferChain)) return { cls: "own_transfer", reason: "Tagged Transfer In or Transfer Out" };
+  // A pending transfer has no pair yet (the other leg has not posted) and may be untagged. The bank's transfer wording
+  // plus a mask that is exactly one active account of the household, other than the row's own, is still a transfer.
+  const leg = ownAccountByMask ? parseOwnTransferLabel(tx.payee) : null;
+  if (leg) {
+    const counterpart = ownAccountByMask?.get(leg.mask);
+    if (counterpart && counterpart !== tx.accountId) {
+      return {
+        cls: "own_transfer",
+        reason: leg.direction === "to" ? "Transfer to your own account, not counted" : "Transfer from your own account, not counted",
+      };
+    }
+  }
   if (chains.some(isCardPaymentChain)) return { cls: "card_payment", reason: "Credit card payment" };
   if (chains.some(isIncomeChain)) return { cls: "income", reason: "Tagged as income or revenue" };
   return tx.amount.isNegative() || tx.amount.isZero()
@@ -215,7 +242,12 @@ export function classifyTx(tx: SpendTx, tagById: Map<string, SpendTag>): { cls: 
 
 const zero = () => new Decimal(0);
 
-export function buildMonthSpend(txs: SpendTx[], tags: SpendTag[], lines: SpendLineInput[]): MonthSpendModel {
+export function buildMonthSpend(
+  txs: SpendTx[],
+  tags: SpendTag[],
+  lines: SpendLineInput[],
+  opts: { ownAccountByMask?: OwnAccountByMask } = {}
+): MonthSpendModel {
   const tagById = new Map(tags.map((t) => [t.id, t]));
 
   // ---- lines: one owner per tag (first wins), same-account direct-parent nesting (matches lib/budget-nesting)
@@ -264,7 +296,7 @@ export function buildMonthSpend(txs: SpendTx[], tags: SpendTag[], lines: SpendLi
 
   for (const tx of txs) {
     signedTotal = signedTotal.plus(tx.amount);
-    const { cls, reason } = classifyTx(tx, tagById);
+    const { cls, reason } = classifyTx(tx, tagById, opts.ownAccountByMask);
 
     if (cls !== "spending" && cls !== "refund") {
       verdicts.set(tx.id, { cls, reason, targets: [] });

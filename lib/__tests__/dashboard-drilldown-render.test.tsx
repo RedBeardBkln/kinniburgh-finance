@@ -11,6 +11,7 @@ vi.mock("@/components/transactions/inline-tag-cell", () => ({
 
 import { DrilldownDialog } from "@/components/dashboard/drilldown-dialog";
 import { DrillButton } from "@/components/dashboard/drill-button";
+import { DashboardClient } from "@/components/dashboard/dashboard-client";
 import { DrillContext } from "@/components/dashboard/drill-context";
 import { BudgetLinesTable } from "@/components/dashboard/budget-lines-table";
 import { SpendCategoryCards } from "@/components/dashboard/spend-category-cards";
@@ -221,5 +222,48 @@ describe("category cards and chart", () => {
     );
     expect((html.match(/<button type="button"/g) ?? []).length).toBe(2);
     expect(html).toContain("Open the details behind each bar");
+  });
+});
+
+describe("browser-check fixes: layout and labels", () => {
+  const data = makeData();
+
+  it("the page title and month navigation render ABOVE the category cards and the chart", () => {
+    const html = renderToStaticMarkup(
+      <DashboardClient data={data} allTags={allTags} header={<h1>Personal TITLE-MARKER</h1>}>
+        <p>CHILDREN-MARKER</p>
+      </DashboardClient>
+    );
+    const title = html.indexOf("TITLE-MARKER");
+    const cards = html.indexOf("Show what makes up");
+    const chart = html.indexOf("Spending this month");
+    const children = html.indexOf("CHILDREN-MARKER");
+    expect(title).toBeGreaterThan(-1);
+    expect(title).toBeLessThan(cards);
+    expect(cards).toBeLessThan(chart);
+    expect(chart).toBeLessThan(children);
+  });
+
+  it("the Excluded groups explain their signs: money in, money out and net", () => {
+    const html = renderToStaticMarkup(<DrilldownDialog data={data} target={{ kind: "spent" }} allTags={allTags} returnFocusTo={null} onClose={noop} />);
+    expect(html).toContain("Money in +$566.82, money out -$734.75, net");
+    expect(html).toContain("(+ in, - out, as the bank records it)");
+  });
+
+  it("the All Entities table labels every account group with its entity", () => {
+    const all: DrillData = { ...data, isAllEntities: true, groups: data.groups.map((g) => ({ ...g, entityName: "Personal" })) };
+    const html = renderToStaticMarkup(
+      <DrillContext.Provider value={{ data: all, open: noop }}>
+        <BudgetLinesTable budgetsHref="/budgets?bucket=all" />
+      </DrillContext.Provider>
+    );
+    expect(html).toContain("Checking · Personal");
+  });
+
+  it("the Spent dialog title matches the card for the current month", () => {
+    const current: DrillData = { ...data, isCurrentPeriod: true };
+    const html = renderToStaticMarkup(<DrilldownDialog data={current} target={{ kind: "spent" }} allTags={allTags} returnFocusTo={null} onClose={noop} />);
+    expect(html).toContain("Spent This Month");
+    expect(html).not.toContain("Spent in September 2026");
   });
 });

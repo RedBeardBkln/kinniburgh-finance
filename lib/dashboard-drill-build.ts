@@ -4,8 +4,9 @@
 import type { Decimal } from "@prisma/client/runtime/library";
 import type { MonthSpendModel, SpendTag, SpendTx } from "@/lib/month-spend";
 import type { EffectiveBudgets } from "@/lib/budget-effective";
+import { hideTransferMask, parseOwnTransferLabel } from "@/lib/own-transfer-label";
 import { buildBudgetTreeGroups, type TreeLineInput } from "@/lib/dashboard-budget-tree";
-import type { DrillAccount, DrillData, DrillGroup, DrillLine, DrillTransfer, DrillTx } from "@/lib/dashboard-drill";
+import { cadenceText, type DrillAccount, type DrillData, type DrillGroup, type DrillLine, type DrillTransfer, type DrillTx } from "@/lib/dashboard-drill";
 
 export function toCents(d: Decimal): number {
   return d.times(100).toDecimalPlaces(0).toNumber();
@@ -16,6 +17,8 @@ export interface DrillBudgetRow {
   tagId: string;
   accountId: string;
   accountName: string;
+  /** The entity the account belongs to. */
+  entityName?: string | null;
   /** The stored `Budget.budgeted` (null = auto-sum). */
   rawBudgeted: Decimal | null;
   rollover: Decimal;
@@ -25,6 +28,8 @@ export interface DrillAccountInput {
   id: string;
   nickname: string;
   institutionName: string;
+  /** The entity the account belongs to. */
+  entityName?: string | null;
   accountType: string;
   currentBalance: Decimal | null;
   currentBalanceAt: Date | null;
@@ -50,10 +55,14 @@ export interface DrillBuildInput {
   transfers: DrillTransferInput[];
   period: string;
   periodLabel: string;
+  /** The month shown is the current one. */
+  isCurrentPeriod?: boolean;
   bucket: string;
   isAllEntities: boolean;
   /** Query suffix for links back to the same month, e.g. "&period=2026-09" (empty for the current month). */
   periodQuery: string;
+  /** The household's statement masks (see lib/month-spend.ts): used here only to replace a mask in a transfer label by an account name. */
+  ownAccountByMask?: ReadonlyMap<string, string>;
 }
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -91,18 +100,38 @@ export function describeDayRules(dayRules: unknown): string {
 
 const BALANCE_DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
 
+/**
+ * A bank transfer label carries an account mask ("... to CK x1234"). The mask is never shown: a counterpart that is one of
+ * this view's accounts is named, anything else keeps the wording with the digits hidden.
+ */
+export function displayPayee(
+  payee: string,
+  ownAccountByMask: ReadonlyMap<string, string> | undefined,
+  nicknameById: ReadonlyMap<string, string>
+): string {
+  const leg = parseOwnTransferLabel(payee);
+  if (leg) {
+    const counterpartId = ownAccountByMask?.get(leg.mask);
+    const nickname = counterpartId ? nicknameById.get(counterpartId) : undefined;
+    if (nickname) return `Transfer ${leg.direction} ${nickname}`;
+  }
+  // any other transfer-shaped text (extra spaces, other case, trailing words) keeps its wording with the digits hidden
+  return hideTransferMask(payee);
+}
+
 export function buildDrillData(input: DrillBuildInput): DrillData {
   const { model, effective } = input;
   const tagById = new Map(input.tags.map((t) => [t.id, t]));
   const lineSpendById = new Map(model.lines.map((l) => [l.id, l]));
 
   // ---- transactions
+  const nicknameById = new Map(input.accounts.map((a) => [a.id, a.nickname]));
   const txs: DrillTx[] = input.txs.map((t) => {
     const verdict = model.verdicts.get(t.id);
     return {
       id: t.id,
       day: t.day,
-      payee: t.payee,
+      payee: displayPayee(t.payee, input.ownAccountByMask, nicknameById),
       account: t.accountNickname,
       accountId: t.accountId,
       entity: t.entityName,
@@ -188,7 +217,8 @@ export function buildDrillData(input: DrillBuildInput): DrillData {
         spentCents += rolledCents;
       }
     }
-    groups.push({ accountId: group.accountId, accountName: group.accountName, budgetCents, spentCents, lineIds });
+    const entityName = group.rows[0]?.line.budget.entityName ?? null;
+    groups.push({ accountId: group.accountId, accountName: group.accountName, entityName, budgetCents, spentCents, lineIds });
   }
 
   // ---- accounts and transfers
@@ -196,6 +226,7 @@ export function buildDrillData(input: DrillBuildInput): DrillData {
     id: a.id,
     nickname: a.nickname,
     institution: a.institutionName,
+    entity: a.entityName ?? null,
     type: a.accountType,
     balanceCents: a.currentBalance ? toCents(a.currentBalance) : null,
     balanceAt: a.currentBalanceAt ? BALANCE_DATE.format(a.currentBalanceAt) : null,
@@ -205,7 +236,7 @@ export function buildDrillData(input: DrillBuildInput): DrillData {
     from: t.fromNickname,
     to: t.toNickname,
     amountCents: toCents(t.amount),
-    cadence: t.cadence.replace(/_/g, " "),
+    cadence: cadenceText(t.cadence),
     rule: describeDayRules(t.dayRules),
     purpose: t.purpose,
   }));
@@ -227,6 +258,7 @@ export function buildDrillData(input: DrillBuildInput): DrillData {
   return {
     period: input.period,
     periodLabel: input.periodLabel,
+    isCurrentPeriod: input.isCurrentPeriod ?? false,
     isAllEntities: input.isAllEntities,
     bucket: input.bucket,
     hrefs: {

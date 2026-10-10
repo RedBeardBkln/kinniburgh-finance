@@ -329,3 +329,165 @@ describe("month spend: reconciliation property over random worlds", () => {
     expect(sawNested).toBeGreaterThan(20);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Browser-check fix: bank-labelled transfers between own accounts that have no pair yet (pending) or never got one
+
+describe("own-account transfers recognised by the bank wording and a household account mask", () => {
+  // mask -> account id: exactly the ACTIVE, unambiguous accounts (the loader builds this; masks are never shown)
+  const masks = new Map([
+    ["2558", "acc-mortgage"],
+    ["3612", "acc-slush"],
+    ["1001", "acc-checking"],
+  ]);
+  const xfer = (amount: string, payee: string, over: Omit<Partial<SpendTx>, "amount" | "tagIds"> & { tags?: string[] } = {}) => tx({ amount, payee, ...over });
+  const run = (txs: SpendTx[], withMasks = true) => buildMonthSpend(txs, TAGS, septemberLines(), withMasks ? { ownAccountByMask: masks } : {});
+
+  it("a PENDING untagged transfer to an own account is not spending and says why", () => {
+    resetSeq(1000);
+    const t = xfer("-400", "Online Xfer Transfer to CK x2558", { pending: true });
+    const m = run([t, out("30", "Bank Fees")]);
+    expect(m.spent.toFixed(2)).toBe("30.00");
+    expect(m.pendingCount).toBe(0); // the pending transfer is not a counted pending row
+    const g = m.excluded.find((x) => x.cls === "own_transfer")!;
+    expect(g.count).toBe(1);
+    expect(g.sum.toFixed(2)).toBe("-400.00");
+    expect(m.verdicts.get(t.id)).toMatchObject({ cls: "own_transfer", reason: "Transfer to your own account, not counted" });
+    expect(m.reconciles).toBe(true);
+  });
+
+  it("a POSTED unpaired transfer is excluded the same way, in both directions", () => {
+    resetSeq(1010);
+    const to = xfer("-2350", "Online Xfer Transfer to CK x3612");
+    const from = xfer("2350", "Online Xfer Transfer from CK x1001", { accountId: "acc-slush" });
+    const m = run([to, from]);
+    expect(m.spent.isZero()).toBe(true);
+    expect(m.refunds.isZero()).toBe(true); // the incoming leg is not a refund
+    expect(m.verdicts.get(from.id)?.reason).toBe("Transfer from your own account, not counted");
+    expect(m.excluded.find((x) => x.cls === "own_transfer")?.count).toBe(2);
+    expect(m.excluded.find((x) => x.cls === "own_transfer")?.sum.toFixed(2)).toBe("0.00");
+  });
+
+  it("without the mask map the old behaviour is unchanged (the rule is opt-in)", () => {
+    resetSeq(1020);
+    const m = run([xfer("-400", "Online Xfer Transfer to CK x2558", { pending: true })], false);
+    expect(m.spent.toFixed(2)).toBe("400.00");
+  });
+
+  it("an unknown mask stays spending", () => {
+    resetSeq(1030);
+    const m = run([xfer("-400", "Online Xfer Transfer to CK x9999", { pending: true })]);
+    expect(m.spent.toFixed(2)).toBe("400.00");
+    expect(m.excluded.length).toBe(0);
+  });
+
+  it("a mask that belongs to an archived or foreign account (so it is not in the map) stays spending", () => {
+    resetSeq(1040);
+    // 4444 is, say, an archived account: the loader leaves it out of the map, so it cannot classify anything
+    const m = run([xfer("-75", "Online Xfer Transfer to SV x4444")]);
+    expect(m.spent.toFixed(2)).toBe("75.00");
+  });
+
+  it("a transfer whose mask is the row's OWN account is not a transfer to an own account", () => {
+    resetSeq(1050);
+    const m = run([xfer("-60", "Online Xfer Transfer to CK x2558", { accountId: "acc-mortgage" })]);
+    expect(m.spent.toFixed(2)).toBe("60.00");
+  });
+
+  it("only the exact bank wording counts: other text that mentions a mask is not a transfer", () => {
+    resetSeq(1060);
+    for (const payee of ["Payment to x2558", "CORFCU CK WEBXFR TRANSFER", "Online Xfer Transfer to CK x2558 extra", "online xfer transfer to ck x2558"]) {
+      const m = run([xfer("-10", payee)]);
+      expect(m.spent.toFixed(2), payee).toBe("10.00");
+    }
+  });
+
+  it("no double exclusion when the pair is formed later: the paired row is one own transfer, counted once", () => {
+    resetSeq(1070);
+    const paired = [
+      xfer("-400", "Online Xfer Transfer to CK x2558", { transferPairId: "pair-9" }),
+      xfer("400", "Online Xfer Transfer from CK x1001", { transferPairId: "pair-9", accountId: "acc-mortgage" }),
+    ];
+    const m = run(paired);
+    const g = m.excluded.find((x) => x.cls === "own_transfer")!;
+    expect(g.count).toBe(2);
+    expect(g.sum.toFixed(2)).toBe("0.00");
+    expect(m.verdicts.get(paired[0]!.id)?.reason).toBe("Paired transfer between your own accounts");
+    // the same rows unpaired give the same totals
+    const unpaired = paired.map((p) => ({ ...p, id: p.id + "u", transferPairId: null }));
+    const m2 = run(unpaired);
+    expect(m2.spent.toFixed(2)).toBe(m.spent.toFixed(2));
+    expect(m2.excluded.find((x) => x.cls === "own_transfer")?.count).toBe(2);
+  });
+
+  it("a transfer that is also tagged Transfer Out is still one own transfer", () => {
+    resetSeq(1080);
+    const m = run([xfer("-10", "Online Xfer Transfer to CK x2558", { tags: ["Transfer Out"] })]);
+    expect(m.excluded.find((x) => x.cls === "own_transfer")?.count).toBe(1);
+    expect(m.spent.isZero()).toBe(true);
+  });
+
+  it("the parts still add up to Spent exactly with transfers mixed in (200 random worlds)", () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      const w = randomWorld(seed);
+      const txs = w.txs.map((t, i) =>
+        i % 5 === 0 ? { ...t, payee: i % 10 === 0 ? "Online Xfer Transfer to CK x2558" : "Online Xfer Transfer from CK x3612", accountId: "a1" } : t
+      );
+      const m = buildMonthSpend(txs, w.tags, w.lines, { ownAccountByMask: masks });
+      expect(m.reconciles, `seed ${seed}`).toBe(true);
+      let bridge = m.spent.negated();
+      for (const g of m.excluded) bridge = bridge.plus(g.sum);
+      expect(bridge.equals(m.signedTotal), `seed ${seed}: bridge`).toBe(true);
+      expect(m.verdicts.size).toBe(txs.length);
+      const rowCount = m.excluded.reduce((s, g) => s + g.count, 0) + [...m.verdicts.values()].filter((v) => v.cls === "spending" || v.cls === "refund").length;
+      expect(rowCount, `seed ${seed}: each tx counted once`).toBe(txs.length);
+    }
+  });
+});
+
+describe("whitespace-tolerant bank wording (historical rows use 'Online  Xfer')", () => {
+  const masks = new Map([["2558", "acc-mortgage"]]);
+  const run = (payee: string) => {
+    resetSeq(6000);
+    return buildMonthSpend([tx({ amount: "-100", payee })], TAGS, [], { ownAccountByMask: masks });
+  };
+
+  it.each([
+    "Online  Xfer Transfer to CK x2558",
+    "Online   Xfer  Transfer   to  CK  x2558",
+    "Online\tXfer Transfer to CK x2558",
+    " Online Xfer Transfer to CK x2558 ",
+    "Online Xfer\u00a0Transfer to CK x2558",
+  ])("is an own transfer: %j", (payee) => {
+    const m = run(payee);
+    expect(m.spent.isZero()).toBe(true);
+    expect(m.excluded.find((g) => g.cls === "own_transfer")?.count).toBe(1);
+  });
+
+  it.each([
+    "online  xfer transfer to ck x2558", // case is still exact
+    "Online  Xfer Transfer to CK x2558 extra",
+    "Online  Xfer Transfer to C x2558",
+    "Online  Xfer Transfer to CK x255",
+    "Online  Xfer Transfer to CK x9999", // unknown mask
+    "Online  Xfer Transfer CK x2558", // direction missing
+  ])("stays spending: %j", (payee) => {
+    expect(run(payee).spent.toFixed(2)).toBe("100.00");
+  });
+});
+
+describe("a transfer to an own account of a DIFFERENT entity (reviewer decision: still an own transfer)", () => {
+  it("is classed own_transfer, kept out of Spent and listed under the excluded transfers with its reason", () => {
+    resetSeq(6100);
+    // Personal checking pays the LLC's operating account (a household account of another entity)
+    const masks = new Map([["8888", "acc-llc-operating"]]);
+    const t = tx({ amount: "-500", payee: "Online Xfer Transfer to CK x8888", entityId: "ent-personal", entityName: "Personal" });
+    const m = buildMonthSpend([t, tx({ amount: "-25", tags: ["Bank Fees"] })], TAGS, [], { ownAccountByMask: masks });
+    expect(m.spent.toFixed(2)).toBe("25.00");
+    const g = m.excluded.find((x) => x.cls === "own_transfer")!;
+    expect(g.count).toBe(1);
+    expect(g.sum.toFixed(2)).toBe("-500.00");
+    expect(m.verdicts.get(t.id)).toMatchObject({ cls: "own_transfer", reason: "Transfer to your own account, not counted" });
+    expect(m.reconciles).toBe(true);
+  });
+});

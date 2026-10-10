@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDrill } from "./drill-context";
-import { centsText, type DrillLine } from "@/lib/dashboard-drill";
+import { centsText, groupLabel, type DrillLine } from "@/lib/dashboard-drill";
 
 /**
  * The dashboard's Budget Lines table: grouped by account, a parent line above its indented children (the same nesting
@@ -91,7 +91,7 @@ export function BudgetLinesTable({ budgetsHref }: { budgetsHref: string }) {
                     <Fragment key={group.accountId}>
                       <tr className="border-b bg-muted/40">
                         <th scope="colgroup" colSpan={2} className="px-4 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          {group.accountName}
+                          {groupLabel(data, group)}
                         </th>
                         <td colSpan={3} className="px-4 py-1.5 text-right text-xs text-muted-foreground">
                           {centsText(group.budgetCents)} budgeted · {centsText(group.spentCents)} spent (top-level lines)

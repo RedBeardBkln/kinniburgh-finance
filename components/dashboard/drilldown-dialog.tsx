@@ -164,6 +164,12 @@ export function DrilldownDialog({ data, target, allTags, returnFocusTo, onClose 
                     <span className="shrink-0 tabular-nums text-muted-foreground">{s.subtotalCents !== null ? signedText(s.subtotalCents) : ""}</span>
                   </summary>
                   {s.subtitle && <p className="px-4 pb-1 text-xs text-muted-foreground">{s.subtitle}</p>}
+                  {s.moneyInCents !== undefined && s.moneyOutCents !== undefined && (
+                    <p className="px-4 pb-1 text-xs text-muted-foreground">
+                      Money in {signedText(s.moneyInCents)}, money out {centsText(s.moneyOutCents)}, net{" "}
+                      {s.subtotalCents !== null ? signedText(s.subtotalCents) : ""} (+ in, - out, as the bank records it).
+                    </p>
+                  )}
                   <RowList rows={s.rows} allTags={allTags} signed />
                 </details>
               ))}

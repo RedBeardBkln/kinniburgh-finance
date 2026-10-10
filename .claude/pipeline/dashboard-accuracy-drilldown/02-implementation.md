@@ -119,3 +119,89 @@ CRLF/LF preserved: `app/page.tsx`, `spending-chart.tsx`, `lib/advisor-context.ts
 - `pnpm test` (full): 471 files passed (471); 12,924 tests passed, 11 skipped, 0 failed (12,935 total).
 - `DATABASE_URL=postgresql://x:y@127.0.0.1:1/z pnpm test` (full): identical, 471 files, 12,924 passed, 11 skipped, 0 failed.
 - New/changed tests this round: +1 in `dashboard-drill.test.ts`, +1 in `dashboard-drilldown-render.test.tsx`, +1 in `dashboard-drill-guard.test.ts`, +3 in new `dashboard-advisor-spend-notes.test.ts`; the existing render, page-pin, carry-forward and advisor tests stayed green unchanged.
+
+## Browser-check fixes (production check of commit 512ea9a)
+
+No staging, commit or push; no migration; line endings preserved (`app/page.tsx`, `app/budgets/page.tsx`, `dashboard-client.tsx`, `CLAUDE.md` stay CRLF; lib files LF). CLAUDE.md: the `own_transfer` clause of the Dashboard paragraph extended (latin-1 round trip, ASCII insert, only that region changed, no lone LF).
+
+### BUG: pending/unpaired own-account transfers counted as spending
+- **How own transfers were detected before** (read-only live script): only (a) `transferPairId` set, or (b) a Transfer In / Transfer Out tag. A pending leg has no pair until the other leg posts, and the outgoing legs were untagged (their incoming twins were tagged Transfer In by a rule, which is why `to SV` was "Own transfer" and the two `to CK` rows were not). The TD matcher (`lib/transfer-match-runner.ts`) only pairs POSTED rows (`pending: false`) of TD Bank accounts, so a pending leg stays unpaired for a day or more.
+- **New rule** (`lib/month-spend.ts` `classifyTx`, option `ownAccountByMask`): after the pair, loan-account and Transfer-tag checks, a row is an own transfer when its payee is exactly the bank wording `Online Xfer Transfer (to|from) XX xNNNN` (reuses `parseTransferLeg`) AND NNNN is the mask of exactly one ACTIVE account of the household AND that account is not the row's own. Never payee text alone. Reason shown: "Transfer to your own account, not counted" / "Transfer from your own account, not counted". Pending and posted are treated the same; a paired row stays "Paired transfer between your own accounts" (one class per row, so no double exclusion when the pair forms later).
+- **Mask map**: new `lib/own-account-masks-build.ts` (`loadOwnAccountByMask`, read-only, `archivedAt: null`, selects only `id` and `mask`); a mask shared by two active accounts is dropped as ambiguous; an unknown, archived-account or foreign mask is simply absent, so the row stays spending. Dashboard and `/budgets` pass the same map (Total Spent still agrees). If the mask read fails the money cards read "Unavailable" (fail closed, never an inflated total). Masks never leave the server: the drill payload replaces a known counterpart by the account name ("Transfer to Mortgage loan") and hides digits otherwise ("... x****"); a test pins no `xNNNN` in any payee label.
+- **Live results** (independent SQL, written separately with the same mask rule, Sept and Oct, all four buckets): every cell matches to the cent and `reconciles=true`.
+  | Period | Bucket | Before | After | Independent SQL |
+  |---|---|---|---|---|
+  | 2026-09 | Personal | 17,162.22 | 17,162.22 | 17,162.22 |
+  | 2026-09 | Sudden Valley | 1,204.38 | 1,204.38 | 1,204.38 |
+  | 2026-09 | EK Consulting | 82.68 | 82.68 | 82.68 |
+  | 2026-09 | ALL | 18,449.28 | 18,449.28 | 18,449.28 |
+  | 2026-10 | Personal | 12,631.34 | **12,081.34** | 12,081.34 |
+  | 2026-10 | Sudden Valley | 252.42 | 252.42 | 252.42 |
+  | 2026-10 | EK Consulting | 63.63 | 63.63 | 63.63 |
+  | 2026-10 | ALL | 12,947.39 | 12,397.39 | 12,397.39 |
+  October Personal falls by exactly 550.00 (the 400.00 and 150.00 pending transfers).
+- **Every row the new rule changes, all months, all entities** (checked by comparing the model with and without the map over every month that has an "Online Xfer Transfer" row; 6 rows, all on Primary Checking, all outgoing, all unpaired and untagged): 2026-10-09 pending -400.00 and -150.00; 2026-04-20 posted -190.00, -105.00, -117.00; 2026-04-16 posted -2,350.00. The four April rows are historical (April is not Sept/Oct; they were being counted as spending there). Rows of the same kind that were already tagged or paired are unchanged. Not touched (not bank-labelled with a mask, no guessing): `CORFCU CK WEBXFR TRANSFER` (-330 monthly on The Cottage, tagged Home & Property / Home Improvements) and `COREPLUS FCU ACH XFER` (+690 Aug 4); `to SV x8815` rows stay classed by their Transfer Out tag (that mask is not an account of this household).
+
+### Cosmetics
+1. Scheduled transfers: new `cadenceText()` (`lib/dashboard-drill.ts`): "Semi-monthly", "Weekly", "Monthly", "Every two weeks"; used for the badge on the page and the detail rows.
+2. Exclusion signs: each excluded group now says "Money in +$X, money out -$Y, net +/-$Z (+ in, - out, as the bank records it)". Credit card payments: in +$566.82, out -$734.75, net -$167.93 (Sept Personal).
+3. All Entities: every account group (Spent dialog headings, Total Budgeted dialog, Budget Lines table headers, account dialog subtitle) is labelled "<account> · <entity>"; single-entity views stay unlabelled.
+4. Line subtitle: decided to name the account the LINE is budgeted on and, when spending sits elsewhere, those accounts: "Budgeted on the Primary Checking account · spending also on Barclay". Per-row account names are unchanged.
+5. Row account: verified by test that every row shows the nickname of the account its own transaction is on (spent, account and line views). Transfer-label rows also carry their reason as the third part of the row line.
+6. Layout: the title and month navigation are passed to `DashboardClient` as `header` and render first, above the category cards and the chart (the summary cards and the Upcoming Suspense block are unchanged, in the same place after the chart).
+7. The Spent dialog title is "Spent This Month" for the current month and "Spent in <Month Year>" for a past month, matching the card (new `isCurrentPeriod` in the payload).
+Not changed: the inline tag-chip remove controls.
+
+### Tests changed and why
+- `dashboard-drill.test.ts`: two expectations encoded the old cadence text ("semi monthly") and the old account payload keys; updated to "Semi-monthly" and the added `entity` key.
+- `dashboard-accuracy-tester-page.test.tsx`: its mocked account and budget rows now carry `entity: { name }` (the page reads it for the new labels); the "accounts read fails" case uses a one-time rejection because the mask loader shares that mock; new case "own account masks read fails" expects Unavailable, not a wrong total.
+
+### New tests (all pass)
+`month-spend.test.ts` +10 (pending, posted both directions, mask rule opt-in, unknown mask, archived/foreign mask, own-account mask, near-miss wordings, pair formed later, tag + mask, 200 random worlds with transfers: parts equal Spent, bridge, each row counted once); `own-account-masks.test.ts` +3 (active only, id and mask only, ambiguous masks dropped); `dashboard-drill.test.ts` +12 (reasons on rows, mask never shown, title, in/out split, cadence, entity labels, line subtitle, row accounts); `dashboard-drilldown-render.test.tsx` +4 (header above cards and chart, in/out text, entity-labelled table, current-month title); `dashboard-drill-guard.test.ts` +6 (loader shape, shared map on both pages, mask only through the validated map, redaction, header prop, cadence badge); plus one added page case.
+
+### Commands and exact results
+- `pnpm typecheck`: clean.
+- `pnpm lint`: 0 errors, 51 warnings (unchanged).
+- `pnpm test` (full): 472 files passed (472); 12,960 passed, 11 skipped, 0 failed (12,971 total).
+- `DATABASE_URL=postgresql://x:y@127.0.0.1:1/z pnpm test` (full): identical, 472 files, 12,960 passed, 11 skipped, 0 failed.
+
+## Final pass (tester re-test PASS, reviewer APPROVED browser-check fixes)
+
+No staging, commit or push; no migration; CRLF/LF preserved (`CLAUDE.md` and `app/page.tsx` still CRLF with no lone LF; lib files LF; CLAUDE.md edited as a latin-1 buffer, ASCII insert, only the two clauses changed).
+
+### 1. Whitespace-tolerant wording, and a sweep of every transfer wording (read-only)
+All rows whose payee contains "xfer", all months (538 rows), grouped by shape (digits -> NNNN):
+
+| Rows | Sum | Paired | Pending | Months | Wording |
+|---|---|---|---|---|---|
+| 166 | -78,959.00 | 0 | 0 | 2025-05..2026-04 | `Online  Xfer Transfer to CK xNNNN` (double space) |
+| 132 | -64,636.00 | 126 | 2 | 2026-04..2026-10 | `Online Xfer Transfer to CK xNNNN` |
+| 127 | +58,928.00 | 122 | 2 | 2026-04..2026-10 | `Online Xfer Transfer from CK xNNNN` |
+| 58 | -2,740.00 | 0 | 0 | 2025-05..2026-04 | `Online  Xfer Transfer to SV xNNNN` (double space) |
+| 26 | -260.00 | 0 | 1 | 2026-04..2026-10 | `Online Xfer Transfer to SV xNNNN` |
+| 21 | -1,853.95 | 0 | 0 | 2025-05..2026-03 | `PAYPAL INST XFER` (no mask) |
+| 4 | +3,226.00 | 4 | 0 | 2026-04..2026-07 | `Online Xfer Transfer from SV xNNNN` |
+| 4 | +10,690.00 | 0 | 0 | 2026-07..2026-08 | `COREPLUS FCU ACH XFER` (no mask) |
+
+So the only variant in live data is the double space after "Online" (all TD Bank accounts). New `lib/own-transfer-label.ts` (pure, client-safe): `parseOwnTransferLabel` collapses whitespace runs (spaces, tabs, nbsp) and trims, then uses the unchanged strict anchored parse (case-sensitive, nothing before or after, two-letter code, four digits); `hideTransferMask` hides `xNNNN` (any case) in any text that mentions transfer/xfer, whatever its shape. `lib/month-spend.ts` classifies through the tolerant parse (still requires the validated active TD mask, another account, and the opt-in map); `displayPayee` names a known counterpart ("Transfer to Mortgage loan") and otherwise hides the digits in every near-miss form. `lib/transfer-match.ts` and the TD matcher are untouched (they do not start pairing the historical rows). Wordings without a mask (`PAYPAL INST XFER`, `COREPLUS FCU ACH XFER`) are not classified. The tester's `it.fails` pin is now a plain `it` (the only edit asked for); to keep two of the tester's tests consistent with the new behaviour I also changed, in the same file, the oracle's wording parse (collapse whitespace first) and moved the double-space example from the "stays spending" list to the "recognised" assertions.
+
+Independent SQL recomputation (own SQL: whitespace collapsed with `[[:space:]]+`, anchored wording, TD Bank accounts whose mask is unique and not the row's own, plus the pair/tag/loan/card/income rules) for Personal, May 2025 to Oct 2026 (months with data): every month matches the app to the cent and `reconciles=true`; Sudden Valley and EK Consulting are unchanged and match; All Entities matches. Personal Spent change versus the previous rule (single-space only), by month: 2025-05 -5,610.00 (12,507.90 -> 6,897.90); 2025-06 -7,960.00 (19,200.96 -> 11,240.96); 2025-07 -7,015.00 (17,346.95 -> 10,331.95); 2025-08 -5,950.00 (20,083.31 -> 14,133.31); 2025-09 -6,015.00 (26,262.22 -> 20,247.22); 2025-10 -6,470.00 (17,656.24 -> 11,186.24); 2025-11 -7,320.00 (19,106.53 -> 11,786.53); 2025-12 -7,625.00 (18,876.34 -> 11,251.34); 2026-01 -7,520.00 (16,806.66 -> 9,286.66); 2026-02 -7,961.00 (18,355.76 -> 10,394.76); 2026-03 -8,159.00 (15,577.85 -> 7,418.85); 2026-04 -3,604.00 (16,425.53 -> 12,821.53). Total -81,209.00 over the 12 months (the 175 rows you named). 2026-09 Personal 17,162.22 and 2026-10 Personal 12,081.34 are unchanged from the earlier fix (the -550 was already in; no further change). The 2026-03 dialog payload now has 0 transfer-shaped payees with digits (32 own transfers listed under "Not counted"); the remaining `xNNNN` in other March payees are store terminal numbers in card-purchase text, not account masks.
+
+### 2. CLAUDE.md contradiction (S1)
+The sentence "Classes come from the tag tree and account type, never from payee text" is replaced: classification is tag-tree and account-type based with ONE narrow exception, the TD Bank transfer label (whitespace runs collapsed, case and anchoring exact, `lib/own-transfer-label.ts`), which makes a row an `own_transfer` only when its mask is validated against the household's active TD accounts; no other payee text is read. The `own_transfer` clause now says "active TD Bank account".
+
+### 3. Mask map scoped to TD Bank (S2)
+`lib/own-account-masks-build.ts`: `where: { archivedAt: null, institution: { name: TD_BANK_INSTITUTION_NAME } }` (select still only `id` and `mask`); the constant is "TD Bank", the same institution `lib/transfer-match-runner.ts` filters on (a test reads the runner source and checks the same name). Live: 7 unique TD masks (was 10 across all institutions). A TD transfer to a non-household account whose last four digits equal the mask of a non-TD household account (credit union, QuickBooks) is no longer excluded; tested with a db fake that honours the institution filter (the foreign 5555 and 6666 transfers stay spending, the real TD one is excluded).
+
+### 4. Cross-entity pin (N1)
+`month-spend.test.ts` and `dashboard-drill.test.ts` pin that a Personal row "to" an account of another entity is `own_transfer`, stays out of Spent and is listed under "Transfers between your own accounts" with "Transfer to your own account, not counted" and its signed sum.
+
+### N2 skipped
+CK/SV code vs account type: skipped, it would risk false negatives (the two-letter code is not a reliable account-type signal in the live data: `to SV` rows go to Sudden Valley's bank, `to CK` to several checking accounts; only the mask is validated, as in the TD matcher).
+
+### Tests and commands (exact)
+- New/changed tests: `month-spend.test.ts` +12 (whitespace variants that are transfers: 5; near-misses that stay spending: 6; cross-entity: 1), `dashboard-drill.test.ts` +5, `own-account-masks.test.ts` +2 (and its `where` expectation), `dashboard-drill-guard.test.ts` (2 expectations follow the new helper), `dashboard-accuracy-tester-masks.test.ts` (flip + the two consistency edits above).
+- `pnpm typecheck`: clean.
+- `pnpm lint`: 0 errors, 51 warnings (unchanged).
+- `pnpm test` (full): 474 files passed (474); 13,001 passed, 11 skipped, 0 failed (13,012 total).
+- `DATABASE_URL=postgresql://x:y@127.0.0.1:1/z pnpm test` (full): identical, 474 files, 13,001 passed, 11 skipped, 0 failed.

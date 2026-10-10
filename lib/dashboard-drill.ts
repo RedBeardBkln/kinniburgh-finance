@@ -59,6 +59,8 @@ export interface DrillLine {
 export interface DrillGroup {
   accountId: string;
   accountName: string;
+  /** The entity (Personal, Sudden Valley, ...) the account belongs to. */
+  entityName: string | null;
   /** Sum of the resolved budget of the ROOT lines only (a parent already includes its children). */
   budgetCents: number;
   spentCents: number;
@@ -84,6 +86,8 @@ export interface DrillAccount {
   id: string;
   nickname: string;
   institution: string;
+  /** The entity the account belongs to. */
+  entity: string | null;
   type: string;
   balanceCents: number | null;
   balanceAt: string | null;
@@ -102,6 +106,8 @@ export interface DrillTransfer {
 export interface DrillData {
   period: string;
   periodLabel: string;
+  /** True when the month shown is the current one (the Spent card then reads "Spent This Month"). */
+  isCurrentPeriod: boolean;
   isAllEntities: boolean;
   bucket: string;
   hrefs: { budgets: string; envelope: string; transactions: string };
@@ -162,6 +168,9 @@ export interface DrillSection {
   /** Shown beside the title; for a parent line it includes the nested lines. */
   subtotalCents: number | null;
   subtotalNote: string | null;
+  /** For a group the headline does not count: the money in (+) and out (-) that make up its net subtotal. */
+  moneyInCents?: number;
+  moneyOutCents?: number;
   rows: DrillRow[];
   emptyNote: string | null;
 }
@@ -216,7 +225,8 @@ function txRow(tx: DrillTx, mode: "spend" | "bank", withTags: boolean, keyPrefix
     txId: tx.id,
     day: tx.day,
     label: tx.payee,
-    sub: null,
+    // why a row is left out of Spent (e.g. "Transfer to your own account, not counted")
+    sub: tx.cls === "spending" || tx.cls === "refund" ? null : tx.reason,
     account: tx.account,
     tags: tx.tagPaths.length > 0 ? tx.tagPaths.join(", ") : "Untagged",
     tagIds: withTags ? tx.tagIds : null,
@@ -269,6 +279,29 @@ export function sumRowCents(view: Pick<DrillView, "sections">): number {
   return total;
 }
 
+/** An account group's label; the All Entities view names the entity on EVERY group so equal nicknames cannot be confused. */
+export function groupLabel(data: Pick<DrillData, "isAllEntities">, group: { accountName: string; entityName: string | null }): string {
+  return data.isAllEntities && group.entityName ? `${group.accountName} · ${group.entityName}` : group.accountName;
+}
+
+/** Plain-language cadence of a scheduled transfer (the stored value is an enum such as semi_monthly). */
+export function cadenceText(cadence: string): string {
+  switch (cadence) {
+    case "weekly":
+      return "Weekly";
+    case "biweekly":
+      return "Every two weeks";
+    case "semi_monthly":
+      return "Semi-monthly";
+    case "monthly":
+      return "Monthly";
+    default: {
+      const words = cadence.replace(/_/g, " ").trim();
+      return words ? words.charAt(0).toUpperCase() + words.slice(1) : cadence;
+    }
+  }
+}
+
 function lineSectionTitle(line: DrillLine): string {
   return rowLabel({ depth: line.depth, line: { id: line.id, tagId: line.tagId, accountId: line.accountId, accountName: line.accountName, shortName: line.shortName, fullName: line.label } });
 }
@@ -291,6 +324,14 @@ function emptyView(kind: DrillTarget["kind"], title: string, note: string): Dril
 }
 
 function excludedSection(data: DrillData, g: DrillExcluded): DrillSection {
+  const byId = txIndex(data);
+  let moneyIn = 0;
+  let moneyOut = 0;
+  for (const id of g.txIds) {
+    const c = byId.get(id)?.cents ?? 0;
+    if (c > 0) moneyIn += c;
+    else moneyOut += c;
+  }
   return {
     key: `excluded:${g.cls}`,
     heading: null,
@@ -298,7 +339,9 @@ function excludedSection(data: DrillData, g: DrillExcluded): DrillSection {
     subtitle: `${g.count} ${g.count === 1 ? "entry" : "entries"}. ${CLASS_WHY[g.cls]}`,
     depth: 0,
     subtotalCents: g.cents,
-    subtotalNote: "as the bank records it",
+    subtotalNote: "net, as the bank records it (+ money in, - money out)",
+    moneyInCents: moneyIn,
+    moneyOutCents: moneyOut,
     rows: rowsFor(data, g.txIds, "bank", false, `x:${g.cls}`, false),
     emptyNote: null,
   };
@@ -349,7 +392,7 @@ function spentView(data: DrillData): DrillView {
       if (!line || !subtreeHasRows(lineId)) continue;
       sections.push({
         key: `line:${line.id}`,
-        heading: first ? group.accountName : null,
+        heading: first ? groupLabel(data, group) : null,
         title: lineSectionTitle(line),
         subtitle: null,
         depth: line.depth,
@@ -438,7 +481,7 @@ function spentView(data: DrillData): DrillView {
 
   return {
     kind: "spent",
-    title: `Spent in ${data.periodLabel}`,
+    title: data.isCurrentPeriod ? "Spent This Month" : `Spent in ${data.periodLabel}`,
     subtitle: "Money that left your accounts or was charged to a card, net of refunds.",
     headline: { label: "Spent", cents: data.spentCents, unit: "money" },
     expected: { cents: data.spentCents, unit: "money" },
@@ -460,7 +503,7 @@ function budgetedView(data: DrillData): DrillView {
     return {
       key: `acct:${group.accountId}`,
       heading: i === 0 ? "By account" : null,
-      title: group.accountName,
+      title: groupLabel(data, group),
       subtitle: null,
       depth: 0,
       subtotalCents: group.budgetCents,
@@ -546,6 +589,33 @@ function overspentView(data: DrillData): DrillView {
   };
 }
 
+/**
+ * A budget line belongs to the account that is set to PAY it (its "budgeted on" account); the spending counted in it can sit
+ * on other accounts, for example a card. The subtitle names the line's account and, when different, the accounts the
+ * rows are actually on.
+ */
+function lineSubtitle(data: DrillData, line: DrillLine): string {
+  const lines = lineIndex(data);
+  const ids = new Set<string>();
+  const seen = new Set<string>();
+  function collect(id: string): void {
+    const l = lines.get(id);
+    if (!l || seen.has(id)) return;
+    seen.add(id);
+    for (const t of l.txIds) ids.add(t);
+    for (const kid of l.childIds) collect(kid);
+  }
+  collect(line.id);
+  const byId = txIndex(data);
+  const others = new Set<string>();
+  for (const id of ids) {
+    const tx = byId.get(id);
+    if (tx && tx.accountId !== line.accountId) others.add(tx.account);
+  }
+  const base = `Budgeted on the ${line.accountName} account`;
+  return others.size > 0 ? `${base} · spending also on ${[...others].sort().join(", ")}` : base;
+}
+
 function lineView(data: DrillData, lineId: string): DrillView {
   const lines = lineIndex(data);
   const line = lines.get(lineId);
@@ -579,7 +649,7 @@ function lineView(data: DrillData, lineId: string): DrillView {
   return {
     kind: "line",
     title: line.label,
-    subtitle: `${line.accountName} account line`,
+    subtitle: lineSubtitle(data, line),
     headline: { label: "Spent", cents: line.rolledCents, unit: "money" },
     expected: { cents: line.rolledCents, unit: "money" },
     footerLabel: null,
@@ -610,7 +680,7 @@ function accountView(data: DrillData, accountId: string): DrillView {
   return {
     kind: "account",
     title: account.nickname,
-    subtitle: account.institution,
+    subtitle: data.isAllEntities && account.entity ? `${account.institution} · ${account.entity}` : account.institution,
     headline: { label: owed ? "Balance owed" : "Balance", cents: account.balanceCents ?? 0, unit: "money" },
     expected: null,
     footerLabel: `Net activity in ${data.periodLabel} (all entries on this account)`,

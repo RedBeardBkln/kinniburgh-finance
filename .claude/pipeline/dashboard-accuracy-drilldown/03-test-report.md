@@ -92,3 +92,92 @@ None blocking.
 ## Memory
 
 Recipe saved to `.claude/agent-memory/tester/dashboard-drilldown-verification-recipe.md` and indexed in `MEMORY.md`.
+
+---
+
+# Re-test (browser-check fixes)
+
+Delta under test: the "Browser-check fixes" section of `02-implementation.md` (HEAD 512ea9a, fixes uncommitted: new own-account-transfer rule in `lib/month-spend.ts`, new `lib/own-account-masks-build.ts`, `displayPayee`, cosmetics). No staging or commits, no DB writes; temporary scripts and mutant copies deleted (`git status` shows none).
+
+## Verdict: PASS
+
+The new rule is correct on every live and fuzzed case checked, the numbers moved exactly as predicted, and nothing regressed. One low-severity gap and a few observations are listed below; none blocks.
+
+## Commands (real output)
+
+| Command | Result |
+|---|---|
+| `pnpm typecheck` | clean, exit 0 (after I fixed a type error in my own new render test) |
+| `pnpm lint` | 0 errors, 51 warnings (unchanged) |
+| `pnpm test` | 474 files passed, 12,982 passed, 11 skipped, 0 failed |
+| `DATABASE_URL=DIRECT_URL=postgresql://x:y@127.0.0.1:1/z pnpm test` | 474 files passed, 12,982 passed, 11 skipped, 0 failed |
+
+Line endings (`git ls-files --eol`, CR and LF counts): index LF everywhere; `app/page.tsx`, `app/budgets/page.tsx`, `dashboard-client.tsx`, `CLAUDE.md` are CRLF in the working tree with CR count equal to LF count (no lone LF); lib files and new files are LF with 0 CR. Same as before the delta.
+
+Note: the Coder edited my `dashboard-accuracy-tester-page.test.tsx` (mock rows now carry `entity`, a one-time rejection for the accounts case because the mask loader shares that mock, a new "own account masks" read-failure case). I read the diff; the changes are legitimate and the file passes.
+
+## Tests added this round (tester-named, untracked)
+
+- `lib/__tests__/dashboard-accuracy-tester-masks.test.ts` (6 tests). 500 random reconciliation worlds with an independent path-based oracle that includes the new rule. The REAL `loadOwnAccountByMask` runs over a db fake that honours `where.archivedAt: null` and `select`, and its map is compared with my own "exactly one active account holds this mask" oracle (archived, shared, no-mask and unknown masks in every world). Per world: every transaction class equals the oracle (order pair, loan account, Transfer tag, mask transfer, card, income), Spent equals the oracle, `reconciles` is true, pending and posted give identical results (all pending flags flipped), a pair that forms later keeps the single class "Paired transfer between your own accounts" with Spent unchanged and the own_transfer group count and sum identical (nothing double-excluded or dropped), without a map every legacy class is untouched, the rule only ever moves a row out of spending, refund, card or income into own_transfer, and (every 5th world) the Spent, Budgeted and Overspent views re-add and no leg-shaped payee leaves the payload. Branch guard (each more than 50): own-mask transfers (outgoing and incoming, pending and posted), unknown mask, archived mask, shared mask, own-account mask, near-miss wordings, paired row with a mask, Transfer tag plus mask. Also named cases and `displayPayee`.
+- `lib/__tests__/dashboard-accuracy-tester-masks-render.test.tsx` (16 tests). Real components rendered to markup for every dialog kind (spent, budgeted, overspent, two lines, three accounts): no `xNNNN`, none of the mask digits as a token; whole payload JSON has no `xNNNN`; known counterpart rendered as "Transfer to / from Slush Funds", foreign mask as `x****`; exclusion group "Money in +$150.00, money out -$400.00, net -$250.00" (and card payments +200 / -500 / -300) with in + out equal to net for every group; each excluded row carries its reason; titles "Spent This Month" (current) vs "Spent in October 2026" (past); All Entities labels `<account> · <entity>` on every group (dialogs and table) and none in a single-entity view; account subtitle; line subtitle "Budgeted on the Primary Checking account · spending also on Barclay"; cadence labels; header rendered before the category cards and chart and the summary cards after.
+
+## Mutation checks on temporary copies
+
+17 real mutants plus 1 identity (month-spend rule, mask loader, `displayPayee`): own account allowed as its own counterpart, unknown mask treated as a transfer, unknown mask falling back to any account, direction or reason swapped or inverted, map not passed through, card tag beating the mask, pair checked after the mask, Transfer tag no longer recognised, archived accounts included, shared mask "last wins", extra column selected, ambiguous mask re-mapped, counterpart not named, digits not hidden, map ignored. The identity survived (runner sane); all 17 were killed (16 by the Coder's tests, "card tag beats mask" only by mine). One extra mutant (mask also hidden for unrecognised shapes) intentionally flips my `it.fails` pin of the known gap below.
+
+## (1) The rule
+
+Implemented as specified: after the pair, loan-account and Transfer-tag checks, only for the exact bank wording (`parseTransferLeg`, trimmed), only when the mask maps to exactly one ACTIVE account other than the row's own; pending and posted identical; a paired row stays "Paired transfer between your own accounts"; unknown, archived, foreign, shared and own-account masks stay spending; near-miss wordings stay spending. All confirmed by fuzz and mutation above. Harmless nuance: the parser trims, so a payee with surrounding spaces is recognised.
+
+## (2) Live read-only (independent raw SQL with its own mask rule: exactly one active account holds the mask and it is not the row's own)
+
+| Period | Bucket | SQL | App | Before the rule |
+|---|---|---|---|---|
+| 2026-09 | Personal | 17,162.22 | 17,162.22 | 17,162.22 |
+| 2026-09 | Sudden Valley | 1,204.38 | 1,204.38 | 1,204.38 |
+| 2026-09 | EK Consulting | 82.68 | 82.68 | 82.68 |
+| 2026-09 | All Entities | 18,449.28 | 18,449.28 | 18,449.28 |
+| 2026-10 | Personal | 12,081.34 | 12,081.34 | 12,631.34 (down exactly 550.00) |
+| 2026-10 | Sudden Valley | 252.42 | 252.42 | 252.42 |
+| 2026-10 | EK Consulting | 63.63 | 63.63 | 63.63 |
+| 2026-10 | All Entities | 12,397.39 | 12,397.39 | 12,947.39 (down 550.00) |
+
+All eight cells match to the cent, `reconciles=true`, and every Spent, Total Budgeted, Overspent and line view re-adds. The map holds 10 masks (17 active accounts, 0 archived, no shared mask today). October now shows 11 pending (one more pending row appeared since the earlier run; unrelated to the rule).
+
+Every row the rule newly excludes, all months and all entities (the model compared with and without the map over every month that has an `xfer` payee, 18 months): exactly 6, the Coder's list.
+
+| Date | Amount | Pending | From Primary Checking to | Opposite leg on the counterpart |
+|---|---|---|---|---|
+| 2026-10-09 | -150.00 | yes | Slush Funds | +150.00 pending "Online Xfer Transfer from ..." same day |
+| 2026-10-09 | -400.00 | yes | Mortgage & Insurance | +400.00 pending "Online Xfer Transfer from ..." same day |
+| 2026-04-20 | -190.00 and -105.00 | no | Mortgage & Insurance | none within 5 days |
+| 2026-04-20 | -117.00 | no | Heating & Electric | none within 5 days |
+| 2026-04-16 | -2,350.00 | no | Mortgage & Insurance | none within 5 days |
+
+- The two October rows are certain own transfers: the counterpart account shows the matching incoming pending leg.
+- The four April rows are own-account transfers by the bank wording plus a mask that belongs to an active own account (Mortgage & Insurance, Heating & Electric), unpaired and untagged. I could not find an incoming leg for them: the counterpart accounts show incoming legs only on 2026-04-27 (paired with the 04-27 outgoing legs), so the 04-16 and 04-20 incoming legs look missing from the books (an import gap that predates this change). Evidence is therefore wording plus mask, not a matching leg. They are April, outside Sept and Oct.
+- Rows already tagged or paired, and movements without the bank wording (`CORFCU CK WEBXFR`, `COREPLUS FCU ACH XFER`, `PAYPAL INST XFER`), are unchanged, as the Coder stated.
+
+## (3) Masks, logs, read shape, /budgets
+
+- Live payload check, all 8 bucket and month cells: 0 payload strings match `xNNNN`, and 0 contain an active-account mask as a standalone digit token (the only hits I saw were two UUIDs that contain digits). Rendered dialogs (all kinds) and the page markup in my tests: no `xNNNN`, no mask digit token.
+- Logs: the only `console.*` calls in the touched files are the page `console.error` lines that log `err.name` only (the page test with a thrown message containing a connection string passes); the mask loader logs nothing.
+- Loader: `db.account.findMany({ where: { archivedAt: null }, select: { id: true, mask: true } })`, read-only, asserted by the Coder's test and by my fake (which returns only the selected keys). Mask read failure: the dashboard money cards read "Unavailable" (never an inflated number) while the other widgets still render (the Coder's updated case and my page suite pass). `/budgets` does not make the mask read fail-soft: if it fails the page errors rather than showing a wrong total (acceptable, same as its other reads).
+- /budgets Total Spent still equals the dashboard Spent: both pass the same mask map into `buildMonthSpend` (pinned by the guard test); Oct Personal is 12,081.34 on both paths.
+
+## (4) Cosmetics
+
+Pass: cadence labels (Semi-monthly, Weekly, Monthly, Every two weeks; the page badge uses `cadenceText`), money in, out and net on every exclusion group with in plus out equal to net, entity labels on every account group in the All Entities view only, line subtitle, dialog titles by month, header above the category cards and chart. `app/page.tsx` still starts with `await auth()`, and the pinned `{/* Next 30 days (current month only) */}`, `{isCurrentPeriod && (` and `<Suspense key={bucket} fallback={<UpcomingWidgetSkeleton days={30} />}>` block is intact, in the same place after the chart; the existing pin tests pass in the full run. No new imports in the client files (`dashboard-drill.ts` still imports only labels and the tree helper).
+
+## Defects and observations
+
+1. **LOW (not blocking): masks of historical wording variants still reach the payload.** The rule and `displayPayee` only recognise the exact single-space wording. 175 historical Primary Checking rows (May 2025 to Apr 2026, total -81,209.00, none in Sept or Oct 2026) have the double-space wording `Online  Xfer Transfer to CK x####`: they are neither classified as own transfers (still counted as Spent in those past months, for example March 2026: 28 rows, -8,159.00) nor have their digits hidden in the dialog payload. This meets the brief for Sept and Oct and for the exact wording; it does not meet the stricter reading "masks never appear anywhere" for those past months. Pinned by an `it.fails` in my masks test (it will flip to a failure, and must then be changed to `it`, when the Coder makes the wording whitespace-tolerant or masks every `x\d{4}` in transfer-looking payees). Recommendation: tolerate repeated spaces in the leg parser for both the class and the display, or scrub `x\d{4}` in any payee that contains "Xfer".
+2. Other unrecognised near-misses (`... x4444 extra`, wrong case, `CKS`) likewise keep their digits visible; none occur in the live data beyond item 1.
+3. Doc nit: `CLAUDE.md` still says "Classes come from the tag tree and account type, never from payee text" in the same paragraph that now lists the bank-wording-plus-mask exception.
+4. Data caveat: the four April rows have no matching incoming leg in the books (section 2).
+5. Earlier observations (All Entities blending, chart legend overlap at 375 px, red auto-sum parents, old-spend consumers) are unchanged.
+
+## Not tested
+
+- The real pages in a logged-in browser (no credentials). The real-browser harness from the first round was not re-run for this delta; the delta changes labels, ordering and a classification rule, all covered by the new render, fuzz and live checks.
+- `next build`.

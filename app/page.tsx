@@ -18,8 +18,9 @@ import { BudgetLinesTable } from "@/components/dashboard/budget-lines-table";
 import { resolveEffectiveBudgets } from "@/lib/budget-effective";
 import { buildMonthSpend, currentPeriodNY, isValidPeriod } from "@/lib/month-spend";
 import { loadMonthTransactions } from "@/lib/month-spend-build";
+import { loadOwnAccountByMask } from "@/lib/own-account-masks-build";
 import { buildDrillData } from "@/lib/dashboard-drill-build";
-import { budgetedSubline, centsText, type DrillData } from "@/lib/dashboard-drill";
+import { budgetedSubline, cadenceText, centsText, type DrillData } from "@/lib/dashboard-drill";
 import { loadUpcomingLedger } from "@/lib/upcoming-ledger-build";
 import { toUiDetection, toUiLedger, type UiDetection, type UiLedger } from "@/lib/upcoming-ledger-view";
 import { UpcomingWidget } from "@/components/upcoming/upcoming-widget";
@@ -53,7 +54,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     (p === currentPeriod ? `/?bucket=${bucket}` : `/?bucket=${bucket}&period=${p}`) as Route;
 
   // Every widget loads on its own: a failed read blanks that widget only (null = unavailable), never the page.
-  const [budgetRows, tagRows, accounts, scheduledTransfers, recurringRows, monthTxs] = await Promise.all([
+  const [budgetRows, tagRows, accounts, scheduledTransfers, recurringRows, monthTxs, ownAccountByMask] = await Promise.all([
     settle(
       "budget lines",
       db.budget.findMany({
@@ -65,7 +66,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           budgeted: true,
           additionalAmountCents: true,
           rolloverAmount: true,
-          account: { select: { nickname: true } },
+          account: { select: { nickname: true, entity: { select: { name: true } } } },
         },
         orderBy: [{ account: { nickname: "asc" } }, { tag: { name: "asc" } }],
       })
@@ -83,6 +84,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           currentBalance: true,
           currentBalanceAt: true,
           institution: { select: { name: true } },
+          entity: { select: { name: true } },
         },
         orderBy: { nickname: "asc" },
       })
@@ -112,6 +114,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       })
     ),
     settle("month transactions", loadMonthTransactions({ entityId: entity?.id ?? null, period })),
+    // Which statement masks are exactly one active account of the household (used only to recognise own-account transfers).
+    settle("own account masks", loadOwnAccountByMask()),
   ]);
 
   // "Next 30 days" widget: about today, so only on the current month. It is NOT loaded here: it renders through
@@ -122,7 +126,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // One model behind every number on the page and in the dialogs: the summary cards, the table, the chart, the
   // cards and the drill-down all read this same payload (lib/month-spend.ts defines what counts as spending).
   let drill: DrillData | null = null;
-  if (budgetRows && tagRows && recurringRows && monthTxs) {
+  if (budgetRows && tagRows && recurringRows && monthTxs && ownAccountByMask) {
     try {
       const tagParent = new Map(tagRows.map((t) => [t.id, t.parentId]));
       const effective = resolveEffectiveBudgets(
@@ -141,7 +145,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           resolved: effective.resolvedById.get(b.id) ?? zero,
           explicit: effective.explicitById.get(b.id) ?? null,
           rollover: new Prisma.Decimal(b.rolloverAmount ?? 0),
-        }))
+        })),
+        { ownAccountByMask }
       );
       drill = buildDrillData({
         model,
@@ -152,6 +157,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           tagId: b.tagId,
           accountId: b.accountId,
           accountName: b.account.nickname,
+          entityName: b.account.entity.name,
           rawBudgeted: b.budgeted,
           rollover: new Prisma.Decimal(b.rolloverAmount ?? 0),
         })),
@@ -160,6 +166,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           id: a.id,
           nickname: a.nickname,
           institutionName: a.institution.name,
+          entityName: a.entity.name,
           accountType: a.accountType,
           currentBalance: a.currentBalance,
           currentBalanceAt: a.currentBalanceAt,
@@ -175,9 +182,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         })),
         period,
         periodLabel: formatPeriod(period),
+        isCurrentPeriod,
         bucket,
         isAllEntities: entity === null,
         periodQuery: isCurrentPeriod ? "" : `&period=${period}`,
+        ownAccountByMask,
       });
     } catch (err) {
       drill = null;
@@ -187,45 +196,49 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
-      <DashboardClient data={drill} allTags={tagRows ?? []}>
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold">
-              {bucketLabel} — {formatPeriod(period)}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Monthly budget overview{!isCurrentPeriod && " · past month"}
-            </p>
+      <DashboardClient
+        data={drill}
+        allTags={tagRows ?? []}
+        header={
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-semibold">
+                {bucketLabel} — {formatPeriod(period)}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Monthly budget overview{!isCurrentPeriod && " · past month"}
+              </p>
+            </div>
+            <nav aria-label="Month navigation" className="flex items-center gap-2">
+              <Link
+                href={periodHref(prevPeriod)}
+                className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                {formatPeriod(prevPeriod)}
+              </Link>
+              {!isCurrentPeriod && (
+                <>
+                  <Link
+                    href={periodHref(nextPeriod)}
+                    className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
+                  >
+                    {formatPeriod(nextPeriod)}
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
+                  <Link
+                    href={periodHref(currentPeriod)}
+                    className="rounded-md px-3 py-1.5 text-sm text-primary hover:underline"
+                  >
+                    Current month
+                  </Link>
+                </>
+              )}
+            </nav>
           </div>
-          <nav aria-label="Month navigation" className="flex items-center gap-2">
-            <Link
-              href={periodHref(prevPeriod)}
-              className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              {formatPeriod(prevPeriod)}
-            </Link>
-            {!isCurrentPeriod && (
-              <>
-                <Link
-                  href={periodHref(nextPeriod)}
-                  className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
-                >
-                  {formatPeriod(nextPeriod)}
-                  <ChevronRight className="h-4 w-4" />
-                </Link>
-                <Link
-                  href={periodHref(currentPeriod)}
-                  className="rounded-md px-3 py-1.5 text-sm text-primary hover:underline"
-                >
-                  Current month
-                </Link>
-              </>
-            )}
-          </nav>
-        </div>
-
+        }
+      >
+      <div className="space-y-6">
         {/* Summary cards: each opens the rows behind its number */}
         <div className="grid gap-4 sm:grid-cols-3">
           <DrillButton target={{ kind: "budgeted" }} label="Show what makes up Total Budgeted" className="block w-full rounded-xl">
@@ -361,7 +374,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                       <span className="flex shrink-0 items-center gap-3">
                         <span className="text-sm font-medium">{formatUSD(decimalToNumber(new Prisma.Decimal(st.amount)))}</span>
                         <Badge variant="outline" className="text-xs">
-                          {st.cadence}
+                          {cadenceText(st.cadence)}
                         </Badge>
                       </span>
                     </DrillButton>

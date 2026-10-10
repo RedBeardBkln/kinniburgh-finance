@@ -18,6 +18,7 @@ import { monthlyEquivalentCents } from "@/lib/recurring-expenses";
 import { resolveEffectiveBudgets } from "@/lib/budget-effective";
 import { buildMonthSpend, currentPeriodNY, isValidPeriod } from "@/lib/month-spend";
 import { loadMonthTransactions } from "@/lib/month-spend-build";
+import { loadOwnAccountByMask } from "@/lib/own-account-masks-build";
 import { centsText } from "@/lib/dashboard-drill";
 import { toCents as decimalToCents } from "@/lib/dashboard-drill-build";
 
@@ -94,7 +95,8 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
       resolved: resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0),
       explicit: effective.explicitById.get(b.id) ?? null,
       rollover: new Prisma.Decimal(b.rolloverAmount ?? 0),
-    }))
+    })),
+    { ownAccountByMask: await loadOwnAccountByMask() }
   );
   const rolledSpendByBudgetId = new Map(spendModel.lines.map((l) => [l.id, l.rolledSpend]));
 

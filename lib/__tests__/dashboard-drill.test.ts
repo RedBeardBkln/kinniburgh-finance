@@ -1,18 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { buildMonthSpend, type SpendLineInput, type SpendTag, type SpendTx } from "@/lib/month-spend";
 import { resolveEffectiveBudgets } from "@/lib/budget-effective";
-import { buildDrillData, describeDayRules, type DrillBuildInput } from "@/lib/dashboard-drill-build";
+import { buildDrillData, describeDayRules, displayPayee, type DrillBuildInput } from "@/lib/dashboard-drill-build";
 import {
   budgetedSubline,
   buildDrillView,
+  cadenceText,
   centsText,
   formatDay,
+  groupLabel,
   sumCountedRows,
   sumRowCents,
   type DrillData,
   type DrillTarget,
 } from "@/lib/dashboard-drill";
-import { D, TAGS, out, randomWorld, resetSeq, septemberLines, septemberTxs, tx } from "./month-spend-fixtures";
+import { D, TAGS, out, randomWorld, resetSeq, septemberLines, septemberTxs, tid, tx } from "./month-spend-fixtures";
 
 const shortOf = (name: string) => name.split(" / ").pop()!;
 
@@ -26,12 +28,12 @@ function payload(txs: SpendTx[], tags: SpendTag[], lines: SpendLineInput[], extr
     (id) => tagParent.get(id)
   );
   const withAmounts = lines.map((l) => ({ ...l, resolved: effective.resolvedById.get(l.id) ?? D(0), explicit: effective.explicitById.get(l.id) ?? null }));
-  const model = buildMonthSpend(txs, tags, withAmounts);
+  const model = buildMonthSpend(txs, tags, withAmounts, { ownAccountByMask: extra.ownAccountByMask });
   return buildDrillData({
     model,
     txs,
     tags: tags.map((t) => ({ ...t, shortName: shortOf(t.name) })),
-    budgets: lines.map((l) => ({ id: l.id, tagId: l.tagId, accountId: l.accountId, accountName: "Account " + l.accountId, rawBudgeted: l.explicit, rollover: l.rollover })),
+    budgets: lines.map((l) => ({ id: l.id, tagId: l.tagId, accountId: l.accountId, accountName: "Account " + l.accountId, entityName: l.accountId === "acc-b" ? "Sudden Valley" : "Personal", rawBudgeted: l.explicit, rollover: l.rollover })),
     effective,
     accounts: [
       { id: "acc-checking", nickname: "Checking", institutionName: "Test Bank", accountType: "checking", currentBalance: D("1000.50"), currentBalanceAt: new Date("2026-10-09T08:00:00Z") },
@@ -170,7 +172,7 @@ describe("drill-down payload: September 2026", () => {
 
   it("Transfer views show the plan in plain words and link to Envelope", () => {
     const one = buildDrillView(data, { kind: "transfer", transferId: "st1" });
-    expect(one.sections[0]!.rows[0]!.sub).toBe("semi monthly · on the 1st and 15th · Savings");
+    expect(one.sections[0]!.rows[0]!.sub).toBe("Semi-monthly · on the 1st and 15th · Savings"); // plain cadence, never the raw semi_monthly
     expect(one.links[0]!.href).toBe("/envelope?bucket=personal");
     expect(buildDrillView(data, { kind: "transfers" }).headline).toEqual({ label: "Scheduled", cents: 1, unit: "count" });
   });
@@ -183,7 +185,7 @@ describe("drill-down payload: September 2026", () => {
   it("the payload carries no account numbers, tokens or free-text descriptions", () => {
     const json = JSON.stringify(data);
     expect(json).not.toMatch(/"mask"|"description"|"notes"|"plaid|accessToken|routing/i);
-    expect(Object.keys(data.accounts[0]!).sort()).toEqual(["balanceAt", "balanceCents", "id", "institution", "nickname", "type"]);
+    expect(Object.keys(data.accounts[0]!).sort()).toEqual(["balanceAt", "balanceCents", "entity", "id", "institution", "nickname", "type"]);
     expect(Object.keys(data.txs[0]!).sort()).toEqual(["account", "accountId", "cents", "cls", "day", "entity", "id", "payee", "pending", "reason", "tagIds", "tagPaths", "targets"]);
   });
 });
@@ -304,5 +306,216 @@ describe("review round 1: All Entities labelling", () => {
     expect(budgetedSubline(true)).toBe("Top-level lines · click for the lines · all entities combined");
     expect(budgetedSubline(false)).toBe("Top-level lines · click for the lines");
     expect(budgetedSubline(false)).not.toMatch(/combined/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Browser-check fixes
+
+describe("browser-check fixes: own transfers in the dialog", () => {
+  const masks = new Map([
+    ["2558", "acc-loan"],
+    ["1001", "acc-checking"],
+  ]);
+  function transferData() {
+    resetSeq(2000);
+    const txs = [
+      tx({ amount: "-400", payee: "Online Xfer Transfer to CK x2558", pending: true }),
+      tx({ amount: "400", payee: "Online Xfer Transfer from CK x1001", pending: true, accountId: "acc-loan", accountNickname: "Mortgage loan" }),
+      tx({ amount: "-10", payee: "Online Xfer Transfer to SV x8815", pending: true, tags: ["Transfer Out"] }),
+      out("30", "Bank Fees"),
+    ];
+    return payload(txs, TAGS, [], { ownAccountByMask: masks, isCurrentPeriod: true });
+  }
+
+  it("pending and unpaired transfers are not in Spent, are listed as excluded, with the reason on every row", () => {
+    const data = transferData();
+    expect(data.spentCents).toBe(3000);
+    const v = buildDrillView(data, { kind: "spent" });
+    expect(sumCountedRows(v)).toBe(3000);
+    const group = v.excludedSections.find((s) => s.title === "Transfers between your own accounts")!;
+    expect(group.rows).toHaveLength(3);
+    expect(group.rows.map((r) => r.sub).sort()).toEqual([
+      "Tagged Transfer In or Transfer Out",
+      "Transfer from your own account, not counted",
+      "Transfer to your own account, not counted",
+    ]);
+  });
+
+  it("the account mask is never displayed: a known counterpart is named, an unknown one is hidden", () => {
+    const data = transferData();
+    const labels = data.txs.map((t) => t.payee);
+    expect(labels).toContain("Transfer to Mortgage loan");
+    expect(labels).toContain("Transfer from Checking");
+    expect(labels).toContain("Online Xfer Transfer to SV x****");
+    expect(labels.join(" | ")).not.toMatch(/\bx\d{4}\b/);
+  });
+
+  it("displayPayee leaves ordinary payees alone", () => {
+    expect(displayPayee("Corner Market", masks, new Map())).toBe("Corner Market");
+    expect(displayPayee("Online Xfer Transfer to CK x2558", masks, new Map())).toBe("Online Xfer Transfer to CK x****");
+  });
+
+  it("the Spent dialog title matches the card: 'Spent This Month' for the current month, 'Spent in <month>' for a past one", () => {
+    expect(buildDrillView(transferData(), { kind: "spent" }).title).toBe("Spent This Month");
+    expect(buildDrillView(septData(), { kind: "spent" }).title).toBe("Spent in September 2026");
+  });
+});
+
+describe("browser-check fixes: exclusion signs, labels, cadence", () => {
+  it("every excluded group says how much came in, how much went out and the net, all in the bank's signs", () => {
+    const data = septData();
+    const v = buildDrillView(data, { kind: "spent" });
+    for (const s of v.excludedSections) {
+      expect(s.moneyInCents).toBeGreaterThanOrEqual(0);
+      expect(s.moneyOutCents).toBeLessThanOrEqual(0);
+      expect((s.moneyInCents ?? 0) + (s.moneyOutCents ?? 0)).toBe(s.subtotalCents);
+    }
+    const cards = v.excludedSections.find((s) => s.title === "Credit card payments")!;
+    expect(cards.subtotalCents).toBe(-16793);
+    expect(cards.moneyInCents).toBe(56682); // the card-side credits
+    expect(cards.moneyOutCents).toBe(-73475); // the payments out of checking
+    expect(cards.subtotalNote).toMatch(/\+ money in, - money out/);
+  });
+
+  it("cadence reads in plain words", () => {
+    expect(cadenceText("semi_monthly")).toBe("Semi-monthly");
+    expect(cadenceText("weekly")).toBe("Weekly");
+    expect(cadenceText("monthly")).toBe("Monthly");
+    expect(cadenceText("biweekly")).toBe("Every two weeks");
+    expect(cadenceText("every_other_day")).toBe("Every other day");
+  });
+
+  it("the scheduled transfer detail uses the plain cadence", () => {
+    const data = septData();
+    expect(data.transfers[0]!.cadence).toBe("Semi-monthly");
+    expect(JSON.stringify(data)).not.toContain("semi_monthly");
+  });
+});
+
+describe("browser-check fixes: account groups and line subtitles", () => {
+  const lineIn = (id: string, tag: string, accountId: string) => ({ id, tagId: tid(tag), accountId, resolved: D(100), explicit: D(100), rollover: D(0) });
+  function allEntitiesData() {
+    resetSeq(3000);
+    const txs = [out("20", "Food & Drink / Groceries"), out("30", "Bank Fees")];
+    return payload(txs, TAGS, [lineIn("LA", "Food & Drink / Groceries", "acc-a"), lineIn("LB", "Bank Fees", "acc-b")], { isAllEntities: true, bucket: "all" });
+  }
+
+  it("the All Entities view labels EVERY account group with its entity (spent view, budgeted view)", () => {
+    const data = allEntitiesData();
+    expect(data.groups.map((g) => g.entityName).sort()).toEqual(["Personal", "Sudden Valley"]);
+    const spent = buildDrillView(data, { kind: "spent" });
+    const headings = spent.sections.map((s) => s.heading).filter((h): h is string => !!h && h.startsWith("Account"));
+    expect(headings.sort()).toEqual(["Account acc-a · Personal", "Account acc-b · Sudden Valley"]);
+    const budgeted = buildDrillView(data, { kind: "budgeted" });
+    expect(budgeted.sections.map((s) => s.title).sort()).toEqual(["Account acc-a · Personal", "Account acc-b · Sudden Valley"]);
+    expect(groupLabel(data, data.groups[0]!)).toMatch(/ · (Personal|Sudden Valley)$/);
+  });
+
+  it("a single-entity view stays unlabelled", () => {
+    const data = payload([out("20", "Bank Fees")], TAGS, [lineIn("LB", "Bank Fees", "acc-b")]);
+    expect(buildDrillView(data, { kind: "budgeted" }).sections[0]!.title).toBe("Account acc-b");
+  });
+
+  it("a line's subtitle names the account it is budgeted on, and the other accounts its spending is on", () => {
+    resetSeq(3100);
+    const data = payload(
+      [
+        out("20", "Food & Drink / Groceries"),
+        tx({ amount: "-35", tags: ["Food & Drink / Groceries"], accountId: "acc-card", accountNickname: "Barclay" }),
+        tx({ amount: "-5", tags: ["Food & Drink / Groceries"], accountId: "acc-card", accountNickname: "Barclay" }),
+      ],
+      TAGS,
+      [lineIn("LG", "Food & Drink / Groceries", "acc-checking")]
+    );
+    expect(buildDrillView(data, { kind: "line", lineId: "LG" }).subtitle).toBe("Budgeted on the Account acc-checking account · spending also on Barclay");
+  });
+
+  it("a line whose spending is all on its own account just names that account", () => {
+    resetSeq(3110);
+    const data = payload([out("20", "Bank Fees")], TAGS, [lineIn("LB", "Bank Fees", "acc-checking")]);
+    expect(buildDrillView(data, { kind: "line", lineId: "LB" }).subtitle).toBe("Budgeted on the Account acc-checking account");
+  });
+
+  it("every row shows the account its own transaction is on", () => {
+    const data = septData();
+    const byId = new Map(data.txs.map((t) => [t.id, t]));
+    const targets: DrillTarget[] = [{ kind: "spent" }, { kind: "account", accountId: "acc-card" }, { kind: "account", accountId: "acc-loan" }, { kind: "line", lineId: "L-mort" }];
+    let checked = 0;
+    for (const target of targets) {
+      const v = buildDrillView(data, target);
+      for (const row of [...v.sections, ...v.excludedSections].flatMap((s) => s.rows)) {
+        if (!row.txId) continue;
+        expect(row.account, `${target.kind} ${row.txId}`).toBe(byId.get(row.txId)!.account);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(30);
+    // and the fixture really has rows on more than one account
+    expect(new Set(data.txs.map((t) => t.account)).size).toBeGreaterThan(2);
+  });
+});
+
+describe("final pass: whitespace variants, near-miss forms and the cross-entity transfer in the dialog", () => {
+  const masks = new Map([
+    ["2558", "acc-loan"],
+    ["1001", "acc-checking"],
+  ]);
+  const nick = new Map([
+    ["acc-loan", "Mortgage loan"],
+    ["acc-checking", "Checking"],
+  ]);
+
+  it("a double-space label with a known counterpart is named, never shown with its digits", () => {
+    expect(displayPayee("Online  Xfer Transfer to CK x2558", masks, nick)).toBe("Transfer to Mortgage loan");
+    expect(displayPayee("Online   Xfer  Transfer from  CK x1001", masks, nick)).toBe("Transfer from Checking");
+  });
+
+  it("every near-miss transfer form keeps its wording but loses the digits", () => {
+    const forms = [
+      "Online  Xfer Transfer to SV x8815",
+      "online xfer transfer to ck x2558",
+      "Online Xfer Transfer to CK x2558 extra",
+      "ONLINE XFER TRANSFER FROM CK X2558",
+      "Online\tXfer Transfer to SV x8815",
+      "Online Xfer Transfer to CK x9999",
+      "Xfer to x1234",
+    ];
+    for (const f of forms) {
+      const out = displayPayee(f, masks, nick);
+      expect(out, f).not.toMatch(/\bx\d{4}\b/i);
+      expect(out, f).toContain("****");
+    }
+    expect(displayPayee("Online  Xfer Transfer to SV x8815", masks, nick)).toBe("Online  Xfer Transfer to SV x****");
+  });
+
+  it("text without a transfer wording is left alone, and wordings with no digits are unchanged", () => {
+    expect(displayPayee("PAYPAL INST XFER", masks, nick)).toBe("PAYPAL INST XFER");
+    expect(displayPayee("COREPLUS FCU ACH XFER", masks, nick)).toBe("COREPLUS FCU ACH XFER");
+    expect(displayPayee("Hardware store x1234", masks, nick)).toBe("Hardware store x1234");
+  });
+
+  it("the dialog lists a double-space own transfer under 'Not counted' with its reason and no digits", () => {
+    resetSeq(7000);
+    const txs = [tx({ amount: "-300", payee: "Online  Xfer Transfer to CK x2558" }), out("30", "Bank Fees")];
+    const data = payload(txs, TAGS, [], { ownAccountByMask: masks });
+    expect(data.spentCents).toBe(3000);
+    const v = buildDrillView(data, { kind: "spent" });
+    const group = v.excludedSections.find((s) => s.title === "Transfers between your own accounts")!;
+    expect(group.rows).toHaveLength(1);
+    expect(group.rows[0]!.label).toBe("Transfer to Mortgage loan");
+    expect(group.rows[0]!.sub).toBe("Transfer to your own account, not counted");
+    expect(JSON.stringify(data)).not.toMatch(/"x\d{4}|\bx\d{4}\b/);
+  });
+
+  it("a transfer to an own account of ANOTHER entity stays listed under 'Not counted'", () => {
+    resetSeq(7100);
+    const data = payload([tx({ amount: "-500", payee: "Online Xfer Transfer to CK x2558" }), out("25", "Bank Fees")], TAGS, [], { ownAccountByMask: masks });
+    const v = buildDrillView(data, { kind: "spent" });
+    expect(data.spentCents).toBe(2500);
+    const group = v.excludedSections.find((s) => s.title === "Transfers between your own accounts")!;
+    expect(group.subtotalCents).toBe(-50000);
+    expect(group.rows.map((r) => r.sub)).toEqual(["Transfer to your own account, not counted"]);
+    expect(sumCountedRows(v)).toBe(2500);
   });
 });

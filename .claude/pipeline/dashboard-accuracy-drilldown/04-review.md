@@ -59,3 +59,54 @@ Strong. The Sept golden fixture reproduces the 4,562.94 bridge exactly; a 600-wo
 - Exclusions are shown, not hidden; pending and refunds are disclosed; no fabricated or silently-zeroed values ("Unavailable" instead of 0).
 - Scope discipline: no migration, no new server action, carry-forward and advisor files untouched, existing nesting helpers reused, date fix limited to real `postedAt` displays.
 - Accessibility done properly (real buttons, focus trap and return, Escape, keyboard-reachable chart bars via a button list).
+
+---
+
+# Browser-check fixes review (2026-10-10, HEAD 512ea9a plus uncommitted working tree)
+
+## Verdict: APPROVED
+
+No blocking finding. I read the real diffs (`lib/month-spend.ts`, `lib/own-account-masks-build.ts`, `lib/dashboard-drill.ts`, `lib/dashboard-drill-build.ts`, `app/page.tsx`, `app/budgets/page.tsx`, `components/dashboard/*`, the CLAUDE.md edit, and the new and changed tests) and did not rely on the write-up.
+
+Independently verified by me:
+- `pnpm typecheck`: clean.
+- Vitest, 9 files (month-spend, own-account-masks, dashboard-drill, dashboard-drill-guard, dashboard-drilldown-render, the two tester files, budget-carry-forward-guard, advisor-spend-notes): 219 passed, 0 failed.
+- Live read-only checks (select only, scratch script outside the repo): all 17 accounts listed; every account mask is unique today (no shared mask, none archived); the six rows the rule newly excludes are real, and every counterpart is an ACTIVE TD Bank account of the Personal entity, the same institution as the sending account (answer 4).
+
+## Answers
+
+1. **Narrow payee-wording exception: acceptable.** The earlier rule ("tag tree, never payee text") existed to stop guessing from free text. This is not a guess: the wording must match the strict anchored bank pattern `^Online Xfer Transfer (to|from) [A-Z]{2} x\d{4}$` (case-sensitive, nothing before or after; "... extra" and lower-case are tested to stay spending), AND the mask must resolve to exactly one active household account, AND that account must not be the row's own. A pending leg has no pair and may have no tag, so without this the owner's rule ("own-account transfers are never spending") cannot hold for pending rows. `classifyTx` only reads the wording when the map is supplied (opt-in, tested). Edge cases:
+   - Third-party wire or transfer containing a household mask: cannot match, because the anchored wording is the bank's own-account "Online Xfer" form (a wire or Zelle line has different text). Residual risk: S2 (the mask map is not scoped to the sending institution).
+   - Same mask on a closed/archived account: the loader filters `archivedAt: null`, so the row stays spending (conservative, visible, tested). It will overcount a genuine transfer to a closed own account; acceptable.
+   - Two accounts sharing a mask: dropped as ambiguous in the loader (a third sharer is also dropped, tested). Today there are none.
+   - Own-to-own double exclusion when the pair forms later: one class per row (the `transferPairId` check comes first and returns), so a later pair changes only the reason text, never the totals. Tested with the same rows paired and unpaired.
+   - Transfer to an own account of a DIFFERENT entity: the mask map is household-wide, so a Personal account paying an LLC account is an own transfer in both entity views and in All Entities. I recommend keeping that. It matches how the existing pair and Transfer In/Out paths already treat cross-bucket flows (ground rule 6: a cross-bucket flow is an explicit transfer, not spending on either side; the business side records the expense when it is actually paid), and it stays visible in the "Not counted" list with its reason. It is not pinned by a test (N1). Live today there are no such rows (every household `Online Xfer` counterpart is a Personal TD account).
+   - Mutation-style gaps (minor): no test for a counterpart in another entity (N1); the independent oracle fuzz in `dashboard-accuracy-tester-spend.test.ts` does not exercise the mask map (the 200-world fuzz in `month-spend.test.ts` does); direction is not checked against the amount sign (a positive "to" row, such as a returned transfer, is now excluded instead of counted as a refund, which is the right outcome); the two-letter code (CK/SV) is not checked against the counterpart's account type (N2).
+2. **Mask handling: correct.** Masks are Map keys only. The payload goes through `displayPayee`: a known counterpart in the view is replaced by the account nickname, anything else keeps the wording with `x****`; unit and guard tests pin no `xNNNN` in any payee label. `settle()` logs `err.name` only, the loader has no `console` (pinned), and the reasons never contain a mask. The loader is read-only, `where: { archivedAt: null }`, `select: { id: true, mask: true }`, with no auth of its own (callers run `auth()` first; the dashboard and `/budgets` pages still start with it). A mask-read failure makes `drill` null, so the money cards read "Unavailable" rather than an inflated total: the right behavior. On `/budgets` the loader is awaited inline, like the already-unguarded `loadMonthTransactions` beside it, so a failure errors the page instead of showing a wrong Total Spent; consistent with that page's existing behavior. The only remaining place a mask appears is the pre-existing Accounts widget `···NNNN`, unchanged (earlier N2).
+3. **`/budgets` equals the dashboard: yes.** Both feed the same loader result into `buildMonthSpend`; a guard test pins both call sites. Same model, same map, same Total Spent.
+4. **The six newly excluded rows are correct.** Live: 2026-10-09 pending -400.00 (to x2558, Mortgage & Insurance) and -150.00 (to x3612, Slush Funds); posted 2026-04-16 -2,350.00 and 2026-04-20 -190.00 and -105.00 (all to Mortgage & Insurance), and 2026-04-20 -117.00 (to Heating & Electric). All are on Primary Checking, unpaired and untagged, going to an active TD account of the same household and entity. The April incoming legs are absent from the data (I looked for +2,350, +190, +105, +117 around those dates: none), so excluding only the outgoing side leaves nothing half-counted. October Personal falls by exactly 550.00 as reported. The 33 `to SV x8815` rows stay classed by their Transfer Out tag (that mask belongs to no household account).
+5. **Cosmetics: fine.** `cadenceText` (Weekly, Every two weeks, Semi-monthly, Monthly, sane default) is used for the page badge and the detail rows. Exclusion groups show "Money in +$X, money out -$Y, net ..." with a "+ in, - out" key, from the signed per-transaction amounts. All Entities labels every account group "<account> · <entity>" through the single `groupLabel` helper (Spent dialog, Total Budgeted, Budget Lines table headers, account subtitle); single-entity views are unlabelled. The line subtitle "Budgeted on the X account · spending also on Y" is accurate and deterministic (sorted). The header (title plus month navigation) is passed as a prop and renders first, above the category cards and chart, while the summary cards and the Upcoming `<Suspense>` block are in the same place (guard test passes). The Spent dialog title is "Spent This Month" for the current month and "Spent in <Month Year>" otherwise.
+6. **Ground rules.** Rule 1: no fabricated numbers; every excluded row is listed with its reason and the dialog still re-adds to the headline (`reconciles` is computed). Rule 5: `auth()` first in both pages, no new server action, no mask in payload or log, explicit selects. Rule 6: no transaction is reclassified or edited; cross-bucket flows remain explicit transfers (answer 1). Rule 8: wording stays observational ("Transfer to your own account, not counted"). No migration, no writes.
+
+## Findings
+
+### Blocking
+None.
+
+### Should-fix
+- **S1. CLAUDE.md now contradicts itself.** The Dashboard paragraph's `own_transfer` clause was extended to mention the bank wording plus mask, but the next sentence still says "Classes come from the tag tree and account type, never from payee text". Reword it to say classes come from the tag tree, the account type and, for `own_transfer` only, the bank's exact transfer wording validated against the household's active account masks. Otherwise the next reader will "fix" the code to match the sentence.
+- **S2. Scope the mask match to the sending account's institution.** The existing TD matcher (`lib/transfer-match-runner.ts`) limits both sides to `institution.name = "TD Bank"` because "Online Xfer" is TD wording. `loadOwnAccountByMask` maps masks across every institution, so a TD transfer to a non-household TD account whose last 4 digits equal the mask of a non-TD household account (QuickBooks, JCSB, CorePlus Loan, future cards) would be silently excluded from Spent. Probability is tiny and it is always visible in "Not counted", so I did not block, but the fix is cheap: also select `institutionId` and key the map by institution plus mask, comparing with the row's account institution.
+
+### Nits and follow-ups
+- N1. Add one test pinning the cross-entity decision (a Personal row "to" an LLC account's mask is an `own_transfer`), so a later change does not flip it silently.
+- N2. Optionally require CK to map to a checking account and SV to a savings account; today only the mask matters (same as the TD matcher).
+- N3. The advisor, monthly review and budget CSV are still on the old spend (named follow-up from round 1); pending or unpaired own transfers now also differ between them and the dashboard (the dashboard is the correct one).
+
+## Test quality
+Good for this round: 10 new model tests cover pending, both directions, opt-in, unknown and archived/foreign mask, own-account mask, near-miss wordings, pair-formed-later, tag plus mask, and 200 random worlds that keep the bridge (parts equal Spent, each row counted once). Loader tests pin active-only, id and mask select, and ambiguous-mask drop. Payload tests pin no `xNNNN`; guard tests pin the shared map on both pages and the header order. Gaps are the minor ones above (cross-entity, oracle fuzz without masks).
+
+## What's good
+- Smallest possible rule that closes the real hole (pending legs) and fails closed: an unknown, archived, ambiguous or own-account mask stays spending and visible.
+- Live numbers re-derived independently and the changed rows enumerated across all months, including the historical April ones.
+- Masks stay server-side; the dialog shows an account name instead.
+- Dashboard and `/budgets` stay in agreement through one shared loader.

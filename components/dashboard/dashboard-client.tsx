@@ -18,6 +18,8 @@ interface Props {
   /** The month's numbers and the transactions behind them; null when they could not be loaded. */
   data: DrillData | null;
   allTags: Tag[];
+  /** The page title and month navigation: always rendered first, above the category cards and the chart. */
+  header?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -26,7 +28,7 @@ interface Props {
  * can open a dialog for its own number through the context (see DrillButton), and every dialog is built from that
  * same payload, so the rows always add up to the number clicked.
  */
-export function DashboardClient({ data, allTags, children }: Props) {
+export function DashboardClient({ data, allTags, header, children }: Props) {
   const [active, setActive] = useState<{ target: DrillTarget; trigger: HTMLElement | null } | null>(null);
 
   const open = useCallback((target: DrillTarget, trigger?: HTMLElement | null) => {
@@ -65,6 +67,8 @@ export function DashboardClient({ data, allTags, children }: Props) {
   return (
     <DrillContext.Provider value={{ data, open }}>
       <div className="space-y-6">
+        {header}
+
         {/* Spend category cards: top 6 top-level lines */}
         {topCards.length > 0 && <SpendCategoryCards cards={topCards} onSelect={(id, el) => open({ kind: "line", lineId: id }, el)} />}
 

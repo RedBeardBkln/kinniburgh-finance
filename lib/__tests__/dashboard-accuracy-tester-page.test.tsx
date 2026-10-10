@@ -70,12 +70,12 @@ function arrange() {
   m.auth.mockResolvedValue({ user: { name: "Eric" } });
   m.getEntityBySlug.mockResolvedValue({ id: "e1", name: "Personal", slug: "personal", navLabel: "Personal", type: "personal" });
   m.budgetFind.mockResolvedValue([
-    { id: "b-food", tagId: "t-food", accountId: "acc1", budgeted: null, additionalAmountCents: new Decimal(0), rolloverAmount: null, account: { nickname: "Checking" } },
-    { id: "b-groc", tagId: "t-groc", accountId: "acc1", budgeted: new Decimal("400.00"), additionalAmountCents: new Decimal(0), rolloverAmount: null, account: { nickname: "Checking" } },
+    { id: "b-food", tagId: "t-food", accountId: "acc1", budgeted: null, additionalAmountCents: new Decimal(0), rolloverAmount: null, account: { nickname: "Checking", entity: { name: "Personal" } } },
+    { id: "b-groc", tagId: "t-groc", accountId: "acc1", budgeted: new Decimal("400.00"), additionalAmountCents: new Decimal(0), rolloverAmount: null, account: { nickname: "Checking", entity: { name: "Personal" } } },
   ]);
   m.tagFind.mockResolvedValue(TAGS);
   m.accountFind.mockResolvedValue([
-    { id: "acc1", nickname: "Checking", mask: "1234", accountType: "checking", currentBalance: new Decimal("1000.50"), currentBalanceAt: new Date("2026-01-11T15:00:00Z"), institution: { name: "Test Bank" } },
+    { id: "acc1", nickname: "Checking", mask: "1234", accountType: "checking", currentBalance: new Decimal("1000.50"), currentBalanceAt: new Date("2026-01-11T15:00:00Z"), institution: { name: "Test Bank" }, entity: { name: "Personal" } },
   ]);
   m.transferFind.mockResolvedValue([
     { id: "st1", amount: new Decimal("50"), cadence: "weekly", dayRules: { dayOfWeek: 5 }, purpose: "Savings", fromAccount: { nickname: "Checking" }, toAccount: { nickname: "Savings" } },
@@ -121,7 +121,14 @@ describe("tester: dashboard page", () => {
     ["month transactions", () => m.loadTxs.mockRejectedValue(new Error("boom")), /Budget lines are unavailable/, ["Test Bank", "Savings"]],
     ["tags", () => m.tagFind.mockRejectedValue(new Error("boom")), /Budget lines are unavailable/, ["Test Bank", "Savings"]],
     ["recurring", () => m.recurringFind.mockRejectedValue(new Error("boom")), /Budget lines are unavailable/, ["Test Bank", "Savings"]],
-    ["accounts", () => m.accountFind.mockRejectedValue(new Error("boom")), /Accounts are unavailable right now/, ["$130.00", "Savings"]],
+    // Once: the own-account mask read uses the same account mock and must not fail with the widget read
+    ["accounts", () => m.accountFind.mockRejectedValueOnce(new Error("boom")), /Accounts are unavailable right now/, ["$130.00", "Savings"]],
+    // the own-account mask read (second account read) failing makes the money numbers unavailable, never a wrong total
+    ["own account masks", () => {
+      const ok = m.accountFind.getMockImplementation()!;
+      let calls = 0;
+      m.accountFind.mockImplementation((...args: unknown[]) => (++calls === 2 ? Promise.reject(new Error("boom")) : ok(...args)));
+    }, /Budget lines are unavailable/, ["Test Bank", "Savings"]],
     ["transfers", () => m.transferFind.mockRejectedValue(new Error("boom")), /Scheduled transfers are unavailable right now/, ["$130.00", "Test Bank"]],
   ];
   it.each(widgets)("one failing read (%s) blanks only its own widget, never the page, and logs no message text", async (_name, breakIt, expectText, stillThere) => {
@@ -177,7 +184,7 @@ describe("tester: dashboard page", () => {
 
   it("no account number leaks into the page HTML (last-4 mask only, as before)", async () => {
     m.accountFind.mockResolvedValue([
-      { id: "acc1", nickname: "Checking", mask: "1234", accountType: "checking", currentBalance: null, currentBalanceAt: null, institution: { name: "Test Bank" } },
+      { id: "acc1", nickname: "Checking", mask: "1234", accountType: "checking", currentBalance: null, currentBalanceAt: null, institution: { name: "Test Bank" }, entity: { name: "Personal" } },
     ]);
     const html = await render();
     expect(html).toContain("···1234");
