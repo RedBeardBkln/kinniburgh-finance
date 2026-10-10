@@ -181,7 +181,7 @@ export async function buildAdvisorContext(options: AdvisorContextOptions = {}): 
       const carried = b.carriedFrom ? ` [carried forward from ${b.carriedFrom}]` : "";
       li(`${b.tag.shortName} (${b.entity.name}): budgeted ${fmtDollars(resolvedAmt)}, spent ${fmtDollars(actual)} — ${status}${carried}`);
     }
-    tx(`Total budgeted: ${fmtDollars(totalBudgeted)} | Total spent: ${fmtDollars(totalActual)} | Net: ${fmtDollars(totalBudgeted - totalActual)}`);
+    tx(`Total budgeted: ${fmtDollars(totalBudgeted)} | Net outflow on budget tags (not the dashboard's Spent figure; can differ): ${fmtDollars(totalActual)} | Net: ${fmtDollars(totalBudgeted - totalActual)}`);
   }
 
   // ── Cash flow (30 and 90 day) ─────────────────────────────────────────────────

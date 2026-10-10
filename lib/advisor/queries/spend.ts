@@ -1,6 +1,9 @@
 // Aggregated spend for the assistant: the ONLY advisor file that uses raw SQL, and only as tagged templates (values are bound
 // parameters, never concatenated). It reads Transaction / TransactionTag / Tag / Entity / Account columns that carry amounts, dates, names
-// and nicknames; nothing else. Archived rows and internal transfers (transferPairId) are always excluded, as on the Budgets page.
+// and nicknames; nothing else. Archived rows and internal transfers (transferPairId) are always excluded.
+// NOTE: this is the older per-tag signed sum. It is NOT the dashboard's Spent (lib/month-spend.ts), which also leaves out card payments,
+// loan-account entries and income, nets refunds and rolls nested sub-tags into the nearest budget line; the two can differ.
+// Moving the advisor, the monthly review and the budget CSV export onto lib/month-spend is a named follow-up.
 
 import { db } from "@/lib/db";
 
@@ -146,7 +149,7 @@ export interface TagSpendRow {
   total: string;
 }
 
-/** Spend per (entity, tag) in [start, end), same rules as the Budgets page. */
+/** Spend per (entity, tag) in [start, end): the net signed amount on the exact tag (not the dashboard's Spent, see the header). */
 export async function loadTagSpendForPeriod(start: Date, end: Date): Promise<TagSpendRow[]> {
   return db.$queryRaw<TagSpendRow[]>`
     SELECT t."entityId", tt."tagId", SUM(t.amount)::text AS total

@@ -15,7 +15,11 @@ import {
   type SerializedBudgetLine,
 } from "@/components/budgets/budget-page-client";
 import { monthlyEquivalentCents } from "@/lib/recurring-expenses";
-import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
+import { resolveEffectiveBudgets } from "@/lib/budget-effective";
+import { buildMonthSpend, currentPeriodNY, isValidPeriod } from "@/lib/month-spend";
+import { loadMonthTransactions } from "@/lib/month-spend-build";
+import { centsText } from "@/lib/dashboard-drill";
+import { toCents as decimalToCents } from "@/lib/dashboard-drill-build";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; period?: string }>;
@@ -29,12 +33,9 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
   const bucket = params.bucket ?? "personal";
 
   const now = new Date();
-  const defaultPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-  const period = params.period ?? defaultPeriod;
-
-  const [year, mon] = period.split("-").map(Number);
-  const monthStart = new Date(Date.UTC(year!, mon! - 1, 1));
-  const monthEnd = new Date(Date.UTC(year!, mon!, 1));
+  // The New York month (not the UTC one), the same as the dashboard.
+  const defaultPeriod = currentPeriodNY(now);
+  const period = params.period && isValidPeriod(params.period) ? params.period : defaultPeriod;
 
   const entity = await getEntityBySlug(bucket);
   const bucketLabel = entity?.navLabel ?? entity?.name ?? "All Entities";
@@ -69,76 +70,39 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
     recurringByTagId.get(exp.tagId)!.push({ id: exp.id, name: exp.name, amountCents: exp.amountCents, frequency: exp.frequency, monthlyEquivCents: monthly });
   }
 
-  // Per-tag actual spend this month
-  const tagSpend = entity
-    ? await db.$queryRaw<{ tagId: string; total: string }[]>`
-        SELECT tt."tagId", SUM(t.amount)::text AS total
-        FROM "Transaction" t
-        JOIN "TransactionTag" tt ON tt."transactionId" = t.id
-        WHERE t."entityId" = ${entity.id}
-          AND t."archivedAt" IS NULL
-          AND t."transferPairId" IS NULL
-          AND t."postedAt" >= ${monthStart}
-          AND t."postedAt" < ${monthEnd}
-        GROUP BY tt."tagId"
-      `
-    : await db.$queryRaw<{ tagId: string; total: string }[]>`
-        SELECT tt."tagId", SUM(t.amount)::text AS total
-        FROM "Transaction" t
-        JOIN "TransactionTag" tt ON tt."transactionId" = t.id
-        WHERE t."archivedAt" IS NULL
-          AND t."transferPairId" IS NULL
-          AND t."postedAt" >= ${monthStart}
-          AND t."postedAt" < ${monthEnd}
-        GROUP BY tt."tagId"
-      `;
-
-  const spendByTagId = new Map<string, Prisma.Decimal>(
-    tagSpend.map((r) => [r.tagId, new Prisma.Decimal(r.total)])
-  );
-
-  // Nesting/auto-sum resolution — same-account only (matches nestBudgetLines).
-  // Precedence per line: recurring-linked effective amount (real linked-bill
-  // data) wins over auto-sum from children; explicit non-null `budgeted` wins
-  // next; auto-sum from children is the fallback when neither applies.
+  // Amounts per line: recurring-linked amount, then the stored amount, then the auto-sum of nested lines (one shared
+  // resolver with the dashboard, so the two screens agree on Total Budgeted).
   const tagParentById = new Map(tags.map((t) => [t.id, t.parentId]));
-  const explicitAmountByBudgetId = new Map<string, Prisma.Decimal | null>();
-  for (const b of budgets) {
-    const tagExpenses = recurringByTagId.get(b.tagId) ?? [];
-    if (tagExpenses.length > 0) {
-      const recurringMonthlySumCents = tagExpenses.reduce((s, e) => s + e.monthlyEquivCents, 0);
-      const additionalAmountCents = decimalToNumber(new Prisma.Decimal(b.additionalAmountCents ?? 0));
-      explicitAmountByBudgetId.set(b.id, new Prisma.Decimal((recurringMonthlySumCents + additionalAmountCents) / 100));
-    } else {
-      explicitAmountByBudgetId.set(b.id, b.budgeted);
-    }
-  }
+  const effective = resolveEffectiveBudgets(
+    budgets.map((b) => ({ id: b.id, tagId: b.tagId, accountId: b.accountId, budgeted: b.budgeted, additionalAmountCents: b.additionalAmountCents })),
+    recurringExpenses.map((e) => ({ tagId: e.tagId, amountCents: e.amountCents, frequency: e.frequency })),
+    (tagId) => tagParentById.get(tagId)
+  );
+  const resolvedByBudgetId = effective.resolvedById;
+  const rootBudgetIds = effective.rootIds;
 
-  const byAccountId = new Map<string, typeof budgets>();
-  for (const b of budgets) {
-    if (!byAccountId.has(b.accountId)) byAccountId.set(b.accountId, []);
-    byAccountId.get(b.accountId)!.push(b);
-  }
-  const resolvedByBudgetId = new Map<string, Prisma.Decimal>();
-  const rootBudgetIds = new Set<string>();
-  for (const group of byAccountId.values()) {
-    const resolverInput = group.map((b) => ({
+  // Spend per line: the same model as the dashboard (lib/month-spend.ts). A line owns its tag's spending and that of
+  // its un-budgeted sub-tags; a parent shows its nested lines too.
+  const monthTxs = await loadMonthTransactions({ entityId: entity?.id ?? null, period });
+  const spendModel = buildMonthSpend(
+    monthTxs,
+    tags,
+    budgets.map((b) => ({
       id: b.id,
       tagId: b.tagId,
-      budgeted: explicitAmountByBudgetId.get(b.id) ?? null,
-    }));
-    for (const [id, amt] of resolveBudgetedAmounts(resolverInput, (tagId) => tagParentById.get(tagId), new Prisma.Decimal(0))) {
-      resolvedByBudgetId.set(id, amt);
-    }
-    for (const id of getRootBudgetLineIds(group, (tagId) => tagParentById.get(tagId))) {
-      rootBudgetIds.add(id);
-    }
-  }
+      accountId: b.accountId,
+      resolved: resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0),
+      explicit: effective.explicitById.get(b.id) ?? null,
+      rollover: new Prisma.Decimal(b.rolloverAmount ?? 0),
+    }))
+  );
+  const rolledSpendByBudgetId = new Map(spendModel.lines.map((l) => [l.id, l.rolledSpend]));
 
   // Serialize budget lines with computed summaries
   const annualByAccountId = new Map<string, number[]>();
   const serializedBudgets: SerializedBudgetLine[] = budgets.map((b) => {
-    const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
+    // Signed like a ledger amount (negative = money out), as the Budgets screen has always shown it.
+    const actual = (rolledSpendByBudgetId.get(b.id) ?? new Prisma.Decimal(0)).negated();
     const tagExpenses = recurringByTagId.get(b.tagId) ?? [];
     const recurringMonthlySumCents = tagExpenses.reduce((s, e) => s + e.monthlyEquivCents, 0);
     const additionalAmountCents = decimalToNumber(new Prisma.Decimal(b.additionalAmountCents ?? 0));
@@ -233,8 +197,14 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
   const totalBudgeted = serializedBudgets
     .filter((b) => rootBudgetIds.has(b.id))
     .reduce((s, b) => s + b.budgeted, 0);
-  const totalActual = serializedBudgets.reduce((s, b) => s + b.actualSpend, 0);
-  const totalRemaining = totalBudgeted + totalActual; // actualSpend is negative
+  // Total Spent is the dashboard's Spent for the same month: every line's spending plus what no line claims.
+  const totalActual = -decimalToNumber(spendModel.spent);
+  const totalRemaining = totalBudgeted + totalActual; // totalActual is negative
+  const outsideLines = spendModel.notInAnyLine.reduce((sum, b) => sum.plus(b.spend), new Prisma.Decimal(0)).plus(spendModel.untagged.spend);
+  const spentNote = outsideLines.isZero()
+    ? null
+    : `Includes ${centsText(decimalToCents(outsideLines))} not in any budget line` +
+      (spendModel.untagged.txIds.length > 0 ? ` (${centsText(decimalToCents(spendModel.untagged.spend))} untagged)` : "");
 
   // Build period options (Jan–Dec of current year)
   const periodOptions = Array.from({ length: 12 }, (_, i) => {
@@ -263,6 +233,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
           period={period}
           totalBudgeted={totalBudgeted}
           totalActual={totalActual}
+          spentNote={spentNote}
           totalRemaining={totalRemaining}
           periodLabel={formatPeriod(period)}
           entityName={bucketLabel}

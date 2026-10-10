@@ -92,6 +92,8 @@ interface BudgetPageClientProps {
   period: string;
   totalBudgeted: number;
   totalActual: number;
+  /** Plain note under Total Spent when some spending sits outside every budget line (null = nothing to say). */
+  spentNote?: string | null;
   totalRemaining: number;
   periodLabel: string;
   entityName: string;
@@ -121,6 +123,7 @@ export function BudgetPageClient({
   period,
   totalBudgeted,
   totalActual,
+  spentNote = null,
   totalRemaining,
   periodLabel,
   entityName,
@@ -310,6 +313,7 @@ export function BudgetPageClient({
               <p className="text-2xl font-bold text-destructive">
                 {formatUSD(Math.abs(totalActual))}
               </p>
+              {spentNote && <p className="mt-1 text-xs text-muted-foreground">{spentNote}</p>}
             </CardContent>
           </Card>
           <Card>

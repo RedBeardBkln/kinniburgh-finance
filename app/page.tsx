@@ -7,14 +7,19 @@ import { getEntityBySlug } from "@/lib/entity";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Wallet, TrendingDown, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { computeBudgetSummary } from "@/lib/budget";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import type { Route } from "next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { DashboardClient, type SerializedBudget } from "@/components/dashboard/dashboard-client";
-import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
+import { DashboardClient } from "@/components/dashboard/dashboard-client";
+import { DrillButton } from "@/components/dashboard/drill-button";
+import { BudgetLinesTable } from "@/components/dashboard/budget-lines-table";
+import { resolveEffectiveBudgets } from "@/lib/budget-effective";
+import { buildMonthSpend, currentPeriodNY, isValidPeriod } from "@/lib/month-spend";
+import { loadMonthTransactions } from "@/lib/month-spend-build";
+import { buildDrillData } from "@/lib/dashboard-drill-build";
+import { budgetedSubline, centsText, type DrillData } from "@/lib/dashboard-drill";
 import { loadUpcomingLedger } from "@/lib/upcoming-ledger-build";
 import { toUiDetection, toUiLedger, type UiDetection, type UiLedger } from "@/lib/upcoming-ledger-view";
 import { UpcomingWidget } from "@/components/upcoming/upcoming-widget";
@@ -34,72 +39,79 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const bucketLabel = entity?.navLabel ?? entity?.name ?? "All Entities";
 
   const now = new Date();
-  const currentPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  // The month people mean is the New York one: just after 8 PM on the last evening it is already the 1st in UTC.
+  const currentPeriod = currentPeriodNY(now);
   // ?period=YYYY-MM selects a prior month; invalid or future values fall back to the current month.
   const requested = params.period;
-  const period =
-    requested && /^\d{4}-(0[1-9]|1[0-2])$/.test(requested) && requested <= currentPeriod
-      ? requested
-      : currentPeriod;
+  const period = requested && isValidPeriod(requested) && requested <= currentPeriod ? requested : currentPeriod;
   const isCurrentPeriod = period === currentPeriod;
   const periodYear = Number(period.slice(0, 4));
   const periodMonth = Number(period.slice(5, 7));
-  const monthStart = new Date(Date.UTC(periodYear, periodMonth - 1, 1));
-  const monthEnd = new Date(Date.UTC(periodYear, periodMonth, 1));
   const prevPeriod = shiftPeriod(periodYear, periodMonth, -1);
   const nextPeriod = shiftPeriod(periodYear, periodMonth, 1);
   const periodHref = (p: string) =>
     (p === currentPeriod ? `/?bucket=${bucket}` : `/?bucket=${bucket}&period=${p}`) as Route;
 
-  // All entity-dependent queries run in parallel
-  const [budgets, tagSpend, spendAgg, accounts, scheduledTransfers, allTagsResult] = await Promise.all([
-    db.budget.findMany({
-      where: { ...(entity && { entityId: entity.id }), period },
-      include: { tag: true, account: { include: { institution: true } } },
-      orderBy: [{ account: { nickname: "asc" } }, { tag: { name: "asc" } }],
-    }),
-    entity
-      ? db.$queryRaw<{ tagId: string; total: string }[]>`
-          SELECT tt."tagId", SUM(t.amount)::text AS total
-          FROM "Transaction" t
-          JOIN "TransactionTag" tt ON tt."transactionId" = t.id
-          WHERE t."entityId" = ${entity.id}
-            AND t."archivedAt" IS NULL
-            AND t."transferPairId" IS NULL
-            AND t."postedAt" >= ${monthStart}
-            AND t."postedAt" < ${monthEnd}
-          GROUP BY tt."tagId"
-        `
-      : db.$queryRaw<{ tagId: string; total: string }[]>`
-          SELECT tt."tagId", SUM(t.amount)::text AS total
-          FROM "Transaction" t
-          JOIN "TransactionTag" tt ON tt."transactionId" = t.id
-          WHERE t."archivedAt" IS NULL
-            AND t."transferPairId" IS NULL
-            AND t."postedAt" >= ${monthStart}
-            AND t."postedAt" < ${monthEnd}
-          GROUP BY tt."tagId"
-        `,
-    db.transaction.aggregate({
-      where: {
-        ...(entity && { entityId: entity.id }),
-        archivedAt: null,
-        transferPairId: null,
-        postedAt: { gte: monthStart, lt: monthEnd },
-      },
-      _sum: { amount: true },
-    }),
-    db.account.findMany({
-      where: { ...(entity && { entityId: entity.id }), archivedAt: null },
-      include: { institution: true },
-      orderBy: { nickname: "asc" },
-    }),
-    db.scheduledTransfer.findMany({
-      where: { active: true },
-      include: { fromAccount: true, toAccount: true },
-      take: 10,
-    }),
-    db.tag.findMany({ orderBy: { name: "asc" } }),
+  // Every widget loads on its own: a failed read blanks that widget only (null = unavailable), never the page.
+  const [budgetRows, tagRows, accounts, scheduledTransfers, recurringRows, monthTxs] = await Promise.all([
+    settle(
+      "budget lines",
+      db.budget.findMany({
+        where: { ...(entity && { entityId: entity.id }), period },
+        select: {
+          id: true,
+          tagId: true,
+          accountId: true,
+          budgeted: true,
+          additionalAmountCents: true,
+          rolloverAmount: true,
+          account: { select: { nickname: true } },
+        },
+        orderBy: [{ account: { nickname: "asc" } }, { tag: { name: "asc" } }],
+      })
+    ),
+    settle("tags", db.tag.findMany({ select: { id: true, name: true, shortName: true, parentId: true }, orderBy: { name: "asc" } })),
+    settle(
+      "accounts",
+      db.account.findMany({
+        where: { ...(entity && { entityId: entity.id }), archivedAt: null },
+        select: {
+          id: true,
+          nickname: true,
+          mask: true,
+          accountType: true,
+          currentBalance: true,
+          currentBalanceAt: true,
+          institution: { select: { name: true } },
+        },
+        orderBy: { nickname: "asc" },
+      })
+    ),
+    settle(
+      "scheduled transfers",
+      db.scheduledTransfer.findMany({
+        // Only transfers that leave this bucket's accounts (all of them in the All Entities view).
+        where: { active: true, ...(entity && { fromAccount: { entityId: entity.id } }) },
+        select: {
+          id: true,
+          amount: true,
+          cadence: true,
+          dayRules: true,
+          purpose: true,
+          fromAccount: { select: { nickname: true } },
+          toAccount: { select: { nickname: true } },
+        },
+        orderBy: [{ fromAccount: { nickname: "asc" } }, { id: "asc" }],
+      })
+    ),
+    settle(
+      "recurring expenses",
+      db.recurringExpense.findMany({
+        where: entity ? { entityId: entity.id } : {},
+        select: { tagId: true, amountCents: true, frequency: true },
+      })
+    ),
+    settle("month transactions", loadMonthTransactions({ entityId: entity?.id ?? null, period })),
   ]);
 
   // "Next 30 days" widget: about today, so only on the current month. It is NOT loaded here: it renders through
@@ -107,94 +119,75 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // hold up the rest of the dashboard. The page has already run auth() above (the section loads read-only data
   // only after that).
 
-  const spendByTagId = new Map<string, Prisma.Decimal>(
-    tagSpend.map((r) => [r.tagId, new Prisma.Decimal(r.total)])
-  );
-  const totalSpend = new Prisma.Decimal(spendAgg._sum.amount ?? 0);
-
-  // Nesting/auto-sum resolution — same-account only (matches nestBudgetLines).
-  // This page doesn't apply the recurring-expense override /budgets does
-  // (pre-existing, separate inconsistency — out of scope to fix here).
-  const tagParentById = new Map(allTagsResult.map((t) => [t.id, t.parentId]));
-  const byAccountId = new Map<string, typeof budgets>();
-  for (const b of budgets) {
-    if (!byAccountId.has(b.accountId)) byAccountId.set(b.accountId, []);
-    byAccountId.get(b.accountId)!.push(b);
-  }
-  const resolvedByBudgetId = new Map<string, Prisma.Decimal>();
-  const rootBudgetIds = new Set<string>();
-  for (const group of byAccountId.values()) {
-    const resolverInput = group.map((b) => ({ id: b.id, tagId: b.tagId, budgeted: b.budgeted }));
-    for (const [id, amt] of resolveBudgetedAmounts(resolverInput, (tagId) => tagParentById.get(tagId), new Prisma.Decimal(0))) {
-      resolvedByBudgetId.set(id, amt);
-    }
-    for (const id of getRootBudgetLineIds(group, (tagId) => tagParentById.get(tagId))) {
-      rootBudgetIds.add(id);
-    }
-  }
-
-  const totalBudgeted = budgets
-    .filter((b) => rootBudgetIds.has(b.id))
-    .reduce(
-      (sum, b) => sum.plus(resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0)),
-      new Prisma.Decimal(0)
-    );
-
-  const overspentCount = budgets.filter((b) => {
-    const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
-    return computeBudgetSummary({
-      budgeted: resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0),
-      rolloverAmount: new Prisma.Decimal(b.rolloverAmount ?? 0),
-      actualSpend: actual,
-    }).isOverspent;
-  }).length;
-
-  const chartData = budgets
-    .map((b) => {
-      const actual = decimalToNumber(
-        (spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0)).abs()
+  // One model behind every number on the page and in the dialogs: the summary cards, the table, the chart, the
+  // cards and the drill-down all read this same payload (lib/month-spend.ts defines what counts as spending).
+  let drill: DrillData | null = null;
+  if (budgetRows && tagRows && recurringRows && monthTxs) {
+    try {
+      const tagParent = new Map(tagRows.map((t) => [t.id, t.parentId]));
+      const effective = resolveEffectiveBudgets(
+        budgetRows.map((b) => ({ id: b.id, tagId: b.tagId, accountId: b.accountId, budgeted: b.budgeted, additionalAmountCents: b.additionalAmountCents })),
+        recurringRows,
+        (tagId) => tagParent.get(tagId)
       );
-      return {
-        tagId: b.tagId,
-        name: b.tag.shortName,
-        budget: decimalToNumber(resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0)),
-        actual,
-      };
-    })
-    .filter((d) => d.budget > 0 || d.actual > 0)
-    .sort((a, b) => b.actual - a.actual)
-    .slice(0, 10);
-
-  const serializedBudgets: SerializedBudget[] = budgets.map((b) => {
-    const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
-    const budgetedDec = resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0);
-    const rolloverDec = new Prisma.Decimal(b.rolloverAmount ?? 0);
-    const effectiveBudget = budgetedDec.plus(rolloverDec);
-    const remaining = effectiveBudget.plus(actual);
-    const percentUsed = effectiveBudget.isZero()
-      ? 0
-      : actual.abs().div(effectiveBudget).times(100).toNumber();
-    return {
-      id: b.id,
-      tagId: b.tagId,
-      tagShortName: b.tag.shortName,
-      budgeted: decimalToNumber(budgetedDec),
-      budgetedRaw: b.budgeted !== null ? decimalToNumber(new Prisma.Decimal(b.budgeted)) : null,
-      spent: decimalToNumber(actual),
-      percentUsed: Math.min(percentUsed, 999),
-      isOverspent: remaining.isNegative(),
-    };
-  });
+      const zero = new Prisma.Decimal(0);
+      const model = buildMonthSpend(
+        monthTxs,
+        tagRows,
+        budgetRows.map((b) => ({
+          id: b.id,
+          tagId: b.tagId,
+          accountId: b.accountId,
+          resolved: effective.resolvedById.get(b.id) ?? zero,
+          explicit: effective.explicitById.get(b.id) ?? null,
+          rollover: new Prisma.Decimal(b.rolloverAmount ?? 0),
+        }))
+      );
+      drill = buildDrillData({
+        model,
+        txs: monthTxs,
+        tags: tagRows,
+        budgets: budgetRows.map((b) => ({
+          id: b.id,
+          tagId: b.tagId,
+          accountId: b.accountId,
+          accountName: b.account.nickname,
+          rawBudgeted: b.budgeted,
+          rollover: new Prisma.Decimal(b.rolloverAmount ?? 0),
+        })),
+        effective,
+        accounts: (accounts ?? []).map((a) => ({
+          id: a.id,
+          nickname: a.nickname,
+          institutionName: a.institution.name,
+          accountType: a.accountType,
+          currentBalance: a.currentBalance,
+          currentBalanceAt: a.currentBalanceAt,
+        })),
+        transfers: (scheduledTransfers ?? []).map((t) => ({
+          id: t.id,
+          fromNickname: t.fromAccount.nickname,
+          toNickname: t.toAccount.nickname,
+          amount: t.amount,
+          cadence: t.cadence,
+          dayRules: t.dayRules,
+          purpose: t.purpose,
+        })),
+        period,
+        periodLabel: formatPeriod(period),
+        bucket,
+        isAllEntities: entity === null,
+        periodQuery: isCurrentPeriod ? "" : `&period=${period}`,
+      });
+    } catch (err) {
+      drill = null;
+      console.error("Dashboard month numbers unavailable", err instanceof Error ? err.name : "UnknownError");
+    }
+  }
 
   return (
     <AppShell userName={session.user.name ?? undefined}>
-      <DashboardClient
-        chartData={chartData}
-        budgets={serializedBudgets}
-        allTags={allTagsResult}
-        entityId={entity?.id}
-        period={period}
-      >
+      <DashboardClient data={drill} allTags={tagRows ?? []}>
       <div className="space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -233,49 +226,61 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </nav>
         </div>
 
-        {/* Summary cards */}
+        {/* Summary cards: each opens the rows behind its number */}
         <div className="grid gap-4 sm:grid-cols-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <Wallet className="h-4 w-4 text-primary" />
-                Total Budgeted
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold">{formatUSD(decimalToNumber(totalBudgeted))}</p>
-            </CardContent>
-          </Card>
+          <DrillButton target={{ kind: "budgeted" }} label="Show what makes up Total Budgeted" className="block w-full rounded-xl">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <Wallet className="h-4 w-4 text-primary" />
+                  Total Budgeted
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{drill ? centsText(drill.totalBudgetedCents) : "Unavailable"}</p>
+                {drill && <p className="mt-1 text-xs text-muted-foreground">{budgetedSubline(drill.isAllEntities)}</p>}
+              </CardContent>
+            </Card>
+          </DrillButton>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <TrendingDown className="h-4 w-4 text-destructive" />
-                {isCurrentPeriod ? "Spent This Month" : `Spent in ${formatPeriod(period)}`}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-destructive">
-                {formatUSD(decimalToNumber(totalSpend.abs()))}
-              </p>
-            </CardContent>
-          </Card>
+          <DrillButton target={{ kind: "spent" }} label="Show what makes up Spent" className="block w-full rounded-xl">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <TrendingDown className="h-4 w-4 text-destructive" />
+                  {isCurrentPeriod ? "Spent This Month" : `Spent in ${formatPeriod(period)}`}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold text-destructive">{drill ? centsText(drill.spentCents) : "Unavailable"}</p>
+                {drill && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {drill.refundCount > 0 ? `Net of ${centsText(drill.refundsCents)} refunds` : "Money out, no refunds"}
+                    {drill.pendingCount > 0 ? ` · ${drill.pendingCount} pending` : ""}
+                    {drill.isAllEntities ? " · all entities combined" : ""}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </DrillButton>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                {overspentCount > 0
-                  ? <AlertTriangle className="h-4 w-4 text-destructive" />
-                  : <CheckCircle2 className="h-4 w-4 text-green-600" />}
-                Overspent Lines
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className={`text-2xl font-bold ${overspentCount > 0 ? "text-destructive" : "text-green-600"}`}>
-                {overspentCount}
-              </p>
-            </CardContent>
-          </Card>
+          <DrillButton target={{ kind: "overspent" }} label="Show which lines are overspent" className="block w-full rounded-xl">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  {drill && drill.overspentCount > 0
+                    ? <AlertTriangle className="h-4 w-4 text-destructive" />
+                    : <CheckCircle2 className="h-4 w-4 text-green-600" />}
+                  Overspent Lines
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className={`text-2xl font-bold ${drill && drill.overspentCount > 0 ? "text-destructive" : "text-green-600"}`}>
+                  {drill ? drill.overspentCount : "Unavailable"}
+                </p>
+              </CardContent>
+            </Card>
+          </DrillButton>
         </div>
 
         {/* Next 30 days (current month only) */}
@@ -285,84 +290,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </Suspense>
         )}
 
-        {/* Budget lines table */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              Budget Lines
-              <Link
-                href={`/budgets?bucket=${bucket}`}
-                className="text-sm font-normal text-muted-foreground underline-offset-4 hover:underline"
-              >
-                Full report →
-              </Link>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-2 font-medium">Category</th>
-                    <th className="px-4 py-2 font-medium text-right">Budget</th>
-                    <th className="px-4 py-2 font-medium text-right">Spent</th>
-                    <th className="px-4 py-2 font-medium text-right">Remaining</th>
-                    <th className="px-4 py-2 font-medium">Progress</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {budgets.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
-                        No budget lines for {formatPeriod(period)}
-                      </td>
-                    </tr>
-                  )}
-                  {budgets.map((b) => {
-                    const actual = spendByTagId.get(b.tagId) ?? new Prisma.Decimal(0);
-                    const summary = computeBudgetSummary({
-                      budgeted: resolvedByBudgetId.get(b.id) ?? new Prisma.Decimal(0),
-                      rolloverAmount: new Prisma.Decimal(b.rolloverAmount ?? 0),
-                      actualSpend: actual,
-                    });
-                    return (
-                      <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30">
-                        <td className="px-4 py-2">
-                          <span className="font-medium">{b.tag.shortName}</span>
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            {b.account.nickname}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          {formatUSD(decimalToNumber(summary.effectiveBudget))}
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          {formatUSD(decimalToNumber(summary.actualSpend.abs()))}
-                        </td>
-                        <td className={`px-4 py-2 text-right font-medium ${summary.isOverspent ? "text-destructive" : ""}`}>
-                          {formatUSD(decimalToNumber(summary.remaining))}
-                        </td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-2">
-                            <div className="h-2.5 w-28 overflow-hidden rounded-full bg-muted">
-                              <div
-                                className={`h-full rounded-full transition-all ${summary.isOverspent ? "bg-destructive" : "bg-primary"}`}
-                                style={{ width: `${Math.min(summary.percentUsed, 100)}%` }}
-                              />
-                            </div>
-                            <span className={`text-xs tabular-nums ${summary.isOverspent ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-                              {Math.round(summary.percentUsed)}%
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Budget lines table: parents with their nested lines, grouped by account */}
+        <BudgetLinesTable budgetsHref={`/budgets?bucket=${bucket}${isCurrentPeriod ? "" : `&period=${period}`}`} />
 
         {/* Accounts + Scheduled Transfers */}
         <div className="grid gap-4 sm:grid-cols-2">
@@ -371,21 +300,41 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               <CardTitle>Accounts</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <tbody>
-                  {accounts.map((acct) => (
-                    <tr key={acct.id} className="border-b last:border-0">
-                      <td className="px-4 py-2 font-medium">
-                        {acct.nickname}
-                        <span className="ml-1 font-mono text-xs text-muted-foreground">···{acct.mask}</span>
-                      </td>
-                      <td className="px-4 py-2 text-right text-xs text-muted-foreground">
-                        {acct.institution.name}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {accounts === null && <p className="px-4 py-3 text-sm text-muted-foreground">Accounts are unavailable right now.</p>}
+              {accounts !== null && accounts.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">No accounts.</p>}
+              <ul>
+                {(accounts ?? []).map((acct) => {
+                  const debt = acct.accountType === "credit_card" || acct.accountType === "mortgage" || acct.accountType === "loan";
+                  return (
+                    <li key={acct.id} className="border-b last:border-0">
+                      <DrillButton
+                        target={{ kind: "account", accountId: acct.id }}
+                        label={`Show the activity on ${acct.nickname} this month`}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-2 text-sm"
+                      >
+                        <span className="min-w-0">
+                          <span className="font-medium">{acct.nickname}</span>
+                          <span className="ml-1 font-mono text-xs text-muted-foreground">···{acct.mask}</span>
+                          <span className="block text-xs text-muted-foreground">{acct.institution.name}</span>
+                        </span>
+                        <span className="shrink-0 text-right">
+                          {acct.currentBalance !== null ? (
+                            <>
+                              <span className="block font-medium tabular-nums">{formatUSD(decimalToNumber(acct.currentBalance))}</span>
+                              <span className="block text-xs text-muted-foreground">
+                                {debt ? "owed" : "balance"}
+                                {acct.currentBalanceAt ? ` · as of ${formatBalanceDate(acct.currentBalanceAt)}` : ""}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">balance not set</span>
+                          )}
+                        </span>
+                      </DrillButton>
+                    </li>
+                  );
+                })}
+              </ul>
             </CardContent>
           </Card>
 
@@ -394,30 +343,40 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               <CardTitle>Scheduled Transfers</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <tbody>
-                  {scheduledTransfers.length === 0 && (
-                    <tr>
-                      <td className="px-4 py-3 text-muted-foreground">None configured</td>
-                    </tr>
-                  )}
-                  {scheduledTransfers.map((st) => (
-                    <tr key={st.id} className="border-b last:border-0">
-                      <td className="px-4 py-2 text-xs">
+              {scheduledTransfers === null && <p className="px-4 py-3 text-sm text-muted-foreground">Scheduled transfers are unavailable right now.</p>}
+              {scheduledTransfers !== null && scheduledTransfers.length === 0 && (
+                <p className="px-4 py-3 text-sm text-muted-foreground">None configured</p>
+              )}
+              <ul>
+                {(scheduledTransfers ?? []).slice(0, 10).map((st) => (
+                  <li key={st.id} className="border-b last:border-0">
+                    <DrillButton
+                      target={{ kind: "transfer", transferId: st.id }}
+                      label={`Show details of the transfer from ${st.fromAccount.nickname} to ${st.toAccount.nickname}`}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-2 text-xs"
+                    >
+                      <span>
                         {st.fromAccount.nickname} → {st.toAccount.nickname}
-                      </td>
-                      <td className="px-4 py-2 text-right font-medium">
-                        {formatUSD(decimalToNumber(new Prisma.Decimal(st.amount)))}
-                      </td>
-                      <td className="px-4 py-2">
+                      </span>
+                      <span className="flex shrink-0 items-center gap-3">
+                        <span className="text-sm font-medium">{formatUSD(decimalToNumber(new Prisma.Decimal(st.amount)))}</span>
                         <Badge variant="outline" className="text-xs">
                           {st.cadence}
                         </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </span>
+                    </DrillButton>
+                  </li>
+                ))}
+              </ul>
+              {scheduledTransfers !== null && scheduledTransfers.length > 10 && (
+                <DrillButton
+                  target={{ kind: "transfers" }}
+                  label="Show all scheduled transfers"
+                  className="block w-full px-4 py-2 text-xs text-primary"
+                >
+                  and {scheduledTransfers.length - 10} more · show all
+                </DrillButton>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -425,6 +384,16 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       </DashboardClient>
     </AppShell>
   );
+}
+
+/** Run one read; on failure log the error NAME only and return null so the widget shows "unavailable". */
+async function settle<T>(label: string, read: Promise<T>): Promise<T | null> {
+  try {
+    return await read;
+  } catch (err) {
+    console.error(`Dashboard ${label} unavailable`, err instanceof Error ? err.name : "UnknownError");
+    return null;
+  }
 }
 
 /**
@@ -481,4 +450,9 @@ function formatPeriod(period: string): string {
     month: "long",
     year: "numeric",
   });
+}
+
+/** A balance is stamped with the moment it was fetched, so it is shown in New York time (unlike date-only values). */
+function formatBalanceDate(at: Date): string {
+  return at.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
 }

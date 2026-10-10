@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { SpendingChart, type SpendingRow } from "./spending-chart";
-import { SpendCategoryCards } from "./spend-category-cards";
-import { CategoryDrilldownModal } from "./category-drilldown-modal";
+import { SpendCategoryCards, type CategoryCard } from "./spend-category-cards";
+import { DrilldownDialog } from "./drilldown-dialog";
+import { DrillContext } from "./drill-context";
+import type { DrillData, DrillTarget } from "@/lib/dashboard-drill";
 
 interface Tag {
   id: string;
@@ -12,84 +14,77 @@ interface Tag {
   parentId: string | null;
 }
 
-export interface SerializedBudget {
-  id: string;
-  tagId: string;
-  tagShortName: string;
-  budgeted: number;
-  /** The raw stored `Budget.budgeted` value — null when this line is in
-   * auto-sum mode (blank). `budgeted` above is always the resolved amount. */
-  budgetedRaw: number | null;
-  spent: number;
-  percentUsed: number;
-  isOverspent: boolean;
-}
-
 interface Props {
-  chartData: SpendingRow[];
-  budgets: SerializedBudget[];
+  /** The month's numbers and the transactions behind them; null when they could not be loaded. */
+  data: DrillData | null;
   allTags: Tag[];
-  entityId: string | undefined;
-  period: string;
   children: React.ReactNode;
 }
 
-export function DashboardClient({
-  chartData,
-  budgets,
-  allTags,
-  entityId,
-  period,
-  children,
-}: Props) {
-  const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
+/**
+ * Owns the drill-down: the server page hands over one payload, any card, bar, row or table line below this component
+ * can open a dialog for its own number through the context (see DrillButton), and every dialog is built from that
+ * same payload, so the rows always add up to the number clicked.
+ */
+export function DashboardClient({ data, allTags, children }: Props) {
+  const [active, setActive] = useState<{ target: DrillTarget; trigger: HTMLElement | null } | null>(null);
 
-  const selectedBudget = selectedTagId
-    ? budgets.find((b) => b.tagId === selectedTagId) ?? null
-    : null;
+  const open = useCallback((target: DrillTarget, trigger?: HTMLElement | null) => {
+    setActive({ target, trigger: trigger ?? null });
+  }, []);
+  const close = useCallback(() => setActive(null), []);
 
-  // Top 6 by spend for the cards
-  const topCards = [...budgets]
-    .sort((a, b) => Math.abs(b.spent) - Math.abs(a.spent))
+  // Top-level lines only (a parent already includes its nested lines), biggest spend first.
+  const roots = useMemo(
+    () => (data ? data.lines.filter((l) => l.parentId === null).sort((a, b) => b.rolledCents - a.rolledCents) : []),
+    [data]
+  );
+
+  const topCards: CategoryCard[] = roots
+    .filter((l) => l.rolledCents > 0 || l.budgetCents > 0)
     .slice(0, 6)
-    .map((b) => ({
-      tagId: b.tagId,
-      tagShortName: b.tagShortName,
-      budgeted: b.budgeted,
-      spent: Math.abs(b.spent),
-      percentUsed: b.percentUsed,
-      isOverspent: b.isOverspent,
+    .map((l) => ({
+      lineId: l.id,
+      name: l.shortName,
+      budgeted: l.effectiveCents / 100,
+      spent: Math.max(l.rolledCents, 0) / 100,
+      percentUsed: l.percentUsed,
+      isOverspent: l.overspent,
+    }));
+
+  const chartData: SpendingRow[] = roots
+    .filter((l) => l.budgetCents > 0 || l.rolledCents > 0)
+    .slice(0, 10)
+    .map((l) => ({
+      lineId: l.id,
+      name: l.shortName,
+      budget: l.effectiveCents / 100,
+      actual: Math.max(l.rolledCents, 0) / 100,
     }));
 
   return (
-    <>
+    <DrillContext.Provider value={{ data, open }}>
       <div className="space-y-6">
-        {/* Spend category cards — top 6 */}
-        {topCards.length > 0 && (
-          <SpendCategoryCards cards={topCards} onSelect={setSelectedTagId} />
-        )}
+        {/* Spend category cards: top 6 top-level lines */}
+        {topCards.length > 0 && <SpendCategoryCards cards={topCards} onSelect={(id, el) => open({ kind: "line", lineId: id }, el)} />}
 
-        {/* Spending chart — clickable */}
-        <SpendingChart data={chartData} onBarClick={setSelectedTagId} />
+        {/* Spending chart: every bar opens its line */}
+        {data && <SpendingChart data={chartData} onBarClick={(id, el) => open({ kind: "line", lineId: id }, el)} />}
 
-        {/* Budget lines table + accounts grid passed as children from server */}
+        {/* Summary cards, budget lines table and accounts grid are passed as children from the server */}
         {children}
       </div>
 
-      {selectedTagId && selectedBudget && (
-        <CategoryDrilldownModal
-          tagId={selectedTagId}
-          tagShortName={selectedBudget.tagShortName}
-          budgetId={selectedBudget.id}
-          budgeted={selectedBudget.budgeted}
-          budgetedRaw={selectedBudget.budgetedRaw}
-          spent={selectedBudget.spent}
-          period={period}
-          entityId={entityId}
+      {data && active && (
+        <DrilldownDialog
+          key={JSON.stringify(active.target)}
+          data={data}
+          target={active.target}
           allTags={allTags}
-          onClose={() => setSelectedTagId(null)}
+          returnFocusTo={active.trigger}
+          onClose={close}
         />
       )}
-    </>
+    </DrillContext.Provider>
   );
 }

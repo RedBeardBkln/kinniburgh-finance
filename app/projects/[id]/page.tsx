@@ -132,7 +132,7 @@ export default async function ProjectDetailPage({ params }: Props) {
                     <div className="min-w-0">
                       <p className="font-medium text-sm truncate">{tx.payeeRaw ?? tx.description ?? "—"}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {new Date(tx.postedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        {new Date(tx.postedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}
                         {" · "}
                         {tx.account.nickname}{tx.account.mask ? ` (${tx.account.mask})` : ""}
                         {" · "}

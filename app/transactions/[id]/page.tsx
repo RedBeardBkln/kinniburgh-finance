@@ -69,7 +69,7 @@ export default async function TransactionDetailPage({
               <dt className="text-muted-foreground">Date</dt>
               <dd>
                 {tx.postedAt.toLocaleDateString("en-US", {
-                  timeZone: "America/New_York",
+                  timeZone: "UTC", // a posted date is a calendar day at UTC midnight; New York would show the day before
                   month: "long",
                   day: "numeric",
                   year: "numeric",

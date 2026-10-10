@@ -145,7 +145,7 @@ export function ExcludedFromPlSection({ glCodes, rows: initialRows, totalCount, 
                           year: "numeric",
                           month: "short",
                           day: "numeric",
-                          timeZone: "America/New_York",
+                          timeZone: "UTC", // calendar day stored at UTC midnight
                         })}
                       </td>
                       <td className="px-3 py-2 text-xs max-w-[180px] truncate">{tx.payee}</td>

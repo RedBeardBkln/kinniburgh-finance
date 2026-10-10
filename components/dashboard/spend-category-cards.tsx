@@ -1,8 +1,9 @@
 "use client";
 
-interface CategoryCard {
-  tagId: string;
-  tagShortName: string;
+export interface CategoryCard {
+  /** The budget line this card opens (a top-level line, so a parent and its child never both appear). */
+  lineId: string;
+  name: string;
   budgeted: number;
   spent: number;
   percentUsed: number;
@@ -11,7 +12,7 @@ interface CategoryCard {
 
 interface Props {
   cards: CategoryCard[];
-  onSelect: (tagId: string) => void;
+  onSelect: (lineId: string, trigger: HTMLElement) => void;
 }
 
 function statusColor(card: CategoryCard) {
@@ -33,12 +34,14 @@ export function SpendCategoryCards({ cards, onSelect }: Props) {
         const { bar, text } = statusColor(c);
         return (
           <button
-            key={c.tagId}
+            key={c.lineId}
             type="button"
-            onClick={() => onSelect(c.tagId)}
+            aria-haspopup="dialog"
+            aria-label={`Show what makes up ${c.name}`}
+            onClick={(e) => onSelect(c.lineId, e.currentTarget)}
             className="rounded-lg border bg-card p-3 text-left transition-colors hover:bg-accent/50 hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
-            <p className="text-xs font-medium text-muted-foreground truncate mb-1">{c.tagShortName}</p>
+            <p className="text-xs font-medium text-muted-foreground truncate mb-1">{c.name}</p>
             <p className={`text-lg font-bold tabular-nums ${text}`}>{fmt(c.spent)}</p>
             {c.budgeted > 0 && (
               <>

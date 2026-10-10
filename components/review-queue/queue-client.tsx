@@ -39,7 +39,7 @@ function formatDate(iso: string): string {
     month: "short",
     day: "numeric",
     year: "numeric",
-    timeZone: "America/New_York",
+    timeZone: "UTC", // calendar day stored at UTC midnight
   }).format(new Date(iso));
 }
 

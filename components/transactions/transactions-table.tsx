@@ -94,12 +94,14 @@ function loadWidths(): Record<ColKey, number> {
 
 // ── Formatting ─────────────────────────────────────────────────────────────────
 
+// A posted date is a calendar day stored at UTC midnight: format it in UTC. America/New_York would show the evening
+// before, i.e. one day early (the same bug as the card due dates, see formatCalendarDate in lib/card-due.ts).
 function formatDate(iso: string): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
-    timeZone: "America/New_York",
+    timeZone: "UTC",
   }).format(new Date(iso));
 }
 

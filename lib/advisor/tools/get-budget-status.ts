@@ -47,7 +47,7 @@ export function shapeBudgets(period: string, lines: readonly BudgetLineFacts[]):
       totals: { budgeted_root_lines_only: dollarsOf(totalBudgeted), spent_all_lines: dollarsOf(totalSpent), remaining: dollarsOf(totalBudgeted - totalSpent) },
       notes: [
         "Budgeted amounts are monthly. Lines nested under a parent are auto-summed where the parent has no amount of its own, and totals use root lines only so nothing is double counted.",
-        "Spent is net outflow on that exact tag and entity for the month, excluding internal transfers. This can differ from the Budgets page for lines linked to recurring expenses.",
+        "Spent is the net signed amount on that exact tag and entity for the month, excluding paired internal transfers. It is NOT the dashboard's Spent figure (which leaves out card payments, mortgage and loan-account entries and income, counts nested sub-tags under the nearest budget line, and nets refunds), so the two can differ; for example the Mortgage line reads differently. It can also differ from the Budgets page for lines linked to recurring expenses.",
         ...(anyCarried
           ? [
               "Rows with carried_from have no budget row of their own for this month: the figures are the latest earlier month's row for that line, carried forward at read time (rollover and one-off additional amounts are not carried). The Budgets page shows nothing for that month until lines are added there. Electric, oil and firewood lines are not carried yet.",
@@ -65,7 +65,7 @@ export function shapeBudgets(period: string, lines: readonly BudgetLineFacts[]):
 export const getBudgetStatusTool = defineTool<Input>({
   name: "get_budget_status",
   description:
-    "Budget versus actual spending for one month: per budget line the tag, entity, monthly budget, rollover carried in, spent, remaining, percent used and whether it is overspent, plus totals. Defaults to the current month (America/New_York); period is YYYY-MM; entity (name or slug) is optional. May differ from the Budgets page for lines linked to recurring expenses. Up to 120 lines.",
+    "Budget versus actual spending for one month: per budget line the tag, entity, monthly budget, rollover carried in, spent, remaining, percent used and whether it is overspent, plus totals. Defaults to the current month (America/New_York); period is YYYY-MM; entity (name or slug) is optional. Spent here is the net signed amount on the exact tag, NOT the dashboard's Spent (old per-tag sum), so the two can differ; it may also differ from the Budgets page for lines linked to recurring expenses. Up to 120 lines.",
   inputJsonSchema: {
     type: "object",
     properties: {

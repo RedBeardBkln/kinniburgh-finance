@@ -13,7 +13,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export interface SpendingRow {
-  tagId: string;
+  /** The top-level budget line this bar opens. */
+  lineId: string;
   name: string;
   budget: number;
   actual: number;
@@ -21,7 +22,7 @@ export interface SpendingRow {
 
 interface Props {
   data: SpendingRow[];
-  onBarClick?: (tagId: string) => void;
+  onBarClick?: (lineId: string, trigger: HTMLElement | null) => void;
 }
 
 function fmtDollar(v: number): string {
@@ -45,11 +46,8 @@ export function SpendingChart({ data, onBarClick }: Props) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">
-            Spending this month — top categories
-            {onBarClick && <span className="ml-2 text-xs font-normal text-muted-foreground">(click a bar to drill in)</span>}
-          </CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-base">Spending this month — top categories</CardTitle>
           <div className="flex gap-4 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <span className="inline-block h-2 w-3 rounded-sm bg-slate-300" /> Budget
@@ -59,6 +57,7 @@ export function SpendingChart({ data, onBarClick }: Props) {
             </span>
           </div>
         </div>
+        {onBarClick && <p className="text-xs text-muted-foreground">(click a bar or a name below to drill in)</p>}
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={Math.max(180, data.length * 36)}>
@@ -71,7 +70,7 @@ export function SpendingChart({ data, onBarClick }: Props) {
             onClick={onBarClick ? (e) => {
               if (e?.activePayload?.[0]) {
                 const row = e.activePayload[0].payload as SpendingRow;
-                onBarClick(row.tagId);
+                onBarClick(row.lineId, null);
               }
             } : undefined}
             style={onBarClick ? { cursor: "pointer" } : undefined}
@@ -107,6 +106,23 @@ export function SpendingChart({ data, onBarClick }: Props) {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+        {onBarClick && (
+          // The bars themselves are not keyboard reachable, so every bar also has a real button here.
+          <ul className="mt-3 flex flex-wrap gap-2" aria-label="Open the details behind each bar">
+            {data.map((row) => (
+              <li key={row.lineId}>
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  onClick={(e) => onBarClick(row.lineId, e.currentTarget)}
+                  className="rounded-full border bg-background px-3 py-1 text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  {row.name} <span className="tabular-nums text-muted-foreground">{fmtDollar(row.actual)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </CardContent>
     </Card>
   );

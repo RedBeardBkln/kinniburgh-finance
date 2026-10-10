@@ -542,7 +542,7 @@ export function GlPageClient({
                       >
                         <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
                           {new Date(tx.postedAt).toLocaleDateString("en-US", {
-                            month: "short", day: "numeric", timeZone: "America/New_York",
+                            month: "short", day: "numeric", timeZone: "UTC", // calendar day stored at UTC midnight
                           })}
                         </td>
                         <td className="px-3 py-2 text-xs max-w-[120px] truncate">
