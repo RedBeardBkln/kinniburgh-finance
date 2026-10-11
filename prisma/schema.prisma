@@ -48,6 +48,7 @@ model User {
   taxReviewDispositions      TaxReviewFindingDisposition[] @relation("TaxReviewDispositionAuthor")
   taxReturnApprovalsGiven    TaxReturnApproval[] @relation("TaxReturnApprovalApprover")
   taxYearCloseEventsMade     TaxYearCloseEvent[] @relation("TaxYearCloseAuthor")
+  utilityUsageCreated        UtilityUsage[]      @relation("UtilityUsageAuthor")
   advisorConversations       AdvisorConversation[] @relation("AdvisorConversationOwner")
   advisorMemoriesAuthored    AdvisorMemory[]     @relation("AdvisorMemoryAuthor")
   advisorUsages              AdvisorUsage[]      @relation("AdvisorUsageUser")
@@ -119,6 +120,7 @@ model Entity {
   taxReviewDispositions TaxReviewFindingDisposition[]
   taxReturnApprovals TaxReturnApproval[]
   taxYearCloseEvents TaxYearCloseEvent[]
+  utilityUsage       UtilityUsage[]
 }
 
 model Institution {
@@ -1235,6 +1237,34 @@ model TaxYearCloseEvent {
 
   @@unique([entityId, taxYear, seq])
   @@index([entityId, taxYear])
+}
+
+// Owner-uploaded monthly usage history (kWh / gallons / firewood) per site (entity), seasonal energy step 3. Insert-only plus
+// archive: there is no update (except setting archivedAt) and no delete. `costCents` is the amount BILLED to the owner (positive
+// = owed, an electric credit month may be negative); it is NOT a ledger amount (ledger sign is negative = outflow). `liveKey` is
+// set while the row is live and NULL once archived (Postgres allows many NULLs), which makes it a race-safe idempotency key.
+model UtilityUsage {
+  id            String    @id @default(uuid())
+  entityId      String
+  kind          String    // "electric" | "oil" | "firewood" (app-validated, no DB enum)
+  period        String    // "YYYY-MM" calendar month of use (electric) or of delivery (oil, firewood)
+  occurredOn    DateTime  // 00:00 UTC. electric = first of period; oil/firewood = delivery date (the 1st when only the month is known)
+  quantity      Decimal   @db.Decimal(14, 3) // kWh | gallons | cords; never null (a row without a quantity is not usage)
+  unit          String    // "kwh" | "gal" | "cord" | "face_cord" (forced by kind except firewood)
+  costCents     Int?      // billed amount in cents, optional
+  note          String?   // free text, max 120, refused if it looks like an SSN/EIN/account number
+  source        String    // "manual" | "upload"
+  importBatchId String?
+  liveKey       String?   @unique // set while live, NULL once archived (Postgres allows many NULLs): the race-safe idempotency key
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  archivedAt    DateTime?
+  archivedById  String?   // plain column, no FK
+
+  entity    Entity @relation(fields: [entityId], references: [id])
+  createdBy User?  @relation("UtilityUsageAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([entityId, kind, period])
 }
 
 // One step of the AI review passes (L3) of a TaxReviewRun: run_started (config + estimate), payload (the exact redacted JSON that was
