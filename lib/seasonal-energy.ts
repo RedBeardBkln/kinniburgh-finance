@@ -28,6 +28,14 @@
 import { Decimal } from "@prisma/client/runtime/library";
 import { activeOilPrices, priceOn, type OilPriceEntry } from "@/lib/seasonal-energy-prices";
 import { resolveMarks, type MarkRow, type OilMark } from "@/lib/seasonal-energy-marks";
+import {
+  electricUsageEstimate,
+  firewoodUsageEstimate,
+  oilUsageEstimate,
+  usageInfo,
+  type UsageInfo,
+  type UsageRow,
+} from "@/lib/seasonal-energy-usage";
 
 export type EnergyKind = "electric" | "oil" | "firewood";
 export type Confidence = "low" | "medium" | "high";
@@ -233,7 +241,7 @@ export interface MonthEstimate {
   /** Months of the same calendar month actually seen. */
   ownObservations: number;
   /** "own" = leans on this month's own payments as well; "season" = no payment seen for this month, the season mean is used. */
-  basis: "own" | "season";
+  basis: "own" | "season" | "usage";
 }
 
 interface Profile {
@@ -291,6 +299,8 @@ export function leaveOneOut(observed: readonly MonthTotal[], flatMonthly: Decima
 export interface ElectricEstimate {
   status: "estimate";
   kind: "electric";
+  /** "payments" = net dollars by season from the bank payments; "usage_paired" / "usage_shape" = built on the uploaded kWh history. */
+  method: "payments" | "usage_paired" | "usage_shape";
   months: MonthEstimate[];
   /** Twelve months added up, net dollars. */
   annual: Decimal;
@@ -397,6 +407,7 @@ export function electricEstimate(input: ElectricInput): ElectricEstimate | Gated
   return {
     status: "estimate",
     kind: "electric",
+    method: "payments",
     months: fit.months.map((m) => ({ ...m, amount: cents2(m.amount), low: cents2(m.low), high: cents2(m.high) })),
     annual: cents2(annual),
     confidence,
@@ -541,7 +552,9 @@ export function oilFacts(payments: readonly EnergyPayment[], now: Date, site: En
 export interface OilEstimate {
   status: "estimate";
   kind: "oil";
-  /** Dollars a month, the same for every month (payments do not show gallons, so no winter peak is claimed). */
+  /** "payments" = payments restated at today's price; "usage" = uploaded delivery gallons x price. */
+  method: "payments" | "usage";
+  /** Dollars a month: the same for every month for "payments" (no winter peak is claimed); the 12-month average for "usage" (see byMonth). */
   monthly: Decimal;
   low: Decimal;
   high: Decimal;
@@ -554,6 +567,12 @@ export interface OilEstimate {
   impliedGallons: Decimal;
   /** Extra dollars over those 12 months of use for each +$0.50 per gallon. */
   sensitivity: Decimal;
+  /** Where the price comes from: the owner's entry, or (usage method only) the price of his newest delivery that had an amount. */
+  priceSource?: "owner" | "delivery";
+  /** Usage method: dollars for each calendar month, index 0 = January, rounded to cents (they add up to `annual`). */
+  byMonth?: Decimal[];
+  /** Usage method: the lowest and highest of the years on file, per calendar month. */
+  byMonthRange?: Array<{ low: Decimal; high: Decimal }>;
 }
 
 export interface OilInput {
@@ -642,6 +661,8 @@ export function oilEstimate(input: OilInput): OilEstimate | Gated {
   return {
     status: "estimate",
     kind: "oil",
+    method: "payments",
+    priceSource: "owner",
     monthly,
     low,
     high,
@@ -665,6 +686,42 @@ export interface FirewoodFacts {
 
 export function heatingSeasonOf(d: Date): number {
   return d.getUTCMonth() + 1 >= 7 ? d.getUTCFullYear() : d.getUTCFullYear() - 1;
+}
+
+/** One complete heating season of uploaded firewood purchases. */
+export interface FirewoodSeasonFact {
+  /** The calendar year the season starts (July) in. */
+  season: number;
+  /** "2024-25" */
+  label: string;
+  purchases: number;
+  /** "3 cords", "2 cords + 1 face cord" or "no purchase". */
+  quantity: string;
+  /** Dollars bought that season (a purchase with no amount counts as 0 and the season is not counted). */
+  cost: Decimal;
+  counted: boolean;
+  why: string | null;
+}
+
+export interface FirewoodEstimate {
+  status: "estimate";
+  kind: "firewood";
+  method: "usage";
+  /** Dollars for each calendar month, index 0 = January, rounded to cents (they add up to `annual`). */
+  byMonth: Decimal[];
+  byMonthRange: Array<{ low: Decimal; high: Decimal }>;
+  monthly: Decimal;
+  low: Decimal;
+  high: Decimal;
+  annual: Decimal;
+  confidence: Confidence;
+  basis: string;
+  shortBasis: string;
+  /** Every complete heating season from the first uploaded purchase, counted or not. */
+  seasons: FirewoodSeasonFact[];
+  /** The first and last complete season (the year it starts in) the uploaded history covers. */
+  firstSeason: number;
+  lastSeason: number;
 }
 
 export function firewoodFacts(payments: readonly EnergyPayment[], now: Date): FirewoodFacts {
@@ -693,7 +750,7 @@ export function firewoodResult(facts: FirewoodFacts): Gated {
 // ── Plans (what the forecast, ledger, pace and assistant consume) ───────────────
 
 export interface BillSeasonalPlan {
-  kind: "electric" | "oil";
+  kind: EnergyKind;
   entityId: string;
   /** `${entityId}|${tagId}` of the Budget line this plan belongs to. */
   lineKey: string;
@@ -903,6 +960,8 @@ export interface SiteEnergyInput {
   draws?: Partial<Record<EnergyKind, DrawFact[]>>;
   /** McCarthy transaction ids the owner marked "not heating oil" for this site. */
   excludedOilIds?: ReadonlySet<string>;
+  /** Uploaded usage rows of THIS entity (all kinds); the models use them first and fall back to the payments models. */
+  usage?: readonly UsageRow[];
   /** The stored "not heating oil" marks (id + durable signature): resolved against the current rows, so a posted twin inherits a mark. */
   oilMarks?: readonly OilMark[];
   now: Date;
@@ -913,13 +972,19 @@ export interface SiteEnergy {
   entityName: string;
   slug: string | null;
   lines: SeasonalLineRef[];
-  electric: null | { history: MonthTotal[]; result: ElectricEstimate | Gated; line: SeasonalLineRef; flat: Decimal | null };
-  oil: null | { facts: OilFacts; result: OilEstimate | Gated; line: SeasonalLineRef; flat: Decimal | null; entries: OilPriceEntry[]; draws: DrawFact[] };
-  firewood: null | { facts: FirewoodFacts; result: Gated; line: SeasonalLineRef; flat: Decimal | null; draws: DrawFact[] };
+  electric: null | { history: MonthTotal[]; result: ElectricEstimate | Gated; line: SeasonalLineRef; flat: Decimal | null; usage?: UsageInfo | null };
+  oil: null | { facts: OilFacts; result: OilEstimate | Gated; line: SeasonalLineRef; flat: Decimal | null; entries: OilPriceEntry[]; draws: DrawFact[]; usage?: UsageInfo | null };
+  firewood: null | { facts: FirewoodFacts; result: FirewoodEstimate | Gated; line: SeasonalLineRef; flat: Decimal | null; draws: DrawFact[]; usage?: UsageInfo | null };
   replaceDraws: boolean;
   plans: BillSeasonalPlan[];
+  /** Every uploaded usage row of this site, all kinds (the card's history table); empty when none or the table is not set up. */
+  usageRows?: readonly UsageRow[];
   /** Notes to show once for the site (owner statements that shape the model). */
   siteNotes: string[];
+}
+
+function positiveOrNull(d: Decimal): Decimal | null {
+  return d.greaterThan(0) ? cents2(d) : null;
 }
 
 function lineLabel(tagName: string): string {
@@ -943,15 +1008,41 @@ export function buildSiteEnergy(input: SiteEnergyInput): SiteEnergy {
     firewood: null,
     replaceDraws: input.replaceDraws,
     plans,
+    usageRows: input.usage ?? [],
     siteNotes: [],
   };
+
+  const usageRows = (kind: EnergyKind): UsageRow[] => (input.usage ?? []).filter((r) => r.kind === kind);
 
   const electricLine = lines.find((l) => l.kind === "electric");
   if (electricLine) {
     const flat = input.flatMonthly.electric ?? null;
     const history = observedMonths(pay.electric, now, site?.solarLiveFrom ?? null);
-    const est = electricEstimate({ payments: pay.electric, now, site, flatMonthly: flat });
-    result.electric = { history, result: est, line: electricLine, flat };
+    const payEst = electricEstimate({ payments: pay.electric, now, site, flatMonthly: flat });
+    let est: ElectricEstimate | Gated = payEst;
+    let usage: UsageInfo | null = null;
+    const rows = usageRows("electric");
+    if (rows.length > 0) {
+      // Uploaded kWh first; the payments model is the fallback and its gate is never changed by usage.
+      const nowIdx = periodIndex(periodOfDate(now));
+      const recent = history.filter((m) => nowIdx - periodIndex(m.period) >= 1 && nowIdx - periodIndex(m.period) <= 12);
+      const u = electricUsageEstimate({
+        rows,
+        now,
+        site,
+        paymentAnnual: payEst.status === "estimate" ? payEst.annual : null,
+        paymentsRecent: recent.length > 0 ? { total: sum(recent.map((m) => m.net)), months: recent.length } : null,
+      });
+      const base = usageInfo(rows, "electric", site);
+      if (u.status === "estimate") {
+        est = u;
+        usage = { ...base, used: true, why: null };
+      } else {
+        usage = { ...base, used: false, why: u.reason };
+        if (payEst.status === "gated") est = { status: "gated", kind: "electric", reason: `${u.reason} ${payEst.reason}` };
+      }
+    }
+    result.electric = { history, result: est, line: electricLine, flat, usage };
     if (est.status === "estimate") {
       plans.push({
         kind: "electric",
@@ -976,15 +1067,36 @@ export function buildSiteEnergy(input: SiteEnergyInput): SiteEnergy {
       for (const id of resolveMarks(input.oilMarks, rows).excludedIds) excludedIds.add(id);
       for (const m of input.oilMarks) if (pay.oil.some((p) => p.id === m.id)) excludedIds.add(m.id); // a mark on a row without an account id still works by id
     }
-    const est = oilEstimate({ payments: pay.oil, entries: input.priceEntries, now, site, excludedIds, oilTagName: oilLine.tagName });
-    result.oil = { facts: oilFacts(pay.oil, now, site, { excludedIds, oilTagName: oilLine.tagName }), result: est, line: oilLine, flat, entries: [...input.priceEntries], draws: input.draws?.oil ?? [] };
+    const payEst = oilEstimate({ payments: pay.oil, entries: input.priceEntries, now, site, excludedIds, oilTagName: oilLine.tagName });
+    const oilFactsNow = oilFacts(pay.oil, now, site, { excludedIds, oilTagName: oilLine.tagName });
+    let est: OilEstimate | Gated = payEst;
+    let usage: UsageInfo | null = null;
+    const rows = usageRows("oil");
+    if (rows.length > 0) {
+      // Uploaded deliveries first (payments no longer need price coverage); the payments model is the fallback.
+      const u = oilUsageEstimate({
+        rows,
+        entries: input.priceEntries,
+        now,
+        paymentsAsPaid: oilFactsNow.trailingCount > 0 ? { total: oilFactsNow.trailingAsPaid, count: oilFactsNow.trailingCount } : null,
+      });
+      const base = usageInfo(rows, "oil", site);
+      if (u.status === "estimate") {
+        est = u;
+        usage = { ...base, used: true, why: null };
+      } else {
+        usage = { ...base, used: false, why: u.reason };
+        if (payEst.status === "gated") est = { status: "gated", kind: "oil", reason: `${u.reason} ${payEst.reason}` };
+      }
+    }
+    result.oil = { facts: oilFactsNow, result: est, line: oilLine, flat, entries: [...input.priceEntries], draws: input.draws?.oil ?? [], usage };
     if (est.status === "estimate") {
       plans.push({
         kind: "oil",
         entityId: entity.id,
         lineKey: `${oilLine.entityId}|${oilLine.tagId}`,
         lineLabel: lineLabel(oilLine.tagName),
-        monthly: new Array<Decimal | null>(12).fill(est.monthly),
+        monthly: est.byMonth ? est.byMonth.map(positiveOrNull) : new Array<Decimal | null>(12).fill(est.monthly),
         confidence: est.confidence,
         basis: est.basis,
         shortBasis: est.shortBasis,
@@ -996,7 +1108,35 @@ export function buildSiteEnergy(input: SiteEnergyInput): SiteEnergy {
   const woodLine = lines.find((l) => l.kind === "firewood");
   if (woodLine) {
     const facts = firewoodFacts(pay.firewood, now);
-    result.firewood = { facts, result: firewoodResult(facts), line: woodLine, flat: input.flatMonthly.firewood ?? null, draws: input.draws?.firewood ?? [] };
+    const fallback = firewoodResult(facts);
+    let wood: FirewoodEstimate | Gated = fallback;
+    let usage: UsageInfo | null = null;
+    const rows = usageRows("firewood");
+    if (rows.length > 0) {
+      const u = firewoodUsageEstimate({ rows, now });
+      const base = usageInfo(rows, "firewood", site);
+      if (u.status === "estimate") {
+        wood = u;
+        usage = { ...base, used: true, why: null };
+      } else {
+        usage = { ...base, used: false, why: u.reason };
+        wood = { status: "gated", kind: "firewood", reason: `${u.reason} ${fallback.reason}` };
+      }
+    }
+    result.firewood = { facts, result: wood, line: woodLine, flat: input.flatMonthly.firewood ?? null, draws: input.draws?.firewood ?? [], usage };
+    if (wood.status === "estimate") {
+      plans.push({
+        kind: "firewood",
+        entityId: entity.id,
+        lineKey: `${woodLine.entityId}|${woodLine.tagId}`,
+        lineLabel: lineLabel(woodLine.tagName),
+        monthly: wood.byMonth.map(positiveOrNull),
+        confidence: wood.confidence,
+        basis: wood.basis,
+        shortBasis: wood.shortBasis,
+        replaceDraws: input.replaceDraws,
+      });
+    }
   }
 
   if (site?.solarLiveFrom) {

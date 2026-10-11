@@ -38,6 +38,7 @@ const NEW_FILES = [
   "lib/seasonal-energy-marks.ts",
   "lib/seasonal-energy-view.ts",
   "lib/seasonal-energy-build.ts",
+  "lib/seasonal-energy-usage.ts",
   "actions/seasonal-settings.ts",
   "components/forecast/seasonal-card.tsx",
   "components/forecast/oil-price-form.tsx",
@@ -59,6 +60,8 @@ describe("only the seasonal code looks at the supplier payees", () => {
         "lib/seasonal-energy-build.ts",
         "lib/seasonal-energy-marks.ts",
         "lib/seasonal-energy-prices.ts",
+        // utility-usage-upload (step 3): the usage model's basis text names the supplier when it compares its yearly figure with the McCarthy payments
+        "lib/seasonal-energy-usage.ts",
         "lib/seasonal-energy-view.ts",
         "lib/seasonal-energy.ts",
       ].sort()
@@ -80,7 +83,7 @@ describe("only the seasonal code looks at the supplier payees", () => {
 });
 
 describe("purity and read-only", () => {
-  it.each(["lib/seasonal-energy.ts", "lib/seasonal-energy-prices.ts", "lib/seasonal-energy-view.ts"])("%s has no database, clock or Next.js", (f) => {
+  it.each(["lib/seasonal-energy.ts", "lib/seasonal-energy-prices.ts", "lib/seasonal-energy-view.ts", "lib/seasonal-energy-usage.ts"])("%s has no database, clock or Next.js", (f) => {
     const src = read(f);
     expect(src).not.toMatch(/from "@\/lib\/db"|from "\.\/db"|next\/|next-auth|server-only|@prisma\/client"(?!.*runtime)/);
     expect(src).not.toMatch(/\bnew Date\(\)|Date\.now\(|process\.env|Math\.random/);

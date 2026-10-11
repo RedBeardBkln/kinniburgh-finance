@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { OilPriceForm } from "@/components/forecast/oil-price-form";
 import { McCarthyToggle } from "@/components/forecast/mccarthy-toggle";
+import { UsageHistory } from "@/components/forecast/usage-history";
 import { CHECK_TITLE, EXCLUDED_TITLE, type UiSeasonalLine, type UiSeasonalSite, type UiToggleRow } from "@/lib/seasonal-energy-view";
 
 // "Seasonal bills" card(s) on /forecast: one card per entity that has Electric / Oil / Firewood lines. Plain server
@@ -56,6 +57,12 @@ function LineBlock({ line, entityId }: { line: UiSeasonalLine; entityId: string 
         <h3 className="text-sm font-semibold">{line.title}</h3>
         <Badge line={line} />
       </div>
+
+      {line.usage && (
+        <p className="text-xs text-muted-foreground" data-testid={`usage-note-${line.kind}`}>
+          {line.usage.text}
+        </p>
+      )}
 
       {line.status === "gated" && (
         <p className="text-xs text-muted-foreground">
@@ -156,8 +163,8 @@ export function SeasonalCard({ sites }: { sites: UiSeasonalSite[] }) {
             <CardTitle className="text-base">Seasonal bills — {site.entityName}</CardTitle>
             <p className="text-xs text-muted-foreground">
               Electric, oil and firewood swing with the seasons. These figures are estimates built from your own payments
-              (never invented), shown only once there is enough history; otherwise the budget figure stays in use and the
-              reason is given. Not a guarantee, and not advice.
+              and the usage history you upload (never invented), shown only once there is enough history; otherwise the
+              budget figure stays in use and the reason is given. Not a guarantee, and not advice.
             </p>
             {site.notes.map((note) => (
               <p key={note} className="text-xs text-muted-foreground">
@@ -172,6 +179,7 @@ export function SeasonalCard({ sites }: { sites: UiSeasonalSite[] }) {
                 {line.kind === "oil" && site.oilPrices && <OilPriceForm prices={site.oilPrices} />}
               </div>
             ))}
+            <UsageHistory site={site} />
           </CardContent>
         </Card>
       ))}

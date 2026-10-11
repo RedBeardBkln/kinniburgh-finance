@@ -18,6 +18,8 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { cache } from "react";
 import { loadEffectiveBudgetRows, loadVariableLines } from "@/lib/budget-carry-forward-build";
 import { descriptorOf, parseMarks, type OilMark } from "@/lib/seasonal-energy-marks";
+import type { UsageRow, UsageStatus } from "@/lib/seasonal-energy-usage";
+import { loadUtilityUsage } from "@/lib/utility-usage-build";
 import {
   billMatchesLine,
   buildSiteEnergy,
@@ -53,25 +55,52 @@ export interface LoadedSeasonalEnergy {
   pricesCorrupt: string[];
   replaceDraws: boolean;
   failed: boolean;
+  /**
+   * Whether the uploaded usage rows (table UtilityUsage) could be read. A usage failure NEVER sets `failed`: the sites are
+   * then built from payments exactly as before and the card says usage history is not set up / could not be read.
+   */
+  usageStatus: UsageStatus;
 }
 
-const EMPTY: LoadedSeasonalEnergy = { sites: [], plans: [], pricesCorrupt: [], replaceDraws: false, failed: true };
+const EMPTY: LoadedSeasonalEnergy = { sites: [], plans: [], pricesCorrupt: [], replaceDraws: false, failed: true, usageStatus: "failed" };
 
-export async function loadSeasonalEnergy(opts: { now: Date }): Promise<LoadedSeasonalEnergy> {
-  const now = opts.now;
+/**
+ * The seasonal Budget lines (Electric / Oil / Firewood) of every entity that has them, as the Seasonal card shows them.
+ * Read-only; throws when the Budget lines or the seasonal-lines setting cannot be read. The usage actions use it to check
+ * that a house really has a line of the kind being uploaded.
+ */
+export async function loadSeasonalLines(): Promise<SeasonalLineRef[]> {
   const variable = await loadVariableLines();
-  const lines: SeasonalLineRef[] = variable.flatMap((v) => {
+  return variable.flatMap((v) => {
     const kind = lineKindOfTag(v.tagName);
     return kind === null ? [] : [{ entityId: v.entityId, tagId: v.tagId, tagName: v.tagName, kind }];
   });
+}
+
+export async function loadSeasonalEnergy(opts: { now: Date }): Promise<LoadedSeasonalEnergy> {
+  const now = opts.now;
+  const lines = await loadSeasonalLines();
   if (lines.length === 0) {
-    return { sites: [], plans: [], pricesCorrupt: [], replaceDraws: false, failed: false };
+    return { sites: [], plans: [], pricesCorrupt: [], replaceDraws: false, failed: false, usageStatus: "ok" };
   }
 
   const entityRows = await db.entity.findMany({ where: { archivedAt: null }, select: { id: true, name: true, slug: true } });
   const entities: EnergyEntityRef[] = entityRows.map((e) => ({ id: e.id, name: e.name, slug: e.slug }));
   const siteEntityIds = [...new Set(lines.map((l) => l.entityId))];
   const oilEntityIds = [...new Set(lines.filter((l) => l.kind === "oil").map((l) => l.entityId))];
+
+  // The owner's uploaded usage rows, in an isolated read of their own: whatever happens here (the table is not created yet,
+  // a read error) only changes `usageStatus`; the payments-based estimates are built either way.
+  let usageStatus: UsageStatus = "ok";
+  const usageByEntity = new Map<string, UsageRow[]>();
+  try {
+    const usage = await loadUtilityUsage(siteEntityIds);
+    usageStatus = usage.status;
+    for (const { entityId, ...row } of usage.rows) usageByEntity.set(entityId, [...(usageByEntity.get(entityId) ?? []), row]);
+  } catch (err) {
+    console.error("Utility usage unavailable", err instanceof Error ? err.name : "UnknownError");
+    usageStatus = "failed";
+  }
 
   const settingKeys = [REPLACE_DRAWS_KEY, ...oilEntityIds.flatMap((id) => [oilPriceKey(id), oilExcludedKey(id)])];
   const settingRows = await db.appSetting.findMany({ where: { key: { in: settingKeys } }, select: { key: true, value: true } });
@@ -179,12 +208,13 @@ export async function loadSeasonalEnergy(opts: { now: Date }): Promise<LoadedSea
         replaceDraws,
         draws,
         oilMarks: marksByEntity.get(entity.id),
+        usage: usageByEntity.get(entity.id),
         now,
       })
     );
   }
   sites.sort((a, b) => (a.slug === "personal" ? -1 : b.slug === "personal" ? 1 : a.entityName.localeCompare(b.entityName)));
-  return { sites, plans: sites.flatMap((s) => s.plans), pricesCorrupt, replaceDraws, failed: false };
+  return { sites, plans: sites.flatMap((s) => s.plans), pricesCorrupt, replaceDraws, failed: false, usageStatus };
 }
 
 async function loadSafe(now: Date): Promise<LoadedSeasonalEnergy> {

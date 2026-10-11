@@ -9,12 +9,14 @@ import { formatCalendarDate } from "@/lib/card-due";
 import {
   isoToDate,
   monthYearLabel,
+  siteFactsFor,
   usd,
   type Confidence,
   type DrawFact,
   type EnergyKind,
   type SiteEnergy,
 } from "@/lib/seasonal-energy";
+import { seasonOfIso, type UsageInfo, type UsageRow, type UsageStatus } from "@/lib/seasonal-energy-usage";
 
 export interface UiMonthRow {
   period: string;
@@ -56,8 +58,42 @@ export interface UiPriceRow {
   note: string | null;
 }
 
+/** What the uploaded usage did for a line, as one muted sentence under the badge. */
+export interface UiUsageNote {
+  text: string;
+  used: boolean;
+}
+
+export interface UiUsageRow {
+  id: string;
+  /** "Mar 2024" (electric) or a full delivery / purchase date. */
+  date: string;
+  quantity: string;
+  cost: string | null;
+  note: string | null;
+}
+
+export interface UiUsageYear {
+  year: number;
+  /** Twelve cells, January first: the month's total quantity in the history's unit, or null when nothing is on file. */
+  cells: Array<string | null>;
+  total: string;
+  rows: UiUsageRow[];
+}
+
+export interface UiUsageHistory {
+  kind: EnergyKind;
+  title: string;
+  /** "kWh", "gallons" or "cords" (as entered). */
+  unit: string;
+  count: number;
+  years: UiUsageYear[];
+}
+
 export interface UiSeasonalLine {
   kind: EnergyKind;
+  /** Set when uploaded usage rows exist for this line. */
+  usage?: UiUsageNote | null;
   title: string;
   status: "estimate" | "gated";
   /** "Estimate (low confidence)" or "Using the budget figure". */
@@ -93,6 +129,79 @@ export interface UiSeasonalSite {
   notes: string[];
   lines: UiSeasonalLine[];
   oilPrices: UiOilPrices | null;
+  /** Whether the usage table could be read; anything but "ok" hides the usage block and says so. */
+  usageStatus: UsageStatus;
+  /** The kinds this site has a line for (what the upload form offers). */
+  usageKinds: Array<{ kind: EnergyKind; title: string }>;
+  /** True for a house with solar (owner statement): the upload help then explains net kWh. */
+  usageHasSolar: boolean;
+  usageHistory: UiUsageHistory[];
+}
+
+/** Quantity with up to 3 decimals (trailing zeros dropped) and thousands separators. */
+export function fmtQty(q: Decimal): string {
+  let s = q.toDecimalPlaces(3).toFixed(3);
+  if (s.includes(".")) s = s.replace(/0+$/, "").replace(/\.$/, "");
+  const neg = s.startsWith("-");
+  const [whole = "0", frac] = (neg ? s.slice(1) : s).split(".");
+  return `${neg ? "-" : ""}${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${frac ? `.${frac}` : ""}`;
+}
+
+function unitWord(row: Pick<UsageRow, "kind" | "unit">, qty: Decimal): string {
+  if (row.kind === "electric") return "kWh";
+  if (row.kind === "oil") return "gal";
+  return row.unit === "face_cord" ? "face cord" : "cord" + (qty.equals(1) ? "" : "s");
+}
+
+const KIND_UNIT: Record<EnergyKind, string> = { electric: "kWh", oil: "gallons", firewood: "cords" };
+
+function usageNote(u: UsageInfo | null | undefined, kind: EnergyKind, fallbackInUse: string): UiUsageNote | null {
+  if (!u || u.count === 0) return null;
+  const span = u.from && u.to ? ` (${monthYearLabel(u.from)} to ${monthYearLabel(u.to)})` : "";
+  const what =
+    kind === "electric"
+      ? `${u.count} month${u.count === 1 ? "" : "s"} of kWh`
+      : kind === "oil"
+        ? `${u.count} oil deliver${u.count === 1 ? "y" : "ies"}`
+        : `${u.count} firewood purchase${u.count === 1 ? "" : "s"}`;
+  const ignored = u.ignored > 0 ? ` ${u.ignored} row${u.ignored === 1 ? " is" : "s are"} from before solar went live: kept, not used.` : "";
+  const text = u.used
+    ? `${what} on file${span}: used for the monthly shape.${ignored}`
+    : `${what} on file${span}: not used yet. ${u.why ?? ""} ${fallbackInUse}${ignored}`.replace(/\s+/g, " ").trim();
+  return { text, used: u.used };
+}
+
+function usageHistoryOf(rows: readonly UsageRow[], kind: EnergyKind, title: string): UiUsageHistory | null {
+  const mine = rows.filter((r) => r.kind === kind);
+  if (mine.length === 0) return null;
+  const years = [...new Set(mine.map((r) => Number(r.period.slice(0, 4))))].sort((a, b) => b - a);
+  return {
+    kind,
+    title,
+    unit: KIND_UNIT[kind],
+    count: mine.length,
+    years: years.map((year) => {
+      const inYear = mine
+        .filter((r) => Number(r.period.slice(0, 4)) === year)
+        .sort((a, b) => (a.occurredOn < b.occurredOn ? -1 : a.occurredOn > b.occurredOn ? 1 : 0));
+      const cells = Array.from({ length: 12 }, (_, m) => {
+        const inMonth = inYear.filter((r) => Number(r.period.slice(5, 7)) === m + 1);
+        return inMonth.length === 0 ? null : fmtQty(inMonth.reduce((a, r) => a.plus(r.quantity), new Decimal(0)));
+      });
+      return {
+        year,
+        cells,
+        total: fmtQty(inYear.reduce((a, r) => a.plus(r.quantity), new Decimal(0))),
+        rows: inYear.map((r) => ({
+          id: r.id,
+          date: kind === "electric" ? monthYearLabel(r.period) : fullDate(r.occurredOn),
+          quantity: `${fmtQty(r.quantity)} ${unitWord(r, r.quantity)}`,
+          cost: r.cost === null ? null : usd(r.cost),
+          note: r.note,
+        })),
+      };
+    }),
+  };
 }
 
 export function fullDate(iso: string): string {
@@ -121,7 +230,7 @@ function drawsLine(draws: readonly DrawFact[], budgetLine: string | null): strin
   ];
 }
 
-export function toUiSite(site: SiteEnergy, now: Date, opts: { pricesCorrupt: boolean }): UiSeasonalSite {
+export function toUiSite(site: SiteEnergy, now: Date, opts: { pricesCorrupt: boolean; usageStatus?: UsageStatus }): UiSeasonalSite {
   const periods = periodsFrom(now, 12);
   const lines: UiSeasonalLine[] = [];
 
@@ -146,7 +255,12 @@ export function toUiSite(site: SiteEnergy, now: Date, opts: { pricesCorrupt: boo
           amount: usd(m.amount),
           range: `${usd(m.low)} to ${usd(m.high)}`,
           budget: flat ? usd(flat) : null,
-          source: m.basis === "own" ? "your payment that month plus the season average" : "season average (no payment seen that month)",
+          source:
+            m.basis === "usage"
+              ? `your kWh history (${m.ownObservations} year${m.ownObservations === 1 ? "" : "s"})`
+              : m.basis === "own"
+                ? "your payment that month plus the season average"
+                : "season average (no payment seen that month)",
         };
       });
       const twelve = table.reduce((a, _r, i) => a.plus(byMonth.get(Number(periods[i]!.slice(5, 7)))!.amount), new Decimal(0));
@@ -166,6 +280,7 @@ export function toUiSite(site: SiteEnergy, now: Date, opts: { pricesCorrupt: boo
         check: [],
         excluded: [],
         extra: [],
+        usage: usageNote(site.electric.usage, "electric", "The estimate from your payments is used."),
       });
     } else {
       lines.push({
@@ -184,6 +299,7 @@ export function toUiSite(site: SiteEnergy, now: Date, opts: { pricesCorrupt: boo
         check: [],
         excluded: [],
         extra: [],
+        usage: usageNote(site.electric.usage, "electric", "The budget figure stays in use."),
       });
     }
   }
@@ -239,17 +355,27 @@ export function toUiSite(site: SiteEnergy, now: Date, opts: { pricesCorrupt: boo
     }
     extra.push(...drawsLine(draws, flat ? `${usd(flat.times(12))} a year in the budget` : null));
     if (result.status === "estimate") {
-      const table: UiMonthRow[] = periods.map((p) => ({
-        period: p,
-        label: monthYearLabel(p),
-        amount: usd(result.monthly),
-        range: `${usd(result.low)} to ${usd(result.high)}`,
-        budget: flat ? usd(flat) : null,
-        source: "spread evenly (payments do not show gallons)",
-      }));
+      const byUsage = result.method === "usage" && result.byMonth !== undefined;
+      const table: UiMonthRow[] = periods.map((p) => {
+        const mi = Number(p.slice(5, 7)) - 1;
+        const range = byUsage ? result.byMonthRange?.[mi] : undefined;
+        return {
+          period: p,
+          label: monthYearLabel(p),
+          amount: usd(byUsage ? (result.byMonth as Decimal[])[mi]! : result.monthly),
+          range: range ? `${usd(range.low)} to ${usd(range.high)}` : `${usd(result.low)} to ${usd(result.high)}`,
+          budget: flat ? usd(flat) : null,
+          source: byUsage ? "your oil deliveries, spread over neighbouring months" : "spread evenly (payments do not show gallons)",
+        };
+      });
       extra.push(
-        `Each +$0.50 per gallon adds about ${usd(result.sensitivity)} over the last 12 months of use (about ${result.impliedGallons.toFixed(0)} gallons implied by your prices).`
+        byUsage
+          ? `Each +$0.50 per gallon adds about ${usd(result.sensitivity)} over a year of use (about ${result.impliedGallons.toFixed(0)} gallons a year from your delivery history).`
+          : `Each +$0.50 per gallon adds about ${usd(result.sensitivity)} over the last 12 months of use (about ${result.impliedGallons.toFixed(0)} gallons implied by your prices).`
       );
+      if (result.priceSource === "delivery") {
+        extra.push("The price per gallon comes from your newest delivery that had an amount, not today's price; enter today's price above to use it instead.");
+      }
       if (draws.length > 0) {
         const last = draws[draws.length - 1]!.date;
         extra.push(
@@ -264,7 +390,7 @@ export function toUiSite(site: SiteEnergy, now: Date, opts: { pricesCorrupt: boo
         status: "estimate",
         badge: `Estimate (${confidenceWord(result.confidence)})`,
         confidence: result.confidence,
-        headline: `About ${usd(result.annual)} a year (${usd(result.monthly)} a month) at $${result.price.pricePerGal} a gallon.`,
+        headline: `About ${usd(result.annual)} a year (${usd(result.monthly)} a month${byUsage ? " on average" : ""}) at $${result.price.pricePerGal} a gallon${result.priceSource === "delivery" ? " (from a past delivery)" : ""}.`,
         reason: null,
         basis: result.basis,
         budgetNote,
@@ -274,6 +400,7 @@ export function toUiSite(site: SiteEnergy, now: Date, opts: { pricesCorrupt: boo
         check,
         excluded,
         extra,
+        usage: usageNote(site.oil.usage, "oil", "The estimate from your payments is used."),
       });
     } else {
       if (draws.length > 0) {
@@ -295,6 +422,7 @@ export function toUiSite(site: SiteEnergy, now: Date, opts: { pricesCorrupt: boo
         check,
         excluded,
         extra,
+        usage: usageNote(site.oil.usage, "oil", "The budget figure stays in use."),
       });
     }
   }
@@ -302,23 +430,79 @@ export function toUiSite(site: SiteEnergy, now: Date, opts: { pricesCorrupt: boo
   if (site.firewood) {
     const { result, facts, flat, line, draws } = site.firewood;
     const title = line.tagName.includes("/") ? line.tagName.slice(line.tagName.lastIndexOf("/") + 1).trim() : line.tagName;
-    lines.push({
-      kind: "firewood",
-      title,
-      status: "gated",
-      badge: "Using the budget figure",
-      confidence: null,
-      headline: null,
-      reason: result.reason,
-      basis: null,
-      budgetNote: flat ? `${usd(flat)} a month` : null,
-      table: [],
-      paymentsTitle: "Firewood purchases found",
-      payments: facts.purchases.map((p) => ({ key: p.id, date: fullDate(p.date), amount: usd(p.amount), account: p.account, tag: null })),
-      check: [],
-      excluded: [],
-      extra: drawsLine(draws, flat ? `${usd(flat.times(12))} a year in the budget` : null),
-    });
+    const covered = (iso: string): boolean => {
+      if (result.status !== "estimate") return false;
+      const s = seasonOfIso(iso);
+      return s >= result.firstSeason && s <= result.lastSeason;
+    };
+    const woodPayments: UiPaymentRow[] = facts.purchases.map((p) => ({
+      key: p.id,
+      date: fullDate(p.date),
+      amount: usd(p.amount),
+      account: p.account,
+      tag: covered(p.date) ? "covered by your uploaded history (not counted twice)" : null,
+    }));
+    const woodBudget = flat ? `${usd(flat)} a month` : null;
+    const woodExtra = drawsLine(draws, flat ? `${usd(flat.times(12))} a year in the budget` : null);
+    if (result.status === "estimate") {
+      const table: UiMonthRow[] = periods.map((p) => {
+        const mi = Number(p.slice(5, 7)) - 1;
+        const range = result.byMonthRange[mi]!;
+        return {
+          period: p,
+          label: monthYearLabel(p),
+          amount: usd(result.byMonth[mi]!),
+          range: `${usd(range.low)} to ${usd(range.high)}`,
+          budget: flat ? usd(flat) : null,
+          source: "your firewood purchases, spread over neighbouring months",
+        };
+      });
+      if (draws.length > 0) {
+        const lastDraw = draws[draws.length - 1]!.date;
+        woodExtra.push(
+          site.replaceDraws
+            ? "Forecasts use this estimate instead of your hand-entered draws (your opt-in); the draws stay saved."
+            : `Forecasts use your hand-entered draws, then this estimate for the months after ${fullDate(lastDraw)}.`
+        );
+      }
+      lines.push({
+        kind: "firewood",
+        title,
+        status: "estimate",
+        badge: `Estimate (${confidenceWord(result.confidence)})`,
+        confidence: result.confidence,
+        headline: `About ${usd(result.annual)} a year (${usd(result.monthly)} a month on average), from your firewood purchases.`,
+        reason: null,
+        basis: result.basis,
+        budgetNote: woodBudget,
+        table,
+        paymentsTitle: "Firewood purchases found",
+        payments: woodPayments,
+        check: [],
+        excluded: [],
+        extra: woodExtra,
+        usage: usageNote(site.firewood.usage, "firewood", ""),
+      });
+    } else {
+      lines.push({
+        kind: "firewood",
+        title,
+        status: "gated",
+        badge: "Using the budget figure",
+        confidence: null,
+        headline: null,
+        reason: result.reason,
+        basis: null,
+        budgetNote: woodBudget,
+        table: [],
+        paymentsTitle: "Firewood purchases found",
+        payments: woodPayments,
+        check: [],
+        excluded: [],
+        extra: woodExtra,
+        usage: usageNote(site.firewood.usage, "firewood", "The budget figure stays in use."),
+      });
+    }
   }
 
   const oilPrices: UiOilPrices | null = site.oil
@@ -337,5 +521,20 @@ export function toUiSite(site: SiteEnergy, now: Date, opts: { pricesCorrupt: boo
       }
     : null;
 
-  return { entityId: site.entityId, entityName: site.entityName, notes: site.siteNotes, lines, oilPrices };
+  const usageKinds = lines.map((l) => ({ kind: l.kind, title: l.title }));
+  const usageHistory = lines.flatMap((l) => {
+    const h = usageHistoryOf(site.usageRows ?? [], l.kind, l.title);
+    return h ? [h] : [];
+  });
+  return {
+    entityId: site.entityId,
+    entityName: site.entityName,
+    notes: site.siteNotes,
+    lines,
+    oilPrices,
+    usageStatus: opts.usageStatus ?? "ok",
+    usageKinds,
+    usageHasSolar: siteFactsFor(site.slug)?.solarLiveFrom != null,
+    usageHistory,
+  };
 }

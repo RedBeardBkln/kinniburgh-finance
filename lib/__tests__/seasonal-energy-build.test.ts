@@ -160,7 +160,7 @@ describe("loadSeasonalEnergy", () => {
   it("no seasonal lines at all: nothing is read beyond the setting and the Budget lines", async () => {
     mockDb.budget.findMany.mockResolvedValue([budgetRow(P, "t-solar", "Utilities / Solar")]);
     const r = await loadSeasonalEnergy({ now: NOW });
-    expect(r).toEqual({ sites: [], plans: [], pricesCorrupt: [], replaceDraws: false, failed: false });
+    expect(r).toEqual({ sites: [], plans: [], pricesCorrupt: [], replaceDraws: false, failed: false, usageStatus: "ok" });
     expect(mockDb.transaction.findMany).not.toHaveBeenCalled();
   });
 
@@ -194,7 +194,7 @@ describe("failures", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     mockDb.transaction.findMany.mockRejectedValue(Object.assign(new Error("secret postgres://u:p@host"), { name: "PrismaClientKnownRequestError" }));
     const r = await loadSeasonalEnergySafe({ now: NOW });
-    expect(r).toEqual({ sites: [], plans: [], pricesCorrupt: [], replaceDraws: false, failed: true });
+    expect(r).toEqual({ sites: [], plans: [], pricesCorrupt: [], replaceDraws: false, failed: true, usageStatus: "failed" });
     expect(await loadSeasonalPlansSafe({ now: NOW })).toEqual({ plans: [], failed: true });
     const logged = JSON.stringify(spy.mock.calls);
     expect(logged).toContain("PrismaClientKnownRequestError");

@@ -8,6 +8,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 // The client leaves use the router and server actions; the card is rendered statically here.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => undefined }) }));
 vi.mock("@/actions/seasonal-settings", () => ({ addOilPrice: vi.fn(), removeOilPrice: vi.fn(), setMcCarthyNotOil: vi.fn() }));
+vi.mock("@/actions/utility-usage", () => ({ previewUtilityUsage: vi.fn(), saveUtilityUsage: vi.fn(), addUtilityUsageMonth: vi.fn(), archiveUtilityUsage: vi.fn() }));
 
 import { buildSiteEnergy, type EnergyEntityRef, type RawEnergyTx, type SeasonalLineRef } from "@/lib/seasonal-energy";
 import { CHECK_TITLE, EXCLUDED_TITLE, fullDate, periodsFrom, toUiSite } from "@/lib/seasonal-energy-view";

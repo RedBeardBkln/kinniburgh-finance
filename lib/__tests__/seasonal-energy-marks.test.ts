@@ -8,6 +8,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => undefined }) }));
 vi.mock("@/actions/seasonal-settings", () => ({ addOilPrice: vi.fn(), removeOilPrice: vi.fn(), setMcCarthyNotOil: vi.fn() }));
+vi.mock("@/actions/utility-usage", () => ({ previewUtilityUsage: vi.fn(), saveUtilityUsage: vi.fn(), addUtilityUsageMonth: vi.fn(), archiveUtilityUsage: vi.fn() }));
 
 import {
   applyToggle,

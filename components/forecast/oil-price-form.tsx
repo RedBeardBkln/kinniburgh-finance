@@ -52,8 +52,9 @@ export function OilPriceForm({ prices }: { prices: UiOilPrices }) {
       <div>
         <p className="text-sm font-medium">Heating oil price per gallon</p>
         <p className="text-xs text-muted-foreground">
-          Enter what you paid per gallon and the date it took effect. The estimate needs at least two prices at least six
-          months apart (for example last winter and now), because the payments do not show gallons. Nothing is guessed.
+          Enter what you paid per gallon and the date it took effect. An estimate from payments needs at least two prices
+          at least six months apart (for example last winter and now), because the payments do not show gallons; once
+          your oil deliveries are uploaded below, one price is enough. Nothing is guessed.
         </p>
       </div>
 

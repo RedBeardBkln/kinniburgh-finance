@@ -216,7 +216,7 @@ export function hasResolvableDay(eff: EffectiveSchedule, bill: Pick<BillDateBill
 
 /** Why an event's amount is an estimate: set on events the seasonal model made or re-amounted. */
 export interface SeasonalEventMark {
-  kind: "electric" | "oil";
+  kind: "electric" | "oil" | "firewood";
   basis: string;
   confidence: Confidence;
 }

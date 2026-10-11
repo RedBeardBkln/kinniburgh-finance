@@ -666,7 +666,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
                 basis: seasonalPlan.shortBasis,
                 flatBudget: flatBudget.toNumber(),
                 // Oil arrives in lumps, so a mid-month "over / under pace" flag would mislead: no flag for it.
-                lumpy: seasonalPlan.kind === "oil",
+                lumpy: seasonalPlan.kind !== "electric",
               },
             }
           : {}),
@@ -1317,7 +1317,7 @@ async function SeasonalSections({ entityId, now }: { entityId: string | null; no
   }
   const sites = loaded.sites
     .filter((s) => entityId === null || s.entityId === entityId)
-    .map((s) => toUiSite(s, now, { pricesCorrupt: loaded.pricesCorrupt.includes(s.entityId) }));
+    .map((s) => toUiSite(s, now, { pricesCorrupt: loaded.pricesCorrupt.includes(s.entityId), usageStatus: loaded.usageStatus }));
   return <SeasonalCard sites={sites} />;
 }
 
