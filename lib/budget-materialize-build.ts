@@ -106,6 +106,40 @@ export async function saveCreates(
 }
 
 /**
+ * "Also add to later saved months": creates the added line in the later months the planner chose. Create-only
+ * (skipDuplicates, an existing row is never touched). One AuditLog row, only when something was created:
+ * `{ entityId, tagId, fromPeriod, periods, created, skipped }` (ids, periods and counts only).
+ */
+export async function saveLaterAdds(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  loc: BudgetLocator,
+  rows: readonly BudgetCreateRow[]
+): Promise<SavedRows> {
+  if (rows.length === 0) return { created: 0, skipped: 0 };
+  const result = await tx.budget.createMany({ data: [...rows], skipDuplicates: true });
+  const created = result.count;
+  const skipped = rows.length - created;
+  if (created > 0) {
+    await tx.auditLog.create({
+      data: {
+        changedBy: userId,
+        changeType: "budget_add_later_months",
+        after: {
+          entityId: loc.entityId,
+          tagId: loc.tagId,
+          fromPeriod: loc.period,
+          periods: rows.map((r) => r.period),
+          created,
+          skipped,
+        },
+      },
+    });
+  }
+  return { created, skipped };
+}
+
+/**
  * Copy-on-first-edit: the carried lines of the target month (and of every empty month up to it) become real rows.
  * Returns what was created. The edit itself is the caller's, in the same transaction.
  */

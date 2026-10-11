@@ -20,7 +20,7 @@ import { buildMonthSpend, currentPeriodNY, isValidPeriod } from "@/lib/month-spe
 import { loadMonthTransactions } from "@/lib/month-spend-build";
 import { loadOwnAccountByMask } from "@/lib/own-account-masks-build";
 import { centsText } from "@/lib/dashboard-drill";
-import { loadEffectiveBudgetRows, loadFirstEditContextSafe } from "@/lib/budget-carry-forward-build";
+import { loadEffectiveBudgetRows, loadFirstEditContextSafe, loadLaterAddContextSafe } from "@/lib/budget-carry-forward-build";
 import { carriedMonthNotice, formatPeriodLabel, periodRange, shiftPeriod } from "@/lib/budget-materialize";
 import { toCents as decimalToCents } from "@/lib/dashboard-drill-build";
 
@@ -65,7 +65,11 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
     .sort((a, b) => a.account.nickname.localeCompare(b.account.nickname) || a.tag.name.localeCompare(b.tag.name));
   // How much a first change would save and how much ending a line would remove, counted by the same planner the write
   // uses, so the owner is told BEFORE confirming. Fail-soft: without it the wording drops the counts.
-  const editContext = await loadFirstEditContextSafe({ period, entityId: entity?.id ?? null });
+  // The Add-line dialog's "also add to later saved months" offer comes from the same planner as the write (null = hidden).
+  const [editContext, laterAdd] = await Promise.all([
+    loadFirstEditContextSafe({ period, entityId: entity?.id ?? null }),
+    loadLaterAddContextSafe({ period, entityId: entity?.id ?? null }),
+  ]);
   // A tag can only have one budget line per period across the whole household — once any entity has budgeted it
   // (its own row or a carried one), it's off the table for every other entity too. All entities, this period.
   const budgetedTagIdsAllEntities = effectiveRows.map((r) => r.tagId);
@@ -266,6 +270,7 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
           periodLabel={formatPeriodLabel(period)}
           entityName={bucketLabel}
           annualReserveAlerts={annualReserveAlerts}
+          laterAdd={laterAdd}
         />
       </div>
     </AppShell>

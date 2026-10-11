@@ -10,7 +10,7 @@ import { BudgetLineEditor } from "./budget-line-editor";
 import { formatUSD } from "@/lib/utils";
 import { nestBudgetLines, type NestedBudgetRow } from "@/lib/budget-nesting";
 import { formatSchedule, scheduleSortKey } from "@/lib/schedule-display";
-import { endLineConfirmText } from "@/lib/budget-first-edit-note";
+import { endLineConfirmText, type LaterAddContext } from "@/lib/budget-first-edit-note";
 
 type RecurringExpenseSummary = {
   id: string;
@@ -109,6 +109,8 @@ interface BudgetPageClientProps {
   periodLabel: string;
   entityName: string;
   annualReserveAlerts: AnnualReserveAlert[];
+  /** What the Add-line dialog needs to offer "Also add to later saved months" (null = do not offer it). */
+  laterAdd?: LaterAddContext | null;
 }
 
 interface BudgetRowForEdit {
@@ -140,6 +142,7 @@ export function BudgetPageClient({
   periodLabel,
   entityName,
   annualReserveAlerts,
+  laterAdd = null,
 }: BudgetPageClientProps) {
   const router = useRouter();
   const [modal, setModal] = useState<
@@ -602,6 +605,7 @@ export function BudgetPageClient({
           tags={availableTags}
           entityId={entityId}
           period={period}
+          laterAdd={laterAdd}
           onClose={() => setModal(null)}
         />
       )}

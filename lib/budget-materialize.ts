@@ -240,22 +240,115 @@ export function tagHoldersAt(allRows: readonly MaterializableRow[], tagId: strin
   return holders;
 }
 
+/** The rows `planMaterialization` would save for the target, as if they were already stored (synthetic ids). */
+function withSimulatedSave(rows: readonly MaterializableRow[], entityId: string, period: string): MaterializableRow[] {
+  const plan = planMaterialization(rows, entityId, period);
+  return plan.creates.map((c, i) => ({ ...c, id: `saved-${i}`, additionalAmountCents: 0, rolloverAmount: null }));
+}
+
+/** Why a later month is left out of "also add to later saved months". */
+export type LaterAddSkipReason = "already_has" | "other_entity" | "no_rows";
+
+export interface LaterAddPlan {
+  /** The entity's latest month with rows (L); null when there is nothing later than the added month. */
+  through: string | null;
+  /** The later months (M+1..L) that get the new line, ascending. */
+  months: string[];
+  skipped: Array<{ period: string; reason: LaterAddSkipReason }>;
+}
+
+/**
+ * "Also add to later saved months": adding `loc.tagId` in `loc.period` (M) with M before the entity's latest month with
+ * rows (L). Evaluated AFTER the copy-on-first-edit save (simulated), so the empty in-between months are counted as saved
+ * months. Every month M+1..L gets the line unless: the entity already has a row for the tag there (`already_has`),
+ * another entity holds the tag there, own row or carried (`other_entity`, the household one-entity-per-tag rule), or
+ * the month has no rows at all even after the save (`no_rows`: no stored month is created from nothing). The
+ * preview on /budgets and the write use this same function. Pure.
+ */
+export function planAddToLaterMonths(allRows: readonly MaterializableRow[], loc: BudgetLocator): LaterAddPlan {
+  const rows = allRows.filter((r) => r.entityId === loc.entityId);
+  const shape = entityShape(rows);
+  if (!shape || !isPeriod(loc.period) || loc.period >= shape.frontier) return { through: null, months: [], skipped: [] };
+
+  const saved = withSimulatedSave(rows, loc.entityId, loc.period);
+  const combined = [...rows, ...saved];
+  const periodsWithRows = new Set(combined.map((r) => r.period));
+  const ownTagPeriods = new Set(combined.filter((r) => r.tagId === loc.tagId).map((r) => r.period));
+
+  const months: string[] = [];
+  const skipped: LaterAddPlan["skipped"] = [];
+  for (const p of periodRange(shiftPeriod(loc.period, 1), shape.frontier)) {
+    if (ownTagPeriods.has(p)) skipped.push({ period: p, reason: "already_has" });
+    else if (tagHoldersAt(allRows, loc.tagId, p).some((e) => e !== loc.entityId)) skipped.push({ period: p, reason: "other_entity" });
+    else if (!periodsWithRows.has(p)) skipped.push({ period: p, reason: "no_rows" });
+    else months.push(p);
+  }
+  // The line would sit on the entity's latest month and so be carried forward from it: into every month after it, and
+  // into every month in between that still has no rows. If another entity holds the tag in any of those months (its own
+  // rows, or carried from its own latest month), the two would show it in the same month: leave the latest month out so
+  // the line ends before it and the household rule keeps holding.
+  if (months[months.length - 1] === shape.frontier) {
+    let last = shape.frontier;
+    for (const r of allRows) if (isPeriod(r.period) && r.period > last) last = r.period;
+    const carriedInto = [
+      ...periodRange(shiftPeriod(loc.period, 1), shiftPeriod(shape.frontier, -1)).filter((p) => !periodsWithRows.has(p)),
+      ...periodRange(shiftPeriod(shape.frontier, 1), shiftPeriod(last, 1)),
+    ];
+    if (carriedInto.some((p) => tagHoldersAt(allRows, loc.tagId, p).some((e) => e !== loc.entityId))) {
+      months.pop();
+      skipped.push({ period: shape.frontier, reason: "other_entity" });
+    }
+  }
+  return { through: shape.frontier, months, skipped };
+}
+
+/** The schedule and amount of the line being added; copied to every later month. */
+export type LineFields = Pick<
+  BudgetCreateRow,
+  "accountId" | "budgeted" | "payDay" | "frequency" | "payDayOfWeek" | "biweeklyAnchorDate" | "payMonth" | "annualAmountDue"
+>;
+
+/** The rows to create for the later months: the added line's fields, rollover and the additional amount reset. */
+export function toLaterCreateRows(loc: BudgetLocator, months: readonly string[], fields: LineFields): BudgetCreateRow[] {
+  return months.map((period) => ({
+    entityId: loc.entityId,
+    tagId: loc.tagId,
+    period,
+    accountId: fields.accountId,
+    budgeted: fields.budgeted,
+    additionalAmountCents: 0,
+    payDay: fields.payDay,
+    frequency: fields.frequency,
+    payDayOfWeek: fields.payDayOfWeek,
+    biweeklyAnchorDate: fields.biweeklyAnchorDate,
+    payMonth: fields.payMonth,
+    annualAmountDue: fields.annualAmountDue,
+    rolloverEnabled: false,
+    rolloverAmount: null,
+  }));
+}
+
 /**
  * Adding (or re-adding) a line in `loc.period` must not change any EARLIER month. The planner already saves the entity's
  * empty months first, so a month that has rows stays authoritative; the only way left is an earlier month with no rows
  * at all in which nothing is carried today but the added line would be (it has older rows, and joins the latest month).
  * Returns the earliest such month, or null when the add touches nothing but its own month onward. Pure.
  */
-export function addChangesEarlierMonth(allRows: readonly MaterializableRow[], loc: BudgetLocator): string | null {
+export function addChangesEarlierMonth(
+  allRows: readonly MaterializableRow[],
+  loc: BudgetLocator,
+  /** Later months (from `planAddToLaterMonths`) that get the line too; the line then also lands on those rows. */
+  laterPeriods: readonly string[] = []
+): string | null {
   const rows = allRows.filter((r) => r.entityId === loc.entityId);
   const shape = entityShape(rows);
   if (!shape || shape.first >= loc.period) return null;
-  const plan = planMaterialization(rows, loc.entityId, loc.period);
-  const stub: MaterializableRow = {
-    id: "new-line",
+  const saved = withSimulatedSave(rows, loc.entityId, loc.period);
+  const stubAt = (period: string): MaterializableRow => ({
+    id: `new-line-${period}`,
     entityId: loc.entityId,
     tagId: loc.tagId,
-    period: loc.period,
+    period,
     accountId: "",
     budgeted: null,
     payDay: null,
@@ -267,12 +360,12 @@ export function addChangesEarlierMonth(allRows: readonly MaterializableRow[], lo
     rolloverEnabled: false,
     rolloverAmount: null,
     additionalAmountCents: 0,
-  };
-  const saved: MaterializableRow[] = plan.creates.map((c, i) => ({ ...c, id: `saved-${i}`, additionalAmountCents: 0, rolloverAmount: null }));
+  });
+  const stubs = [loc.period, ...laterPeriods].map(stubAt);
   const earlier = periodRange(shape.first, shiftPeriod(loc.period, -1));
   const keys = (list: readonly MaterializableRow[]) => new Set(resolveEffectiveRows(list, earlier).map((r) => `${r.period}|${r.tagId}`));
   const before = keys(rows);
-  const after = keys([...rows, ...saved, stub]);
+  const after = keys([...rows, ...saved, ...stubs]);
   const changed = [...new Set([...before, ...after])].filter((k) => before.has(k) !== after.has(k)).map((k) => k.slice(0, 7)).sort();
   return changed[0] ?? null;
 }

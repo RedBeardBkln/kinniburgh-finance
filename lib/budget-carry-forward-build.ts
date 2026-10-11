@@ -30,7 +30,8 @@ import {
   type ResolvedBudgetRow,
   type SeasonalLine,
 } from "@/lib/budget-carry-forward";
-import { planMaterialization } from "@/lib/budget-materialize";
+import { planAddToLaterMonths, planMaterialization } from "@/lib/budget-materialize";
+import type { LaterAddContext } from "@/lib/budget-first-edit-note";
 
 const MAX_ROWS = 5000;
 
@@ -232,6 +233,38 @@ export async function loadFirstEditContext(opts: { period: string; entityId?: st
     empty.saveMonths[entityId] = planMaterialization(list, entityId, opts.period).months;
   }
   return empty;
+}
+
+/**
+ * For the Add-line dialog's "Also add to later saved months": the months a new line added in `period` could also be
+ * added to, and per tag the ones it would skip. Same planner as the write (`planAddToLaterMonths`), run on every row
+ * (another entity holding the tag matters). null = nothing to offer: no entity, a bad period, `period` not before the
+ * entity's latest month with rows, or no candidate month. Throws when the read fails.
+ */
+export async function loadLaterAddContext(opts: { period: string; entityId: string | null }): Promise<LaterAddContext | null> {
+  if (!opts.entityId || !isBudgetPeriod(opts.period)) return null;
+  const rows = await db.budget.findMany({ orderBy: [{ period: "desc" }], take: MAX_ROWS, select: PLAN_SELECT });
+  const loc = { entityId: opts.entityId, period: opts.period };
+  // A tag id that appears in no row: the planner then reports every month that could take SOME new line.
+  const base = planAddToLaterMonths(rows, { ...loc, tagId: "no-such-tag" });
+  if (base.through === null || base.months.length === 0) return null;
+  const skippedByTag: Record<string, string[]> = {};
+  for (const tagId of new Set(rows.map((r) => r.tagId))) {
+    const plan = planAddToLaterMonths(rows, { ...loc, tagId });
+    const skipped = plan.skipped.filter((s) => s.reason !== "no_rows").map((s) => s.period);
+    if (skipped.length > 0) skippedByTag[tagId] = skipped;
+  }
+  return { through: base.through, candidates: base.months, skippedByTag };
+}
+
+/** Same as loadLaterAddContext but never rejects: null when it could not be read (the checkbox is then hidden). */
+export async function loadLaterAddContextSafe(opts: { period: string; entityId: string | null }): Promise<LaterAddContext | null> {
+  try {
+    return await loadLaterAddContext(opts);
+  } catch (err) {
+    console.error("Budget later-months context unavailable", err instanceof Error ? err.name : "UnknownError");
+    return null;
+  }
 }
 
 /** Same as loadFirstEditContext but never rejects: null when it could not be read (the wording then drops the counts). */

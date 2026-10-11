@@ -7,7 +7,13 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { isLumpSumFrequency, isValidAnnualDay } from "@/lib/annual-bill";
 import { currentPeriodNY } from "@/lib/month-spend";
-import { addChangesEarlierMonth, formatPeriodLabel, isTooFarAhead } from "@/lib/budget-materialize";
+import {
+  addChangesEarlierMonth,
+  formatPeriodLabel,
+  isTooFarAhead,
+  planAddToLaterMonths,
+  toLaterCreateRows,
+} from "@/lib/budget-materialize";
 import {
   BUDGET_TX_OPTIONS,
   BudgetRefusal,
@@ -19,6 +25,7 @@ import {
   lockBudgetWrites,
   materializeForEdit,
   readBudgetRowsForWrite,
+  saveLaterAdds,
   type BudgetWriteRow,
 } from "@/lib/budget-materialize-build";
 
@@ -217,6 +224,11 @@ const CreateSchema = z.object({
   biweeklyAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   payMonth: z.number().int().min(1).max(12).nullable().optional(),
   annualAmountDue: z.string().trim().nullable().optional(),
+  /**
+   * Also create the line in every later month that has rows and lacks it (the server re-derives the months inside the
+   * lock; the client never sends them). Absent or false = only the chosen month.
+   */
+  alsoAddToLaterMonths: z.boolean().optional(),
 })
   .refine((data) => data.frequency !== "weekly" || data.payDayOfWeek != null, {
     message: "Day of week is required for a weekly budget line",
@@ -244,7 +256,7 @@ const CreateSchema = z.object({
 
 export async function createBudget(
   input: z.infer<typeof CreateSchema>
-): Promise<{ success: true } | { error: string }> {
+): Promise<{ success: true; laterMonthsAdded?: number } | { error: string }> {
   const user = await requireAuth();
 
   const parsed = CreateSchema.safeParse(input);
@@ -264,6 +276,7 @@ export async function createBudget(
     biweeklyAnchorDate,
     payMonth,
     annualAmountDue,
+    alsoAddToLaterMonths,
   } = parsed.data;
   if (tooFarAhead(period)) return { error: TOO_FAR_AHEAD_MESSAGE };
 
@@ -288,11 +301,25 @@ export async function createBudget(
     }
 
     // Adding (or re-adding) a line must change nothing but its own month onward.
-    const touched = addChangesEarlierMonth(rows, { entityId, tagId, period });
+    const loc = { entityId, tagId, period };
+    const touched = addChangesEarlierMonth(rows, loc);
     if (touched) {
       throw new BudgetRefusal(
         `Adding this line here would also make it appear in ${formatPeriodLabel(touched)}, an earlier month that has no budget lines. Add it to that month first, or choose that month instead.`
       );
+    }
+
+    // "Also add to later saved months": the target months are derived here, from the rows read inside the lock, with
+    // the same planner as the /budgets preview. The line then also lands on those rows, so the earlier-month rule is
+    // checked again with them.
+    const later = alsoAddToLaterMonths ? planAddToLaterMonths(rows, loc) : null;
+    if (later && later.months.length > 0) {
+      const touchedWithLater = addChangesEarlierMonth(rows, loc, later.months);
+      if (touchedWithLater) {
+        throw new BudgetRefusal(
+          `Adding this line here would also make it appear in ${formatPeriodLabel(touchedWithLater)}, an earlier month that has no budget lines. Add it to that month first, choose that month instead, or untick 'Also add to later saved months'.`
+        );
+      }
     }
 
     await materializeForEdit(tx, user.id, rows, entityId, period);
@@ -312,6 +339,26 @@ export async function createBudget(
         annualAmountDue: effectiveAnnualAmountDue,
       },
     });
+
+    let laterMonthsAdded = 0;
+    if (later && later.months.length > 0) {
+      const saved = await saveLaterAdds(
+        tx,
+        user.id,
+        loc,
+        toLaterCreateRows(loc, later.months, {
+          accountId,
+          budgeted: budgetedDecimal,
+          payDay: payDay ?? null,
+          frequency: effectiveFrequency,
+          payDayOfWeek: effectivePayDayOfWeek,
+          biweeklyAnchorDate: effectiveBiweeklyAnchorDate,
+          payMonth: effectivePayMonth,
+          annualAmountDue: effectiveAnnualAmountDue,
+        })
+      );
+      laterMonthsAdded = saved.created;
+    }
 
     if (
       payDay !== undefined ||
@@ -333,7 +380,7 @@ export async function createBudget(
         annualAmountDue ?? null
       );
     }
-    return { success: true as const };
+    return alsoAddToLaterMonths ? { success: true as const, laterMonthsAdded } : { success: true as const };
   });
 
   if ("success" in result) revalidateAll();

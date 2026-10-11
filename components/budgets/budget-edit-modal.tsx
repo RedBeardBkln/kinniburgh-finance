@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createBudget, updateBudget } from "@/actions/budgets";
 import { assessAnnualFunding, cycleMonthsFor, isLumpSumFrequency, isValidAnnualDay } from "@/lib/annual-bill";
 import { formatUSD } from "@/lib/utils";
+import { addLaterMonthsLabel, addLaterMonthsPreview, type LaterAddContext } from "@/lib/budget-first-edit-note";
 
 interface Account {
   id: string;
@@ -65,6 +66,8 @@ interface BudgetEditModalProps {
   tags?: Tag[];
   entityId: string;
   period: string;
+  /** Add mode only: the later saved months the new line could also be added to (null = do not offer it). */
+  laterAdd?: LaterAddContext | null;
   onClose: () => void;
 }
 
@@ -75,6 +78,7 @@ export function BudgetEditModal({
   tags,
   entityId,
   period,
+  laterAdd = null,
   onClose,
 }: BudgetEditModalProps) {
   const router = useRouter();
@@ -95,6 +99,14 @@ export function BudgetEditModal({
     budget?.biweeklyAnchorDate ? budget.biweeklyAnchorDate.slice(0, 10) : ""
   );
   const [applyToFuture, setApplyToFuture] = useState(false);
+  const [alsoLater, setAlsoLater] = useState(true);
+
+  // "Also add to later saved months": the months for the chosen category come from the same planner the server uses
+  // (the server re-derives them; the client only says yes or no). Hidden when there is nothing to add to.
+  const skippedForTag = laterAdd && tagId ? (laterAdd.skippedByTag[tagId] ?? []) : [];
+  const laterMonths = mode === "add" && laterAdd ? laterAdd.candidates.filter((m) => !skippedForTag.includes(m)) : [];
+  const showAlsoLater = mode === "add" && laterAdd !== null && laterMonths.length > 0;
+  const laterPreview = showAlsoLater && laterAdd ? addLaterMonthsPreview(laterMonths, laterAdd.through, skippedForTag.length) : null;
 
   const originalPayDay = budget?.payDay ?? null;
   const originalAccountId = budget?.accountId ?? null;
@@ -174,6 +186,7 @@ export function BudgetEditModal({
           biweeklyAnchorDate: anchorDate,
           payMonth,
           annualAmountDue,
+          alsoAddToLaterMonths: showAlsoLater ? alsoLater : false,
         });
       } else {
         result = await updateBudget({ entityId: budget!.entityId, tagId: budget!.tagId, period }, {
@@ -412,6 +425,17 @@ export function BudgetEditModal({
               ))}
             </select>
           </div>
+
+          {/* Also add to later saved months (add mode only, when later months exist) */}
+          {showAlsoLater && laterAdd && (
+            <div className="space-y-1 rounded border p-3">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input type="checkbox" checked={alsoLater} onChange={(e) => setAlsoLater(e.target.checked)} />
+                {addLaterMonthsLabel(laterMonths[laterMonths.length - 1] ?? laterAdd.through)}
+              </label>
+              {alsoLater && laterPreview && <p className="text-xs text-muted-foreground">{laterPreview}</p>}
+            </div>
+          )}
 
           {/* Apply to (edit mode only, when payDay or account changed) */}
           {showApplyTo && (

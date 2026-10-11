@@ -54,6 +54,41 @@ export function carriedEditNote(fromPeriod: string, months: readonly string[] | 
 }
 
 /**
+ * What the Add-line dialog needs to offer "Also add to later saved months" (built by `loadLaterAddContext` with the same
+ * planner the write uses). Plain data, client-safe.
+ */
+export interface LaterAddContext {
+  /** The entity's latest month with rows (L). */
+  through: string;
+  /** Months after the added one, up to L, that have rows (after the copy-on-first-edit save), whatever the tag. */
+  candidates: string[];
+  /** tagId -> the candidate months that tag would skip (the entity already has it there, or another entity holds it). */
+  skippedByTag: Record<string, string[]>;
+}
+
+/** The checkbox label in the Add-line dialog. */
+export function addLaterMonthsLabel(through: string): string {
+  return `Also add to later saved months (through ${monthName(through)})`;
+}
+
+/**
+ * The line under the checkbox: which months the line will also be added to. null = nothing to say (no target months).
+ * `skippedCount` = later months left alone because the entity already has the line there or another entity uses it.
+ */
+export function addLaterMonthsPreview(months: readonly string[], through: string, skippedCount: number): string | null {
+  if (months.length === 0) return null;
+  const n = months.length;
+  const where = n === 1 ? monthName(months[0] as string) : range(months);
+  const last = months[n - 1] as string;
+  const tail = last === through ? `It will then carry forward after ${monthName(through)} like your other lines.` : `It stops after ${monthName(last)}.`;
+  let text = `This line will also be added to ${n} later month${n === 1 ? "" : "s"}: ${where}. ${tail}`;
+  if (skippedCount > 0) {
+    text += ` ${skippedCount} later month${skippedCount === 1 ? "" : "s"} already ${skippedCount === 1 ? "has" : "have"} it or use${skippedCount === 1 ? "s" : ""} this category under another entity and ${skippedCount === 1 ? "is" : "are"} left alone.`;
+  }
+  return text;
+}
+
+/**
  * Confirm text for ending a line. `laterSavedMonths` = how many saved months AFTER the viewed one already have the line
  * (they are removed with it); null = unknown.
  */

@@ -164,7 +164,8 @@ describe("the loader module is read-only", () => {
     expect(src).not.toMatch(/\binclude:/);
     // two Budget reads (rows, schedule rows) + the variable-lines helper's Tag and distinct Budget reads + the
     // first-edit context read (budget-auto-carry-ui round 1: counts what a first change saves / an end removes)
-    expect(src.match(/\.findMany\(/g)).toHaveLength(5);
+    // + the later-months preview read (budget-add-later-months: all rows, because another entity holding the tag matters)
+    expect(src.match(/\.findMany\(/g)).toHaveLength(6);
     expect(src.match(/\.findUnique\(/g)).toHaveLength(1);
   });
 });
