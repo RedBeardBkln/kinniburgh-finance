@@ -52,7 +52,7 @@ export function UpcomingWidgetSkeleton({ days = 30 }: { days?: number }) {
 export function UpcomingAgendaSkeleton({ horizon }: { horizon: number }) {
   return (
     <>
-      <div id="upcoming" className="scroll-mt-20" data-testid="agenda-skeleton">
+      <div id="upcoming" data-toc-label="Upcoming" className="scroll-mt-20" data-testid="agenda-skeleton">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Upcoming - next {horizon} days</CardTitle>
@@ -63,7 +63,7 @@ export function UpcomingAgendaSkeleton({ horizon }: { horizon: number }) {
           </CardContent>
         </Card>
       </div>
-      <div id="looks-recurring" className="scroll-mt-20">
+      <div id="looks-recurring" data-toc-label="Looks recurring" className="scroll-mt-20">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Looks recurring</CardTitle>

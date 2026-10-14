@@ -86,7 +86,7 @@ interface RecurringSuggestionsProps {
 export function RecurringSuggestions({ detection, isAggregate, tagOptions = [], budgetFacts }: RecurringSuggestionsProps) {
   if (detection === undefined) return null;
   return (
-    <div id="looks-recurring" className="scroll-mt-20">
+    <div id="looks-recurring" data-toc-label="Looks recurring" className="scroll-mt-20">
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Looks recurring</CardTitle>

@@ -207,7 +207,7 @@ describe("SeasonalCard renders the usage block by status", () => {
     expect(off).not.toMatch(/aria-label="Remove (?!the price)/);
     // every line block above the usage section is identical to the card with the table available but no rows
     const noRows = html([], "ok");
-    const upToUsage = (s: string) => s.slice(0, s.search(/<section class="space-y-3" aria-label="Usage history"|<p class="text-xs text-muted-foreground" data-testid="usage-unavailable"/));
+    const upToUsage = (s: string) => s.slice(0, s.search(/<section id="usage-history-[^"]*"|<p class="text-xs text-muted-foreground" data-testid="usage-unavailable"/));
     expect(upToUsage(off)).toBe(upToUsage(noRows));
   });
 

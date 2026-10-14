@@ -37,7 +37,7 @@ function agendaHref(bucketSlug: string, horizon: Horizon, showTransfers: boolean
 /** Forecast-page agenda: the same ledger over 30 / 60 / 90 days, grouped by week. Presentational, no hooks. */
 export function UpcomingAgenda({ ledger, bucketSlug, horizon, showTransfers }: UpcomingAgendaProps) {
   return (
-    <div id="upcoming" className="scroll-mt-20">
+    <div id="upcoming" data-toc-label="Upcoming" className="scroll-mt-20">
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">

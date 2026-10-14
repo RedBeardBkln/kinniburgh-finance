@@ -725,7 +725,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
         </div>
 
         {/* ── Balance panel ────────────────────────────────────────────── */}
-        <Card>
+        <Card id="forecast-balances" data-toc-label="Current balances" className="scroll-mt-4">
           <CardHeader>
             <CardTitle>Current Balances</CardTitle>
           </CardHeader>
@@ -789,7 +789,9 @@ export default async function ForecastPage({ searchParams }: PageProps) {
 
         {/* ── Business-bucket financial forecast (Sudden Valley / EK Consulting) ── */}
         {isBusinessBucket && entity && businessAccounts.length > 0 && (
-          <BusinessForecastSection entityName={entity.name} accounts={businessAccounts} />
+          <div id="forecast-business" data-toc-label="Financial forecast" className="scroll-mt-4">
+            <BusinessForecastSection entityName={entity.name} accounts={businessAccounts} />
+          </div>
         )}
         {isBusinessBucket && businessCarriedCaption && (
           <p className="text-xs text-muted-foreground" data-testid="carried-caption">
@@ -799,7 +801,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
 
         {/* ── Breach warnings ──────────────────────────────────────────── */}
         {accountForecasts.some((af) => af.breaches.length > 0) && (
-          <div className="space-y-2">
+          <div id="forecast-breaches" data-toc-label="Minimum balance warnings" className="scroll-mt-4 space-y-2">
             <h2 className="text-base font-semibold text-destructive">⚠ Projected Minimum Balance Breaches</h2>
             <p className="text-xs text-muted-foreground">
               TD Bank accounts must stay ≥ $250 at all times. A dip below triggers a $15 service fee.
@@ -834,7 +836,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
         )}
 
         {/* ── Per-account balance charts (30/60/90 day selectable) ───── */}
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div id="forecast-projections" data-toc-label="Balance projections" className="scroll-mt-4 grid gap-6 lg:grid-cols-2">
           {accountForecasts.map(
             ({ acct, chartData90, chartDataWeekly, chartDataMonthly, chartDataQuarterly, minBal }) => (
               <ForecastAccountCard
@@ -855,15 +857,16 @@ export default async function ForecastPage({ searchParams }: PageProps) {
         {/* ── Credit card funding analysis: one card per account that really pays cards (inferred from past payments) ── */}
         {ccFundingAnalyses
           .filter((fa) => fa.cards.length > 0)
-          .map((fa) => (
+          .map((fa, i) => (
             <Card
               key={fa.account.id}
+              {...(i === 0 ? { id: "forecast-card-funding", "data-toc-label": "Credit card funding" } : {})}
               className={
                 fa.status === "shortfall"
-                  ? "border-destructive/50"
+                  ? "scroll-mt-4 border-destructive/50"
                   : fa.status === "at_risk"
-                  ? "border-amber-300"
-                  : ""
+                  ? "scroll-mt-4 border-amber-300"
+                  : "scroll-mt-4"
               }
             >
               <CardHeader className="pb-2">
@@ -1034,7 +1037,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
         )}
 
         {/* ── 14-day schedule for Primary Checking ────────────────────── */}
-        <Card>
+        <Card id="forecast-next-14-days" data-toc-label="Next 14 days" className="scroll-mt-4">
           <CardHeader>
             <CardTitle>Next 14 Days — Primary Checking</CardTitle>
           </CardHeader>
@@ -1095,15 +1098,17 @@ export default async function ForecastPage({ searchParams }: PageProps) {
 
         {/* ── Category spend pace (Personal bucket only) ──────────────── */}
         {entity?.slug === "personal" && paceRows.length > 0 && (
-          <SpendPaceSection
-            period={period}
-            periodLabel={monthStart.toLocaleDateString("en-US", {
-              month: "long",
-              year: "numeric",
-              timeZone: "UTC",
-            })}
-            rows={paceRows}
-          />
+          <div id="forecast-spend-pace" data-toc-label="Category spend pace" className="scroll-mt-4">
+            <SpendPaceSection
+              period={period}
+              periodLabel={monthStart.toLocaleDateString("en-US", {
+                month: "long",
+                year: "numeric",
+                timeZone: "UTC",
+              })}
+              rows={paceRows}
+            />
+          </div>
         )}
 
         {/* ── Seasonal bills: Electric (Eversource) / Oil / Firewood estimates from existing payments + the oil price input ── */}
@@ -1112,21 +1117,23 @@ export default async function ForecastPage({ searchParams }: PageProps) {
         </Suspense>
 
         {/* ── Recurring expenses ───────────────────────────────────────── */}
-        <RecurringExpensesSection
-          expenses={recurringExpenses.map((e) => ({
-            ...e,
-            nextDueDate: e.nextDueDate ? new Date(e.nextDueDate) : null,
-            tag: e.tag ?? null,
-          }))}
-          entities={entities.map((e) => ({ id: e.id, name: e.name }))}
-          tags={allTags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName }))}
-          defaultEntityId={entity?.id ?? entities[0]?.id ?? ""}
-        />
+        <div id="forecast-recurring-expenses" data-toc-label="Recurring expenses" className="scroll-mt-4">
+          <RecurringExpensesSection
+            expenses={recurringExpenses.map((e) => ({
+              ...e,
+              nextDueDate: e.nextDueDate ? new Date(e.nextDueDate) : null,
+              tag: e.tag ?? null,
+            }))}
+            entities={entities.map((e) => ({ id: e.id, name: e.name }))}
+            tags={allTags.map((t) => ({ id: t.id, name: t.name, shortName: t.shortName }))}
+            defaultEntityId={entity?.id ?? entities[0]?.id ?? ""}
+          />
+        </div>
 
         {/* ── Rental bookings (Sudden Valley only — the only entity with Airbnb
              revenue; EK Consulting's revenue is manually entered via ProjectedRevenue) ── */}
         {entity?.slug === "sudden-valley" && (
-          <div id="rental-bookings" className="scroll-mt-20">
+          <div id="rental-bookings" data-toc-label="Rental bookings" className="scroll-mt-20">
             <RentalBookingsSection
               entityId={entity.id}
               entityName={entity.name}
@@ -1143,7 +1150,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
         {/* ── Income sources (Personal only — business buckets get revenue from
              their Revenue page, wired into the Business Forecast section above) ── */}
         {!isBusinessBucket && (
-        <Card>
+        <Card id="forecast-income-sources" data-toc-label="Income sources" className="scroll-mt-4">
           <CardHeader>
             <CardTitle>Income Sources</CardTitle>
           </CardHeader>

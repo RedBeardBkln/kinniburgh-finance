@@ -52,7 +52,13 @@ function ToggleList({ title, help, rows, entityId, notOil }: { title: string; he
 
 function LineBlock({ line, entityId }: { line: UiSeasonalLine; entityId: string }) {
   return (
-    <section className="space-y-2" aria-label={line.title}>
+    <section
+      id={`seasonal-${entityId}-${line.kind}`}
+      data-toc-label={line.title}
+      data-toc-level="2"
+      className="scroll-mt-4 space-y-2"
+      aria-label={line.title}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">{line.title}</h3>
         <Badge line={line} />
@@ -158,7 +164,13 @@ export function SeasonalCard({ sites }: { sites: UiSeasonalSite[] }) {
   return (
     <>
       {sites.map((site) => (
-        <Card key={site.entityId} data-testid="seasonal-card">
+        <Card
+          key={site.entityId}
+          id={`seasonal-${site.entityId}`}
+          data-toc-label={`Seasonal bills — ${site.entityName}`}
+          className="scroll-mt-4"
+          data-testid="seasonal-card"
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Seasonal bills — {site.entityName}</CardTitle>
             <p className="text-xs text-muted-foreground">

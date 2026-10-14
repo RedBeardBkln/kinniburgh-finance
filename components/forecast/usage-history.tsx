@@ -21,7 +21,14 @@ export function UsageHistory({ site }: { site: UiSeasonalSite }) {
     );
   }
   return (
-    <section className="space-y-3" aria-label="Usage history" data-testid="usage-history">
+    <section
+      id={`usage-history-${site.entityId}`}
+      data-toc-label="Usage history"
+      data-toc-level="2"
+      className="scroll-mt-4 space-y-3"
+      aria-label="Usage history"
+      data-testid="usage-history"
+    >
       <h3 className="text-sm font-semibold">Usage history</h3>
       {site.usageHistory.length === 0 ? (
         <p className="text-xs text-muted-foreground">

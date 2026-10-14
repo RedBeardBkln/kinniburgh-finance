@@ -7,6 +7,7 @@ import { Settings, LockKeyhole, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
 import { inferBucketFromPathname } from "@/lib/buckets";
+import { ForecastContents } from "@/components/forecast/forecast-contents";
 
 const TAX_BUCKET = "taxes";
 const ENVELOPE_BUCKETS = ["personal", "sudden-valley"] as const;
@@ -121,6 +122,8 @@ function SidebarNavContent({
                   >
                     {label}
                   </Link>
+                  {/* Jump list for the sections of the page being read (the page marks them with data-toc-label). */}
+                  {base === "/forecast" && isActive(base) && <ForecastContents onNavigate={onNavigate} />}
                 </li>
               ))}
 
