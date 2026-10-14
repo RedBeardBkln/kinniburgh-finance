@@ -33,10 +33,12 @@ export function buildTocEntries(nodes: readonly RawTocNode[]): TocEntry[] {
 
 /**
  * The section being read: the last one whose top edge has scrolled up to the threshold; the first one when none has
- * yet; null when there are no sections. `tops` is in document order.
+ * yet; null when there are no sections. `tops` is in document order. At the very bottom of the page the last section
+ * can never scroll up to the threshold, so `atBottom` makes it the active one.
  */
-export function activeTocId(tops: readonly { id: string; top: number }[], threshold: number): string | null {
+export function activeTocId(tops: readonly { id: string; top: number }[], threshold: number, atBottom = false): string | null {
   if (tops.length === 0) return null;
+  if (atBottom) return (tops[tops.length - 1] as { id: string }).id;
   let active = (tops[0] as { id: string }).id;
   for (const t of tops) {
     if (t.top <= threshold) active = t.id;

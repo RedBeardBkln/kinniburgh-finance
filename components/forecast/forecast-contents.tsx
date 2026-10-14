@@ -35,7 +35,8 @@ export function ForecastContents({ onNavigate }: { onNavigate?: () => void }) {
         const el = document.getElementById(e.id);
         return el ? [{ id: e.id, top: el.getBoundingClientRect().top - mainTop }] : [];
       });
-      setActiveId(activeTocId(tops, 96));
+      const atBottom = main.scrollTop > 0 && main.scrollTop + main.clientHeight >= main.scrollHeight - 2;
+      setActiveId(activeTocId(tops, 96, atBottom));
     };
 
     const rescan = () => {

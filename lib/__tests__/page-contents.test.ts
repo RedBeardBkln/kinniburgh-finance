@@ -47,6 +47,9 @@ describe("activeTocId", () => {
     expect(activeTocId([{ id: "a", top: 300 }, { id: "b", top: 900 }], 96)).toBe("a");
     expect(activeTocId([], 96)).toBeNull();
   });
+  it("is the last section when scrolled to the very bottom", () => {
+    expect(activeTocId(tops, 96, true)).toBe("c");
+  });
 });
 
 describe("sameEntries", () => {
