@@ -87,6 +87,7 @@ const SOURCE_LABELS: Record<UpcomingSource, string> = {
   income_source: "Paycheck",
   rental_payout: "Rental payout",
   projected_revenue: "Projected revenue",
+  project: "Project",
   tax_deadline: "Tax deadline",
   policy_expiry: "Policy expiry",
   learned_history: "Learned from history",
@@ -107,6 +108,7 @@ const RECORD_NAMES: Record<UpcomingSource, string> = {
   income_source: "paycheck record",
   rental_payout: "rental booking",
   projected_revenue: "projected revenue",
+  project: "project",
   tax_deadline: "tax deadline",
   policy_expiry: "policy",
   learned_history: "learned pattern",
@@ -136,6 +138,8 @@ export function hrefFor(link: LinkTarget, bucketSlug: string): string {
       return `/tax${hash}`;
     case "vault":
       return `/vault${hash}`;
+    case "projects":
+      return `/projects${hash}`;
   }
 }
 

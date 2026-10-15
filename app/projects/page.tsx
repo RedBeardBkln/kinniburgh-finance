@@ -8,16 +8,25 @@ import Link from "next/link";
 import { CreateProjectForm } from "@/components/projects/create-project-form";
 import type { Route } from "next";
 import { Prisma } from "@prisma/client";
+import { classifyProject, describeProjectForecast } from "@/lib/project-forecast";
+import { todayForNewYork } from "@/lib/upcoming-ledger";
 
 export default async function ProjectsPage() {
   const session = await auth();
   if (!session?.user) redirect("/login" as Route);
 
-  const [projects, entities, personalEntity] = await Promise.all([
+  const [projects, entities, personalEntity, accountRows] = await Promise.all([
     listProjects(),
     getAllBusinessEntities(),
     db.entity.findFirst({ where: { type: "personal" }, select: { id: true, name: true, navLabel: true } }),
+    // The bank accounts a project can be paid from (the forecast tracks checking and savings balances).
+    db.account.findMany({
+      where: { archivedAt: null, accountType: { in: ["checking", "savings"] } },
+      select: { id: true, nickname: true, mask: true },
+      orderBy: { nickname: "asc" },
+    }),
   ]);
+  const today = todayForNewYork(new Date());
 
   const allEntities = [
     ...(personalEntity ? [{ id: personalEntity.id, name: personalEntity.name, navLabel: personalEntity.navLabel }] : []),
@@ -47,7 +56,7 @@ export default async function ProjectsPage() {
               Cross-entity project budgets — assign transactions and receipts from any account.
             </p>
           </div>
-          <CreateProjectForm entities={allEntities} />
+          <CreateProjectForm entities={allEntities} accounts={accountRows} />
         </div>
 
         {projects.length === 0 && (
@@ -65,6 +74,13 @@ export default async function ProjectsPage() {
                 const spend = spendMap.get(p.id) ?? new Prisma.Decimal(0);
                 const pct = budget.gt(0) ? Math.min(100, spend.div(budget).times(100).toNumber()) : 0;
                 const remaining = budget.minus(spend);
+                const forecast = describeProjectForecast(
+                  classifyProject(
+                    { id: p.id, name: p.name, entityId: p.entityId, accountId: p.accountId, status: p.status, budget, spent: spend, targetDate: p.targetDate },
+                    today
+                  ),
+                  p.account?.nickname ?? null
+                );
                 return (
                   <Link
                     key={p.id}
@@ -116,6 +132,8 @@ export default async function ProjectsPage() {
                           </span>
                         </div>
                       </div>
+
+                      <p className={`text-xs ${forecast.counted ? "text-green-700" : "text-muted-foreground"}`}>{forecast.text}</p>
 
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         <span>{p._count.transactions} transaction{p._count.transactions !== 1 ? "s" : ""}</span>

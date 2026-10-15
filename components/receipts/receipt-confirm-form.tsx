@@ -131,9 +131,12 @@ export function ReceiptConfirmForm({
     if (!newProjectName.trim()) return;
     const budget = parseFloat(newProjectBudget);
     if (isNaN(budget) || budget <= 0) return;
+    // A project is paid from an account (the forecast needs it); the receipt's bank account is the starting choice and
+    // can be changed on the project's page. No target date = an ongoing project, which the forecast leaves off the calendar.
+    if (!accountId) { setError("Choose the bank account above first: a new project is paid from an account."); return; }
     startProjectTransition(async () => {
       try {
-        const proj = await createProject({ name: newProjectName.trim(), budget });
+        const proj = await createProject({ name: newProjectName.trim(), budget, accountId });
         setProjects((prev) => [...prev, { id: proj.id, name: proj.name }].sort((a, b) => a.name.localeCompare(b.name)));
         setProjectId(proj.id);
         setShowNewProject(false);

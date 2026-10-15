@@ -7,6 +7,8 @@
 import { db } from "@/lib/db";
 import { loadEffectiveBudgetRows } from "@/lib/budget-carry-forward-build";
 import { loadNetIncomeSources } from "@/lib/net-income-build";
+import { classifyProject } from "@/lib/project-forecast";
+import { loadForecastProjects } from "@/lib/project-forecast-build";
 import { CARD_PAST_DUE_LOOKBACK_DAYS, todayForNewYork, type UpcomingLedgerInput } from "@/lib/upcoming-ledger";
 
 const DAY_MS = 86_400_000;
@@ -59,6 +61,7 @@ export async function loadUpcomingLedgerInput(args: {
     incomeSources,
     rentalBookings,
     projectedRevenue,
+    projectRows,
     taxDeadlines,
     policies,
     entities,
@@ -156,6 +159,8 @@ export async function loadUpcomingLedgerInput(args: {
         archivedAt: true,
       },
     }),
+    // Projects paid from this entity's accounts (null = every entity), classified below.
+    loadForecastProjects({ entityId }),
     db.taxDeadline.findMany({
       // dueDate is stored at ET midnight (04:00Z / 05:00Z), so widen by a day; the builder normalizes to the UTC date.
       where: { archivedAt: null, status: "upcoming", dueDate: { gte: from, lt: new Date(to.getTime() + DAY_MS) }, ...entityWhere },
@@ -256,6 +261,12 @@ export async function loadUpcomingLedgerInput(args: {
     })),
     rentalBookings,
     projectedRevenue,
+    projects: projectRows.flatMap((p) => {
+      const c = classifyProject(p, from);
+      return c.state === "counted" && p.accountEntityId
+        ? [{ id: p.id, name: p.name, entityId: p.accountEntityId, accountId: c.accountId, amount: c.amount.toFixed(2), date: c.date }]
+        : [];
+    }),
     taxDeadlines,
     policies,
   };

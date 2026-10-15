@@ -10,6 +10,9 @@ import {
 import { ProjectDetailActions } from "@/components/projects/project-detail-actions";
 import type { Route } from "next";
 import { Prisma } from "@prisma/client";
+import { db } from "@/lib/db";
+import { classifyProject, describeProjectForecast } from "@/lib/project-forecast";
+import { todayForNewYork } from "@/lib/upcoming-ledger";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -20,11 +23,16 @@ export default async function ProjectDetailPage({ params }: Props) {
   if (!session?.user) redirect("/login" as Route);
 
   const { id } = await params;
-  const [project, spend, transactions, receipts] = await Promise.all([
+  const [project, spend, transactions, receipts, accountRows] = await Promise.all([
     getProject(id),
     getProjectSpend(id),
     getProjectTransactions(id),
     getProjectReceipts(id),
+    db.account.findMany({
+      where: { archivedAt: null, OR: [{ accountType: { in: ["checking", "savings"] } }, { projects: { some: { id } } }] },
+      select: { id: true, nickname: true, mask: true },
+      orderBy: { nickname: "asc" },
+    }),
   ]);
 
   if (!project || project.archivedAt) notFound();
@@ -32,6 +40,22 @@ export default async function ProjectDetailPage({ params }: Props) {
   const budget = new Prisma.Decimal(project.budget.toString());
   const total = spend.total;
   const remaining = budget.minus(total);
+  const forecast = describeProjectForecast(
+    classifyProject(
+      {
+        id: project.id,
+        name: project.name,
+        entityId: project.entityId,
+        accountId: project.accountId,
+        status: project.status,
+        budget,
+        spent: total,
+        targetDate: project.targetDate,
+      },
+      todayForNewYork(new Date())
+    ),
+    project.account?.nickname ?? null
+  );
   const pct = budget.gt(0) ? Math.min(100, total.div(budget).times(100).toNumber()) : 0;
 
   const STATUS_BADGE: Record<string, string> = {
@@ -61,7 +85,7 @@ export default async function ProjectDetailPage({ params }: Props) {
               <p className="text-sm text-muted-foreground mt-1">{project.description}</p>
             )}
           </div>
-          <ProjectDetailActions project={project} />
+          <ProjectDetailActions project={project} accounts={accountRows} />
         </div>
 
         {/* Budget summary */}
@@ -105,6 +129,11 @@ export default async function ProjectDetailPage({ params }: Props) {
               />
             </div>
           </div>
+
+          <p className={`text-sm border-t pt-3 ${forecast.counted ? "text-green-700" : "text-muted-foreground"}`}>
+            {project.account && <span className="font-medium text-foreground">{project.account.nickname}. </span>}
+            {forecast.text}
+          </p>
 
           {(spend.transactionTotal.gt(0) || spend.receiptTotal.gt(0)) && (
             <div className="flex gap-6 text-sm text-muted-foreground pt-1 border-t">

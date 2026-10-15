@@ -17,9 +17,23 @@ const createSchema = z.object({
   description: z.string().optional(),
   entityId: z.string().optional(),
   budget: z.number().positive("Budget must be positive"),
+  // Blank = an ongoing project (not a one-time expense), so the forecast leaves it off the calendar.
   targetDate: z.string().optional(),
-  accountId: z.string().optional(),
+  // The account the project is paid from: the forecast needs it to know whose balance the project draws on.
+  accountId: z.string().uuid("Choose the account this project is paid from"),
 });
+
+function parseTargetDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) throw new Error("Target date is not a valid date");
+  return d;
+}
+
+async function assertAccountUsable(accountId: string): Promise<void> {
+  const account = await db.account.findFirst({ where: { id: accountId, archivedAt: null }, select: { id: true } });
+  if (!account) throw new Error("That account was not found");
+}
 
 export async function listProjects() {
   await requireAuth();
@@ -104,14 +118,16 @@ export async function getProjectReceipts(projectId: string) {
 export async function createProject(data: z.infer<typeof createSchema>) {
   await requireAuth();
   const parsed = createSchema.parse(data);
+  const targetDate = parseTargetDate(parsed.targetDate);
+  await assertAccountUsable(parsed.accountId);
   const project = await db.project.create({
     data: {
       name: parsed.name,
       description: parsed.description,
       entityId: parsed.entityId ?? null,
       budget: parsed.budget,
-      targetDate: parsed.targetDate ? new Date(parsed.targetDate) : undefined,
-      accountId: parsed.accountId ?? null,
+      targetDate,
+      accountId: parsed.accountId,
     },
   });
   revalidatePath("/projects");
@@ -127,9 +143,14 @@ export async function updateProject(
     budget: number;
     targetDate: string | null;
     status: string;
+    accountId: string;
   }>
 ) {
   await requireAuth();
+  if (patch.accountId !== undefined) {
+    if (!z.string().uuid().safeParse(patch.accountId).success) throw new Error("Choose the account this project is paid from");
+    await assertAccountUsable(patch.accountId);
+  }
   const project = await db.project.update({
     where: { id },
     data: {
@@ -137,9 +158,8 @@ export async function updateProject(
       ...(patch.description !== undefined && { description: patch.description }),
       ...(patch.entityId !== undefined && { entityId: patch.entityId }),
       ...(patch.budget !== undefined && { budget: patch.budget }),
-      ...(patch.targetDate !== undefined && {
-        targetDate: patch.targetDate ? new Date(patch.targetDate) : null,
-      }),
+      ...(patch.targetDate !== undefined && { targetDate: parseTargetDate(patch.targetDate) }),
+      ...(patch.accountId !== undefined && { accountId: patch.accountId }),
       ...(patch.status !== undefined && { status: patch.status }),
     },
   });

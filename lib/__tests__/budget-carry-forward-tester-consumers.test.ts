@@ -19,6 +19,7 @@ const mockDb = vi.hoisted(() => ({
   rentalBooking: { findMany: vi.fn() },
   projectedRevenue: { findMany: vi.fn() },
   taxDeadline: { findMany: vi.fn() },
+  project: { findMany: vi.fn() },
   insurancePolicy: { findMany: vi.fn() },
   entity: { findMany: vi.fn() },
   financialGoal: { findMany: vi.fn() },
@@ -95,7 +96,7 @@ describe("TESTER: a Budget read error propagates exactly where it used to (never
 
   it("the advisor budget read and the ledger input reject", async () => {
     await expect(loadBudgetFacts("2027-01", { start: D("2027-01-01"), end: D("2027-02-01") }, null)).rejects.toThrow("db down");
-    for (const k of ["scheduledBill", "recurringExpense", "accrualEnvelope", "account", "scheduledTransfer", "rentalBooking", "projectedRevenue", "taxDeadline", "insurancePolicy", "entity"] as const) {
+    for (const k of ["scheduledBill", "recurringExpense", "accrualEnvelope", "account", "scheduledTransfer", "rentalBooking", "projectedRevenue", "project", "taxDeadline", "insurancePolicy", "entity"] as const) {
       mockDb[k].findMany.mockResolvedValue([]);
     }
     await expect(loadUpcomingLedgerInput({ entityId: null, days: 30, now: new Date("2027-01-05T15:00:00Z") })).rejects.toThrow("db down");

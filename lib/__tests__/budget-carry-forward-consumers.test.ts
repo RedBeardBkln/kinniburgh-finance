@@ -19,6 +19,7 @@ const mockDb = vi.hoisted(() => ({
   rentalBooking: { findMany: vi.fn() },
   projectedRevenue: { findMany: vi.fn() },
   taxDeadline: { findMany: vi.fn() },
+  project: { findMany: vi.fn() },
   insurancePolicy: { findMany: vi.fn() },
   entity: { findMany: vi.fn() },
 }));
@@ -223,7 +224,7 @@ describe("the Upcoming ledger note", () => {
 
 describe("loadUpcomingLedgerInput reads the effective rows", () => {
   beforeEach(() => {
-    for (const k of ["scheduledBill", "recurringExpense", "accrualEnvelope", "account", "scheduledTransfer", "rentalBooking", "projectedRevenue", "taxDeadline", "insurancePolicy", "entity"] as const) {
+    for (const k of ["scheduledBill", "recurringExpense", "accrualEnvelope", "account", "scheduledTransfer", "rentalBooking", "projectedRevenue", "project", "taxDeadline", "insurancePolicy", "entity"] as const) {
       mockDb[k].findMany.mockResolvedValue([]);
     }
     mockDb.budget.findMany.mockResolvedValue([dbRow(P, "t-sol", "Utilities / Solar", "2026-12"), dbRow(SV, "t-ins", "Arbor Retreat / Insurance", "2026-12")]);

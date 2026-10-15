@@ -29,6 +29,8 @@ export interface ForecastHorizon {
   startingBalance: number;
   revenue: number;
   transfersOut: number;
+  /** Planned one-time projects paid from this account inside the horizon (what is left of each budget). */
+  projects?: number;
   expenses: number;
   endingBalance: number;
   revenueItems: RevenueItem[];
@@ -90,6 +92,9 @@ function HorizonCard({ horizon }: { horizon: ForecastHorizon }) {
         <WaterfallLine label="projected revenue" amount={horizon.revenue} sign="+" />
         <WaterfallLine label="scheduled transfers out" amount={horizon.transfersOut} sign="-" />
         <WaterfallLine label="projected expenses" amount={horizon.expenses} sign="-" />
+        {(horizon.projects ?? 0) > 0 && (
+          <WaterfallLine label="planned projects (budget left)" amount={horizon.projects ?? 0} sign="-" />
+        )}
         <div className="flex items-baseline justify-between border-t pt-1 text-sm">
           <span className="font-medium">Projected ending balance</span>
           <span className="tabular-nums font-semibold">~{formatUSD(horizon.endingBalance)}</span>

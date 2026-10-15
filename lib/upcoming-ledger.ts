@@ -45,6 +45,7 @@ export type UpcomingSource =
   | "income_source"
   | "rental_payout"
   | "projected_revenue"
+  | "project"
   | "tax_deadline"
   | "policy_expiry"
   | "learned_history";
@@ -58,7 +59,7 @@ export type ItemKind = "bill" | "card" | "transfer" | "income" | "deadline";
 export type AmountStatus = "known" | "unknown" | "not_applicable";
 
 export interface LinkTarget {
-  page: "budgets" | "forecast" | "envelope" | "accounts" | "revenue" | "tax" | "vault";
+  page: "budgets" | "forecast" | "envelope" | "accounts" | "revenue" | "tax" | "vault" | "projects";
   period?: string; // "YYYY-MM" for /budgets
   anchor?: string; // e.g. "rental-bookings"
 }
@@ -306,6 +307,21 @@ export interface UpcomingProjectedRevenueRow {
   archivedAt?: Date | string | null;
 }
 
+/**
+ * A one-time project expense the forecast counts: already classified by lib/project-forecast.ts (active, paid from an
+ * account, dated, with budget left). `amount` is what is LEFT of the budget (positive). Projects with no target date
+ * (ongoing), no account or a passed date never reach the ledger.
+ */
+export interface UpcomingProjectRow {
+  id: string;
+  name: string;
+  /** The entity that owns the paying account. */
+  entityId: string;
+  accountId: string;
+  amount: Num;
+  date: Date | string;
+}
+
 export interface UpcomingTaxDeadlineRow {
   id: string;
   entityId: string;
@@ -397,6 +413,7 @@ export interface UpcomingLedgerInput {
   incomeSources?: UpcomingIncomeRow[];
   rentalBookings?: UpcomingRentalRow[];
   projectedRevenue?: UpcomingProjectedRevenueRow[];
+  projects?: UpcomingProjectRow[];
   taxDeadlines?: UpcomingTaxDeadlineRow[];
   policies?: UpcomingPolicyRow[];
   /** History-learned series (lib/recurring-detect.ts). Optional: without it the ledger is exactly as before. */
@@ -1598,6 +1615,31 @@ export function buildUpcomingLedger(input: UpcomingLedgerInput): UpcomingLedger 
         })
       );
     }
+  }
+
+  // ── 6b. One-time projects (dated, with an account and money left of the budget) ──
+  for (const p of input.projects ?? []) {
+    if (!inScope(p.entityId)) continue;
+    const when = toDate(p.date);
+    const amount = positive(p.amount);
+    if (!when || !amount) continue;
+    const day = startOfDayUTC(when);
+    if (!inWindow(day)) continue;
+    items.push(
+      baseItem(
+        { source: "project", sourceId: p.id, entityId: p.entityId, accountId: p.accountId, label: `Project: ${p.name}` },
+        {
+          date: day,
+          amount: cents(amount).negated(),
+          amountStatus: "known",
+          kind: "bill",
+          tier: "estimated",
+          tierNote: "what is left of the project budget, on its target date",
+          link: { page: "projects" },
+          notes: ["Counted in addition to your monthly budget lines"],
+        }
+      )
+    );
   }
 
   // ── 7. Tax deadlines (a past-dated row is ignored, never shown as overdue: statuses can be stale) ──

@@ -39,6 +39,8 @@ import { RecurringExpensesSection } from "@/components/forecast/recurring-expens
 import { RentalBookingsSection } from "@/components/forecast/rental-bookings-section";
 import { SpendPaceSection, type TagPaceRow } from "@/components/forecast/spend-pace-section";
 import { capForecastHorizon, prorateExpensesAcrossHorizon } from "@/lib/business-forecast";
+import { projectEventsForAccount, type ProjectForecastInput } from "@/lib/project-forecast";
+import { loadForecastProjects } from "@/lib/project-forecast-build";
 import { resolveBudgetedAmounts, getRootBudgetLineIds } from "@/lib/budget-nesting";
 import { loadUpcomingLedger } from "@/lib/upcoming-ledger-build";
 import { loadBudgetHints } from "@/lib/recurring-budget-hint-build";
@@ -84,6 +86,17 @@ export default async function ForecastPage({ searchParams }: PageProps) {
   const now = new Date();
   const forecastStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const forecastEnd90 = new Date(forecastStart.getTime() + 90 * 86400000);
+
+  // One-time projects (an account, money left of the budget and a target date) are planned outflows from their
+  // account; an ongoing project (no target date) is never on the calendar. Fail-soft: a note says when they are missing.
+  let forecastProjects: ProjectForecastInput[] = [];
+  let projectsFailed = false;
+  try {
+    forecastProjects = await loadForecastProjects();
+  } catch (err) {
+    projectsFailed = true;
+    console.error("Forecast projects unavailable", err instanceof Error ? err.name : "UnknownError");
+  }
   const forecastEnd14 = new Date(forecastStart.getTime() + 14 * 86400000);
 
   // Load checking accounts with a minimum balance rule, filtered to the active bucket's entity.
@@ -315,7 +328,17 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           .filter((item) => item.amountDecimal.greaterThan(0))
           .sort((a, b) => a.tagName.localeCompare(b.tagName));
 
-        const endingBalance = startingBalance.plus(revenueTotal).minus(transfersOutTotal).minus(expensesTotal);
+        // Planned one-time projects paid from this account inside the horizon (what is left of each project's budget).
+        const projectsTotal = projectEventsForAccount(forecastProjects, acct.id, forecastStart, horizonEnd, forecastStart).reduce(
+          (acc, e) => acc.plus(e.amount.abs()),
+          new Prisma.Decimal(0)
+        );
+
+        const endingBalance = startingBalance
+          .plus(revenueTotal)
+          .minus(transfersOutTotal)
+          .minus(expensesTotal)
+          .minus(projectsTotal);
 
         return {
           requestedDays,
@@ -326,6 +349,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           revenue: decimalToNumber(revenueTotal),
           transfersOut: decimalToNumber(transfersOutTotal),
           expenses: decimalToNumber(expensesTotal),
+          projects: decimalToNumber(projectsTotal),
           endingBalance: decimalToNumber(endingBalance),
           revenueItems: revenueDecimalItems.map((i) => ({
             date: i.date,
@@ -423,6 +447,9 @@ export default async function ForecastPage({ searchParams }: PageProps) {
   }
   // Notes shown once, muted, under the funding cards.
   const cardNotes: string[] = [];
+  if (projectsFailed) {
+    cardNotes.push("Project spending could not be loaded just now, so planned projects are missing from the projections on this page.");
+  }
   if (cardLoad.error) {
     cardNotes.push("Credit card payments could not be loaded just now, so they are missing from the projections on this page.");
   }
@@ -468,7 +495,9 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       .filter((p) => p.funding?.accountId === acct.id)
       .flatMap((p) => cardPaymentEvents(p, forecastStart, forecastEnd90));
 
-    const allEvents = [...transferEvents, ...incomeEvents, ...billEvents, ...cardEvents];
+    const projectEvents = projectEventsForAccount(forecastProjects, acct.id, forecastStart, forecastEnd90, forecastStart);
+
+    const allEvents = [...transferEvents, ...incomeEvents, ...billEvents, ...cardEvents, ...projectEvents];
     const forecast = buildAccountForecast(startBal, allEvents, minBal, forecastStart, forecastEnd90);
     const breaches = findBreachDays(forecast);
 
@@ -549,7 +578,9 @@ export default async function ForecastPage({ searchParams }: PageProps) {
       .filter((p) => p.funding?.accountId === primaryAcct.id)
       .flatMap((p) => cardPaymentEvents(p, forecastStart, forecastEnd14));
 
-    for (const ev of [...xferEvents, ...incEvents, ...billEventsForSchedule, ...cardEventsForSchedule].sort((a, b) => a.date.getTime() - b.date.getTime())) {
+    const projectEventsForSchedule = projectEventsForAccount(forecastProjects, primaryAcct.id, forecastStart, forecastEnd14, forecastStart);
+
+    for (const ev of [...xferEvents, ...incEvents, ...billEventsForSchedule, ...cardEventsForSchedule, ...projectEventsForSchedule].sort((a, b) => a.date.getTime() - b.date.getTime())) {
       schedule14.push({
         date: ev.date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }),
         description: ev.description,

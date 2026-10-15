@@ -11,13 +11,21 @@ interface Project {
   budget: { toString: () => string };
   description: string | null;
   targetDate: Date | null;
+  accountId: string | null;
+}
+
+interface AccountOption {
+  id: string;
+  nickname: string;
+  mask: string | null;
 }
 
 interface Props {
   project: Project;
+  accounts: AccountOption[];
 }
 
-export function ProjectDetailActions({ project }: Props) {
+export function ProjectDetailActions({ project, accounts }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -27,11 +35,13 @@ export function ProjectDetailActions({ project }: Props) {
   const [targetDate, setTargetDate] = useState(
     project.targetDate ? new Date(project.targetDate).toISOString().split("T")[0] : ""
   );
+  const [accountId, setAccountId] = useState(project.accountId ?? "");
   const [error, setError] = useState<string | null>(null);
 
   function handleSave() {
     if (!name.trim()) { setError("Name is required"); return; }
     if (!budget || parseFloat(budget) <= 0) { setError("Budget must be positive"); return; }
+    if (!accountId) { setError("Choose the account this project is paid from"); return; }
     setError(null);
     startTransition(async () => {
       try {
@@ -40,6 +50,7 @@ export function ProjectDetailActions({ project }: Props) {
           description: description.trim() || undefined,
           budget: parseFloat(budget),
           targetDate: targetDate || null,
+          accountId,
         });
         setEditing(false);
         router.refresh();
@@ -80,9 +91,22 @@ export function ProjectDetailActions({ project }: Props) {
               className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
           </div>
           <div className="space-y-1">
+            <label className="text-sm font-medium">Paid from account</label>
+            <select value={accountId} onChange={(e) => setAccountId(e.target.value)}
+              className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+              <option value="">Choose an account…</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.nickname}{a.mask ? ` ···${a.mask}` : ""}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
             <label className="text-sm font-medium">Target date</label>
             <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)}
               className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+            <p className="text-xs text-muted-foreground">
+              Leave blank for an ongoing project. It is then not counted as a one-time expense in the forecast.
+            </p>
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium">Description</label>

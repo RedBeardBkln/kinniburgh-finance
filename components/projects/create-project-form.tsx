@@ -11,11 +11,18 @@ interface EntityOption {
   navLabel: string | null;
 }
 
-interface Props {
-  entities: EntityOption[];
+export interface AccountOption {
+  id: string;
+  nickname: string;
+  mask: string | null;
 }
 
-export function CreateProjectForm({ entities }: Props) {
+interface Props {
+  entities: EntityOption[];
+  accounts: AccountOption[];
+}
+
+export function CreateProjectForm({ entities, accounts }: Props) {
   const router = useRouter();
   const [show, setShow] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -24,11 +31,13 @@ export function CreateProjectForm({ entities }: Props) {
   const [entityId, setEntityId] = useState(entities[0]?.id ?? "");
   const [budget, setBudget] = useState("");
   const [targetDate, setTargetDate] = useState("");
+  const [accountId, setAccountId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   function handleCreate() {
     if (!name.trim()) { setError("Name is required"); return; }
     if (!budget || parseFloat(budget) <= 0) { setError("Budget must be a positive amount"); return; }
+    if (!accountId) { setError("Choose the account this project is paid from"); return; }
     setError(null);
     startTransition(async () => {
       try {
@@ -38,9 +47,10 @@ export function CreateProjectForm({ entities }: Props) {
           entityId: entityId || undefined,
           budget: parseFloat(budget),
           targetDate: targetDate || undefined,
+          accountId,
         });
         setShow(false);
-        setName(""); setDescription(""); setBudget(""); setTargetDate("");
+        setName(""); setDescription(""); setBudget(""); setTargetDate(""); setAccountId("");
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to create project");
@@ -103,6 +113,20 @@ export function CreateProjectForm({ entities }: Props) {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">
+                Paid from account <span className="text-xs text-muted-foreground font-normal">required</span>
+              </label>
+              <select
+                value={accountId} onChange={(e) => setAccountId(e.target.value)}
+                className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">Choose an account…</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.nickname}{a.mask ? ` ···${a.mask}` : ""}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">
                 Target date <span className="text-xs text-muted-foreground font-normal">optional</span>
               </label>
               <input
@@ -110,6 +134,10 @@ export function CreateProjectForm({ entities }: Props) {
                 className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               />
             </div>
+            <p className="sm:col-span-2 text-xs text-muted-foreground">
+              With a target date, the forecast takes what is left of the budget out of this account on that date. Leave the date
+              blank for an ongoing project: it is not counted as a one-time expense.
+            </p>
             <div className="space-y-1">
               <label className="text-sm font-medium">
                 Description <span className="text-xs text-muted-foreground font-normal">optional</span>
