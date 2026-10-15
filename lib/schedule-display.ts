@@ -12,14 +12,14 @@ export interface ScheduleLike {
   payDay: number | null;
   payDayOfWeek: number | null;
   biweeklyAnchorDate: string | Date | null;
-  /** 1–12; only used when frequency is "annual" or "semiannual". */
+  /** 1–12; only used when frequency is "annual", "semiannual" or "quarterly". */
   payMonth?: number | null;
 }
 
 function normalizeFrequency(
   f: string | null | undefined
-): "monthly" | "weekly" | "biweekly" | "annual" | "semiannual" {
-  return f === "weekly" || f === "biweekly" || f === "annual" || f === "semiannual" ? f : "monthly";
+): "monthly" | "weekly" | "biweekly" | "annual" | "semiannual" | "quarterly" {
+  return f === "weekly" || f === "biweekly" || f === "annual" || f === "semiannual" || f === "quarterly" ? f : "monthly";
 }
 
 /** The two months of a semi-annual bill, ascending (payMonth and payMonth + 6). */
@@ -34,9 +34,14 @@ function ordinal(n: number): string {
   return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]!);
 }
 
+/** The four months of a quarterly bill, ascending (payMonth and every third month after it). */
+function quarterlyMonths(payMonth: number): number[] {
+  return [0, 3, 6, 9].map((k) => ((payMonth - 1 + k) % 12) + 1).sort((a, b) => a - b);
+}
+
 /**
  * Formats a due-date string: "15th" (monthly), "Weekly · Mon", "Biweekly · Mon",
- * "Annual · Oct 15", "Semi-annual · Jun 15 & Dec 15".
+ * "Annual · Oct 15", "Semi-annual · Jun 15 & Dec 15", "Quarterly · Jan 15, Apr 15, Jul 15 & Oct 15".
  */
 export function formatSchedule(s: ScheduleLike): string {
   const frequency = normalizeFrequency(s.frequency);
@@ -49,6 +54,11 @@ export function formatSchedule(s: ScheduleLike): string {
     if (!s.payMonth || !s.payDay) return "Semi-annual · —";
     const [first, second] = semiannualMonths(s.payMonth);
     return `Semi-annual · ${MONTH_NAMES[first - 1]} ${s.payDay} & ${MONTH_NAMES[second - 1]} ${s.payDay}`;
+  }
+  if (frequency === "quarterly") {
+    if (!s.payMonth || !s.payDay) return "Quarterly · —";
+    const dates = quarterlyMonths(s.payMonth).map((m) => `${MONTH_NAMES[m - 1]} ${s.payDay}`);
+    return `Quarterly · ${dates.slice(0, -1).join(", ")} & ${dates[dates.length - 1]}`;
   }
   if (frequency === "weekly") {
     const dayName = s.payDayOfWeek !== null ? DAY_NAMES[s.payDayOfWeek] ?? "—" : "—";
@@ -77,6 +87,9 @@ export function scheduleSortKey(s: ScheduleLike): [number, number] {
   }
   if (frequency === "semiannual") {
     return [2, (s.payMonth ? semiannualMonths(s.payMonth)[0] : 13) * 100 + (s.payDay ?? 99)];
+  }
+  if (frequency === "quarterly") {
+    return [2, (s.payMonth ? quarterlyMonths(s.payMonth)[0]! : 13) * 100 + (s.payDay ?? 99)];
   }
   return [0, s.payDayOfWeek ?? 99];
 }

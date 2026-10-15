@@ -19,12 +19,13 @@ interface Tag {
   shortName: string;
 }
 
-type Frequency = "monthly" | "weekly" | "biweekly" | "annual" | "semiannual";
+type Frequency = "monthly" | "weekly" | "biweekly" | "annual" | "semiannual" | "quarterly";
 
 const FREQUENCY_OPTIONS: { value: Frequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
   { value: "weekly", label: "Weekly" },
   { value: "biweekly", label: "Biweekly" },
+  { value: "quarterly", label: "Quarterly (every 3 months)" },
   { value: "semiannual", label: "Semi-annual (every 6 months)" },
   { value: "annual", label: "Annual" },
 ];
@@ -127,7 +128,7 @@ export function BudgetEditModal({
     frequency !== "monthly" && payDayOfWeekStr !== (originalPayDayOfWeek?.toString() ?? "");
   const biweeklyAnchorChanged = frequency === "biweekly" && biweeklyAnchorDate !== originalBiweeklyAnchorDate;
   const isLumpSum = isLumpSumFrequency(frequency);
-  const isSemiannual = frequency === "semiannual";
+  const isRepeating = frequency === "semiannual" || frequency === "quarterly"; // several payments a year
   const annualChanged =
     isLumpSum &&
     (payMonthStr !== (originalPayMonth?.toString() ?? "1") || annualAmountDueStr !== originalAnnualAmountDue);
@@ -290,7 +291,7 @@ export function BudgetEditModal({
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-sm font-medium">{isSemiannual ? "First Due Month" : "Due Month"}</label>
+                  <label className="text-sm font-medium">{isRepeating ? "First Due Month" : "Due Month"}</label>
                   <select
                     value={payMonthStr}
                     onChange={(e) => setPayMonthStr(e.target.value)}
@@ -317,7 +318,7 @@ export function BudgetEditModal({
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-medium">{isSemiannual ? "Amount Due Each Time" : "Total Amount Due"}</label>
+                <label className="text-sm font-medium">{isRepeating ? "Amount Due Each Time" : "Total Amount Due"}</label>
                 <div className="flex items-center gap-1">
                   <span className="text-muted-foreground">$</span>
                   <input
@@ -331,8 +332,8 @@ export function BudgetEditModal({
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {isSemiannual
-                    ? `The amount paid out on each due date — ${MONTH_OPTIONS[parseInt(payMonthStr, 10) - 1]?.label ?? "the first month"} and six months later.`
+                  {isRepeating
+                    ? `The amount paid out on each due date — ${MONTH_OPTIONS[parseInt(payMonthStr, 10) - 1]?.label ?? "the first month"} and every ${frequency === "quarterly" ? "three" : "six"} months after.`
                     : "The full amount paid out on the due date each year."}
                 </p>
               </div>
@@ -348,7 +349,7 @@ export function BudgetEditModal({
                     <p>
                       <span className="font-medium">⚠ Not accruing enough.</span>{" "}
                       {formatUSD(parseFloat(budgeted))}/mo builds to{" "}
-                      {formatUSD(annualAssessment.projectedAtDueCents / 100)} by {isSemiannual ? "each" : "the"} due date, which is{" "}
+                      {formatUSD(annualAssessment.projectedAtDueCents / 100)} by {isRepeating ? "each" : "the"} due date, which is{" "}
                       {formatUSD(annualAssessment.shortfallCents / 100)} short of{" "}
                       {formatUSD(parseFloat(annualAmountDueStr))}. Set aside at least{" "}
                       {formatUSD(annualAssessment.requiredMonthlyCents / 100)}/mo.
@@ -356,7 +357,7 @@ export function BudgetEditModal({
                   ) : (
                     <p>
                       Fully funded: {formatUSD(parseFloat(budgeted))}/mo builds to{" "}
-                      {formatUSD(annualAssessment.projectedAtDueCents / 100)} by {isSemiannual ? "each" : "the"} due date.
+                      {formatUSD(annualAssessment.projectedAtDueCents / 100)} by {isRepeating ? "each" : "the"} due date.
                     </p>
                   )}
                 </div>

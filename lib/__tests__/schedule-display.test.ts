@@ -40,7 +40,7 @@ describe("formatSchedule", () => {
   });
 
   it("unrecognized frequency string: defaults to monthly formatting", () => {
-    expect(formatSchedule(sched({ frequency: "quarterly", payDay: 5 }))).toBe("5th");
+    expect(formatSchedule(sched({ frequency: "fortnightly", payDay: 5 }))).toBe("5th");
   });
 });
 

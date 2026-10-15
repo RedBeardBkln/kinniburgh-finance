@@ -63,10 +63,11 @@ function billTiming(b: ScheduledBillRow): string {
     case "biweekly":
       return dow !== null ? `every other ${dow}` : "every two weeks";
     case "annual":
-    case "semiannual": {
+    case "semiannual":
+    case "quarterly": {
       const month = b.payMonth !== null && b.payMonth >= 1 && b.payMonth <= 12 ? MONTHS[b.payMonth - 1] : null;
       const day = b.autopayDay !== null ? ` ${b.autopayDay}` : "";
-      return `${b.frequency === "annual" ? "once a year" : "twice a year"}${month !== null ? ` from ${month}${day}` : ""}`;
+      return `${b.frequency === "annual" ? "once a year" : b.frequency === "quarterly" ? "four times a year" : "twice a year"}${month !== null ? ` from ${month}${day}` : ""}`;
     }
     default:
       return b.autopayDay !== null ? `monthly on day ${b.autopayDay}` : "monthly";

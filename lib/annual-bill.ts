@@ -1,26 +1,28 @@
-// Pure, DB-free math for ANNUAL and SEMI-ANNUAL budget lines (property tax,
+// Pure, DB-free math for ANNUAL, SEMI-ANNUAL and QUARTERLY budget lines (property tax,
 // insurance premium, …).
 //
 // Model: the line's monthly budget is transferred into its funding account every
 // month and accrues there; the full amount is paid out in one lump on the due
 // date — once a year (annual) or every six months (semi-annual: the chosen due
-// month and the month six after it, e.g. Jun & Dec). For semi-annual the
-// "amount due" is the amount of EACH payment. All money here is integer cents (never floats), and nothing imports
+// month and the month six after it, e.g. Jun & Dec) or every three months (quarterly: the chosen
+// due month and the months 3, 6 and 9 after it, e.g. Jan, Apr, Jul & Oct). For semi-annual and
+// quarterly the "amount due" is the amount of EACH payment. All money here is integer cents (never floats), and nothing imports
 // Prisma, so it is safe to use from client components as well as the server.
 
 /** Frequencies that accrue monthly and pay out in one lump on a due date. */
-export type LumpSumFrequency = "annual" | "semiannual";
+export type LumpSumFrequency = "annual" | "semiannual" | "quarterly";
 
 export function isLumpSumFrequency(f: string | null | undefined): f is LumpSumFrequency {
-  return f === "annual" || f === "semiannual";
+  return f === "annual" || f === "semiannual" || f === "quarterly";
 }
 
-/** Months between payments: 12 for annual, 6 for semi-annual. */
+/** Months between payments: 12 for annual, 6 for semi-annual, 3 for quarterly. */
 export function cycleMonthsFor(f: string | null | undefined): number {
+  if (f === "quarterly") return 3;
   return f === "semiannual" ? 6 : 12;
 }
 
-/** The month(s) of the year a payment falls in, ascending (semi-annual: month and month + 6). */
+/** The month(s) of the year a payment falls in, ascending (semi-annual: month and month + 6; quarterly: every third month). */
 export function dueMonthsFor(month: number, cycleMonths: number): number[] {
   const months: number[] = [];
   for (let k = 0; k < 12 / cycleMonths; k++) months.push(((month - 1 + k * cycleMonths) % 12) + 1);
@@ -30,9 +32,9 @@ export function dueMonthsFor(month: number, cycleMonths: number): number[] {
 export interface AnnualFundingInput {
   /** The line's monthly budget — the amount transferred in each month. */
   monthlyCents: number;
-  /** Amount due on each due date (the annual total, or each semi-annual payment). */
+  /** Amount due on each due date (the annual total, or each semi-annual / quarterly payment). */
   totalDueCents: number;
-  /** Months between payments (12 = annual, the default; 6 = semi-annual). */
+  /** Months between payments (12 = annual, the default; 6 = semi-annual; 3 = quarterly). */
   cycleMonths?: number;
   /** 1–12 */
   dueMonth: number;

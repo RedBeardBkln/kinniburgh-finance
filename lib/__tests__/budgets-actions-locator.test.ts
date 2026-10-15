@@ -257,7 +257,7 @@ describe("updateBudget", () => {
   it("a validation error after the copy rolls everything back (no half-saved month)", async () => {
     const { state } = makeWorld();
     const res = await updateBudget(loc(T.rent, "2027-01"), { frequency: "annual", budgeted: "100" });
-    expect(res).toEqual({ error: "Due month and day are required for an annual or semi-annual budget line" });
+    expect(res).toEqual({ error: "Due month and day are required for an annual, semi-annual or quarterly budget line" });
     expect(state.committed).toHaveLength(4);
     expect(state.audit).toEqual([]);
     expect(state.rollbacks).toBe(1);

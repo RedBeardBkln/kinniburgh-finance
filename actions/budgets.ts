@@ -117,7 +117,7 @@ export async function updateBudgetLine(
 const AMOUNT_DUE_REGEX = /^\d+(\.\d{1,2})?$/;
 
 /**
- * An annual or semi-annual line needs a due month + day, the amount due, and a monthly set-aside
+ * An annual, semi-annual or quarterly line needs a due month + day, the amount due, and a monthly set-aside
  * (the budget amount) — without the set-aside there is nothing accruing to check.
  * Returns an error message, or null when valid. Callers pass the EFFECTIVE values
  * (after merging with what's already stored on an update).
@@ -128,13 +128,13 @@ function annualScheduleError(v: {
   annualAmountDue: string | null | undefined;
   budgeted: string | null | undefined;
 }): string | null {
-  if (v.payMonth == null || v.payDay == null) return "Due month and day are required for an annual or semi-annual budget line";
+  if (v.payMonth == null || v.payDay == null) return "Due month and day are required for an annual, semi-annual or quarterly budget line";
   if (!isValidAnnualDay(v.payMonth, v.payDay)) return "That day does not exist in the selected month";
   if (!v.annualAmountDue || !AMOUNT_DUE_REGEX.test(v.annualAmountDue) || new Prisma.Decimal(v.annualAmountDue).lte(0)) {
-    return "Amount due is required for an annual or semi-annual budget line (e.g. 4200.00)";
+    return "Amount due is required for an annual, semi-annual or quarterly budget line (e.g. 4200.00)";
   }
   if (!v.budgeted || new Prisma.Decimal(v.budgeted).lte(0)) {
-    return "A monthly budget amount is required for an annual or semi-annual line — it is the amount set aside each month";
+    return "A monthly budget amount is required for an annual, semi-annual or quarterly line — it is the amount set aside each month";
   }
   return null;
 }
@@ -190,7 +190,7 @@ async function upsertBudgetBill(
       biweeklyAnchorDate,
       payMonth: isLumpSum ? payMonth : null,
       ...(annualBudget && { annualBudget }),
-      // An annual/semi-annual bill is paid in one lump on its due date; an accrued-type
+      // An annual/semi-annual/quarterly bill is paid in one lump on its due date; an accrued-type
       // bill would ignore that schedule, so the line's choice wins.
       ...(isLumpSum && { amountType: "static" }),
       active: true,
@@ -219,7 +219,7 @@ const CreateSchema = z.object({
     .regex(/^(\d+(\.\d{1,2})?)?$/, "Must be blank (to auto-sum nested lines) or a positive dollar amount (e.g. 217.00)")
     .optional(),
   payDay: z.number().int().min(1).max(31).optional(),
-  frequency: z.enum(["monthly", "weekly", "biweekly", "annual", "semiannual"]).optional(),
+  frequency: z.enum(["monthly", "weekly", "biweekly", "annual", "semiannual", "quarterly"]).optional(),
   payDayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
   biweeklyAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   payMonth: z.number().int().min(1).max(12).nullable().optional(),
@@ -398,7 +398,7 @@ const UpdateBudgetSchema = z.object({
   payDay: z.number().int().min(1).max(31).nullable().optional(),
   accountId: z.string().uuid().optional(),
   applyToFuture: z.boolean().optional(),
-  frequency: z.enum(["monthly", "weekly", "biweekly", "annual", "semiannual"]).optional(),
+  frequency: z.enum(["monthly", "weekly", "biweekly", "annual", "semiannual", "quarterly"]).optional(),
   payDayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
   biweeklyAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   payMonth: z.number().int().min(1).max(12).nullable().optional(),
