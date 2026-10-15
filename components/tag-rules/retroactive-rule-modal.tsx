@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -10,6 +10,25 @@ import {
   type RetroactiveMatch,
   type AccountOption,
 } from "@/actions/tag-rules";
+
+// The Payee column of the results table can be dragged wider (or nudged with the arrow keys) to read a whole description.
+const PAYEE_WIDTH_KEY = "retro-rule-payee-width";
+const PAYEE_WIDTH_DEFAULT = 200;
+const PAYEE_WIDTH_MIN = 120;
+const PAYEE_WIDTH_MAX = 900;
+
+function clampPayeeWidth(n: number): number {
+  return Math.min(PAYEE_WIDTH_MAX, Math.max(PAYEE_WIDTH_MIN, Math.round(n)));
+}
+
+function loadPayeeWidth(): number {
+  try {
+    const saved = Number(window.localStorage.getItem(PAYEE_WIDTH_KEY));
+    return Number.isFinite(saved) && saved > 0 ? clampPayeeWidth(saved) : PAYEE_WIDTH_DEFAULT;
+  } catch {
+    return PAYEE_WIDTH_DEFAULT;
+  }
+}
 
 type Step = "ask" | "accounts" | "range" | "loading" | "results" | "done";
 
@@ -55,6 +74,50 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
   const [resultMsg, setResultMsg] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  // Payee column width (remembered between uses)
+  const [payeeWidth, setPayeeWidth] = useState<number>(loadPayeeWidth);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  function savePayeeWidth(width: number) {
+    try {
+      window.localStorage.setItem(PAYEE_WIDTH_KEY, String(width));
+    } catch {
+      // storage unavailable: the width just is not remembered
+    }
+  }
+
+  function onResizeDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startWidth: payeeWidth };
+  }
+
+  function onResizeMove(e: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (drag) setPayeeWidth(clampPayeeWidth(drag.startWidth + e.clientX - drag.startX));
+  }
+
+  function onResizeUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    savePayeeWidth(payeeWidth);
+  }
+
+  function onResizeKey(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const next = clampPayeeWidth(payeeWidth + (e.key === "ArrowRight" ? 20 : -20));
+    setPayeeWidth(next);
+    savePayeeWidth(next);
+  }
+
+  function resetPayeeWidth() {
+    setPayeeWidth(PAYEE_WIDTH_DEFAULT);
+    savePayeeWidth(PAYEE_WIDTH_DEFAULT);
+  }
 
   // Account selection
   const [availableAccounts, setAvailableAccounts] = useState<AccountOption[]>([]);
@@ -133,7 +196,7 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <Card className="w-full max-w-2xl max-h-[90vh] flex flex-col shadow-xl">
+      <Card className={`w-full ${step === "results" ? "max-w-5xl" : "max-w-2xl"} max-h-[90vh] flex flex-col shadow-xl`}>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Apply rule retroactively</CardTitle>
         </CardHeader>
@@ -299,8 +362,8 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
                     <strong>{tagName}</strong>. Uncheck any you want to skip.
                   </p>
 
-                  <div className="rounded-md border overflow-hidden">
-                    <table className="w-full text-sm">
+                  <div className="rounded-md border overflow-x-auto">
+                    <table className="w-max min-w-full text-sm">
                       <thead>
                         <tr className="border-b bg-muted/50 text-left text-muted-foreground">
                           <th className="px-3 py-2 w-8">
@@ -318,7 +381,28 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
                             />
                           </th>
                           <th className="px-3 py-2 font-medium">Date</th>
-                          <th className="px-3 py-2 font-medium">Payee</th>
+                          <th
+                            className="relative px-3 py-2 font-medium"
+                            style={{ width: payeeWidth, minWidth: payeeWidth, maxWidth: payeeWidth }}
+                          >
+                            Payee
+                            <div
+                              role="separator"
+                              aria-orientation="vertical"
+                              aria-label="Payee column width. Drag, or use the left and right arrow keys, to resize. Double-click to reset."
+                              aria-valuenow={payeeWidth}
+                              aria-valuemin={PAYEE_WIDTH_MIN}
+                              aria-valuemax={PAYEE_WIDTH_MAX}
+                              tabIndex={0}
+                              title="Drag to widen the Payee column (double-click to reset)"
+                              onPointerDown={onResizeDown}
+                              onPointerMove={onResizeMove}
+                              onPointerUp={onResizeUp}
+                              onKeyDown={onResizeKey}
+                              onDoubleClick={resetPayeeWidth}
+                              className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-primary/30 focus-visible:bg-primary/40 focus-visible:outline-none"
+                            />
+                          </th>
                           <th className="px-3 py-2 font-medium text-right">Amount</th>
                           <th className="px-3 py-2 font-medium">Account</th>
                           <th className="px-3 py-2 font-medium">Tags</th>
@@ -348,7 +432,11 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
                                 timeZone: "UTC",
                               })}
                             </td>
-                            <td className="px-3 py-2 max-w-[200px] truncate">
+                            <td
+                              className="px-3 py-2 truncate"
+                              style={{ width: payeeWidth, minWidth: payeeWidth, maxWidth: payeeWidth }}
+                              title={m.payeeRaw ?? undefined}
+                            >
                               {m.payeeRaw}
                               {!m.isExactMatch && (
                                 <Badge

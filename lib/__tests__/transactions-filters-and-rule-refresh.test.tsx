@@ -83,3 +83,21 @@ describe("a rule applied from one row updates the other rows on screen", () => {
     expect(modal).toMatch(/setStep\("done"\);\s+onApplied\?\.\(\);/);
   });
 });
+
+describe("retroactive rule dialog: resizable Payee column", () => {
+  const modal = read("components/tag-rules/retroactive-rule-modal.tsx");
+
+  it("has a keyboard- and pointer-operable resize handle on the Payee header, with a bounded width", () => {
+    expect(modal).toContain('role="separator"');
+    expect(modal).toMatch(/onPointerDown=\{onResizeDown\}/);
+    expect(modal).toMatch(/onKeyDown=\{onResizeKey\}/);
+    expect(modal).toMatch(/PAYEE_WIDTH_MIN = 120/);
+    expect(modal).toMatch(/PAYEE_WIDTH_MAX = 900/);
+  });
+
+  it("the width applies to the header and every payee cell, the full text is in the tooltip, and the table can scroll sideways", () => {
+    expect((modal.match(/maxWidth: payeeWidth/g) ?? []).length).toBe(2);
+    expect(modal).toContain("title={m.payeeRaw ?? undefined}");
+    expect(modal).toContain("overflow-x-auto");
+  });
+});
