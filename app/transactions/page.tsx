@@ -64,8 +64,12 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     ...(entity && { entityId: entity.id }),
     ...(params.accountId && { accountId: params.accountId }),
     ...(params.tagId && { tags: { some: { tagId: params.tagId } } }),
-    ...(params.dateFrom && { postedAt: { gte: new Date(params.dateFrom) } }),
-    ...(params.dateTo && { postedAt: { lte: new Date(params.dateTo) } }),
+    ...((params.dateFrom || params.dateTo) && {
+      postedAt: {
+        ...(params.dateFrom && { gte: new Date(params.dateFrom) }),
+        ...(params.dateTo && { lte: new Date(params.dateTo) }),
+      },
+    }),
     ...(params.search && {
       OR: [
         { payeeRaw: { contains: params.search, mode: "insensitive" } },
@@ -181,8 +185,13 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     return `/transactions?${q.toString()}` as Route;
   }
 
+  // Switching tabs keeps every applied filter and the sort: they stay in effect until the owner clears them.
   function buildTabUrl(t: string) {
     const q = new URLSearchParams({ bucket, tab: t, page: "1" });
+    for (const key of ["search", "accountId", "tagId", "dateFrom", "dateTo", "sort", "sortDir"] as const) {
+      const value = params[key];
+      if (value) q.set(key, value);
+    }
     return `/transactions?${q.toString()}` as Route;
   }
 
@@ -231,7 +240,18 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
             {[
               { slug: "all", label: "All" },
               { slug: "review", label: "Needs Review" },
-            ].map(({ slug, label }) => (
+            ].map(({ slug, label }) =>
+              // Needs Review means "no tag at all", so it cannot be combined with a tag filter: say so instead of a link
+              // that would quietly land back on All.
+              slug === "review" && params.tagId ? (
+                <span
+                  key={slug}
+                  title="Needs Review shows transactions with no tag. Reset the tag filter to use it."
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted-foreground/50 cursor-not-allowed"
+                >
+                  {label}
+                </span>
+              ) : (
               <Link
                 key={slug}
                 href={buildTabUrl(slug)}
@@ -248,7 +268,8 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                   </span>
                 )}
               </Link>
-            ))}
+              )
+            )}
           </div>
           {tab === "review" && (
             <div className="pb-1 flex items-start gap-2">

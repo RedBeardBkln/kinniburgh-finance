@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
@@ -52,6 +52,13 @@ export function TransactionsFilterBar({
   const [dateFrom, setDateFrom] = useState(currentDateFrom);
   const [dateTo, setDateTo] = useState(currentDateTo);
 
+  // Keep the boxes in step with the address (browser back, a reset, or a link that changes the filters).
+  useEffect(() => { setSearch(currentSearch); }, [currentSearch]);
+  useEffect(() => { setAccountId(currentAccountId); }, [currentAccountId]);
+  useEffect(() => { setTagId(currentTagId); }, [currentTagId]);
+  useEffect(() => { setDateFrom(currentDateFrom); }, [currentDateFrom]);
+  useEffect(() => { setDateTo(currentDateTo); }, [currentDateTo]);
+
   function buildUrl(overrides: Record<string, string | undefined> = {}) {
     const base: Record<string, string> = { bucket, tab, page: "1" };
     if (search) base.search = search;
@@ -73,6 +80,7 @@ export function TransactionsFilterBar({
     startTransition(() => router.push(buildUrl() as Route));
   }
 
+  // Reset every filter and the sort in one go; the tab stays where it is.
   function clear() {
     setSearch("");
     setAccountId("");
@@ -94,7 +102,12 @@ export function TransactionsFilterBar({
     );
   }
 
-  const hasFilters = !!(search || accountId || tagId || dateFrom || dateTo);
+  const sortChanged = currentSort !== "date" || currentSortDir !== "desc";
+  const hasFilters = !!(
+    search || accountId || tagId || dateFrom || dateTo ||
+    currentSearch || currentAccountId || currentTagId || currentDateFrom || currentDateTo ||
+    sortChanged
+  );
 
   return (
     <div className="space-y-2 rounded-lg border bg-card/50 p-3">
@@ -157,15 +170,15 @@ export function TransactionsFilterBar({
           {isPending ? "…" : "Filter"}
         </button>
 
-        {hasFilters && (
-          <button
-            onClick={clear}
-            disabled={isPending}
-            className="h-9 px-3 rounded-md border border-input bg-background text-sm hover:bg-accent disabled:opacity-60"
-          >
-            Clear
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={clear}
+          disabled={isPending || !hasFilters}
+          title={hasFilters ? "Clear the search, dates, account, tag and sort" : "No filters are applied"}
+          className="h-9 px-3 rounded-md border border-input bg-background text-sm hover:bg-accent disabled:opacity-50 disabled:hover:bg-background"
+        >
+          Reset filters
+        </button>
       </div>
 
       {/* Sort row */}

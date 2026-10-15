@@ -251,6 +251,19 @@ export function InlineTagCell({
   const [pendingTagSave, setPendingTagSave] = useState<string[] | null>(null);
   const [retroModal, setRetroModal] = useState<RetroState | null>(null);
 
+  // The server is the source of truth: when a refresh hands this row different tags (a retroactive rule tagged it from
+  // another row, or the list was reloaded) show them, instead of the copy taken when the row first rendered. Skipped
+  // while this cell is mid-edit (rule dialog open, or a save in flight) so its own pending choice is never overwritten.
+  const initialKey = initialTagIds.join(",");
+  const editingRef = useRef(false);
+  useEffect(() => {
+    editingRef.current = rulePrompt !== null || retroModal !== null || isPending;
+  });
+  useEffect(() => {
+    if (!editingRef.current) setTagIds(initialTagIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the joined ids; the array identity changes on every render
+  }, [initialKey]);
+
   // Create tag state
   const [createMode, setCreateMode] = useState(false);
   const [createName, setCreateName] = useState("");
@@ -644,6 +657,7 @@ export function InlineTagCell({
           ruleId={retroModal.ruleId}
           tagName={retroModal.tagName}
           initialAccountId={retroModal.accountId}
+          onApplied={() => router.refresh()}
           onDone={() => {
             setRetroModal(null);
             const ids = pendingTagSave;

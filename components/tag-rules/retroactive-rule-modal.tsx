@@ -42,9 +42,11 @@ interface Props {
   /** Pre-select this account in the account picker (the current transaction's account). */
   initialAccountId?: string;
   onDone: () => void;
+  /** Called as soon as transactions were tagged, so the list behind the dialog can reload right away. */
+  onApplied?: () => void;
 }
 
-export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone }: Props) {
+export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone, onApplied }: Props) {
   const [step, setStep] = useState<Step>("ask");
   const [range, setRange] = useState<DateRange>("90d");
   const [matches, setMatches] = useState<RetroactiveMatch[]>([]);
@@ -113,6 +115,7 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
           `${res.applied} transaction${res.applied !== 1 ? "s" : ""} tagged "${tagName}"`
         );
         setStep("done");
+        onApplied?.();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Apply failed");
       }
