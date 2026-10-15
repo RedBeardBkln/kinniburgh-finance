@@ -6,7 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { getEntityBySlug } from "@/lib/entity";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Wallet, TrendingDown, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Wallet, TrendingDown, AlertTriangle, CheckCircle2, PiggyBank, Landmark } from "lucide-react";
 import { formatUSD, decimalToNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import Link from "next/link";
@@ -14,13 +14,16 @@ import type { Route } from "next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
 import { DrillButton } from "@/components/dashboard/drill-button";
-import { BudgetLinesTable } from "@/components/dashboard/budget-lines-table";
+import { CashOutlook, type CashOutlookData } from "@/components/dashboard/cash-outlook";
 import { resolveEffectiveBudgets } from "@/lib/budget-effective";
 import { loadEffectiveBudgetRows, loadFirstEditContextSafe } from "@/lib/budget-carry-forward-build";
-import { buildMonthSpend, currentPeriodNY, isValidPeriod } from "@/lib/month-spend";
+import { buildMonthSpend, currentPeriodNY, isValidPeriod, type SpendLineInput } from "@/lib/month-spend";
 import { loadMonthTransactions } from "@/lib/month-spend-build";
 import { loadOwnAccountByMask } from "@/lib/own-account-masks-build";
 import { buildDrillData } from "@/lib/dashboard-drill-build";
+import { setExpenseKind } from "@/actions/expense-kind";
+import { buildOverview, elapsedFractionNY, type Overview } from "@/lib/dashboard-overview";
+import { loadKindOverrides, loadLineHistory } from "@/lib/dashboard-overview-build";
 import { budgetedSubline, cadenceText, centsText, type DrillData } from "@/lib/dashboard-drill";
 import { loadUpcomingLedger } from "@/lib/upcoming-ledger-build";
 import { toUiDetection, toUiLedger, type UiDetection, type UiLedger } from "@/lib/upcoming-ledger-view";
@@ -55,7 +58,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     (p === currentPeriod ? `/?bucket=${bucket}` : `/?bucket=${bucket}&period=${p}`) as Route;
 
   // Every widget loads on its own: a failed read blanks that widget only (null = unavailable), never the page.
-  const [budgetRows, tagRows, accounts, scheduledTransfers, recurringRows, monthTxs, ownAccountByMask] = await Promise.all([
+  const [budgetRows, tagRows, accounts, scheduledTransfers, recurringRows, monthTxs, ownAccountByMask, kindOverrides] = await Promise.all([
     settle(
       "budget lines",
       // The month's EFFECTIVE lines (shared loader): its own rows plus lines carried forward from the latest earlier
@@ -109,6 +112,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     settle("month transactions", loadMonthTransactions({ entityId: entity?.id ?? null, period })),
     // Which statement masks are exactly one active account of the household (used only to recognise own-account transfers).
     settle("own account masks", loadOwnAccountByMask()),
+    // The owner's saved Fixed / Variable choices (an unreadable setting just means "no choices": lines are sorted from history).
+    settle("expense kind choices", loadKindOverrides()),
   ]);
 
   // A line that is only carried in this month saves the carried budget when it is edited here; count the months so the
@@ -125,6 +130,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // One model behind every number on the page and in the dialogs: the summary cards, the table, the chart, the
   // cards and the drill-down all read this same payload (lib/month-spend.ts defines what counts as spending).
   let drill: DrillData | null = null;
+  let lineInputs: SpendLineInput[] | null = null;
   if (budgetRows && tagRows && recurringRows && monthTxs && ownAccountByMask) {
     try {
       const tagParent = new Map(tagRows.map((t) => [t.id, t.parentId]));
@@ -134,19 +140,15 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         (tagId) => tagParent.get(tagId)
       );
       const zero = new Prisma.Decimal(0);
-      const model = buildMonthSpend(
-        monthTxs,
-        tagRows,
-        budgetRows.map((b) => ({
-          id: b.id,
-          tagId: b.tagId,
-          accountId: b.accountId,
-          resolved: effective.resolvedById.get(b.id) ?? zero,
-          explicit: effective.explicitById.get(b.id) ?? null,
-          rollover: new Prisma.Decimal(b.rolloverAmount ?? 0),
-        })),
-        { ownAccountByMask }
-      );
+      lineInputs = budgetRows.map((b) => ({
+        id: b.id,
+        tagId: b.tagId,
+        accountId: b.accountId,
+        resolved: effective.resolvedById.get(b.id) ?? zero,
+        explicit: effective.explicitById.get(b.id) ?? null,
+        rollover: new Prisma.Decimal(b.rolloverAmount ?? 0),
+      }));
+      const model = buildMonthSpend(monthTxs, tagRows, lineInputs, { ownAccountByMask });
       drill = buildDrillData({
         model,
         txs: monthTxs,
@@ -196,6 +198,39 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     }
   }
 
+  // Fixed vs variable split and the lines worth a look. The recent months are read per category from the same spend
+  // model; if that read fails every unsorted line counts as variable and the chart says so (never a made-up split).
+  let overview: Overview | null = null;
+  if (drill) {
+    try {
+      const history =
+        lineInputs && tagRows && ownAccountByMask
+          ? await settle(
+              "recent months",
+              loadLineHistory({ entityId: entity?.id ?? null, period, tags: tagRows, lines: lineInputs, ownAccountByMask })
+            )
+          : null;
+      overview = buildOverview({
+        data: drill,
+        history,
+        overrides: kindOverrides ?? {},
+        elapsed: isCurrentPeriod ? elapsedFractionNY(now) : null,
+      });
+    } catch (err) {
+      overview = null;
+      console.error("Dashboard overview unavailable", err instanceof Error ? err.name : "UnknownError");
+    }
+  }
+
+  // Cash on hand for the headline card and the cash outlook: checking and savings balances of the accounts in view.
+  const liquidAccounts = (drill?.accounts ?? []).filter((a) => a.type === "checking" || a.type === "savings");
+  const liquidCents = drill ? liquidAccounts.reduce((sum, a) => sum + (a.balanceCents ?? 0), 0) : null;
+  const unknownBalanceCount = liquidAccounts.filter((a) => a.balanceCents === null).length;
+  const cardsOwedCents = drill
+    ? drill.accounts.filter((a) => a.type === "credit_card").reduce((sum, a) => sum + (a.balanceCents ?? 0), 0)
+    : null;
+  const hasCards = (drill?.accounts ?? []).some((a) => a.type === "credit_card");
+
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <DashboardClient
@@ -211,7 +246,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                 Monthly budget overview{!isCurrentPeriod && " · past month"}
               </p>
             </div>
-            <nav aria-label="Month navigation" className="flex items-center gap-2">
+            <nav aria-label="Month navigation" className="flex flex-wrap items-center gap-2">
+              <Link
+                href={`/budgets?bucket=${bucket}${isCurrentPeriod ? "" : `&period=${period}`}` as Route}
+                className="rounded-md px-3 py-1.5 text-sm text-primary hover:underline"
+              >
+                All budget lines →
+              </Link>
               <Link
                 href={periodHref(prevPeriod)}
                 className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
@@ -239,74 +280,144 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </nav>
           </div>
         }
-      >
-      <div className="space-y-6">
-        {/* Summary cards: each opens the rows behind its number */}
-        <div className="grid gap-4 sm:grid-cols-3">
-          <DrillButton target={{ kind: "budgeted" }} label="Show what makes up Total Budgeted" className="block w-full rounded-xl">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <Wallet className="h-4 w-4 text-primary" />
-                  Total Budgeted
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{drill ? centsText(drill.totalBudgetedCents) : "Unavailable"}</p>
-                {drill && <p className="mt-1 text-xs text-muted-foreground">{budgetedSubline(drill.isAllEntities)}</p>}
-              </CardContent>
-            </Card>
-          </DrillButton>
+        overview={overview}
+        setKind={setExpenseKind}
+        top={
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {/* Spent against the budget, with how far through the month we are */}
+            <DrillButton target={{ kind: "spent" }} label="Show what makes up Spent" className="block w-full rounded-xl lg:col-span-2">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <TrendingDown className="h-4 w-4 text-destructive" />
+                    {isCurrentPeriod ? "Spent This Month" : `Spent in ${formatPeriod(period)}`}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-2xl font-bold">
+                    {drill ? centsText(drill.spentCents) : "Unavailable"}
+                    {drill && drill.totalBudgetedCents > 0 && (
+                      <span className="ml-2 text-sm font-normal text-muted-foreground">of {centsText(drill.totalBudgetedCents)} budgeted</span>
+                    )}
+                  </p>
+                  {drill && drill.totalBudgetedCents > 0 && (
+                    <SpendPaceBar spentCents={drill.spentCents} budgetedCents={drill.totalBudgetedCents} elapsed={overview?.elapsed ?? null} />
+                  )}
+                  {drill && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {drill.refundCount > 0 ? `Net of ${centsText(drill.refundsCents)} refunds` : "Money out, no refunds"}
+                      {drill.pendingCount > 0 ? ` · ${drill.pendingCount} pending` : ""}
+                      {drill.isAllEntities ? " · all entities combined" : ""}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </DrillButton>
 
-          <DrillButton target={{ kind: "spent" }} label="Show what makes up Spent" className="block w-full rounded-xl">
+            {/* What is left of the budget (opens what makes up Total Budgeted) */}
+            <DrillButton target={{ kind: "budgeted" }} label="Show what makes up Total Budgeted" className="block w-full rounded-xl">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <Wallet className="h-4 w-4 text-primary" />
+                    {drill && drill.totalBudgetedCents - drill.spentCents < 0 ? "Over Budget By" : "Left in Budget"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p
+                    className={`text-2xl font-bold ${drill && drill.totalBudgetedCents - drill.spentCents < 0 ? "text-destructive" : ""}`}
+                  >
+                    {drill ? centsText(Math.abs(drill.totalBudgetedCents - drill.spentCents)) : "Unavailable"}
+                  </p>
+                  {drill && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Total budgeted {centsText(drill.totalBudgetedCents)} · {budgetedSubline(drill.isAllEntities)}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </DrillButton>
+
+            <DrillButton target={{ kind: "overspent" }} label="Show which lines are overspent" className="block w-full rounded-xl">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    {drill && drill.overspentCount > 0
+                      ? <AlertTriangle className="h-4 w-4 text-destructive" />
+                      : <CheckCircle2 className="h-4 w-4 text-green-600" />}
+                    Overspent Lines
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className={`text-2xl font-bold ${drill && drill.overspentCount > 0 ? "text-destructive" : "text-green-600"}`}>
+                    {drill ? drill.overspentCount : "Unavailable"}
+                  </p>
+                </CardContent>
+              </Card>
+            </DrillButton>
+
+            {/* Cash on hand */}
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <TrendingDown className="h-4 w-4 text-destructive" />
-                  {isCurrentPeriod ? "Spent This Month" : `Spent in ${formatPeriod(period)}`}
+                  <Landmark className="h-4 w-4 text-primary" />
+                  Cash on Hand
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-2xl font-bold text-destructive">{drill ? centsText(drill.spentCents) : "Unavailable"}</p>
-                {drill && (
+                <p className="text-2xl font-bold">{liquidCents !== null ? centsText(liquidCents) : "Unavailable"}</p>
+                {liquidCents !== null && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {drill.refundCount > 0 ? `Net of ${centsText(drill.refundsCents)} refunds` : "Money out, no refunds"}
-                    {drill.pendingCount > 0 ? ` · ${drill.pendingCount} pending` : ""}
-                    {drill.isAllEntities ? " · all entities combined" : ""}
+                    Checking and savings
+                    {unknownBalanceCount > 0 ? ` · ${unknownBalanceCount} without a balance` : ""}
+                    {hasCards && cardsOwedCents !== null ? ` · ${centsText(cardsOwedCents)} owed on cards` : ""}
                   </p>
                 )}
               </CardContent>
             </Card>
-          </DrillButton>
 
-          <DrillButton target={{ kind: "overspent" }} label="Show which lines are overspent" className="block w-full rounded-xl">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  {drill && drill.overspentCount > 0
-                    ? <AlertTriangle className="h-4 w-4 text-destructive" />
-                    : <CheckCircle2 className="h-4 w-4 text-green-600" />}
-                  Overspent Lines
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className={`text-2xl font-bold ${drill && drill.overspentCount > 0 ? "text-destructive" : "text-green-600"}`}>
-                  {drill ? drill.overspentCount : "Unavailable"}
-                </p>
+            {/* Income against spending: only money tagged as income counts, so say so */}
+            <Card className="sm:col-span-2 lg:col-span-5">
+              <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-2 py-3">
+                <span className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <PiggyBank className="h-4 w-4 text-green-600" />
+                  Income vs spending
+                </span>
+                {drill ? (
+                  <>
+                    <span className="text-sm">
+                      Income tagged <span className="font-semibold tabular-nums">{centsText(drill.incomeCents)}</span>
+                    </span>
+                    <span className="text-sm">
+                      Spent <span className="font-semibold tabular-nums">{centsText(drill.spentCents)}</span>
+                    </span>
+                    <span className="text-sm">
+                      {drill.incomeCents - drill.spentCents < 0 ? "Short by" : "Ahead by"}{" "}
+                      <span
+                        className={`font-semibold tabular-nums ${drill.incomeCents - drill.spentCents < 0 ? "text-destructive" : "text-green-700"}`}
+                      >
+                        {centsText(Math.abs(drill.incomeCents - drill.spentCents))}
+                      </span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Counts deposits tagged as income only. Untagged deposits are not income here.
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-sm text-muted-foreground">Unavailable</span>
+                )}
               </CardContent>
             </Card>
-          </DrillButton>
-        </div>
-
+          </div>
+        }
+      >
+      <div className="space-y-6">
         {/* Next 30 days (current month only) */}
         {isCurrentPeriod && (
           <Suspense key={bucket} fallback={<UpcomingWidgetSkeleton days={30} />}>
-            <UpcomingWidgetSection entityId={entity?.id ?? null} isAggregate={entity === null} bucket={bucket} now={now} />
+            <UpcomingWidgetSection entityId={entity?.id ?? null} isAggregate={entity === null} bucket={bucket} now={now} cashCents={liquidCents} />
           </Suspense>
         )}
-
-        {/* Budget lines table: parents with their nested lines, grouped by account */}
-        <BudgetLinesTable budgetsHref={`/budgets?bucket=${bucket}${isCurrentPeriod ? "" : `&period=${period}`}`} />
 
         {/* Accounts + Scheduled Transfers */}
         <div className="grid gap-4 sm:grid-cols-2">
@@ -421,11 +532,14 @@ async function UpcomingWidgetSection({
   isAggregate,
   bucket,
   now,
+  cashCents,
 }: {
   entityId: string | null;
   isAggregate: boolean;
   bucket: string;
   now: Date;
+  /** Checking and savings balances in view (cents); null = unknown, which hides the cash outlook. */
+  cashCents: number | null;
 }) {
   // undefined = the ledger itself failed (nothing extra to say); null = only the pattern checks failed.
   let upcoming: UiLedger | null = null;
@@ -451,7 +565,47 @@ async function UpcomingWidgetSection({
   } catch (err) {
     console.error("Upcoming ledger unavailable", err instanceof Error ? err.name : "UnknownError");
   }
-  return <UpcomingWidget ledger={upcoming} bucketSlug={bucket} detection={upcomingDetection} />;
+  // Cash outlook: one entity's balances against that entity's scheduled items. The all-entities view keeps the ledger's
+  // one-line-per-entity totals and shows no blended outlook.
+  let outlook: CashOutlookData | null = null;
+  if (upcoming && !upcoming.isAggregate && cashCents !== null) {
+    const toCents = (v: string) => new Prisma.Decimal(v).times(100).toDecimalPlaces(0).toNumber();
+    outlook = {
+      days: upcoming.days,
+      cashCents,
+      inCents: toCents(upcoming.totals.inflow),
+      outCents: toCents(upcoming.totals.outflow),
+      outEstimatedCents: toCents(upcoming.totals.outflowEstimated),
+      unknownAmountCount: upcoming.totals.unknownAmountCount,
+    };
+  }
+  return (
+    <div className="space-y-4">
+      {outlook && <CashOutlook outlook={outlook} forecastHref={`/forecast?bucket=${bucket}`} />}
+      <UpcomingWidget ledger={upcoming} bucketSlug={bucket} detection={upcomingDetection} />
+    </div>
+  );
+}
+
+/** Budget used so far as a bar; for the current month a tick marks how much of the month has passed. */
+function SpendPaceBar({ spentCents, budgetedCents, elapsed }: { spentCents: number; budgetedCents: number; elapsed: number | null }) {
+  const usedPct = Math.max(0, Math.min((spentCents / budgetedCents) * 100, 100));
+  const ahead = elapsed !== null && spentCents / budgetedCents > elapsed + 0.1;
+  const color = spentCents > budgetedCents ? "bg-destructive" : ahead ? "bg-amber-500" : "bg-primary";
+  const used = Math.round((spentCents / budgetedCents) * 100);
+  return (
+    <div className="mt-2">
+      <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted" role="img" aria-label={`${used}% of the budget used`}>
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${usedPct}%` }} />
+        {elapsed !== null && <div className="absolute inset-y-0 w-0.5 bg-foreground/60" style={{ left: `${Math.round(elapsed * 100)}%` }} />}
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {used}% of the budget used
+        {elapsed !== null ? `, ${Math.round(elapsed * 100)}% of the month gone` : ""}
+        {ahead ? " · spending is ahead of the calendar" : ""}
+      </p>
+    </div>
+  );
 }
 
 function shiftPeriod(year: number, month: number, delta: number): string {

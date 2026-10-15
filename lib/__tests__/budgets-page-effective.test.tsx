@@ -289,7 +289,7 @@ describe("the dashboard reads the same rows", () => {
     const fake = arrange();
     vi.spyOn(fake.db.budget, "findMany").mockRejectedValue(new Error("boom postgres://x:y@h/z"));
     const dash = await renderDashboard({ bucket: "personal" });
-    expect(dash).toMatch(/Budget lines are unavailable/);
+    expect(dash).toMatch(/spending numbers are unavailable/);
     expect(JSON.stringify((console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls)).not.toContain("postgres://");
   });
 });

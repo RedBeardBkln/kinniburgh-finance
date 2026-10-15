@@ -23,21 +23,28 @@ export interface SpendingRow {
 interface Props {
   data: SpendingRow[];
   onBarClick?: (lineId: string, trigger: HTMLElement | null) => void;
+  /** Card title; the default is the original "top categories" wording. */
+  title?: string;
+  /** Shown under the title (the Fixed / Variable switch and its totals). */
+  headerExtra?: React.ReactNode;
+  /** Shown instead of the default when there is nothing to draw. */
+  emptyText?: string;
 }
 
 function fmtDollar(v: number): string {
   return `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
-export function SpendingChart({ data, onBarClick }: Props) {
+export function SpendingChart({ data, onBarClick, title = "Spending this month — top categories", headerExtra, emptyText = "No budget data for this period." }: Props) {
   if (data.length === 0) {
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Spending this month — top categories</CardTitle>
+          <CardTitle className="text-base">{title}</CardTitle>
+          {headerExtra}
         </CardHeader>
         <CardContent>
-          <p className="py-4 text-center text-sm text-muted-foreground">No budget data for this period.</p>
+          <p className="py-4 text-center text-sm text-muted-foreground">{emptyText}</p>
         </CardContent>
       </Card>
     );
@@ -47,7 +54,7 @@ export function SpendingChart({ data, onBarClick }: Props) {
     <Card>
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-base">Spending this month — top categories</CardTitle>
+          <CardTitle className="text-base">{title}</CardTitle>
           <div className="flex gap-4 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <span className="inline-block h-2 w-3 rounded-sm bg-slate-300" /> Budget
@@ -57,6 +64,7 @@ export function SpendingChart({ data, onBarClick }: Props) {
             </span>
           </div>
         </div>
+        {headerExtra}
         {onBarClick && <p className="text-xs text-muted-foreground">(click a bar or a name below to drill in)</p>}
       </CardHeader>
       <CardContent>

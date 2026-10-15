@@ -88,7 +88,10 @@ export function BudgetEditModal({
   const [tagId, setTagId] = useState(budget?.tagId ?? "");
   const [budgeted, setBudgeted] = useState(budget?.budgeted ?? "");
   const [payDayStr, setPayDayStr] = useState(budget?.payDay?.toString() ?? "");
-  const [accountId, setAccountId] = useState(budget?.accountId ?? accounts[0]?.id ?? "");
+  // A new line pays from Primary Checking by default (first account when there is none, e.g. a business entity).
+  const [accountId, setAccountId] = useState(
+    budget?.accountId ?? accounts.find((a) => a.nickname === "Primary Checking")?.id ?? accounts[0]?.id ?? ""
+  );
   const [frequency, setFrequency] = useState<Frequency>((budget?.frequency as Frequency | undefined) ?? "monthly");
   const [payMonthStr, setPayMonthStr] = useState(budget?.payMonth?.toString() ?? "1");
   const [annualAmountDueStr, setAnnualAmountDueStr] = useState(budget?.annualAmountDue ?? "");

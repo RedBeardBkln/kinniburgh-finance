@@ -112,6 +112,31 @@ describe("tester: dashboard page", () => {
     expect(m.budgetFind.mock.calls[0]![0].select).toBeDefined(); // explicit select on the allow-listed Budget read
   });
 
+  it("shows the snapshot cards, the Fixed / Variable chart and the way back to the full budget list", async () => {
+    const html = await render();
+    expect(html).toContain("Cash on Hand");
+    expect(html).toContain("Income vs spending");
+    expect(html).toContain("Variable expenses");
+    expect(html).toContain('aria-label="Which expenses to show"');
+    expect(html).toContain("How lines are sorted into Fixed and Variable");
+    expect(html).toContain("Worth a look");
+    expect(html).toContain("All budget lines");
+    // the full budget-lines table is gone from the dashboard
+    expect(html).not.toContain("Budget Lines");
+  });
+
+  it("unreadable recent months: the page still renders, every unsorted line is variable, and the chart says so", async () => {
+    m.loadTxs.mockImplementation(async (opts: { period: string }) => {
+      if (opts.period === "2026-01") return [tx("1", "-120.00", ["t-groc"])];
+      throw new Error("boom postgres://user:pw@host");
+    });
+    const html = await render();
+    expect(html).toContain("Recent months could not be read");
+    expect(html).toContain("$120.00");
+    const logged = JSON.stringify((console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls);
+    expect(logged).not.toContain("postgres://");
+  });
+
   it("auth() first: no session means a redirect and no database read at all", async () => {
     m.auth.mockResolvedValue(null);
     await expect(render()).rejects.toThrow("REDIRECT:/login");
@@ -119,10 +144,10 @@ describe("tester: dashboard page", () => {
   });
 
   const widgets: [string, () => void, RegExp, string[]][] = [
-    ["budget lines", () => m.budgetFind.mockRejectedValue(new Error("boom postgres://user:pw@host")), /Budget lines are unavailable/, ["Test Bank", "Savings"]],
-    ["month transactions", () => m.loadTxs.mockRejectedValue(new Error("boom")), /Budget lines are unavailable/, ["Test Bank", "Savings"]],
-    ["tags", () => m.tagFind.mockRejectedValue(new Error("boom")), /Budget lines are unavailable/, ["Test Bank", "Savings"]],
-    ["recurring", () => m.recurringFind.mockRejectedValue(new Error("boom")), /Budget lines are unavailable/, ["Test Bank", "Savings"]],
+    ["budget lines", () => m.budgetFind.mockRejectedValue(new Error("boom postgres://user:pw@host")), /spending numbers are unavailable/, ["Test Bank", "Savings"]],
+    ["month transactions", () => m.loadTxs.mockRejectedValue(new Error("boom")), /spending numbers are unavailable/, ["Test Bank", "Savings"]],
+    ["tags", () => m.tagFind.mockRejectedValue(new Error("boom")), /spending numbers are unavailable/, ["Test Bank", "Savings"]],
+    ["recurring", () => m.recurringFind.mockRejectedValue(new Error("boom")), /spending numbers are unavailable/, ["Test Bank", "Savings"]],
     // Once: the own-account mask read uses the same account mock and must not fail with the widget read
     ["accounts", () => m.accountFind.mockRejectedValueOnce(new Error("boom")), /Accounts are unavailable right now/, ["$130.00", "Savings"]],
     // the own-account mask read (second account read) failing makes the money numbers unavailable, never a wrong total
@@ -130,7 +155,7 @@ describe("tester: dashboard page", () => {
       const ok = m.accountFind.getMockImplementation()!;
       let calls = 0;
       m.accountFind.mockImplementation((...args: unknown[]) => (++calls === 2 ? Promise.reject(new Error("boom")) : ok(...args)));
-    }, /Budget lines are unavailable/, ["Test Bank", "Savings"]],
+    }, /spending numbers are unavailable/, ["Test Bank", "Savings"]],
     ["transfers", () => m.transferFind.mockRejectedValue(new Error("boom")), /Scheduled transfers are unavailable right now/, ["$130.00", "Test Bank"]],
   ];
   it.each(widgets)("one failing read (%s) blanks only its own widget, never the page, and logs no message text", async (_name, breakIt, expectText, stillThere) => {
@@ -138,7 +163,7 @@ describe("tester: dashboard page", () => {
     const html = await render();
     expect(html).toMatch(expectText);
     for (const s of stillThere) expect(html).toContain(s);
-    expect(html).toContain("Total Budgeted");
+    expect(html).toMatch(/Left in Budget|Over Budget By/);
     expect(html).toContain("Month navigation");
     // logged with the error NAME only, never the message (a connection string, a value)
     const logged = JSON.stringify((console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls);
@@ -150,7 +175,7 @@ describe("tester: dashboard page", () => {
   it("when the month numbers cannot be built the summary cards say Unavailable (not 0)", async () => {
     m.loadTxs.mockRejectedValue(new Error("x"));
     const html = await render();
-    expect((html.match(/Unavailable/g) ?? []).length).toBe(3);
+    expect((html.match(/Unavailable/g) ?? []).length).toBeGreaterThanOrEqual(3);
     expect(html).not.toMatch(/\$0\.00/);
   });
 

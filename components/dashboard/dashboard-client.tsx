@@ -5,7 +5,10 @@ import { SpendingChart, type SpendingRow } from "./spending-chart";
 import { SpendCategoryCards, type CategoryCard } from "./spend-category-cards";
 import { DrilldownDialog } from "./drilldown-dialog";
 import { DrillContext } from "./drill-context";
+import { ExpenseChart, WatchCard } from "./expense-overview";
+import type { SetExpenseKind } from "./kind-sorter";
 import type { DrillData, DrillTarget } from "@/lib/dashboard-drill";
+import type { Overview } from "@/lib/dashboard-overview";
 
 interface Tag {
   id: string;
@@ -20,6 +23,12 @@ interface Props {
   allTags: Tag[];
   /** The page title and month navigation: always rendered first, above the category cards and the chart. */
   header?: React.ReactNode;
+  /** The Fixed / Variable split and the "worth a look" list; null/absent = the plain top-categories chart. */
+  overview?: Overview | null;
+  /** Saves an owner's Fixed / Variable choice (a server action passed from the page). */
+  setKind?: SetExpenseKind;
+  /** The headline summary cards, rendered between the header and the category cards. */
+  top?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -28,7 +37,7 @@ interface Props {
  * can open a dialog for its own number through the context (see DrillButton), and every dialog is built from that
  * same payload, so the rows always add up to the number clicked.
  */
-export function DashboardClient({ data, allTags, header, children }: Props) {
+export function DashboardClient({ data, allTags, header, overview = null, setKind, top, children }: Props) {
   const [active, setActive] = useState<{ target: DrillTarget; trigger: HTMLElement | null } | null>(null);
 
   const open = useCallback((target: DrillTarget, trigger?: HTMLElement | null) => {
@@ -69,11 +78,29 @@ export function DashboardClient({ data, allTags, header, children }: Props) {
       <div className="space-y-6">
         {header}
 
+        {/* Headline numbers (server-rendered cards that open the drill-down) */}
+        {top}
+
+        {!data && (
+          <p role="status" className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+            This month&apos;s spending numbers are unavailable right now.
+          </p>
+        )}
+
         {/* Spend category cards: top 6 top-level lines */}
         {topCards.length > 0 && <SpendCategoryCards cards={topCards} onSelect={(id, el) => open({ kind: "line", lineId: id }, el)} />}
 
-        {/* Spending chart: every bar opens its line */}
-        {data && <SpendingChart data={chartData} onBarClick={(id, el) => open({ kind: "line", lineId: id }, el)} />}
+        {/* Spending: Fixed / Variable chart with the lines worth a look, or (no overview) the plain top-categories chart */}
+        {data && overview && setKind ? (
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <ExpenseChart overview={overview} periodLabel={data.periodLabel} onOpen={open} setKind={setKind} />
+            </div>
+            <WatchCard overview={overview} isCurrentPeriod={data.isCurrentPeriod} onOpen={open} />
+          </div>
+        ) : (
+          data && <SpendingChart data={chartData} onBarClick={(id, el) => open({ kind: "line", lineId: id }, el)} />
+        )}
 
         {/* Summary cards, budget lines table and accounts grid are passed as children from the server */}
         {children}
