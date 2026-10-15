@@ -289,6 +289,8 @@ export async function syncPlaidTransactions(itemId: string): Promise<SyncResult>
       liabilitiesNote = "This bank does not provide statement data through Plaid (Liabilities not supported). Enter the due date and statement balance manually via Edit on the account row.";
     } else if (code === "INVALID_PRODUCT") {
       liabilitiesNote = "Statement access was never granted for this bank login. Re-link the bank (Accounts → Re-link) and include card/statement access to enable it.";
+    } else if (code === "ADDITIONAL_CONSENT_REQUIRED") {
+      liabilitiesNote = "Statement access needs one more consent step at the bank. Use Re-link on this bank and approve the statement/liabilities access on the bank's consent screen. If these are checking or savings accounts only, there is no statement data to get and this can be ignored.";
     } else {
       liabilitiesNote = `Statement data unavailable: ${code ?? msg}`;
     }

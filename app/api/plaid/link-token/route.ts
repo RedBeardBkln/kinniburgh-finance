@@ -67,20 +67,42 @@ export async function GET(req: Request) {
   const webhookUrl = `${origin}/api/plaid/webhook`;
   const redirectUri = `${origin}/accounts/connect`;
 
+  const baseRequest = {
+    user: { client_user_id: session.user.id! },
+    client_name: "Banana Stand",
+    country_codes: [CountryCode.Us],
+    language: "en",
+    webhook: webhookUrl,
+    redirect_uri: redirectUri,
+  };
+
   try {
+    // Update mode (re-link, accessToken present) omits `products`. Consent for a
+    // product the Item was not created with (Liabilities, for card statements) has
+    // to be asked for explicitly with `additional_consented_products`; without it
+    // Plaid answers liabilitiesGet with ADDITIONAL_CONSENT_REQUIRED no matter how
+    // often the bank is re-linked. New connections request Transactions +
+    // Liabilities so card statement data is available from day one.
+    if (accessToken) {
+      try {
+        const response = await getPlaidClient().linkTokenCreate({
+          ...baseRequest,
+          access_token: accessToken,
+          additional_consented_products: [Products.Liabilities],
+        });
+        return NextResponse.json({ linkToken: response.data.link_token });
+      } catch (consentErr) {
+        // An institution that cannot take the extra consent must still be re-linkable
+        // for transactions: retry the plain update-mode token below.
+        const c = plaidErrorMessage(consentErr);
+        console.warn("[plaid/link-token] update mode without Liabilities consent", { status: c.status, code: c.code });
+      }
+    }
+
     const response = await getPlaidClient().linkTokenCreate({
-      user: { client_user_id: session.user.id! },
-      client_name: "Banana Stand",
-      // Update mode (re-link, accessToken present) omits `products` — Link
-      // re-authorizes the item and any newly granted products are picked up.
-      // New connections request Transactions + Liabilities so card statement
-      // data is available from day one.
+      ...baseRequest,
       products: accessToken ? undefined : [Products.Transactions, Products.Liabilities],
       access_token: accessToken,
-      country_codes: [CountryCode.Us],
-      language: "en",
-      webhook: webhookUrl,
-      redirect_uri: redirectUri,
     });
 
     return NextResponse.json({ linkToken: response.data.link_token });
