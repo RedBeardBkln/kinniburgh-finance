@@ -201,7 +201,7 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
             <PaymentsList slug={slug} payments={related} openInvoices={openInvoices} canAct={ctx.owner.allowed} />
             {detail.balanceCents > 0 ? (
               <div className="space-y-2 border-t pt-4">
-                <h3 className="text-sm font-semibold">Record a payment</h3>
+                <h3 className="text-sm font-semibold">Record a payment or deposit received</h3>
                 <PaymentForm slug={slug} clientId={detail.clientId} openInvoices={openInvoices} presetInvoiceId={detail.id} todayIso={toIsoDate(today)} canRecord={ctx.owner.allowed} ownerReason={ctx.owner.reason} />
               </div>
             ) : null}

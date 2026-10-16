@@ -22,6 +22,11 @@ import { ErrorLine, Field, INPUT, OkLine, useRunner } from "@/components/invoici
 
 const newKey = () => newRequestKey(); // never a constant: see lib/invoicing/request-key.ts
 const dollars = (cents: number) => `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
+// Display-side only (the server parses and validates the real amount): "1,250.5" -> 125050, anything unclear -> null.
+function typedCents(raw: string): number | null {
+  const m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(raw.trim().replace(/,/g, ""));
+  return m ? Number(m[1]) * 100 + Number((m[2] ?? "").padEnd(2, "0") || "0") : null;
+}
 
 function DepositPicker({
   slug,
@@ -118,6 +123,16 @@ export function PaymentForm({
   const [apply, setApply] = useState<Record<string, string>>(preset ? { [preset.id]: dollars(preset.balanceCents) } : {});
   const [deposit, setDeposit] = useState<string | null>(null);
   const [requestKey, setRequestKey] = useState(newKey);
+  const [applyTouched, setApplyTouched] = useState(false);
+
+  // On an invoice's own page the amount typed is applied to THAT invoice (up to its balance) until the owner edits the Apply column.
+  function changeAmount(v: string) {
+    setAmount(v);
+    if (preset && !applyTouched) {
+      const c = typedCents(v);
+      setApply({ [preset.id]: c !== null && c > 0 ? dollars(Math.min(c, preset.balanceCents)) : "" });
+    }
+  }
 
   if (!canRecord) {
     return <p className="text-sm text-muted-foreground">Only the owner can record payments. {ownerReason}</p>;
@@ -148,6 +163,7 @@ export function PaymentForm({
           setReference("");
           setNotes("");
           setApply({});
+          setApplyTouched(false);
           setDeposit(null);
           setRequestKey(newKey());
         },
@@ -171,7 +187,7 @@ export function PaymentForm({
           </select>
         </Field>
         <Field label="Amount received ($)">
-          <input className={INPUT} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <input className={INPUT} inputMode="decimal" value={amount} onChange={(e) => changeAmount(e.target.value)} />
         </Field>
         <Field label="Processing fee ($, optional)">
           <input className={INPUT} inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} />
@@ -205,8 +221,8 @@ export function PaymentForm({
                   <td>{i.dueDate ?? "—"}</td>
                   <td className="text-right">{formatCents(i.balanceCents)}</td>
                   <td className="flex justify-end gap-1 py-1">
-                    <input className={`${INPUT} max-w-[7rem] text-right`} inputMode="decimal" value={apply[i.id] ?? ""} onChange={(e) => setApply((s) => ({ ...s, [i.id]: e.target.value }))} />
-                    <Button size="sm" variant="ghost" onClick={() => setApply((s) => ({ ...s, [i.id]: dollars(i.balanceCents) }))}>
+                    <input className={`${INPUT} max-w-[7rem] text-right`} inputMode="decimal" value={apply[i.id] ?? ""} onChange={(e) => { setApplyTouched(true); setApply((s) => ({ ...s, [i.id]: e.target.value })); }} />
+                    <Button size="sm" variant="ghost" onClick={() => { setApplyTouched(true); setApply((s) => ({ ...s, [i.id]: dollars(i.balanceCents) })); }}>
                       Full
                     </Button>
                   </td>
@@ -215,7 +231,7 @@ export function PaymentForm({
             </tbody>
           </table>
         )}
-        <p className="text-xs text-muted-foreground">Anything not applied stays as a deposit on account (a prepayment or overpayment) and can be applied to an invoice later.</p>
+        <p className="text-xs text-muted-foreground">The amount you type is applied to this invoice automatically (up to its balance) and reduces what is owed. Only money left over stays as a deposit on account.</p>
       </div>
 
       <div className="space-y-1">
