@@ -171,7 +171,6 @@ export function RemitForm({ slug, profile }: { slug: string; profile: ProfileVie
   const [payee, setPayee] = useState(profile.checkPayableTo ?? "");
   const [bankText, setBankText] = useState("");
   const [editingBank, setEditingBank] = useState(!profile.hasRemitBank);
-  const [includeDefault, setIncludeDefault] = useState(profile.includeRemitToByDefault);
 
   async function loadBank() {
     bank.run(() => revealRemitBankText({ slug }), {
@@ -205,7 +204,7 @@ export function RemitForm({ slug, profile }: { slug: string; profile: ProfileVie
       <div className="space-y-3 border-t pt-4">
         <h3 className="text-sm font-semibold">Bank / ACH instructions (optional)</h3>
         <p className="text-xs text-muted-foreground">
-          Approved exception: text you type here is stored encrypted and is printed only on invoices where you tick &quot;include bank details&quot;. It is never
+          Approved exception: text you type here is stored encrypted and is printed only on invoices where you tick &quot;Print ACH Details&quot; (it is never on by default). It is never
           logged, never sent to the assistant and never shown in the audit trail. It travels inside the PDF you e-mail, so it will exist in the
           recipient&apos;s mailbox.
         </p>
@@ -221,15 +220,11 @@ export function RemitForm({ slug, profile }: { slug: string; profile: ProfileVie
             <Field label="Instructions text (for example bank name, routing and account for ACH)">
               <textarea className={INPUT} rows={4} value={bankText} onChange={(e) => setBankText(e.target.value)} maxLength={1200} />
             </Field>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={includeDefault} disabled={bankText.trim() === ""} onChange={(e) => setIncludeDefault(e.target.checked)} />
-              Include on every new invoice by default (otherwise tick it per invoice)
-            </label>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 disabled={bank.pending}
-                onClick={() => bank.run(() => setRemitBankText({ slug, text: bankText, includeByDefault: includeDefault }), { okMessage: bankText.trim() === "" ? "Bank text cleared." : "Bank text saved.", onSuccess: () => { setBankText(""); setEditingBank(false); } })}
+                onClick={() => bank.run(() => setRemitBankText({ slug, text: bankText, includeByDefault: false }), { okMessage: bankText.trim() === "" ? "Bank text cleared." : "Bank text saved.", onSuccess: () => { setBankText(""); setEditingBank(false); } })}
               >
                 {bankText.trim() === "" ? "Clear bank text" : "Save bank text"}
               </Button>

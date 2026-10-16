@@ -149,7 +149,7 @@ export function InvoiceEditor({
   const [internalNotes, setInternalNotes] = useState(initial?.internalNotes ?? "");
   const [discKind, setDiscKind] = useState<"" | "percent" | "fixed">((initial?.discountKind as "percent" | "fixed" | null) ?? "");
   const [discValue, setDiscValue] = useState(initial?.discountValueText ?? "");
-  const [includeRemitTo, setIncludeRemitTo] = useState(initial ? initial.includeRemitTo : profile.includeRemitToByDefault && profile.hasRemitBank);
+  const [includeRemitTo, setIncludeRemitTo] = useState(initial ? initial.includeRemitTo : false);
   const [showEin, setShowEin] = useState(initial?.showEin ?? false);
   const [lines, setLines] = useState<LineState[]>(() =>
     initial && initial.lines.length > 0
@@ -448,7 +448,7 @@ export function InvoiceEditor({
           </Field>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={includeRemitTo} disabled={!profile.hasRemitBank} onChange={(e) => setIncludeRemitTo(e.target.checked)} />
-            Include bank / ACH details on this invoice {profile.hasRemitBank ? "" : "(none saved in settings)"}
+            Print ACH Details {profile.hasRemitBank ? "" : "(none saved in settings)"}
           </label>
           <p className="text-xs text-muted-foreground">
             {profile.hasMailing ? "The mail-checks-to address and payee always print." : "No mailing address for checks is set in settings."} Terms printed: {profile.termsLabel}.
