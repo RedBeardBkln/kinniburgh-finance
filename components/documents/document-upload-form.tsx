@@ -34,6 +34,7 @@ const DOC_TYPES = [
   { value: "mortgage_interest", label: "Mortgage Interest (1098)" },
   { value: "policy", label: "Insurance Policy (manual)" },
   { value: "statement", label: "Bank/Account Statement (manual)" },
+  { value: "w9", label: "W-9 from a client or contractor (never read by AI)" },
   { value: "other", label: "Other" },
 ] as const;
 

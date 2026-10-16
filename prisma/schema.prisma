@@ -49,6 +49,11 @@ model User {
   taxReturnApprovalsGiven    TaxReturnApproval[] @relation("TaxReturnApprovalApprover")
   taxYearCloseEventsMade     TaxYearCloseEvent[] @relation("TaxYearCloseAuthor")
   utilityUsageCreated        UtilityUsage[]      @relation("UtilityUsageAuthor")
+  clientsCreated             Client[]            @relation("ClientCreator")
+  reimbursableItemsCreated   ReimbursableItem[]  @relation("ReimbursableItemCreator")
+  billingDocumentsCreated    BillingDocument[]   @relation("BillingDocumentCreator")
+  billingPaymentsCreated     BillingPayment[]    @relation("BillingPaymentCreator")
+  billingAllocationsCreated  BillingAllocation[] @relation("BillingAllocationCreator")
   advisorConversations       AdvisorConversation[] @relation("AdvisorConversationOwner")
   advisorMemoriesAuthored    AdvisorMemory[]     @relation("AdvisorMemoryAuthor")
   advisorUsages              AdvisorUsage[]      @relation("AdvisorUsageUser")
@@ -121,6 +126,13 @@ model Entity {
   taxReturnApprovals TaxReturnApproval[]
   taxYearCloseEvents TaxYearCloseEvent[]
   utilityUsage       UtilityUsage[]
+  invoicingProfile   InvoicingProfile?
+  invoicingClients   Client[]
+  reimbursableItems  ReimbursableItem[]
+  billingDocuments   BillingDocument[]
+  billingPayments    BillingPayment[]
+  billingAllocations BillingAllocation[]
+  billingEvents      BillingEvent[]
 }
 
 model Institution {
@@ -214,6 +226,8 @@ model Transaction {
   scheduledTransfer ScheduledTransfer? @relation(fields: [scheduledTransferId], references: [id])
   auditLogs         AuditLog[]
   reviewAssignments TransactionAssignment[]
+  billingPaymentDeposits BillingPayment[] @relation("BillingPaymentDeposit")
+  billingLineCosts       BillingLine[]    @relation("BillingLineCost")
 }
 
 // ─── Tags ─────────────────────────────────────────────────────────────────────
@@ -477,6 +491,7 @@ model Receipt {
   account      Account?      @relation(fields: [accountId], references: [id])
   project      Project?      @relation(fields: [projectId], references: [id])
   transactions Transaction[]
+  billingLines BillingLine[] @relation("BillingLineReceipt")
 }
 
 // ─── GL codes (chart of accounts, imported from QB/CPA in Phase 5) ────────────
@@ -494,6 +509,8 @@ model GlCode {
   entity       Entity        @relation(fields: [entityId], references: [id])
   transactions Transaction[]
   tagMappings  TagGlCodeMapping[]
+  reimbursableItems ReimbursableItem[] @relation("ReimbursableItemGl")
+  billingLines      BillingLine[]      @relation("BillingLineGl")
 
   @@unique([entityId, code])
 }
@@ -590,6 +607,7 @@ model Document {
   bankStatement   BankStatement?
   donationReceipts   Donation[]   @relation("DonationReceipt")
   fixedAssetInvoices FixedAsset[] @relation("FixedAssetInvoice")
+  clientsW9          Client[]     @relation("ClientW9")
 }
 
 // ─── Insurance policies ───────────────────────────────────────────────────────
@@ -1265,6 +1283,294 @@ model UtilityUsage {
   createdBy User?  @relation("UtilityUsageAuthor", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([entityId, kind, period])
+}
+
+// ─── Invoicing (EK Consulting only; plan .claude/pipeline/ek-consulting-invoicing/01-plan.md) ──────────────────────────
+// Phase 1 core. Additive only: new tables, no column on any existing table. Money is integer cents (`...Cents`), calendar days are
+// stored at 00:00 UTC, status / kind / method columns are app-validated text (no DB enums). The accrual books are DERIVED from
+// these rows (lib/invoicing/ledger.ts); a bank `Transaction` is never written or altered, a deposit is LINKED to the payment it
+// settles (BillingPayment.depositTransactionId), like a transfer leg. Nothing here is hard-deleted except the lines of a DRAFT
+// document when the draft is saved (drafts are not financial records). Entity ownership of every referenced row (GL codes,
+// transactions, documents) is enforced in application code, as for TagGlCodeMapping.
+
+model InvoicingProfile {
+  id                     String    @id @default(uuid())
+  entityId               String    @unique
+  enabled                Boolean   @default(false)
+  goLiveOn               DateTime  // 00:00 UTC; no invoice may be issued before it
+  invoicePrefix          String    @default("") // may be the empty string (first invoice 3100 prints as "3100")
+  nextInvoiceNumber      Int       // REQUIRED, owner-supplied at setup; the issue transaction takes and increments it
+  quotePrefix            String    @default("Q-") // quotes print as Q-2001 (owner decision 2026-10-16); invoices keep no prefix
+  nextQuoteNumber        Int       // REQUIRED, owner-supplied at setup (the first quote is 2001); numbered like invoices, at send time (task 1.11)
+  numberPad              Int       @default(0) // 0 = no zero padding
+  defaultNetDays         Int       @default(0) // 0 = due upon receipt
+  termsLabel             String    @default("Due upon receipt")
+  // business block (the Entity row has no address column)
+  businessAddress        String?
+  replyToEmail           String?
+  fromName               String?
+  einEncrypted           String?   // AES-GCM via lib/encrypt.ts; only the last four are ever shown
+  einLast4               String?
+  showEinOnInvoice       Boolean   @default(false)
+  logoKey                String?
+  logoMime               String?
+  footerText             String?
+  termsText              String?
+  // remit-to, two layers (see plan section 5): plain mailing address + check payee, and the OPTIONAL encrypted bank text
+  remitToMailingAddress  String?
+  checkPayableTo         String?
+  remitToEncrypted       String?   // owner-typed bank / ACH instruction text, encrypted; never logged, never in AuditLog / BillingEvent
+  remitToUpdatedAt       DateTime?
+  includeRemitToByDefault Boolean  @default(false)
+  remitToApprovedAt      DateTime?
+  remitToApprovedById    String?   // plain column, no FK
+  // GL role map: { ar, unearned, discounts, billableIncome, processingFees } -> GlCode.id (validated in the action)
+  glMap                  Json?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  entity Entity @relation(fields: [entityId], references: [id])
+}
+
+model Client {
+  id               String    @id @default(uuid())
+  entityId         String
+  name             String
+  addressLine1     String?
+  addressLine2     String?
+  city             String?
+  state            String?
+  postalCode       String?
+  country          String    @default("US")
+  einEncrypted     String?
+  einLast4         String?
+  defaultNetDays   Int?
+  defaultTaxable   Boolean   @default(false) // flag only; no sales-tax calculation exists
+  w9DocumentId     String?
+  w9ReceivedOn     DateTime?
+  notes            String?
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  archivedAt       DateTime?
+
+  entity    Entity          @relation(fields: [entityId], references: [id])
+  createdBy User?           @relation("ClientCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  w9        Document?       @relation("ClientW9", fields: [w9DocumentId], references: [id], onDelete: SetNull)
+  contacts  ClientContact[]
+  documents BillingDocument[]
+  payments  BillingPayment[]
+
+  @@unique([entityId, name])
+  @@index([entityId])
+}
+
+model ClientContact {
+  id               String    @id @default(uuid())
+  clientId         String
+  name             String
+  email            String
+  phone            String?
+  role             String    // billing | project_lead | accounts_payable | other
+  roleLabel        String?   // when role = other
+  receivesInvoices Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  archivedAt       DateTime?
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@index([clientId])
+}
+
+// Catalog only: there is deliberately NO quantity-on-hand column. An invoice line copies cost / markup / price at the time it
+// is drafted, so editing the catalog never changes an issued invoice.
+model ReimbursableItem {
+  id                   String    @id @default(uuid())
+  entityId             String
+  name                 String
+  unit                 String
+  unitCostCents        Int
+  pricingMode          String    // markup | fixed_price
+  markupBps            Int?      // 1500 = 15.00 percent (markup mode)
+  billedUnitPriceCents Int?      // fixed_price mode
+  glCodeId             String
+  taxable              Boolean   @default(false) // flag only
+  createdById          String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  archivedAt           DateTime?
+
+  entity    Entity  @relation(fields: [entityId], references: [id])
+  glCode    GlCode  @relation("ReimbursableItemGl", fields: [glCodeId], references: [id])
+  createdBy User?   @relation("ReimbursableItemCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  lines     BillingLine[]
+
+  @@unique([entityId, name])
+}
+
+// One table for invoice | quote (shared lines, totals and PDF). Phase 1 builds invoices only; the quote columns exist so the
+// quote workflow (task 1.11) needs no ALTER. There is NO tax-amount column. There are NO credit memos: no refunds are ever given,
+// and any customer credit is a deposit (an unapplied BillingPayment) applied to open invoices through BillingAllocation.
+model BillingDocument {
+  id               String    @id @default(uuid())
+  entityId         String
+  kind             String    // invoice | quote
+  clientId         String
+  status           String    // invoice: draft | issued | void ; quote: draft | sent | accepted | declined | void | converted
+  number           Int?      // null while draft; allocated at issue inside the counter transaction
+  displayNumber    String?   // frozen text, e.g. "3100"
+  billingModel     String    @default("general") // general | hourly | project | retainer (descriptive; drives defaults only)
+  title            String?
+  poNumber         String?
+  issueDate        DateTime?
+  dueDate          DateTime?
+  netDays          Int?
+  expiresOn        DateTime?
+  notes            String?   // client-visible
+  internalNotes    String?
+  subtotalCents    Int       @default(0)
+  discountKind     String?   // percent | fixed
+  discountValue    Int?      // basis points or cents
+  discountCents    Int       @default(0)
+  totalCents       Int       @default(0)
+  includeRemitTo   Boolean   @default(false)
+  showEin          Boolean   @default(false)
+  sourceQuoteId    String?   @unique // an invoice made from an accepted quote -> that quote
+  scheduleId       String?   // Phase 3 (no FK until that table exists)
+  schedulePeriod   String?
+  planId           String?   // Phase 3
+  planRole         String?
+  issuedAt         DateTime?
+  sentAt           DateTime?
+  lastSentAt       DateTime?
+  sendCount        Int       @default(0)
+  voidedAt         DateTime?
+  voidReason       String?
+  archivedAt       DateTime? // drafts only
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  entity         Entity            @relation(fields: [entityId], references: [id])
+  client         Client            @relation(fields: [clientId], references: [id])
+  createdBy      User?             @relation("BillingDocumentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  sourceQuote    BillingDocument?  @relation("BillingDocumentSource", fields: [sourceQuoteId], references: [id])
+  convertedTo    BillingDocument?  @relation("BillingDocumentSource")
+  lines          BillingLine[]
+  allocations    BillingAllocation[] @relation("AllocationInvoice")
+  events         BillingEvent[]
+
+  @@unique([entityId, kind, number])
+  @@unique([scheduleId, schedulePeriod])
+  @@index([entityId, kind, status])
+  @@index([clientId])
+}
+
+model BillingLine {
+  id               String   @id @default(uuid())
+  documentId       String
+  sortOrder        Int
+  description      String
+  quantity         Decimal  @db.Decimal(12, 3)
+  unit             String?
+  unitPriceCents   Int
+  discountKind     String?  // percent | fixed
+  discountValue    Int?
+  lineTotalCents   Int
+  glCodeId         String?  // required at issue
+  taxable          Boolean  @default(false)
+  workDate         DateTime?
+  itemId           String?
+  unitCostCents    Int?     // snapshots from the catalog item
+  markupBps        Int?
+  costTransactionId String? // display + margin report only; no accounting effect
+  receiptId        String?
+
+  document        BillingDocument   @relation(fields: [documentId], references: [id])
+  glCode          GlCode?           @relation("BillingLineGl", fields: [glCodeId], references: [id])
+  item            ReimbursableItem? @relation(fields: [itemId], references: [id])
+  costTransaction Transaction?      @relation("BillingLineCost", fields: [costTransactionId], references: [id])
+  receipt         Receipt?          @relation("BillingLineReceipt", fields: [receiptId], references: [id])
+
+  @@index([documentId, sortOrder])
+}
+
+// A client remittance; may cover several invoices or none. The part not applied to an invoice is a DEPOSIT ON ACCOUNT (a
+// liability, "unearned", until it is applied), including a prepayment.
+model BillingPayment {
+  id                   String    @id @default(uuid())
+  entityId             String
+  clientId             String
+  method               String    // check | ach | wire | card | cash | other
+  receivedOn           DateTime
+  amountCents          Int       // gross, > 0 (CHECK in the migration)
+  feeCents             Int       @default(0)
+  reference            String?
+  notes                String?
+  depositTransactionId String?   // NOT unique: one deposit may settle several payments
+  source               String    @default("manual") // manual | stripe
+  requestKey           String?   @unique // client-generated UUID: double-click idempotency
+  status               String    @default("recorded") // recorded | void
+  voidedAt             DateTime?
+  voidReason           String?
+  createdById          String?
+  createdAt            DateTime  @default(now())
+
+  entity             Entity  @relation(fields: [entityId], references: [id])
+  client             Client  @relation(fields: [clientId], references: [id])
+  createdBy          User?   @relation("BillingPaymentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  depositTransaction Transaction? @relation("BillingPaymentDeposit", fields: [depositTransactionId], references: [id])
+  allocations        BillingAllocation[]
+  events             BillingEvent[]
+
+  @@index([entityId, status])
+  @@index([clientId])
+  @@index([depositTransactionId])
+}
+
+// Applies (part of) a payment, i.e. a deposit on account, to an invoice. paymentId is required (there is no other source: no credit
+// memos). CHECK in the migration: amountCents > 0 (Prisma cannot express it). Sum rules are enforced in the store under row locks.
+model BillingAllocation {
+  id           String    @id @default(uuid())
+  entityId     String
+  invoiceId    String
+  paymentId    String
+  amountCents  Int
+  appliedOn    DateTime
+  voidedAt     DateTime?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+
+  entity     Entity           @relation(fields: [entityId], references: [id])
+  invoice    BillingDocument  @relation("AllocationInvoice", fields: [invoiceId], references: [id])
+  payment    BillingPayment   @relation(fields: [paymentId], references: [id])
+  createdBy  User?            @relation("BillingAllocationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+  @@index([paymentId])
+}
+
+// Append-only timeline. `data` carries ids, counts and cents only: never free text, an e-mail address, a TIN or remit-to text.
+// No update or delete path exists (a source-reading test pins it).
+model BillingEvent {
+  id         String   @id @default(uuid())
+  entityId   String
+  documentId String?
+  paymentId  String?
+  clientId   String?
+  kind       String
+  actorId    String?  // plain column, no FK (null = system)
+  eventKey   String?  @unique
+  data       Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  entity   Entity           @relation(fields: [entityId], references: [id])
+  document BillingDocument? @relation(fields: [documentId], references: [id])
+  payment  BillingPayment?  @relation(fields: [paymentId], references: [id])
+
+  @@index([documentId, createdAt])
+  @@index([paymentId, createdAt])
+  @@index([entityId, createdAt])
 }
 
 // One step of the AI review passes (L3) of a TaxReviewRun: run_started (config + estimate), payload (the exact redacted JSON that was

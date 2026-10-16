@@ -79,6 +79,7 @@ const DOC_TYPES = [
   "insurance_policy",
   "utility_bill",
   "tax_return",
+  "w9",
   "other",
 ] as const;
 

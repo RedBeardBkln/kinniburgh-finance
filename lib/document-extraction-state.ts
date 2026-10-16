@@ -91,7 +91,15 @@ export const EXTRACTABLE_DOC_TYPES = [
   "utility_bill",
 ] as const;
 
+/**
+ * docTypes that must NEVER be sent to the AI extractor, whatever else is true. A W-9 carries a taxpayer identification number
+ * (ek-consulting-invoicing). It is in no extraction schema, so it is already refused by the list above; this explicit refusal
+ * keeps it that way even if a type is ever added to the list by mistake (a test pins both).
+ */
+export const NEVER_EXTRACT_DOC_TYPES = ["w9"] as const;
+
 export function isExtractableDocType(docType: string): boolean {
+  if ((NEVER_EXTRACT_DOC_TYPES as readonly string[]).includes(docType)) return false;
   return (EXTRACTABLE_DOC_TYPES as readonly string[]).includes(docType);
 }
 

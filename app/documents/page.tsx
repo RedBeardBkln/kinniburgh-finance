@@ -62,6 +62,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   mortgage_interest: "Mortgage Interest",
   policy: "Policy",
   statement: "Statement",
+  w9: "W-9",
   other: "Other",
 };
 
@@ -76,6 +77,7 @@ const DOC_TYPE_COLORS: Record<string, string> = {
   mortgage_interest: "bg-cyan-50 text-cyan-700 border-cyan-200",
   policy: "bg-teal-50 text-teal-700 border-teal-200",
   statement: "bg-gray-50 text-gray-700 border-gray-200",
+  w9: "bg-slate-50 text-slate-700 border-slate-200",
   other: "bg-muted text-muted-foreground border-border",
 };
 
