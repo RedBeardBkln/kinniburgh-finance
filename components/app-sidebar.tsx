@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { Route } from "next";
 import { inferBucketFromPathname } from "@/lib/buckets";
 import { ForecastContents } from "@/components/forecast/forecast-contents";
+import { INVOICING_SLUGS } from "@/lib/invoicing/entity-gate";
 
 const TAX_BUCKET = "taxes";
 const ENVELOPE_BUCKETS = ["personal", "sudden-valley"] as const;
@@ -67,7 +68,18 @@ function SidebarNavContent({
 
   const envelopeItem = { label: "Envelopes", base: "/envelope" };
 
+  // Invoicing suite: EK Consulting only (the pages re-check the entity gate and the owner/read-only rule on the server).
+  const invoicingItems = INVOICING_SLUGS.includes(activeBucket)
+    ? [
+        { label: "Invoices", base: `/business/${activeBucket}/invoices`, href: buildHref(`/business/${activeBucket}/invoices`) },
+        { label: "Clients", base: `/business/${activeBucket}/clients`, href: buildHref(`/business/${activeBucket}/clients`) },
+        { label: "Billable Items", base: `/business/${activeBucket}/items`, href: buildHref(`/business/${activeBucket}/items`) },
+        { label: "Invoicing Settings", base: `/business/${activeBucket}/invoicing`, href: buildHref(`/business/${activeBucket}/invoicing/settings`) },
+      ]
+    : [];
+
   const businessItems = [
+    ...invoicingItems,
     { label: "Revenue", base: `/business/${activeBucket}/revenue`, href: buildHref(`/business/${activeBucket}/revenue`) },
     { label: "Receipts", base: "/receipts", href: buildHref("/receipts") },
     {
