@@ -22,7 +22,7 @@ Retrieved 2026-10-15 (every URL below was read on that date; `verifiedOn` = 2026
 - Sales tax: the owner states none of his services are taxable in Connecticut. That is an owner statement, NOT verified against DRS. Only a stored `taxable` flag exists; nothing is calculated.
 - A project deposit is revenue when issued (owner statement: non-refundable). A prepaid retainer drawdown is held as unearned revenue until applied (Phase 3); a prepayment is an unapplied payment, the same thing as a deposit on account.
 - No contractor was paid $2,000 or more in 2026, so no 2026 Form 1099-NEC is due in January 2027 (owner statement).
-- Reimbursable items: the GROSS method is the recommended default and is UNCONFIRMED by the owner (open question Q7): the cost stays an ordinary expense, the invoice bills the price into the income account "Billable Expense Income" (present in the CPA chart `data/gl-accounts-ekc-2026.csv`, type Income). The net alternative is not built. Tax treatment of either is **UNVERIFIED** and "needs a professional's input".
+- Reimbursable items: the GROSS method is CONFIRMED by the owner (2026-10-16, was Q7): the cost stays an ordinary expense, the invoice bills the price into the income account "Billable Expense Income" (present in the CPA chart `data/gl-accounts-ekc-2026.csv`, type Income). The net alternative is not built. Tax treatment of gross vs net is **UNVERIFIED** and "needs a professional's input".
 
 ## 3. Verified outside facts
 
@@ -55,7 +55,7 @@ Retrieved 2026-10-15 (every URL below was read on that date; `verifiedOn` = 2026
 
 - Tax treatment of gross vs net reimbursables, of prepaid retainers and deposits, and cash-method eligibility: "needs a professional's input".
 - Connecticut 1099 filing rules for 2026; Connecticut sales tax on the services sold; Stripe ACH maximums; Resend retention; the Vercel plan tier (cron count, function duration) and its commercial-use terms.
-- Owner questions still open: Q7 (reimbursable method), Q9 (should the TY2026 Schedule C read the cash view), Q10b (separate info-returns manifest), Q14b (exact address text, business EIN, bank text default), Q15 (whether ACH details print), Q3b / Q4 / Q6b (From address, retention, Stripe payout bank and production domain).
+- Owner questions still open: Q9 (should the TY2026 Schedule C read the cash view), Q10b (separate info-returns manifest), Q14b (exact address text; the business EIN 87-4718287 may print, owner 2026-10-16, entered in the app by the owner), Q15 (ACH text; it prints only when "Print ACH Details" is ticked per invoice, never by default), Q3b / Q4 / Q6b (From address, retention, Stripe payout bank and production domain).
 
 ## 5. Phase 1 as built (what to check)
 
