@@ -14,6 +14,7 @@ import {
 } from "@/actions/accounts";
 import { ACCOUNT_TYPE_OPTIONS } from "@/lib/account-types";
 import { formatCalendarDate } from "@/lib/card-due";
+import { accountTransactionsHref } from "@/lib/account-links";
 
 const NEW_INSTITUTION_SENTINEL = "__new__";
 
@@ -33,6 +34,8 @@ export interface SerializedAccount {
   ccDataAt: string | null;
   entityId: string;
   entityName: string;
+  /** The account's own entity slug (null = not in nav); used for the per-account Transactions link. */
+  entitySlug: string | null;
   institutionId: string;
   institutionName: string;
   plaidStatus: string | null;
@@ -596,7 +599,13 @@ export function AccountsPageClient({ accounts, institutions, entities, pendingPl
                     {entityAccounts.map((acct) => (
                       <tr key={acct.id} className={`border-b last:border-0 hover:bg-muted/30 ${archivingId === acct.id ? "opacity-30" : ""}`}>
                         <td className="px-4 py-2 whitespace-nowrap">
-                          <span className="font-medium">{acct.nickname}</span>
+                          <Link
+                            href={accountTransactionsHref(acct)}
+                            className="font-medium hover:underline"
+                            title="Show this account's transactions, transfers included"
+                          >
+                            {acct.nickname}
+                          </Link>
                           {acct.mask && <span className="ml-1.5 font-mono text-xs text-muted-foreground">···{acct.mask}</span>}
                         </td>
                         <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">

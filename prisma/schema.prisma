@@ -210,6 +210,7 @@ model Transaction {
   pending            Boolean   @default(false)
   transferPairId     String?   // links the two legs of an internal transfer
   scheduledTransferId String?  // which ScheduledTransfer this transfer pair fulfills, if any
+  ownTransferAccountId String? // one-sided own transfer: the OTHER household account (validated TD mask/alias); set only by lib/transfer-match-runner.ts
   receiptId          String?
   glCodeId           String?
   projectId          String?   // optional assignment to a Project

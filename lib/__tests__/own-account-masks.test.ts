@@ -83,3 +83,23 @@ describe("scope: the mask map belongs to the institution whose wording the label
     void D;
   });
 });
+
+describe("loadOwnAccountByMask: owner-stated former mask (transactions-transfer-hiding)", () => {
+  it("returns 8815 -> the account whose current mask is 3950 (the household Savings account)", async () => {
+    mocks.findMany.mockResolvedValue([
+      { id: "sav", mask: "3950" },
+      { id: "chk", mask: "2566" },
+    ]);
+    const m = await loadOwnAccountByMask();
+    expect(m.get("8815")).toBe("sav");
+    expect(m.get("3950")).toBe("sav");
+    expect(m.get("2566")).toBe("chk");
+  });
+
+  it("uses the shared builder from lib/td-account-masks.ts (same rules as the matcher)", () => {
+    const src = readFileSync(join(process.cwd(), "lib/own-account-masks-build.ts"), "utf8");
+    expect(src).toMatch(/return buildTdMaskMap\(rows\)/);
+    const runner = readFileSync(join(process.cwd(), "lib/transfer-match-runner.ts"), "utf8");
+    expect(runner).toMatch(/buildTdMaskMap\(tdAccounts\)/);
+  });
+});

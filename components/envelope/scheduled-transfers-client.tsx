@@ -281,6 +281,9 @@ export function ScheduledTransfersClient({ transfers, accounts }: Props) {
             `(${result.tiedToSchedule} tied to a schedule) · ${result.leftUnmatched} left unmatched` +
             (result.retroactivelyLinked > 0
               ? ` · ${result.retroactivelyLinked} pre-existing pair(s) newly tied to a schedule`
+              : "") +
+            (result.oneSided.ran
+              ? ` · ${result.oneSided.marked} one-sided transfer${result.oneSided.marked !== 1 ? "s" : ""} marked and hidden`
               : "")
         );
         router.refresh();

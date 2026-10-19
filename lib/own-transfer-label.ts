@@ -2,13 +2,11 @@
 //
 // Historical rows use a double space ("Online  Xfer Transfer to CK x1234"; 224 rows May 2025 to Apr 2026), so runs of
 // whitespace are collapsed BEFORE the strict anchored parse. Everything else stays exact: case-sensitive, nothing before or
-// after the label, a two-letter code and exactly four digits. The TD matcher (lib/transfer-match.ts) keeps its own strict
-// parse unchanged: this file is only for classifying and displaying the label.
-import { parseTransferLeg, type TransferLegParseResult } from "@/lib/transfer-match";
+// after the label, a two-letter code and exactly four digits. The TD matcher (lib/transfer-match.ts) now applies the SAME
+// normalization (normalizeTransferLabel lives there and is re-exported here unchanged) before its strict parse.
+import { normalizeTransferLabel, parseTransferLeg, type TransferLegParseResult } from "@/lib/transfer-match";
 
-export function normalizeTransferLabel(payee: string): string {
-  return payee.replace(/\s+/g, " ").trim();
-}
+export { normalizeTransferLabel };
 
 export function parseOwnTransferLabel(payee: string): TransferLegParseResult | null {
   return parseTransferLeg(normalizeTransferLabel(payee));

@@ -11,6 +11,11 @@ import { AccrualDrawsList } from "@/components/envelope/accrual-draws-list";
 import { db } from "@/lib/db";
 import { formatSchedule } from "@/lib/schedule-display";
 
+// Server actions invoked from this page (Detect Transfers Now: the first one-sided marking run can take tens of seconds)
+// run under this route's function limit. 60s is the Vercel Hobby ceiling without Fluid compute, as in
+// app/queue/[token]/page.tsx (see the UNVERIFIED caveat in app/tax/forms/[year]/final-review/page.tsx).
+export const maxDuration = 60;
+
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
 }

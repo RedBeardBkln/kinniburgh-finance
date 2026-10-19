@@ -17,6 +17,15 @@ import { loadAssignmentStates, loadBatchStatuses, type RowAssignmentState } from
 import { EricReviewPanel } from "@/components/review-queue/eric-review-panel";
 import { checkAssignable, isAssignableEntitySlug, notAssignableMessage } from "@/lib/review-queue";
 import type { Route } from "next";
+import {
+  NEEDS_REVIEW_WHERE,
+  PENDING_NOTE_WHERE,
+  countPendingForReview,
+  pendingNoteText,
+  transferKindOf,
+  transferVisibilityWhere,
+} from "@/lib/transactions-list-filter";
+import { loadOwnAccountByMask } from "@/lib/own-account-masks-build";
 
 interface PageProps {
   searchParams: Promise<{
@@ -58,9 +67,11 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     sort === "amount" ? [{ amount: sortDir }, { id: "asc" }] :
     [{ postedAt: sortDir }, { id: "asc" }];
 
+  // Own-account transfers (paired or one-sided) are hidden, except in the per-account view (an account filter is set),
+  // whose All tab lists them, marked. Needs Review always hides them (NEEDS_REVIEW_WHERE).
   const baseWhere: Prisma.TransactionWhereInput = {
     archivedAt: null,
-    transferPairId: null,
+    ...transferVisibilityWhere(!!params.accountId),
     ...(entity && { entityId: entity.id }),
     ...(params.accountId && { accountId: params.accountId }),
     ...(params.tagId && { tags: { some: { tagId: params.tagId } } }),
@@ -78,11 +89,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     }),
   };
 
-  const needsReviewFilter: Prisma.TransactionWhereInput = {
-    tags: { none: {} },
-    transferPairId: null,
-    pending: false,
-  };
+  const needsReviewFilter: Prisma.TransactionWhereInput = NEEDS_REVIEW_WHERE;
 
   const where: Prisma.TransactionWhereInput = {
     ...baseWhere,
@@ -92,6 +99,30 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   const reviewCount = await db.transaction.count({
     where: { ...baseWhere, ...needsReviewFilter },
   });
+
+  // Needs Review only: "N pending transactions will appear here once they post". Pending rows whose label validates as an
+  // own transfer are left out (they are paired or marked, and hidden, when they post). A failed read omits the note.
+  let pendingNote: string | null = null;
+  if (tab === "review") {
+    try {
+      const [pendingRows, maskMap] = await Promise.all([
+        db.transaction.findMany({
+          where: { ...baseWhere, ...PENDING_NOTE_WHERE },
+          select: { id: true, accountId: true, payeeRaw: true, amount: true },
+        }),
+        loadOwnAccountByMask(),
+      ]);
+      pendingNote = pendingNoteText(
+        countPendingForReview(
+          pendingRows.map((r) => ({ ...r, amount: r.amount.toString() })),
+          maskMap
+        )
+      );
+    } catch (err) {
+      console.error("[transactions] pending note failed:", err instanceof Error ? err.name : "unknown");
+      pendingNote = null;
+    }
+  }
 
   const [transactions, total, allTags, accounts, allProjects, plaidAccountCount] = await Promise.all([
     db.transaction.findMany({
@@ -106,6 +137,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         accountId: true,
         entityId: true,
         transferPairId: true,
+        ownTransferAccountId: true,
         pending: true,
         archivedAt: true,
         projectId: true,
@@ -167,7 +199,8 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
       {
         entityId: tx.entityId,
         archivedAt: tx.archivedAt,
-        transferPairId: tx.transferPairId,
+        // a one-sided own transfer is a transfer leg too (it shows the same "transfer leg" reason)
+        transferPairId: tx.transferPairId ?? (tx.ownTransferAccountId ? "own-transfer" : null),
         pending: tx.pending,
         hasActiveAssignment: state?.kind === "draft" || state?.kind === "with_assignee",
       },
@@ -294,6 +327,14 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
           currentSortDir={sortDir}
         />
 
+        {params.accountId && tab === "all" && (
+          <p className="text-xs text-muted-foreground">Transfers to and from this account are included.</p>
+        )}
+
+        {tab === "review" && pendingNote && (
+          <p className="text-xs text-muted-foreground">{pendingNote}</p>
+        )}
+
         {draftSummary?.assigneeProblem && (
           <p className="text-xs text-muted-foreground">
             Assigning transactions is unavailable: {draftSummary.assigneeProblem}
@@ -322,6 +363,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
             tagIds: tx.tags.map((t) => t.tagId),
             projectId: tx.projectId ?? null,
             transferPairId: tx.transferPairId,
+            transferKind: transferKindOf(tx),
             ...(canAssign && {
               assignKind: assignStates.get(tx.id)?.kind ?? null,
               assignDisabledReason: assignDisabledReason(tx),

@@ -31,6 +31,11 @@ export interface TxRow {
   tagIds: string[];
   projectId: string | null;
   transferPairId: string | null;
+  /**
+   * Own-account transfer leg: "paired" (both legs linked) or "one_sided" (the other account's side is not in the
+   * records). Only the per-account view lists transfer rows. Omitted = derived from transferPairId.
+   */
+  transferKind?: "paired" | "one_sided" | null;
   /** Assignment chip to show under the payee (assign-to-review feature); null = none. */
   assignKind?: AssignmentChipKind | null;
   /** Why this row can't be selected for assignment; null/undefined = selectable. Only meaningful when `assign` is set. */
@@ -297,7 +302,8 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
             )}
             {transactions.map((tx) => {
               const { display, isOutflow } = formatAmount(tx.amount);
-              const isTransfer = tx.transferPairId !== null;
+              const transferKind = tx.transferKind ?? (tx.transferPairId !== null ? "paired" : null);
+              const isTransfer = transferKind !== null;
               // A row that already has tags is no longer "with Eva" in any useful
               // sense (Eric or a rule tagged it since): hide a stale chip.
               const chipKind = visibleChipKind(tx.assignKind ?? null, tx.tagIds.length);
@@ -330,6 +336,18 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                     </Link>
                     {tx.description && (
                       <p className="text-xs text-muted-foreground truncate">{tx.description}</p>
+                    )}
+                    {transferKind && (
+                      <span
+                        className="mt-0.5 mr-1 inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+                        title={
+                          transferKind === "one_sided"
+                            ? "The other account's side of this transfer is not in your records"
+                            : "Transfer between your own accounts"
+                        }
+                      >
+                        {transferKind === "one_sided" ? "Transfer (one side)" : "Transfer"}
+                      </span>
                     )}
                     {canAssign && chipKind && (
                       <span

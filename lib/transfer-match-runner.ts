@@ -3,16 +3,61 @@
 // Transaction.transferPairId (reusing the same mechanism the manual "Add
 // Transfer" flow already sets), and ties the pair to a matching
 // ScheduledTransfer via Transaction.scheduledTransferId when one exists.
+//
+// One-sided own transfers: a valid leg (label names exactly one OTHER active household TD account, direction agrees with
+// the sign) whose other side is not in the records gets the marker Transaction.ownTransferAccountId (the other account's
+// id) and the Transfer Out / Transfer In tag (skipDuplicates; a tag is never removed). This file is the ONLY writer of
+// that column (a guard test pins it). The marking is gated by the AppSetting ONE_SIDED_SETTING_KEY, which only the
+// owner's "Detect Transfers Now" click turns on; a failed read of it counts as off. No logging here (counts are returned).
 
 import { db } from "@/lib/db";
 import { matchTransferLegs, type TransferLegCandidate } from "@/lib/transfer-match";
+import { buildTdMaskMap } from "@/lib/td-account-masks";
+
+/** AppSetting key that turns the one-sided marking on (value "1"). Set only by runTransferMatchingNow. */
+export const ONE_SIDED_SETTING_KEY = "transfer_one_sided_enabled";
+
+export interface OneSidedSummary {
+  /** false = the gate was off (or unreadable): nothing was marked or tagged by the one-sided pass. */
+  ran: boolean;
+  /** NEW markers written this run. */
+  marked: number;
+  /** Transfer tags added to newly marked rows (0 when the row already had it). */
+  tagsAdded: number;
+  /** One-sided legs that already carried the marker (no write). */
+  alreadyMarked: number;
+  /** Newly marked rows that already carried some other tag (the transfer tag is added beside it). */
+  alreadyHadOtherTag: number;
+  /** Newly marked rows whose Transfer Out / Transfer In tag does not exist (marked, no tag created). */
+  tagMissing: number;
+}
 
 export interface TransferMatchSummary {
   matchedPairs: number;
   tiedToSchedule: number;
   leftUnmatched: number;
-  unmatchedByReason: { unresolvable_mask: number; no_counterpart: number };
+  unmatchedByReason: { unresolvable_mask: number; sign_mismatch: number; no_counterpart: number };
   retroactivelyLinked: number;
+  oneSided: OneSidedSummary;
+}
+
+export interface TransferMatchOptions {
+  /** "run" = mark one-sided legs now; "if_enabled" (default) = only when the owner has switched it on. */
+  oneSided?: "run" | "if_enabled";
+}
+
+function emptyOneSided(ran: boolean): OneSidedSummary {
+  return { ran, marked: 0, tagsAdded: 0, alreadyMarked: 0, alreadyHadOtherTag: 0, tagMissing: 0 };
+}
+
+async function oneSidedEnabled(mode: "run" | "if_enabled"): Promise<boolean> {
+  if (mode === "run") return true;
+  try {
+    const row = await db.appSetting.findUnique({ where: { key: ONE_SIDED_SETTING_KEY } });
+    return row?.value === "1";
+  } catch {
+    return false; // fail closed: pairing still runs, nothing is marked
+  }
 }
 
 function scheduleKey(fromAccountId: string, toAccountId: string): string {
@@ -20,7 +65,8 @@ function scheduleKey(fromAccountId: string, toAccountId: string): string {
 }
 
 export async function runTransferMatchingEngine(
-  detectedBy: "cron" | "manual"
+  detectedBy: "cron" | "manual",
+  opts: TransferMatchOptions = {}
 ): Promise<TransferMatchSummary> {
   // TD Bank accounts only — matching is explicitly scoped to "transfers
   // within TD Bank" per the request, not other institutions.
@@ -29,10 +75,8 @@ export async function runTransferMatchingEngine(
     select: { id: true, mask: true },
   });
 
-  const maskToAccountId = new Map<string, string>();
-  for (const acct of tdAccounts) {
-    if (acct.mask) maskToAccountId.set(acct.mask, acct.id);
-  }
+  // Shared resolution with the dashboard: an ambiguous mask fails closed, the owner-stated former mask resolves.
+  const maskToAccountId = buildTdMaskMap(tdAccounts);
   const validAccountIds = tdAccounts.map((a) => a.id);
 
   if (validAccountIds.length === 0) {
@@ -40,24 +84,36 @@ export async function runTransferMatchingEngine(
       matchedPairs: 0,
       tiedToSchedule: 0,
       leftUnmatched: 0,
-      unmatchedByReason: { unresolvable_mask: 0, no_counterpart: 0 },
+      unmatchedByReason: { unresolvable_mask: 0, sign_mismatch: 0, no_counterpart: 0 },
       retroactivelyLinked: 0,
+      oneSided: emptyOneSided(false),
     };
   }
 
   // transferPairId: null makes this idempotent — already-linked rows never
-  // re-enter the candidate pool on a re-run.
+  // re-enter the candidate pool on a re-run. Rows already marked one-sided stay
+  // candidates, so a counterpart that arrives later still pairs. The payee
+  // filter is a coarse prefilter (historical rows have a double space and a
+  // description); the pure parse in lib/transfer-match.ts is the real gate.
   const candidateRows = await db.transaction.findMany({
     where: {
       archivedAt: null,
       transferPairId: null,
       pending: false,
-      description: null,
-      payeeRaw: { startsWith: "Online Xfer Transfer " },
+      AND: [{ payeeRaw: { startsWith: "Online" } }, { payeeRaw: { contains: "Transfer" } }],
       accountId: { in: validAccountIds },
     },
-    select: { id: true, accountId: true, postedAt: true, amount: true, payeeRaw: true },
+    select: {
+      id: true,
+      accountId: true,
+      postedAt: true,
+      amount: true,
+      payeeRaw: true,
+      ownTransferAccountId: true,
+      tags: { select: { tagId: true } },
+    },
   });
+  const rowById = new Map(candidateRows.map((r) => [r.id, r]));
 
   const candidates: TransferLegCandidate[] = candidateRows.map((r) => ({
     id: r.id,
@@ -67,7 +123,7 @@ export async function runTransferMatchingEngine(
     payeeRaw: r.payeeRaw ?? "",
   }));
 
-  const { pairs, unmatched } = matchTransferLegs(candidates, maskToAccountId);
+  const { pairs, unmatched, oneSided } = matchTransferLegs(candidates, maskToAccountId);
 
   // Every schedule, keyed by (fromAccountId, toAccountId). If more than one
   // schedule shares an account pair, the most-recently-created row wins
@@ -104,6 +160,7 @@ export async function runTransferMatchingEngine(
         where: { id: pair.outgoingTxId },
         data: {
           transferPairId: newPairId,
+          ownTransferAccountId: null, // a pair supersedes a one-sided marker
           ...(scheduledTransferId ? { scheduledTransferId } : {}),
         },
       }),
@@ -111,6 +168,7 @@ export async function runTransferMatchingEngine(
         where: { id: pair.incomingTxId },
         data: {
           transferPairId: newPairId,
+          ownTransferAccountId: null,
           ...(scheduledTransferId ? { scheduledTransferId } : {}),
         },
       }),
@@ -118,6 +176,41 @@ export async function runTransferMatchingEngine(
         ? [db.transactionTag.createMany({ data: tagAssignments, skipDuplicates: true })]
         : []),
     ]);
+  }
+
+  // One-sided pass (gated). Never a delete and never a tag removal; the
+  // transaction facts are never changed (the marker is metadata).
+  const oneSidedSummary = emptyOneSided(await oneSidedEnabled(opts.oneSided ?? "if_enabled"));
+  if (oneSidedSummary.ran) {
+    for (const leg of oneSided) {
+      const row = rowById.get(leg.txId);
+      if (!row) continue;
+      if (row.ownTransferAccountId !== null) {
+        oneSidedSummary.alreadyMarked++;
+        continue;
+      }
+      const tag = leg.direction === "to" ? outTag : inTag;
+      const hadOtherTag = row.tags.some((t) => t.tagId !== tag?.id);
+      const result = await db.$transaction(async (tx) => {
+        const upd = await tx.transaction.updateMany({
+          where: { id: leg.txId, transferPairId: null, ownTransferAccountId: null, archivedAt: null },
+          data: { ownTransferAccountId: leg.counterpartAccountId },
+        });
+        if (upd.count === 0) return { marked: 0, tagsAdded: 0 };
+        const tagged = tag
+          ? await tx.transactionTag.createMany({
+              data: [{ transactionId: leg.txId, tagId: tag.id }],
+              skipDuplicates: true,
+            })
+          : { count: 0 };
+        return { marked: upd.count, tagsAdded: tagged.count };
+      });
+      if (result.marked === 0) continue; // changed meanwhile (paired or marked by a concurrent run)
+      oneSidedSummary.marked += result.marked;
+      oneSidedSummary.tagsAdded += result.tagsAdded;
+      if (!tag) oneSidedSummary.tagMissing++;
+      if (hadOtherTag) oneSidedSummary.alreadyHadOtherTag++;
+    }
   }
 
   // Retroactive linking pass: covers pairs just created above *and* any
@@ -157,6 +250,7 @@ export async function runTransferMatchingEngine(
 
   const unmatchedByReason = {
     unresolvable_mask: unmatched.filter((u) => u.reason === "unresolvable_mask").length,
+    sign_mismatch: unmatched.filter((u) => u.reason === "sign_mismatch").length,
     no_counterpart: unmatched.filter((u) => u.reason === "no_counterpart").length,
   };
 
@@ -166,5 +260,6 @@ export async function runTransferMatchingEngine(
     leftUnmatched: unmatched.length,
     unmatchedByReason,
     retroactivelyLinked,
+    oneSided: oneSidedSummary,
   };
 }

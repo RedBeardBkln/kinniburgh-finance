@@ -57,6 +57,7 @@ export default async function AccountsPage({ searchParams }: PageProps) {
     ccDataAt: a.ccDataAt?.toISOString() ?? null,
     entityId: a.entityId,
     entityName: a.entity.name,
+    entitySlug: a.entity.slug,
     institutionId: a.institutionId,
     institutionName: a.institution.name,
     plaidStatus: a.plaidItem?.status ?? null,

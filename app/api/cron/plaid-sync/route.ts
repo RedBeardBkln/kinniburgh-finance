@@ -63,6 +63,12 @@ export async function GET(request: NextRequest) {
       `[cron/plaid-sync] transfer-match linked ${transferMatch.matchedPairs} pair(s), ${transferMatch.tiedToSchedule} tied to a schedule, ${transferMatch.leftUnmatched} left unmatched`
     );
   }
+  if (transferMatch && "oneSided" in transferMatch && transferMatch.oneSided.marked > 0) {
+    // counts only: never a payee, mask or id
+    console.log(
+      `[cron/plaid-sync] transfer-match marked ${transferMatch.oneSided.marked} one-sided own transfer(s), ${transferMatch.oneSided.tagsAdded} tag(s) added`
+    );
+  }
   if (dedupe && "archived" in dedupe && dedupe.archived > 0) {
     console.log(`[cron/plaid-sync] dedupe archived ${dedupe.archived} duplicate(s) across ${dedupe.groups} group(s)`);
   }
