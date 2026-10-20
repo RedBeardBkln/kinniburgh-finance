@@ -13,6 +13,14 @@ import { formatSchedule, scheduleSortKey } from "@/lib/schedule-display";
 import { endLineConfirmText, type LaterAddContext } from "@/lib/budget-first-edit-note";
 import { TableScroll } from "@/components/ui/table-scroll";
 import { RecurringTagSelect } from "@/components/forecast/recurring-tag-select";
+import { ConvertToRecurringModal } from "./convert-to-recurring-modal";
+import {
+  ancestorTags,
+  convertBlockReason,
+  defaultParentId,
+  type ConvertParentLine,
+  type ConvertRecurring,
+} from "@/lib/budget-convert-recurring";
 
 type RecurringExpenseSummary = {
   id: string;
@@ -113,6 +121,8 @@ interface BudgetPageClientProps {
   annualReserveAlerts: AnnualReserveAlert[];
   /** What the Add-line dialog needs to offer "Also add to later saved months" (null = do not offer it). */
   laterAdd?: LaterAddContext | null;
+  /** Recurring expenses of the entities in view (with entity), for the Convert dialog's duplicate check. */
+  recurringForConvert?: Array<ConvertRecurring & { entityId: string }>;
 }
 
 interface BudgetRowForEdit {
@@ -145,11 +155,13 @@ export function BudgetPageClient({
   entityName,
   annualReserveAlerts,
   laterAdd = null,
+  recurringForConvert = [],
 }: BudgetPageClientProps) {
   const router = useRouter();
   const [modal, setModal] = useState<
     | { type: "add" }
     | { type: "edit"; row: BudgetRowForEdit }
+    | { type: "convert"; line: SerializedBudgetLine }
     | null
   >(null);
   const [sortBy, setSortBy] = useState<"alpha" | "due-date">("alpha");
@@ -497,6 +509,22 @@ export function BudgetPageClient({
                                   <button onClick={() => onEdit(b)} className="text-xs text-primary hover:underline">
                                     Edit
                                   </button>
+                                  {ancestorTags(b.tagId, tags).length > 0 && (() => {
+                                    const blocked = convertBlockReason(
+                                      { tagId: b.tagId, frequency: b.frequency, budgetedRaw: b.budgetedRaw, recurringCount: b.recurringExpenses.length },
+                                      tags
+                                    );
+                                    return (
+                                      <button
+                                        onClick={() => setModal({ type: "convert", line: b })}
+                                        disabled={blocked !== null}
+                                        title={blocked ?? "Make this line a recurring expense under a parent category"}
+                                        className="text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+                                      >
+                                        Convert
+                                      </button>
+                                    );
+                                  })()}
                                   <button
                                     onClick={() => onDelete(b)}
                                     disabled={deletingId === b.id}
@@ -625,6 +653,37 @@ export function BudgetPageClient({
           onClose={() => setModal(null)}
         />
       )}
+
+      {modal?.type === "convert" && (() => {
+        const line = modal.line;
+        const parents = ancestorTags(line.tagId, tags);
+        const sameEntity = budgets.filter((x) => x.entityId === line.entityId);
+        const parentLines: Record<string, ConvertParentLine> = {};
+        for (const x of sameEntity) {
+          parentLines[x.tagId] = {
+            budgeted: x.budgeted,
+            additionalAmountCents: x.additionalAmountCents,
+            recurringMonthlySumCents: x.recurringMonthlySumCents,
+          };
+        }
+        const first = defaultParentId(parents, new Set(sameEntity.map((x) => x.tagId)));
+        if (!first) return null;
+        return (
+          <ConvertToRecurringModal
+            locator={{ entityId: line.entityId, tagId: line.tagId, period }}
+            lineName={line.tagName}
+            lineShortName={tags.find((t) => t.id === line.tagId)?.shortName ?? line.tagName}
+            lineBudgeted={line.budgetedRaw ?? 0}
+            periodLabel={periodLabel}
+            laterSavedMonths={line.laterSavedMonths}
+            parents={parents}
+            defaultParentId={first}
+            parentLines={parentLines}
+            recurring={recurringForConvert.filter((r) => r.entityId === line.entityId)}
+            onClose={() => setModal(null)}
+          />
+        );
+      })()}
 
       {modal?.type === "edit" && (
         <BudgetEditModal

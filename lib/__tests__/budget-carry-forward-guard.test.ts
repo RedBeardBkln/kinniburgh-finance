@@ -140,7 +140,7 @@ describe("the carry-forward modules", () => {
     const code = src.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
     const exported = code.split(/\nexport async function /).slice(1);
     expect(exported.map((b) => b.slice(0, b.indexOf("("))).sort()).toEqual(
-      ["createBudget", "deleteBudget", "updateBudget", "updateBudgetAdditionalAmount", "updateBudgetLine"]
+      ["convertBudgetLineToRecurring", "createBudget", "deleteBudget", "updateBudget", "updateBudgetAdditionalAmount", "updateBudgetLine"]
     );
     for (const block of exported) {
       const name = block.slice(0, block.indexOf("("));

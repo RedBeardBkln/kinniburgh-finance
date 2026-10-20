@@ -9,6 +9,7 @@ import { isLumpSumFrequency, isValidAnnualDay } from "@/lib/annual-bill";
 import { currentPeriodNY } from "@/lib/month-spend";
 import {
   addChangesEarlierMonth,
+  effectiveLineAt,
   formatPeriodLabel,
   isTooFarAhead,
   planAddToLaterMonths,
@@ -633,6 +634,101 @@ export async function deleteBudget(
       data: { active: false },
     });
     return { success: true as const, removedMonths: ended.removedMonths };
+  });
+
+  if ("success" in result) revalidateAll();
+  return result;
+}
+
+// ── Convert a line into a recurring expense under a parent tag ────────────────
+
+const ConvertSchema = z.object({ parentTagId: z.string().uuid() });
+
+/** Same comparison as the duplicate check: case and spacing do not make a different expense. */
+function sameExpenseName(a: string, b: string): boolean {
+  return a.trim().replace(/\s+/g, " ").toLowerCase() === b.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * Turns a MONTHLY line with a set amount into a recurring expense linked to one of its ANCESTOR tags, then ends the
+ * line from this month on (the same end as deleteBudget). The recurring expense is named after the line's tag and
+ * takes the line's amount and pay day. When the entity already has a recurring expense of that name under the parent
+ * (e.g. one added from a "looks recurring" suggestion) nothing new is created and only the line is ended. One locked
+ * transaction: a refusal to end the line rolls the new recurring expense back too.
+ */
+export async function convertBudgetLineToRecurring(
+  locator: BudgetLineLocator,
+  options: z.infer<typeof ConvertSchema>
+): Promise<{ success: true; created: boolean; removedMonths: number } | { error: string }> {
+  const user = await requireAuth();
+  const loc = LocatorSchema.safeParse(locator);
+  if (!loc.success) return { error: "Invalid budget line" };
+  const opt = ConvertSchema.safeParse(options);
+  if (!opt.success) return { error: "Choose a parent category" };
+  if (tooFarAhead(loc.data.period)) return { error: TOO_FAR_AHEAD_MESSAGE };
+  const { entityId, tagId, period } = loc.data;
+  const parentTagId = opt.data.parentTagId;
+
+  const result = await inBudgetTransaction(async (tx, rows) => {
+    const line = effectiveLineAt(rows, loc.data);
+    if (!line) throw new BudgetRefusal(STALE_LINE_MESSAGE);
+    if ((line.frequency ?? "monthly") !== "monthly") {
+      throw new BudgetRefusal("Only a monthly line can be converted to a recurring expense.");
+    }
+    if (line.budgeted === null || !line.budgeted.greaterThan(0)) {
+      throw new BudgetRefusal("Set an amount on this line before converting it.");
+    }
+    const cents = line.budgeted.times(100);
+    if (!cents.isInteger()) throw new BudgetRefusal("The line's amount must be whole cents.");
+
+    const tag = await tx.tag.findUnique({ where: { id: tagId }, select: { shortName: true, parentId: true } });
+    if (!tag) throw new BudgetRefusal(STALE_LINE_MESSAGE);
+    // The target must be an ancestor of the line's tag (so the line's transactions roll up to it once the line ends).
+    let ancestor = tag.parentId;
+    for (let depth = 0; ancestor && ancestor !== parentTagId && depth < 20; depth += 1) {
+      const next = await tx.tag.findUnique({ where: { id: ancestor }, select: { parentId: true } });
+      ancestor = next?.parentId ?? null;
+    }
+    if (ancestor !== parentTagId) throw new BudgetRefusal("Choose a parent category of this line.");
+
+    const linkedToLine = await tx.recurringExpense.findMany({ where: { entityId, tagId }, select: { id: true } });
+    if (linkedToLine.length > 0) {
+      throw new BudgetRefusal(
+        "This line already takes its amount from recurring expenses. Move them to another budget line first."
+      );
+    }
+
+    const underParent = await tx.recurringExpense.findMany({
+      where: { entityId, tagId: parentTagId },
+      select: { name: true },
+    });
+    const exists = underParent.some((r) => sameExpenseName(r.name, tag.shortName));
+    if (!exists) {
+      await tx.recurringExpense.create({
+        data: {
+          entityId,
+          name: tag.shortName,
+          amountCents: cents.toNumber(),
+          frequency: "monthly",
+          dueDay: line.payDay ?? null,
+          tagId: parentTagId,
+          notes: null,
+        },
+      });
+    }
+
+    const ended = await endLine(tx, user.id, rows, { entityId, tagId, period });
+    if (!ended.ok) {
+      if (ended.reason === "not_in_view") throw new BudgetRefusal(STALE_LINE_MESSAGE);
+      throw new BudgetRefusal(
+        `This is the only line left in ${formatPeriodLabel(ended.frontier)}; add another line or remove it from the earlier month.`
+      );
+    }
+    await tx.scheduledBill.updateMany({
+      where: { budgetTagId: tagId, budgetEntityId: entityId },
+      data: { active: false },
+    });
+    return { success: true as const, created: !exists, removedMonths: ended.removedMonths };
   });
 
   if ("success" in result) revalidateAll();

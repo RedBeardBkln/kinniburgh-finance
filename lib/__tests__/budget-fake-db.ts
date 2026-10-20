@@ -50,6 +50,16 @@ export interface FakeBill {
   active: boolean;
   [k: string]: unknown;
 }
+export interface FakeRecurring {
+  id: string;
+  entityId: string;
+  name: string;
+  amountCents: number;
+  frequency: string;
+  dueDay: number | null;
+  tagId: string | null;
+  notes: string | null;
+}
 export interface AuditEntry {
   changedBy: string;
   changeType: string;
@@ -112,6 +122,7 @@ export interface FakeDbOptions {
   entities?: FakeEntity[];
   accounts?: FakeAccount[];
   bills?: FakeBill[];
+  recurring?: FakeRecurring[];
   /** Called before every write/read on a transaction client: throw to inject a failure. */
   beforeOp?: (op: string) => void;
 }
@@ -121,6 +132,7 @@ export function createFakeBudgetDb(opts: FakeDbOptions = {}) {
     committed: (opts.rows ?? []).map(cloneRow),
     audit: [] as AuditEntry[],
     bills: (opts.bills ?? []).map((b) => ({ ...b })),
+    recurring: (opts.recurring ?? []).map((r) => ({ ...r })),
     tags: opts.tags ?? [],
     entities: opts.entities ?? [],
     accounts: opts.accounts ?? [],
@@ -297,11 +309,13 @@ export function createFakeBudgetDb(opts: FakeDbOptions = {}) {
       let working = null as FakeBudgetRow[] | null;
       let workingBills = null as FakeBill[] | null;
       let workingAudit = null as AuditEntry[] | null;
+      let workingRecurring = null as FakeRecurring[] | null;
       let locked = false;
       const ensure = () => {
         if (working === null) {
           working = state.committed.map(cloneRow);
           workingBills = state.bills.map((b) => ({ ...b }));
+          workingRecurring = state.recurring.map((r) => ({ ...r }));
           workingAudit = [];
         }
       };
@@ -339,12 +353,28 @@ export function createFakeBudgetDb(opts: FakeDbOptions = {}) {
           () => (ensure(), workingAudit as AuditEntry[]),
           op
         ),
+        recurringExpense: {
+          findMany: async (args: { where?: { entityId?: string; tagId?: string } } = {}) => {
+            op("recurringExpense.findMany");
+            const w = args.where ?? {};
+            return (workingRecurring as FakeRecurring[])
+              .filter((r) => (w.entityId === undefined || r.entityId === w.entityId) && (w.tagId === undefined || r.tagId === w.tagId))
+              .map((r) => ({ ...r }));
+          },
+          create: async (args: { data: Omit<FakeRecurring, "id"> }) => {
+            op("recurringExpense.create");
+            const row = { ...args.data, id: newId() } as FakeRecurring;
+            workingRecurring = [...(workingRecurring as FakeRecurring[]), row];
+            return { ...row };
+          },
+        },
       };
       try {
         const result = await fn(tx);
         if (working !== null) {
           state.committed = working;
           state.bills = workingBills as FakeBill[];
+          state.recurring = workingRecurring as FakeRecurring[];
           state.audit.push(...(workingAudit as AuditEntry[]));
         }
         state.commits += 1;

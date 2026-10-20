@@ -271,6 +271,13 @@ export default async function BudgetsPage({ searchParams }: PageProps) {
           entityName={bucketLabel}
           annualReserveAlerts={annualReserveAlerts}
           laterAdd={laterAdd}
+          recurringForConvert={recurringExpenses.map((e) => ({
+            entityId: e.entityId,
+            name: e.name,
+            tagId: e.tagId,
+            amountCents: e.amountCents,
+            frequency: e.frequency,
+          }))}
         />
       </div>
     </AppShell>
