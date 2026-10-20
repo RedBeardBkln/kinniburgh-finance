@@ -63,6 +63,7 @@ import {
   type ForecastAccount as BusinessForecastAccount,
   type ForecastHorizon as BusinessForecastHorizon,
 } from "@/components/forecast/business-forecast-section";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string; horizon?: string; transfers?: string }>;
@@ -797,7 +798,7 @@ export default async function ForecastPage({ searchParams }: PageProps) {
                     <label className="text-xs font-medium">
                       {acct.nickname}{acct.mask ? ` ···${acct.mask}` : ""}
                     </label>
-                    <div className="flex gap-1">
+                    <div className="flex flex-wrap gap-1">
                       <input
                         name="balance"
                         type="number"
@@ -901,8 +902,8 @@ export default async function ForecastPage({ searchParams }: PageProps) {
               }
             >
               <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Credit Card Funding — {fa.account.nickname}</CardTitle>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardTitle className="min-w-0 text-base">Credit Card Funding — {fa.account.nickname}</CardTitle>
                   <span
                     className={`rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${
                       fa.status === "shortfall"
@@ -1078,33 +1079,35 @@ export default async function ForecastPage({ searchParams }: PageProps) {
                 No scheduled events in the next 14 days
               </p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-2 font-medium">Date</th>
-                    <th className="px-4 py-2 font-medium">Description</th>
-                    <th className="px-4 py-2 font-medium text-right">Amount</th>
-                    <th className="px-4 py-2 font-medium">Type</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {schedule14.map((ev, i) => (
-                    <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="px-4 py-2 text-muted-foreground">{ev.date}</td>
-                      <td className="px-4 py-2">{ev.description}</td>
-                      <td className={`px-4 py-2 text-right font-mono font-medium ${ev.amount < 0 ? "text-destructive" : "text-green-600"}`}>
-                        {ev.amount < 0 ? "-" : "+"}
-                        {formatUSD(Math.abs(ev.amount))}
-                      </td>
-                      <td className="px-4 py-2">
-                        <Badge variant="outline" className="text-xs">
-                          {ev.type.replace("_", " ")}
-                        </Badge>
-                      </td>
+              <TableScroll>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-2 font-medium">Date</th>
+                      <th className="px-4 py-2 font-medium">Description</th>
+                      <th className="px-4 py-2 font-medium text-right">Amount</th>
+                      <th className="px-4 py-2 font-medium">Type</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {schedule14.map((ev, i) => (
+                      <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="px-4 py-2 text-muted-foreground">{ev.date}</td>
+                        <td className="px-4 py-2">{ev.description}</td>
+                        <td className={`px-4 py-2 text-right font-mono font-medium ${ev.amount < 0 ? "text-destructive" : "text-green-600"}`}>
+                          {ev.amount < 0 ? "-" : "+"}
+                          {formatUSD(Math.abs(ev.amount))}
+                        </td>
+                        <td className="px-4 py-2">
+                          <Badge variant="outline" className="text-xs">
+                            {ev.type.replace("_", " ")}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableScroll>
             )}
           </CardContent>
         </Card>
@@ -1187,57 +1190,59 @@ export default async function ForecastPage({ searchParams }: PageProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             {incomeSources.length > 0 && (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-0 py-2 font-medium">Description</th>
-                    <th className="px-4 py-2 font-medium">Cadence</th>
-                    <th className="px-4 py-2 font-medium text-right">Take-home used</th>
-                    <th className="px-4 py-2 font-medium text-right">Gross</th>
-                    <th className="px-4 py-2 font-medium">Account</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {incomeSources.map((s) => {
-                    const rules = s.dayRules as Record<string, unknown>;
-                    let cadenceLabel = s.cadence;
-                    if (s.cadence === "semi_monthly") {
-                      const days = rules["daysOfMonth"] as number[] | undefined;
-                      cadenceLabel = `Semi-monthly (${days?.join(" & ")})`;
-                    } else if (s.cadence === "biweekly") {
-                      cadenceLabel = "Biweekly";
-                    }
-                    return (
-                      <tr key={s.id} className="border-b last:border-0">
-                        <td className="px-0 py-2 font-medium">
-                          {s.description}
-                          <p
-                            className={`text-xs font-normal ${s.netInfo.assumption ? "text-amber-700" : "text-muted-foreground"}`}
+              <TableScroll>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-0 py-2 font-medium">Description</th>
+                      <th className="px-4 py-2 font-medium">Cadence</th>
+                      <th className="px-4 py-2 font-medium text-right">Take-home used</th>
+                      <th className="px-4 py-2 font-medium text-right">Gross</th>
+                      <th className="px-4 py-2 font-medium">Account</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {incomeSources.map((s) => {
+                      const rules = s.dayRules as Record<string, unknown>;
+                      let cadenceLabel = s.cadence;
+                      if (s.cadence === "semi_monthly") {
+                        const days = rules["daysOfMonth"] as number[] | undefined;
+                        cadenceLabel = `Semi-monthly (${days?.join(" & ")})`;
+                      } else if (s.cadence === "biweekly") {
+                        cadenceLabel = "Biweekly";
+                      }
+                      return (
+                        <tr key={s.id} className="border-b last:border-0">
+                          <td className="px-0 py-2 font-medium">
+                            {s.description}
+                            <p
+                              className={`text-xs font-normal ${s.netInfo.assumption ? "text-amber-700" : "text-muted-foreground"}`}
+                            >
+                              {s.netInfo.label}
+                            </p>
+                            {s.netInfo.timing && (
+                              <p className="text-xs font-normal text-muted-foreground">{s.netInfo.timing.text}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-muted-foreground">{cadenceLabel}</td>
+                          <td
+                            className={`px-4 py-2 text-right font-medium ${s.netInfo.assumption ? "text-amber-700" : "text-green-600"}`}
                           >
-                            {s.netInfo.label}
-                          </p>
-                          {s.netInfo.timing && (
-                            <p className="text-xs font-normal text-muted-foreground">{s.netInfo.timing.text}</p>
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-muted-foreground">{cadenceLabel}</td>
-                        <td
-                          className={`px-4 py-2 text-right font-medium ${s.netInfo.assumption ? "text-amber-700" : "text-green-600"}`}
-                        >
-                          {s.netInfo.variable ? "~" : ""}+{formatUSD(decimalToNumber(new Prisma.Decimal(s.amount)))}
-                          {s.netInfo.assumption && <span className="block text-xs font-normal">gross, take-home unknown</span>}
-                        </td>
-                        <td className="px-4 py-2 text-right text-muted-foreground">
-                          {formatUSD(decimalToNumber(new Prisma.Decimal(s.grossAmount)))}
-                        </td>
-                        <td className="px-4 py-2 text-xs text-muted-foreground">
-                          {s.account ? `${s.account.nickname} ···${s.account.mask ?? ""}` : ""}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                            {s.netInfo.variable ? "~" : ""}+{formatUSD(decimalToNumber(new Prisma.Decimal(s.amount)))}
+                            {s.netInfo.assumption && <span className="block text-xs font-normal">gross, take-home unknown</span>}
+                          </td>
+                          <td className="px-4 py-2 text-right text-muted-foreground">
+                            {formatUSD(decimalToNumber(new Prisma.Decimal(s.grossAmount)))}
+                          </td>
+                          <td className="px-4 py-2 text-xs text-muted-foreground">
+                            {s.account ? `${s.account.nickname} ···${s.account.mask ?? ""}` : ""}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </TableScroll>
             )}
 
             {/* Add income source form */}

@@ -238,7 +238,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         allTags={tagRows ?? []}
         header={
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <h1 className="text-2xl font-semibold">
                 {bucketLabel} — {formatPeriod(period)}
               </h1>

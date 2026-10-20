@@ -16,6 +16,7 @@ import { loadYearCloseStates } from "@/lib/tax-year-close-store";
 import { widgetStatus, type YearState } from "@/lib/tax-year-close/state";
 import Link from "next/link";
 import type { Route } from "next";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 export default async function TaxPage() {
   const session = await auth();
@@ -132,8 +133,8 @@ export default async function TaxPage() {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold">Tax Workspaces</h1>
             <p className="text-sm text-muted-foreground">
               Filing workspaces organized by tax year — one per entity. Financial
@@ -146,7 +147,7 @@ export default async function TaxPage() {
 
         {years.map((year) => (
           <section key={year} id={`year-${year}`} className="space-y-3">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold">{year}</h2>
               <YearStateBadge state={yearStates.get(year)} />
               {year === currentYear && (
@@ -180,53 +181,55 @@ export default async function TaxPage() {
           ) : (
             <Card>
               <CardContent className="p-0">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="px-4 py-2 font-medium">Entity</th>
-                      <th className="px-4 py-2 font-medium">Label</th>
-                      <th className="px-4 py-2 font-medium">Type</th>
-                      <th className="px-4 py-2 font-medium">Due Date</th>
-                      <th className="px-4 py-2 font-medium">Status</th>
-                      <th className="px-4 py-2 font-medium" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {deadlines.map((d) => {
-                      const info = getDeadlineInfo(d.dueDate);
-                      return (
-                        <tr key={d.id} className="border-b last:border-0 hover:bg-muted/30">
-                          <td className="px-4 py-2 text-xs text-muted-foreground">
-                            {d.entity.name.split(",")[0]}
-                          </td>
-                          <td className="px-4 py-2 font-medium">{ownerWording(d.label)}</td>
-                          <td className="px-4 py-2 text-xs">
-                            <span className="rounded-full bg-muted px-2 py-0.5">
-                              {TYPE_LABELS[d.type] ?? d.type}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 tabular-nums">
-                            {d.dueDate.toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                              timeZone: "America/New_York",
-                            })}
-                            <span className={`ml-2 text-xs font-medium ${info.overdue ? "text-destructive" : info.soon ? "text-amber-600" : "text-muted-foreground"}`}>
-                              {info.label}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2">
-                            <DeadlineStatusBadge status={d.status} />
-                          </td>
-                          <td className="px-4 py-2">
-                            {d.status === "upcoming" && <MarkFiledButton id={d.id} />}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <TableScroll>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="px-4 py-2 font-medium">Entity</th>
+                        <th className="px-4 py-2 font-medium">Label</th>
+                        <th className="px-4 py-2 font-medium">Type</th>
+                        <th className="px-4 py-2 font-medium">Due Date</th>
+                        <th className="px-4 py-2 font-medium">Status</th>
+                        <th className="px-4 py-2 font-medium" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deadlines.map((d) => {
+                        const info = getDeadlineInfo(d.dueDate);
+                        return (
+                          <tr key={d.id} className="border-b last:border-0 hover:bg-muted/30">
+                            <td className="px-4 py-2 text-xs text-muted-foreground">
+                              {d.entity.name.split(",")[0]}
+                            </td>
+                            <td className="px-4 py-2 font-medium">{ownerWording(d.label)}</td>
+                            <td className="px-4 py-2 text-xs">
+                              <span className="rounded-full bg-muted px-2 py-0.5">
+                                {TYPE_LABELS[d.type] ?? d.type}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 tabular-nums">
+                              {d.dueDate.toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                                timeZone: "America/New_York",
+                              })}
+                              <span className={`ml-2 text-xs font-medium ${info.overdue ? "text-destructive" : info.soon ? "text-amber-600" : "text-muted-foreground"}`}>
+                                {info.label}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2">
+                              <DeadlineStatusBadge status={d.status} />
+                            </td>
+                            <td className="px-4 py-2">
+                              {d.status === "upcoming" && <MarkFiledButton id={d.id} />}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </TableScroll>
               </CardContent>
             </Card>
           )}

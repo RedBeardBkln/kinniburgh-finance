@@ -119,14 +119,14 @@ export function TransactionsFilterBar({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") apply(); }}
-          className="h-9 flex-1 min-w-[200px] rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="h-9 min-w-[200px] flex-1 max-sm:min-w-0 max-sm:basis-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         />
 
         <input
           type="date"
           value={dateFrom}
           onChange={(e) => setDateFrom(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary max-sm:min-w-0 max-sm:flex-1"
           title="From date"
         />
         <span className="text-xs text-muted-foreground self-center">to</span>
@@ -134,14 +134,14 @@ export function TransactionsFilterBar({
           type="date"
           value={dateTo}
           onChange={(e) => setDateTo(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary max-sm:min-w-0 max-sm:flex-1"
           title="To date"
         />
 
         <select
           value={accountId}
           onChange={(e) => setAccountId(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary max-w-full max-sm:min-w-0 max-sm:flex-1"
         >
           <option value="">All accounts</option>
           {accounts.map((a) => (
@@ -154,7 +154,7 @@ export function TransactionsFilterBar({
         <select
           value={tagId}
           onChange={(e) => setTagId(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary max-w-full max-sm:min-w-0 max-sm:flex-1"
         >
           <option value="">All tags</option>
           {tags.map((t) => (
@@ -182,7 +182,7 @@ export function TransactionsFilterBar({
       </div>
 
       {/* Sort row */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted-foreground">Sort by:</span>
         {(
           [

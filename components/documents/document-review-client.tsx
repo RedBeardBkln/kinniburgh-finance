@@ -10,6 +10,7 @@ import { confirmStatementImport } from "@/actions/bank-statements";
 import type { ExtractedDocument, TransactionRow } from "@/lib/doc-extract";
 import { defaultImportSelection, formatFieldLabel, isWithinPlaidCoverage } from "@/lib/statement-review";
 import { validateStatementRow } from "@/lib/statement-import";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface AccountOption {
   id: string;
@@ -279,18 +280,20 @@ export function DocumentReviewClient({
             <CardTitle className="text-base">Extracted fields</CardTitle>
           </CardHeader>
           <CardContent>
-            <table className="w-full text-sm">
-              <tbody className="divide-y">
-                {dataEntries.map(([key, value]) => (
-                  <tr key={key}>
-                    <td className="py-2 pr-4 text-xs font-medium text-muted-foreground w-48">
-                      {formatFieldLabel(key)}
-                    </td>
-                    <td className="py-2 text-sm">{formatField(key, value)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <tbody className="divide-y">
+                  {dataEntries.map(([key, value]) => (
+                    <tr key={key}>
+                      <td className="py-2 pr-4 text-xs font-medium text-muted-foreground w-48 max-sm:w-auto">
+                        {formatFieldLabel(key)}
+                      </td>
+                      <td className="py-2 text-sm">{formatField(key, value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
           </CardContent>
         </Card>
       )}

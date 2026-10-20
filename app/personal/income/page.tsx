@@ -183,7 +183,7 @@ export default async function IncomePage({ searchParams }: PageProps) {
         )}
 
         {/* Upload + sources */}
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
           <PaystubUploadCard
             entityId={entity?.id ?? null}
             accounts={personalAccounts.map((a) => ({

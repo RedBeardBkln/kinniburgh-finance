@@ -8,6 +8,7 @@ import { RevenueBarChart } from "@/components/business/revenue-bar-chart";
 import { ProjectedRevenueCard } from "@/components/business/projected-revenue-card";
 import Link from "next/link";
 import type { Route } from "next";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -143,39 +144,41 @@ export default async function RevenuePage({ params }: PageProps) {
               <CardTitle className="text-base">Month-by-month</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-2 font-medium">Month</th>
-                    <th className="px-4 py-2 font-medium text-right">Revenue</th>
-                    <th className="px-4 py-2 font-medium text-right">vs. prior month</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableRows.map((row, i) => (
-                    <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="px-4 py-2 font-medium">{row.month}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{fmtUSD(row.revenueDollars)}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">
-                        {row.delta != null ? (
-                          <span className={row.delta >= 0 ? "text-green-600" : "text-destructive"}>
-                            {row.delta >= 0 ? "+" : ""}{row.delta}%
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
+              <TableScroll>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-2 font-medium">Month</th>
+                      <th className="px-4 py-2 font-medium text-right">Revenue</th>
+                      <th className="px-4 py-2 font-medium text-right">vs. prior month</th>
                     </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t bg-muted/30">
-                    <td className="px-4 py-2 font-semibold">Total</td>
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums">{fmtUSD(totalRevenue)}</td>
-                    <td />
-                  </tr>
-                </tfoot>
-              </table>
+                  </thead>
+                  <tbody>
+                    {tableRows.map((row, i) => (
+                      <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="px-4 py-2 font-medium">{row.month}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{fmtUSD(row.revenueDollars)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {row.delta != null ? (
+                            <span className={row.delta >= 0 ? "text-green-600" : "text-destructive"}>
+                              {row.delta >= 0 ? "+" : ""}{row.delta}%
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t bg-muted/30">
+                      <td className="px-4 py-2 font-semibold">Total</td>
+                      <td className="px-4 py-2 text-right font-semibold tabular-nums">{fmtUSD(totalRevenue)}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </TableScroll>
             </CardContent>
           </Card>
         )}

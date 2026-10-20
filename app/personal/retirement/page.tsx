@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RetirementBalanceForm } from "@/components/retirement/retirement-balance-form";
 import type { Route } from "next";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 function fmtMoney(cents: number): string {
   return `$${(cents / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
@@ -69,34 +70,36 @@ export default async function RetirementPage() {
                 <a href="/accounts" className="text-primary hover:underline">Accounts</a>.
               </p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">Account</th>
-                    <th className="px-4 py-3 font-medium text-right">Balance</th>
-                    <th className="px-4 py-3 font-medium">Last updated</th>
-                    <th className="px-4 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {investmentAccounts.map((a) => (
-                    <tr key={a.id} className="border-b last:border-0">
-                      <td className="px-4 py-2">{a.nickname}</td>
-                      <td className="px-4 py-2 text-right tabular-nums font-medium">
-                        {a.currentBalance ? fmtMoney(Math.round(a.currentBalance.toNumber() * 100)) : <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-muted-foreground">
-                        {a.currentBalanceAt
-                          ? new Date(a.currentBalanceAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                          : "—"}
-                      </td>
-                      <td className="px-4 py-2">
-                        <RetirementBalanceForm accountId={a.id} accountName={a.nickname} />
-                      </td>
+              <TableScroll>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-3 font-medium">Account</th>
+                      <th className="px-4 py-3 font-medium text-right">Balance</th>
+                      <th className="px-4 py-3 font-medium">Last updated</th>
+                      <th className="px-4 py-3" />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {investmentAccounts.map((a) => (
+                      <tr key={a.id} className="border-b last:border-0">
+                        <td className="px-4 py-2">{a.nickname}</td>
+                        <td className="px-4 py-2 text-right tabular-nums font-medium">
+                          {a.currentBalance ? fmtMoney(Math.round(a.currentBalance.toNumber() * 100)) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground">
+                          {a.currentBalanceAt
+                            ? new Date(a.currentBalanceAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-2">
+                          <RetirementBalanceForm accountId={a.id} accountName={a.nickname} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableScroll>
             )}
           </CardContent>
         </Card>
@@ -108,35 +111,37 @@ export default async function RetirementPage() {
               <CardTitle className="text-base">Life insurance cash value</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">Policy</th>
-                    <th className="px-4 py-3 font-medium">Type</th>
-                    <th className="px-4 py-3 font-medium text-right">Cash value</th>
-                    <th className="px-4 py-3 font-medium">As of</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {policies.map((p) => {
-                    const latest = p.cashValueEntries[0];
-                    return (
-                      <tr key={p.id} className="border-b last:border-0">
-                        <td className="px-4 py-2">{p.insurer}</td>
-                        <td className="px-4 py-2 text-xs text-muted-foreground capitalize">{p.policyType}</td>
-                        <td className="px-4 py-2 text-right tabular-nums">
-                          {latest ? fmtMoney(latest.cashValueCents) : <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="px-4 py-2 text-xs text-muted-foreground">
-                          {latest
-                            ? new Date(latest.asOf).toLocaleDateString("en-US", { month: "short", year: "numeric" })
-                            : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <TableScroll>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-3 font-medium">Policy</th>
+                      <th className="px-4 py-3 font-medium">Type</th>
+                      <th className="px-4 py-3 font-medium text-right">Cash value</th>
+                      <th className="px-4 py-3 font-medium">As of</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {policies.map((p) => {
+                      const latest = p.cashValueEntries[0];
+                      return (
+                        <tr key={p.id} className="border-b last:border-0">
+                          <td className="px-4 py-2">{p.insurer}</td>
+                          <td className="px-4 py-2 text-xs text-muted-foreground capitalize">{p.policyType}</td>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {latest ? fmtMoney(latest.cashValueCents) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="px-4 py-2 text-xs text-muted-foreground">
+                            {latest
+                              ? new Date(latest.asOf).toLocaleDateString("en-US", { month: "short", year: "numeric" })
+                              : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </TableScroll>
               <p className="px-4 py-2 text-xs text-muted-foreground border-t">
                 Manage cash value entries in{" "}
                 <a href="/personal/insurance" className="text-primary hover:underline">Insurance →</a>

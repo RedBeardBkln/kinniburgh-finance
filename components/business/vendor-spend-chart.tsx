@@ -37,6 +37,8 @@ export function VendorSpendChart({ data }: Props) {
   const height = Math.max(180, top10.length * 38);
 
   return (
+    // min-w-0: lets a grid/flex parent shrink the chart on a phone (recharts otherwise keeps its first measured width).
+    <div className="w-full min-w-0">
     <ResponsiveContainer width="100%" height={height}>
       <BarChart
         data={top10}
@@ -61,5 +63,6 @@ export function VendorSpendChart({ data }: Props) {
         <Bar dataKey="totalDollars" name="Spend" fill="hsl(var(--primary))" radius={[0, 3, 3, 0]} />
       </BarChart>
     </ResponsiveContainer>
+    </div>
   );
 }

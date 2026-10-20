@@ -35,7 +35,7 @@ export function BalanceChart({
   const hasBreaches = data.some((d) => d.isBreachDay);
 
   return (
-    <div className="space-y-2">
+    <div className="w-full min-w-0 space-y-2">
       <p className="text-sm font-medium">
         {accountName} — {subtitleOverride ?? `${days}-day projection`}
       </p>

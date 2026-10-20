@@ -173,35 +173,35 @@ export function MortgageClient() {
             <div className="rounded-md border bg-muted/30 p-4 text-sm">
               <p className="mb-2 font-medium">Monthly payment breakdown</p>
               <div className="space-y-1 text-muted-foreground">
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-2">
                   <span>Principal &amp; Interest (required)</span>
                   <span className="tabular-nums">{formatMoney(piCents)}</span>
                 </div>
                 {extraPrincipalCents > 0 && (
-                  <div className="flex justify-between text-blue-700">
+                  <div className="flex justify-between gap-2 text-blue-700">
                     <span>Extra to principal</span>
                     <span className="tabular-nums">+{formatMoney(extraPrincipalCents)}</span>
                   </div>
                 )}
                 {taxesCents > 0 && (
-                  <div className="flex justify-between">
+                  <div className="flex justify-between gap-2">
                     <span>Property taxes</span>
                     <span className="tabular-nums">{formatMoney(taxesCents)}</span>
                   </div>
                 )}
                 {pmiCents > 0 && (
-                  <div className="flex justify-between">
+                  <div className="flex justify-between gap-2">
                     <span>PMI</span>
                     <span className="tabular-nums">{formatMoney(pmiCents)}</span>
                   </div>
                 )}
                 {insuranceCents > 0 && (
-                  <div className="flex justify-between">
+                  <div className="flex justify-between gap-2">
                     <span>Homeowner&apos;s insurance</span>
                     <span className="tabular-nums">{formatMoney(insuranceCents)}</span>
                   </div>
                 )}
-                <div className="flex justify-between border-t pt-1 font-semibold text-foreground">
+                <div className="flex justify-between gap-2 border-t pt-1 font-semibold text-foreground">
                   <span>Total monthly</span>
                   <span className="tabular-nums">{formatMoney(totalMonthlyCents)}</span>
                 </div>

@@ -73,7 +73,7 @@ export function NetWorthChart({ snapshots, currentNetWorthCents }: Props) {
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0">
         {chartData.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
             No snapshots yet. Click &ldquo;Take snapshot&rdquo; to record today&apos;s net worth.

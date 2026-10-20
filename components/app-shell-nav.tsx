@@ -51,8 +51,8 @@ export function AppShellNav({
           taxFormsHref={taxFormsHref}
           taxMileageHref={taxMileageHref}
         />
-        <main className="flex-1 overflow-y-auto">
-          <div className={`mx-auto px-6 py-6 ${wide ? "max-w-[2000px]" : "max-w-6xl"}`}>{children}</div>
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          <div className={`mx-auto px-6 py-6 max-md:px-4 max-md:py-4 max-md:pb-24 ${wide ? "max-w-[2000px]" : "max-w-6xl"}`}>{children}</div>
         </main>
       </div>
     </>

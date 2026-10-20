@@ -10,6 +10,8 @@ import { answerTaxQuestionByKey } from "@/actions/tax-planning";
 import { uploadTaxFile } from "@/components/tax/tax-document-upload";
 import { DonationForm } from "@/components/donations/donation-form";
 import { FixedAssetForm } from "@/components/fixed-assets/fixed-asset-form";
+import { cn } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
 
 // Click targets for ONE missing Forms-page field: every way to supply its data.
 // Questions, documents, donations and fixed assets open a dialog (answer /
@@ -31,12 +33,12 @@ function Shell({ title, onClose, children }: { title: string; onClose: () => voi
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div className={MODAL_OVERLAY} onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg border bg-background p-5 shadow-lg"
+        className={cn(modalPanelClass("lg"), "border bg-background p-5 shadow-lg")}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-start justify-between gap-3">

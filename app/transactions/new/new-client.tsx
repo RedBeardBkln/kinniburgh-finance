@@ -191,7 +191,7 @@ function NewTransactionInner() {
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
-              <div className="flex gap-3 pt-2">
+              <div className="flex flex-wrap gap-3 pt-2">
                 <Button type="submit" disabled={submitting}>{submitting ? "Saving…" : "Save Transaction"}</Button>
                 <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
               </div>

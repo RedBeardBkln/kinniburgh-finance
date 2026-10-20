@@ -15,6 +15,8 @@ import {
 import { ACCOUNT_TYPE_OPTIONS } from "@/lib/account-types";
 import { formatCalendarDate } from "@/lib/card-due";
 import { accountTransactionsHref } from "@/lib/account-links";
+import { cn } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
 
 const NEW_INSTITUTION_SENTINEL = "__new__";
 
@@ -167,8 +169,8 @@ function AccountModal({ modal, institutions, entities, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+    <div className={MODAL_OVERLAY}>
+      <div className={cn(modalPanelClass("md"), "bg-background p-6 shadow-xl")}>
         <h2 className="mb-4 text-lg font-semibold">
           {isEdit ? "Edit Account" : "Add Account"}
         </h2>
@@ -267,7 +269,7 @@ function AccountModal({ modal, institutions, entities, onClose }: {
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} disabled={isPending} className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50">Cancel</button>
             <button type="submit" disabled={isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
               {isPending ? "Saving…" : "Save"}
@@ -322,8 +324,8 @@ function MoveAccountModal({
 
   if (result) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-xl space-y-4">
+      <div className={MODAL_OVERLAY}>
+        <div className={cn(modalPanelClass("md"), "space-y-4 bg-background p-6 shadow-xl")}>
           <h2 className="text-lg font-semibold">Account moved</h2>
           <p className="text-sm text-muted-foreground">
             &ldquo;{account.nickname}&rdquo; now belongs to {targetEntity?.name}.
@@ -347,8 +349,8 @@ function MoveAccountModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-xl space-y-4">
+    <div className={MODAL_OVERLAY}>
+      <div className={cn(modalPanelClass("md"), "space-y-4 bg-background p-6 shadow-xl")}>
         <h2 className="text-lg font-semibold">Move &ldquo;{account.nickname}&rdquo;</h2>
         <p className="text-sm text-muted-foreground">
           Currently under <span className="font-medium">{account.entityName}</span>.
@@ -395,7 +397,7 @@ function MoveAccountModal({
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} disabled={isPending} className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50">
             Cancel
           </button>
@@ -485,12 +487,12 @@ export function AccountsPageClient({ accounts, institutions, entities, pendingPl
   return (
     <>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold">Accounts</h1>
             <p className="text-sm text-muted-foreground">Bank connections, integration modes, and live balances</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setModal({ mode: "add" })}
               className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted"

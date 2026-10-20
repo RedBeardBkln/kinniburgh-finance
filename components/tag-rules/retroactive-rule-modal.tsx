@@ -3,6 +3,8 @@
 import { useState, useTransition, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
 import {
   previewRetroactiveRule,
   applyRetroactiveTag,
@@ -195,8 +197,8 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <Card className={`w-full ${step === "results" ? "max-w-5xl" : "max-w-2xl"} max-h-[90vh] flex flex-col shadow-xl`}>
+    <div className={cn(MODAL_OVERLAY, "bg-black/40")}>
+      <Card className={cn(modalPanelClass(step === "results" ? "5xl" : "2xl", "inner"), "shadow-xl max-sm:rounded-b-none")}>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Apply rule retroactively</CardTitle>
         </CardHeader>
@@ -208,7 +210,7 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
                 Would you like to search your existing transactions and apply the{" "}
                 <strong>{tagName}</strong> tag to any that match this rule?
               </p>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button
                   onClick={() => setStep("accounts")}
                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
@@ -279,7 +281,7 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
                   )}
                 </>
               )}
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button
                   onClick={() => setStep("range")}
                   disabled={selectedAccountIds.size === 0 || loadingAccounts}
@@ -327,7 +329,7 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
                 ))}
               </div>
               {error && <p className="text-sm text-destructive">{error}</p>}
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button
                   onClick={handleSearch}
                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
@@ -471,7 +473,7 @@ export function RetroactiveRuleModal({ ruleId, tagName, initialAccountId, onDone
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
-              <div className="flex gap-3 items-center">
+              <div className="flex flex-wrap gap-3 items-center">
                 {matches.length > 0 && (
                   <button
                     onClick={handleApply}

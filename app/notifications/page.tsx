@@ -54,8 +54,8 @@ export default async function NotificationsPage() {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold">Notifications</h1>
             <p className="text-sm text-muted-foreground">
               {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}

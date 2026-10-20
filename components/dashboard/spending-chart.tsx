@@ -67,7 +67,7 @@ export function SpendingChart({ data, onBarClick, title = "Spending this month â
         {headerExtra}
         {onBarClick && <p className="text-xs text-muted-foreground">(click a bar or a name below to drill in)</p>}
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0">
         <ResponsiveContainer width="100%" height={Math.max(180, data.length * 36)}>
           <BarChart
             data={data}

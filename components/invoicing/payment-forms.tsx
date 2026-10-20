@@ -16,6 +16,7 @@ import { formatCents } from "@/lib/invoicing/money";
 import { newRequestKey } from "@/lib/invoicing/request-key";
 import type { DepositCandidateView, OpenInvoice, PaymentView } from "@/lib/invoicing/payments-build";
 import { ErrorLine, Field, INPUT, OkLine, useRunner } from "@/components/invoicing/shared";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 // Recording and managing payments (owner only; the server refuses anyone else). A payment may be applied to several invoices, a part
 // of one, or none (the rest stays as a deposit on account, applied later). The bank deposit is LINKED, never changed.
@@ -205,31 +206,33 @@ export function PaymentForm({
         {openInvoices.length === 0 ? (
           <p className="text-xs text-muted-foreground">No open invoices. The whole payment will be kept as a deposit on account.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
-                <th className="py-1">Invoice</th>
-                <th>Due</th>
-                <th className="text-right">Balance</th>
-                <th className="text-right">Apply ($)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {openInvoices.map((i) => (
-                <tr key={i.id} className="border-b last:border-0">
-                  <td className="py-1">{i.displayNumber}</td>
-                  <td>{i.dueDate ?? "—"}</td>
-                  <td className="text-right">{formatCents(i.balanceCents)}</td>
-                  <td className="flex justify-end gap-1 py-1">
-                    <input className={`${INPUT} max-w-[7rem] text-right`} inputMode="decimal" value={apply[i.id] ?? ""} onChange={(e) => { setApplyTouched(true); setApply((s) => ({ ...s, [i.id]: e.target.value })); }} />
-                    <Button size="sm" variant="ghost" onClick={() => { setApplyTouched(true); setApply((s) => ({ ...s, [i.id]: dollars(i.balanceCents) })); }}>
-                      Full
-                    </Button>
-                  </td>
+          <TableScroll>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th className="py-1">Invoice</th>
+                  <th>Due</th>
+                  <th className="text-right">Balance</th>
+                  <th className="text-right">Apply ($)</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {openInvoices.map((i) => (
+                  <tr key={i.id} className="border-b last:border-0">
+                    <td className="py-1">{i.displayNumber}</td>
+                    <td>{i.dueDate ?? "—"}</td>
+                    <td className="text-right">{formatCents(i.balanceCents)}</td>
+                    <td className="flex justify-end gap-1 py-1">
+                      <input className={`${INPUT} max-w-[7rem] text-right`} inputMode="decimal" value={apply[i.id] ?? ""} onChange={(e) => { setApplyTouched(true); setApply((s) => ({ ...s, [i.id]: e.target.value })); }} />
+                      <Button size="sm" variant="ghost" onClick={() => { setApplyTouched(true); setApply((s) => ({ ...s, [i.id]: dollars(i.balanceCents) })); }}>
+                        Full
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
         )}
         <p className="text-xs text-muted-foreground">The amount you type is applied to this invoice automatically (up to its balance) and reduces what is owed. Only money left over stays as a deposit on account.</p>
       </div>

@@ -17,6 +17,7 @@ import { formatCents } from "@/lib/invoicing/money";
 import { loadClientPayments, loadOpenInvoices } from "@/lib/invoicing/payments-build";
 import { DISPLAY_STATE_LABELS, nyToday } from "@/lib/invoicing/state";
 import { isUuid, toIsoDate } from "@/lib/invoicing/validate";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ slug: string; id: string }>;
@@ -93,25 +94,27 @@ export default async function ClientDetailPage({ params }: PageProps) {
           {invoices.length === 0 ? (
             <p className="text-sm text-muted-foreground">No invoices yet.</p>
           ) : (
-            <table className="w-full text-sm">
-              <tbody>
-                {invoices.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0">
-                    <td className="py-2">
-                      <Link className="text-primary underline" href={`/business/${slug}/invoices/${r.id}` as Route}>
-                        {r.displayNumber ?? "Draft"}
-                      </Link>
-                    </td>
-                    <td>{r.issueDate ?? "—"}</td>
-                    <td>
-                      <Badge variant={r.state === "paid" ? "success" : r.overdue ? "destructive" : "outline"}>{DISPLAY_STATE_LABELS[r.state]}</Badge>
-                    </td>
-                    <td className="text-right">{formatCents(r.totalCents)}</td>
-                    <td className="text-right">{r.status === "issued" ? formatCents(r.balanceCents) : ""}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <tbody>
+                  {invoices.map((r) => (
+                    <tr key={r.id} className="border-b last:border-0">
+                      <td className="py-2">
+                        <Link className="text-primary underline" href={`/business/${slug}/invoices/${r.id}` as Route}>
+                          {r.displayNumber ?? "Draft"}
+                        </Link>
+                      </td>
+                      <td>{r.issueDate ?? "—"}</td>
+                      <td>
+                        <Badge variant={r.state === "paid" ? "success" : r.overdue ? "destructive" : "outline"}>{DISPLAY_STATE_LABELS[r.state]}</Badge>
+                      </td>
+                      <td className="text-right">{formatCents(r.totalCents)}</td>
+                      <td className="text-right">{r.status === "issued" ? formatCents(r.balanceCents) : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
           )}
         </CardContent>
       </Card>

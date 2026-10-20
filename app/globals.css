@@ -129,6 +129,16 @@
   }
 }
 
+/* Phones: iOS Safari zooms the page when a form field under 16px is focused and does not zoom back (mobile-layout-cleanup). 449 raw
+   fields use text-sm/text-xs, so this is one rule instead of 449 edits. Screen only, below md; desktop and print unchanged. */
+@media screen and (max-width: 767.98px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* Print: the TY2025 CPA review sheet (/tax/forms/[year]/return) wraps its content in
    #return-sheet. Same approach as #cpa-summary above (un-clamp the fixed-height app
    shell, hide the chrome with the visibility trick so AppShell keeps its auth/2FA

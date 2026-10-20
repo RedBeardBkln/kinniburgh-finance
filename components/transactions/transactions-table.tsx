@@ -128,6 +128,22 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
   const visibleCols = COLS.filter((c) => c.key !== "project" || hasProjects);
   const canAssign = assign !== null;
 
+  // Phones (below md): each row is a small grid instead of a table row, from ONE DOM (no duplicate tag/project cells).
+  // With the assignment checkbox the first grid column holds it; without it, every cell moves one column left.
+  // Desktop (md+) keeps the resizable table exactly as before. Full literal class names so Tailwind generates them.
+  const m = canAssign
+    ? {
+        row: "max-md:grid-cols-[auto_minmax(0,1fr)_auto]",
+        main: "max-md:col-start-2",
+        side: "max-md:col-start-3",
+      }
+    : {
+        row: "max-md:grid-cols-[minmax(0,1fr)_auto]",
+        main: "max-md:col-start-1",
+        side: "max-md:col-start-2",
+      };
+  const cell = "max-md:block max-md:p-0";
+
   const [widths, setWidths] = useState<Record<ColKey, number>>(loadWidths);
 
   // ── Assignment (Eric-side) ──
@@ -248,15 +264,33 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
   return (
     <Card>
       <CardContent className="p-0">
-        <table ref={tableRef} className="w-full text-sm table-fixed">
-          <colgroup>
+        {/* Phones: the thead (and its select-all box) is hidden, so the same select-all control sits above the stacked rows. */}
+        {canAssign && (
+          <label className="flex items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground md:hidden">
+            <input
+              type="checkbox"
+              aria-label="Select all assignable transactions on this page"
+              checked={allSelected}
+              ref={(el) => {
+                if (el) el.indeterminate = someSelected;
+              }}
+              disabled={selectableIds.length === 0}
+              onChange={toggleAll}
+            />
+            Select all
+          </label>
+        )}
+        {/* Desktop: an extreme saved column width scrolls inside the card, not the page. Phones: the table is stacked rows. */}
+        <div className="md:overflow-x-auto">
+        <table ref={tableRef} className="w-full text-sm table-fixed max-md:block">
+          <colgroup className="max-md:hidden">
             {canAssign && <col style={{ width: `${CHECK_WIDTH}px` }} />}
             {visibleCols.map((c) => (
               <col key={c.key} style={{ width: `${widths[c.key]}px` }} />
             ))}
             <col style={{ width: `${ACTIONS_WIDTH}px` }} />
           </colgroup>
-          <thead>
+          <thead className="max-md:hidden">
             <tr className="border-b text-left text-muted-foreground">
               {canAssign && (
                 <th className="px-2 py-3">
@@ -280,7 +314,7 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                   {c.label}
                   {/* Resize handle */}
                   <div
-                    className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-border active:bg-primary/30 z-10"
+                    className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-border active:bg-primary/30 z-10 max-md:hidden"
                     onMouseDown={(e) => startResize(c.key, i, e)}
                     onDoubleClick={() => resetWidth(c.key)}
                   />
@@ -289,12 +323,12 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
               <th className="px-2 py-3" />
             </tr>
           </thead>
-          <tbody>
+          <tbody className="max-md:block">
             {transactions.length === 0 && (
-              <tr>
+              <tr className="max-md:block">
                 <td
                   colSpan={visibleCols.length + 1 + (canAssign ? 1 : 0)}
-                  className="px-2 py-8 text-center text-muted-foreground"
+                  className="px-2 py-8 text-center text-muted-foreground max-md:block"
                 >
                   No transactions found
                 </td>
@@ -310,10 +344,10 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
               return (
                 <tr
                   key={tx.id}
-                  className={`border-b last:border-0 hover:bg-muted/30 ${isTransfer ? "opacity-70" : ""}`}
+                  className={`border-b last:border-0 hover:bg-muted/30 max-md:grid max-md:gap-x-3 max-md:gap-y-1 max-md:px-3 max-md:py-3 ${m.row} ${isTransfer ? "opacity-70" : ""}`}
                 >
                   {canAssign && (
-                    <td className="px-2 py-2">
+                    <td className={`px-2 py-2 ${cell} max-md:col-start-1 max-md:row-span-3 max-md:row-start-1 max-md:pt-0.5`}>
                       <input
                         type="checkbox"
                         aria-label={`Select ${tx.payeeRaw ?? tx.payeeNormalized ?? "transaction"} for assignment`}
@@ -324,10 +358,10 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                       />
                     </td>
                   )}
-                  <td className="px-2 py-2 text-muted-foreground whitespace-nowrap text-xs">
+                  <td className={`px-2 py-2 text-muted-foreground whitespace-nowrap text-xs ${cell} ${m.main} max-md:row-start-2`}>
                     {formatDate(tx.postedAt)}
                   </td>
-                  <td className="px-2 py-2 min-w-0">
+                  <td className={`px-2 py-2 min-w-0 ${cell} ${m.main} max-md:row-start-1`}>
                     <Link
                       href={`/transactions/${tx.id}` as Route}
                       className="font-medium hover:underline block truncate"
@@ -388,18 +422,18 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                     )}
                   </td>
                   <td
-                    className={`px-2 py-2 text-right font-mono font-medium whitespace-nowrap text-xs ${
+                    className={`px-2 py-2 text-right font-mono font-medium whitespace-nowrap text-xs tabular-nums ${cell} ${m.side} max-md:row-start-1 ${
                       isOutflow ? "text-destructive" : "text-green-600"
                     }`}
                   >
                     {isOutflow ? "-" : "+"}
                     {display}
                   </td>
-                  <td className="px-2 py-2 text-muted-foreground text-xs min-w-0">
+                  <td className={`px-2 py-2 text-muted-foreground text-xs min-w-0 ${cell} ${m.side} max-md:row-start-2 max-md:max-w-[9rem] max-md:text-right`}>
                     <span className="block truncate">{tx.accountNickname}</span>
                     <span className="text-muted-foreground/70">···{tx.accountMask}</span>
                   </td>
-                  <td className="px-2 py-2">
+                  <td className={`px-2 py-2 ${cell} ${m.main} max-md:row-start-3 max-md:min-w-0`}>
                     <InlineTagCell
                       transactionId={tx.id}
                       allTags={allTags}
@@ -412,7 +446,7 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                     />
                   </td>
                   {hasProjects && (
-                    <td className="px-2 py-2">
+                    <td className={`px-2 py-2 ${cell} ${m.main} max-md:row-start-4 max-md:min-w-0`}>
                       <InlineProjectCell
                         transactionId={tx.id}
                         projects={allProjects}
@@ -420,7 +454,7 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                       />
                     </td>
                   )}
-                  <td className="px-2 py-2">
+                  <td className={`px-2 py-2 ${cell} ${m.side} max-md:row-start-3 max-md:self-center max-md:text-right`}>
                     <form action={async () => { await deleteTransaction(tx.id); }}>
                       <button
                         type="submit"
@@ -435,9 +469,10 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
             })}
           </tbody>
         </table>
+        </div>
       </CardContent>
       {canAssign && (selectedOnPage.length > 0 || assignError) && (
-        <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-background px-4 py-2 shadow-lg">
+        <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-background px-4 py-2 shadow-lg max-md:left-3 max-md:right-20 max-md:translate-x-0 max-md:flex-wrap">
           {selectedOnPage.length > 0 && (
             <>
               <span className="text-sm">{selectedOnPage.length} selected</span>

@@ -92,7 +92,7 @@ export function TransferHistoryPanel({ scheduledTransferId, fromNickname, toNick
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search date, amount, account…"
-          className="w-56 rounded border px-2 py-1 text-xs"
+          className="w-56 rounded border px-2 py-1 text-xs max-sm:w-full"
         />
       </div>
 

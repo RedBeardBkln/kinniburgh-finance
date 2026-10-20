@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateProject, archiveProject } from "@/actions/projects";
+import { cn } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
 
 interface Project {
   id: string;
@@ -77,8 +79,8 @@ export function ProjectDetailActions({ project, accounts }: Props) {
 
   if (editing) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-md rounded-lg border bg-card p-5 space-y-3">
+      <div className={cn(MODAL_OVERLAY, "bg-black/40")}>
+        <div className={cn(modalPanelClass("md"), "space-y-3 border bg-card p-5")}>
           <h3 className="font-semibold">Edit project</h3>
           <div className="space-y-1">
             <label className="text-sm font-medium">Name</label>
@@ -114,7 +116,7 @@ export function ProjectDetailActions({ project, accounts }: Props) {
               className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button onClick={handleSave} disabled={isPending}
               className="inline-flex rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
               {isPending ? "Saving…" : "Save"}

@@ -11,6 +11,7 @@ import {
   DeleteIncomeSourceButton,
 } from "@/components/settings/income-source-actions";
 import type { Route } from "next";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 const CADENCE_LABELS: Record<string, string> = {
   semi_monthly: "Semi-monthly",
@@ -57,64 +58,66 @@ export default async function IncomeSourcesPage() {
                 No income sources yet. Add one below to enable balance forecasting.
               </p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-2 font-medium">Description</th>
-                    <th className="px-4 py-2 font-medium">Entity</th>
-                    <th className="px-4 py-2 font-medium">Account</th>
-                    <th className="px-4 py-2 font-medium">Cadence</th>
-                    <th className="px-4 py-2 font-medium text-right">Gross amount</th>
-                    <th className="px-4 py-2 font-medium text-center">Active</th>
-                    <th className="px-4 py-2 font-medium text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sources.map((s) => (
-                    <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="px-4 py-2 font-medium">{s.description}</td>
-                      <td className="px-4 py-2 text-muted-foreground">{s.entity.name}</td>
-                      <td className="px-4 py-2 text-muted-foreground">
-                        {s.account.nickname}
-                        {s.account.mask ? ` (x${s.account.mask})` : ""}
-                      </td>
-                      <td className="px-4 py-2">{CADENCE_LABELS[s.cadence] ?? s.cadence}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">
-                        ${Number(s.amount).toLocaleString("en-US", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </td>
-                      <td className="px-4 py-2 text-center">
-                        <Badge variant={s.active ? "outline" : "secondary"}>
-                          {s.active ? "Active" : "Disabled"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-2">
-                        <div className="flex items-center justify-end gap-3">
-                          <EditIncomeSourceButton
-                            id={s.id}
-                            entityId={s.entityId}
-                            description={s.description}
-                            cadence={s.cadence}
-                            amount={s.amount.toString()}
-                            accountId={s.accountId}
-                            dayRules={s.dayRules}
-                            accounts={accounts.map((a) => ({
-                              id: a.id,
-                              entityId: a.entityId,
-                              nickname: a.nickname,
-                              mask: a.mask,
-                            }))}
-                          />
-                          <ToggleIncomeSourceButton id={s.id} active={s.active} />
-                          <DeleteIncomeSourceButton id={s.id} description={s.description} />
-                        </div>
-                      </td>
+              <TableScroll>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-2 font-medium">Description</th>
+                      <th className="px-4 py-2 font-medium">Entity</th>
+                      <th className="px-4 py-2 font-medium">Account</th>
+                      <th className="px-4 py-2 font-medium">Cadence</th>
+                      <th className="px-4 py-2 font-medium text-right">Gross amount</th>
+                      <th className="px-4 py-2 font-medium text-center">Active</th>
+                      <th className="px-4 py-2 font-medium text-right">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {sources.map((s) => (
+                      <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="px-4 py-2 font-medium">{s.description}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{s.entity.name}</td>
+                        <td className="px-4 py-2 text-muted-foreground">
+                          {s.account.nickname}
+                          {s.account.mask ? ` (x${s.account.mask})` : ""}
+                        </td>
+                        <td className="px-4 py-2">{CADENCE_LABELS[s.cadence] ?? s.cadence}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          ${Number(s.amount).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </td>
+                        <td className="px-4 py-2 text-center">
+                          <Badge variant={s.active ? "outline" : "secondary"}>
+                            {s.active ? "Active" : "Disabled"}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center justify-end gap-3">
+                            <EditIncomeSourceButton
+                              id={s.id}
+                              entityId={s.entityId}
+                              description={s.description}
+                              cadence={s.cadence}
+                              amount={s.amount.toString()}
+                              accountId={s.accountId}
+                              dayRules={s.dayRules}
+                              accounts={accounts.map((a) => ({
+                                id: a.id,
+                                entityId: a.entityId,
+                                nickname: a.nickname,
+                                mask: a.mask,
+                              }))}
+                            />
+                            <ToggleIncomeSourceButton id={s.id} active={s.active} />
+                            <DeleteIncomeSourceButton id={s.id} description={s.description} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableScroll>
             )}
           </CardContent>
         </Card>

@@ -2,7 +2,7 @@ export default function Loading() {
   return (
     <div className="flex min-h-screen flex-col">
       <div className="h-14 border-b bg-background/95" />
-      <div className="mx-auto w-full max-w-5xl space-y-6 p-6">
+      <div className="mx-auto w-full max-w-5xl space-y-6 p-6 max-md:p-4">
         <div className="h-7 w-52 animate-pulse rounded-lg bg-muted" />
         <div className="grid gap-4 sm:grid-cols-3">
           {[0, 1, 2].map((i) => (

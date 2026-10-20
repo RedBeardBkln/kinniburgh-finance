@@ -12,6 +12,7 @@ import { loadInvoiceRows } from "@/lib/invoicing/documents-build";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
 import { formatCents } from "@/lib/invoicing/money";
 import { nyToday } from "@/lib/invoicing/state";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -53,33 +54,35 @@ export default async function ClientsPage({ params }: PageProps) {
           {clients.length === 0 ? (
             <p className="text-sm text-muted-foreground">No clients yet.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="py-2">Client</th>
-                  <th>Invoice recipient</th>
-                  <th>W-9</th>
-                  <th className="text-right">Open balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clients.map((c) => {
-                  const recipients = c.contacts.filter((x) => x.receivesInvoices);
-                  return (
-                    <tr key={c.id} className="border-b last:border-0">
-                      <td className="py-2">
-                        <Link className="font-medium text-primary underline" href={`/business/${slug}/clients/${c.id}` as Route}>
-                          {c.name}
-                        </Link>
-                      </td>
-                      <td>{recipients.length > 0 ? recipients.map((r) => r.name).join(", ") : <span className="text-muted-foreground">none set</span>}</td>
-                      <td>{c.w9OnFile ? "On file" : <span className="text-muted-foreground">Not on file</span>}</td>
-                      <td className="text-right">{formatCents(balance.get(c.id) ?? 0)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="py-2">Client</th>
+                    <th>Invoice recipient</th>
+                    <th>W-9</th>
+                    <th className="text-right">Open balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clients.map((c) => {
+                    const recipients = c.contacts.filter((x) => x.receivesInvoices);
+                    return (
+                      <tr key={c.id} className="border-b last:border-0">
+                        <td className="py-2">
+                          <Link className="font-medium text-primary underline" href={`/business/${slug}/clients/${c.id}` as Route}>
+                            {c.name}
+                          </Link>
+                        </td>
+                        <td>{recipients.length > 0 ? recipients.map((r) => r.name).join(", ") : <span className="text-muted-foreground">none set</span>}</td>
+                        <td>{c.w9OnFile ? "On file" : <span className="text-muted-foreground">Not on file</span>}</td>
+                        <td className="text-right">{formatCents(balance.get(c.id) ?? 0)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </TableScroll>
           )}
         </CardContent>
       </Card>

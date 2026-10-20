@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createBudget, updateBudget } from "@/actions/budgets";
 import { assessAnnualFunding, cycleMonthsFor, isLumpSumFrequency, isValidAnnualDay } from "@/lib/annual-bill";
-import { formatUSD } from "@/lib/utils";
+import { cn, formatUSD } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
 import { addLaterMonthsLabel, addLaterMonthsPreview, type LaterAddContext } from "@/lib/budget-first-edit-note";
 
 interface Account {
@@ -217,8 +218,8 @@ export function BudgetEditModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+    <div className={MODAL_OVERLAY}>
+      <div className={cn(modalPanelClass("md"), "bg-background p-6 shadow-xl")}>
         <h2 className="mb-4 text-lg font-semibold">
           {mode === "add" ? "Add Budget Line" : "Edit Budget Line"}
         </h2>
@@ -469,7 +470,7 @@ export function BudgetEditModal({
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
           <button
             onClick={onClose}
             disabled={isPending}

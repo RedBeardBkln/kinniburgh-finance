@@ -220,7 +220,7 @@ function DetailForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1">
           <Label className="text-xs">APR (%)</Label>
           <Input
@@ -737,8 +737,8 @@ export function DebtDashboard({ accounts, standaloneDebts, tags, ccAccounts }: P
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Debt Tracker</h1>
           <p className="text-sm text-muted-foreground">
             Track balances, payments, and payoff progress across all debts.

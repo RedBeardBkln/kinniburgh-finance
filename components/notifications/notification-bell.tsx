@@ -102,7 +102,7 @@ export function NotificationBell({ initialUnreadCount }: Props) {
   }
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative max-md:static" ref={ref}>
       <button
         onClick={openDropdown}
         aria-label="Notifications"
@@ -117,7 +117,11 @@ export function NotificationBell({ initialUnreadCount }: Props) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-80 rounded-lg border bg-background shadow-lg">
+        // Phones: the wrapper above is `max-md:static`, so this `max-md:absolute` panel is positioned against the nearest
+        // positioned ancestor, the sticky <header> (nothing in between is positioned). top-full and inset-x-2 are then
+        // measured from the whole two-row phone header in every browser, without relying on backdrop-filter creating a
+        // containing block for fixed children (iOS Safari). md+ keeps the w-80 box under the bell.
+        <div className="absolute right-0 top-full z-50 mt-1 w-80 rounded-lg border bg-background shadow-lg max-md:absolute max-md:inset-x-2 max-md:mt-0 max-md:max-h-[70dvh] max-md:w-auto max-md:overflow-y-auto">
           <div className="flex items-center justify-between border-b px-4 py-2">
             <span className="text-sm font-semibold">Notifications</span>
             <div className="flex items-center gap-2">

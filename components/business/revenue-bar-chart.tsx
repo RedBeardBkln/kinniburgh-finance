@@ -33,6 +33,8 @@ export function RevenueBarChart({ data }: Props) {
   if (data.length === 0) return null;
 
   return (
+    // min-w-0: lets a grid/flex parent shrink the chart on a phone (recharts otherwise keeps its first measured width).
+    <div className="w-full min-w-0">
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -45,5 +47,6 @@ export function RevenueBarChart({ data }: Props) {
         <Bar dataKey="revenueDollars" name="Revenue" fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
+    </div>
   );
 }

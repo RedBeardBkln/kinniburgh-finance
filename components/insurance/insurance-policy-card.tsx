@@ -246,7 +246,7 @@ export function InsurancePolicyCard({ policy }: { policy: Policy }) {
         )}
 
         {chartData.length > 0 && (
-          <div>
+          <div className="w-full min-w-0">
             <p className="text-xs font-medium text-muted-foreground mb-2">Cash value history</p>
             <ResponsiveContainer width="100%" height={120}>
               <LineChart data={chartData}>

@@ -11,6 +11,7 @@ import { loadInvoiceRows } from "@/lib/invoicing/documents-build";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
 import { formatCents } from "@/lib/invoicing/money";
 import { DISPLAY_STATE_LABELS, nyToday } from "@/lib/invoicing/state";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -27,7 +28,7 @@ export default async function InvoicesPage({ params }: PageProps) {
     <AppShell userName={session.user?.name ?? undefined}>
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold">Invoices</h1>
             <p className="text-sm text-muted-foreground">Accrual view: an issued invoice counts as money owed to you until payments are applied.</p>
           </div>
@@ -78,39 +79,41 @@ export default async function InvoicesPage({ params }: PageProps) {
           {rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">No invoices yet.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="py-2">Number</th>
-                  <th>Client</th>
-                  <th>Issued</th>
-                  <th>Due</th>
-                  <th>Status</th>
-                  <th className="text-right">Total</th>
-                  <th className="text-right">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0">
-                    <td className="py-2">
-                      <Link className="font-medium text-primary underline" href={`/business/${slug}/invoices/${r.id}` as Route}>
-                        {r.displayNumber ?? "Draft"}
-                      </Link>
-                    </td>
-                    <td>{r.clientName}</td>
-                    <td>{r.issueDate ?? "—"}</td>
-                    <td>{r.dueDate ?? "—"}</td>
-                    <td>
-                      <Badge variant={r.state === "paid" ? "success" : r.state === "void" ? "secondary" : r.overdue ? "destructive" : "outline"}>{DISPLAY_STATE_LABELS[r.state]}</Badge>
-                      {r.overdue ? <span className="ml-1 text-xs text-red-700">overdue {r.daysPastDue}d</span> : null}
-                    </td>
-                    <td className="text-right">{formatCents(r.totalCents)}</td>
-                    <td className="text-right">{r.status === "issued" ? formatCents(r.balanceCents) : "—"}</td>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="py-2">Number</th>
+                    <th>Client</th>
+                    <th>Issued</th>
+                    <th>Due</th>
+                    <th>Status</th>
+                    <th className="text-right">Total</th>
+                    <th className="text-right">Balance</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id} className="border-b last:border-0">
+                      <td className="py-2">
+                        <Link className="font-medium text-primary underline" href={`/business/${slug}/invoices/${r.id}` as Route}>
+                          {r.displayNumber ?? "Draft"}
+                        </Link>
+                      </td>
+                      <td>{r.clientName}</td>
+                      <td>{r.issueDate ?? "—"}</td>
+                      <td>{r.dueDate ?? "—"}</td>
+                      <td>
+                        <Badge variant={r.state === "paid" ? "success" : r.state === "void" ? "secondary" : r.overdue ? "destructive" : "outline"}>{DISPLAY_STATE_LABELS[r.state]}</Badge>
+                        {r.overdue ? <span className="ml-1 text-xs text-red-700">overdue {r.daysPastDue}d</span> : null}
+                      </td>
+                      <td className="text-right">{formatCents(r.totalCents)}</td>
+                      <td className="text-right">{r.status === "issued" ? formatCents(r.balanceCents) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
           )}
         </CardContent>
       </Card>

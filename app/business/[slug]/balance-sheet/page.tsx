@@ -14,6 +14,7 @@ import {
 } from "@/lib/period-balance-sheet";
 import { getPeriodBalanceSheet } from "@/actions/bank-statements";
 import type { Route } from "next";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -243,41 +244,43 @@ export default async function BalanceSheetPage({ params, searchParams }: PagePro
             <CardTitle className="text-base text-green-700">Assets</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Account</th>
-                  <th className="px-4 py-2 font-medium text-right">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {view.assets.length === 0 ? (
-                  <tr>
-                    <td colSpan={2} className="px-4 py-6 text-center text-muted-foreground">
-                      No asset accounts linked to this entity
-                    </td>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">Account</th>
+                    <th className="px-4 py-2 font-medium text-right">Balance</th>
                   </tr>
-                ) : (
-                  view.assets.map((a) => (
-                    <tr key={a.id} className="border-b last:border-0">
-                      <td className="px-4 py-2">
-                        {a.label}
-                        {a.mask && <span className="ml-1.5 text-xs text-muted-foreground">···{a.mask}</span>}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums text-green-600">
-                        {fmtUSD(a.amountCents)}
+                </thead>
+                <tbody>
+                  {view.assets.length === 0 ? (
+                    <tr>
+                      <td colSpan={2} className="px-4 py-6 text-center text-muted-foreground">
+                        No asset accounts linked to this entity
                       </td>
                     </tr>
-                  ))
-                )}
-                <tr className="border-t bg-muted/30 font-semibold">
-                  <td className="px-4 py-2">Total Assets</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-green-600">
-                    {fmtUSD(view.totalAssetsCents)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                  ) : (
+                    view.assets.map((a) => (
+                      <tr key={a.id} className="border-b last:border-0">
+                        <td className="px-4 py-2">
+                          {a.label}
+                          {a.mask && <span className="ml-1.5 text-xs text-muted-foreground">···{a.mask}</span>}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-green-600">
+                          {fmtUSD(a.amountCents)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                  <tr className="border-t bg-muted/30 font-semibold">
+                    <td className="px-4 py-2">Total Assets</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-green-600">
+                      {fmtUSD(view.totalAssetsCents)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </TableScroll>
           </CardContent>
         </Card>
 
@@ -287,41 +290,43 @@ export default async function BalanceSheetPage({ params, searchParams }: PagePro
             <CardTitle className="text-base text-destructive">Liabilities</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Account</th>
-                  <th className="px-4 py-2 font-medium text-right">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {view.liabilities.length === 0 ? (
-                  <tr>
-                    <td colSpan={2} className="px-4 py-6 text-center text-muted-foreground">
-                      No liability accounts linked to this entity
-                    </td>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">Account</th>
+                    <th className="px-4 py-2 font-medium text-right">Balance</th>
                   </tr>
-                ) : (
-                  view.liabilities.map((l) => (
-                    <tr key={l.id} className="border-b last:border-0">
-                      <td className="px-4 py-2">
-                        {l.label}
-                        {l.mask && <span className="ml-1.5 text-xs text-muted-foreground">···{l.mask}</span>}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums text-destructive">
-                        {fmtUSD(l.amountCents)}
+                </thead>
+                <tbody>
+                  {view.liabilities.length === 0 ? (
+                    <tr>
+                      <td colSpan={2} className="px-4 py-6 text-center text-muted-foreground">
+                        No liability accounts linked to this entity
                       </td>
                     </tr>
-                  ))
-                )}
-                <tr className="border-t bg-muted/30 font-semibold">
-                  <td className="px-4 py-2">Total Liabilities</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-destructive">
-                    {fmtUSD(view.totalLiabilitiesCents)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                  ) : (
+                    view.liabilities.map((l) => (
+                      <tr key={l.id} className="border-b last:border-0">
+                        <td className="px-4 py-2">
+                          {l.label}
+                          {l.mask && <span className="ml-1.5 text-xs text-muted-foreground">···{l.mask}</span>}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-destructive">
+                          {fmtUSD(l.amountCents)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                  <tr className="border-t bg-muted/30 font-semibold">
+                    <td className="px-4 py-2">Total Liabilities</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-destructive">
+                      {fmtUSD(view.totalLiabilitiesCents)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </TableScroll>
           </CardContent>
         </Card>
 

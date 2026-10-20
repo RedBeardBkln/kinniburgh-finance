@@ -189,7 +189,7 @@ export function ReceiptConfirmForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center justify-between text-base">
+        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
           <span>Extracted Data</span>
           {ocrStatus === "failed" && (
             <Badge variant="destructive">Extraction Failed</Badge>
@@ -448,7 +448,7 @@ export function ReceiptConfirmForm({
           </p>
         )}
 
-        <div className="flex gap-2 pt-2">
+        <div className="flex flex-wrap gap-2 pt-2">
           <button
             type="button"
             onClick={handleConfirm}

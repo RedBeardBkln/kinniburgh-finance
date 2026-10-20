@@ -9,6 +9,7 @@ import { listMileageEntries, exportMileageCsv } from "@/actions/mileage";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { AddMileageEntryForm } from "@/components/mileage/add-mileage-entry-form";
 import type { Route } from "next";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -105,68 +106,70 @@ export default async function MileagePage({ params, searchParams }: PageProps) {
             <CardTitle className="text-base">Entries</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Date</th>
-                  <th className="px-4 py-2 font-medium">Purpose</th>
-                  <th className="px-4 py-2 font-medium text-right">Miles</th>
-                  <th className="px-4 py-2 font-medium text-right">Rate</th>
-                  <th className="px-4 py-2 font-medium text-right">Deduction</th>
-                  <th className="px-4 py-2 font-medium">Billable</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
-                      No mileage entries for {currentYear}
-                    </td>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">Date</th>
+                    <th className="px-4 py-2 font-medium">Purpose</th>
+                    <th className="px-4 py-2 font-medium text-right">Miles</th>
+                    <th className="px-4 py-2 font-medium text-right">Rate</th>
+                    <th className="px-4 py-2 font-medium text-right">Deduction</th>
+                    <th className="px-4 py-2 font-medium">Billable</th>
                   </tr>
-                ) : (
-                  entries.map((e) => {
-                    const rate = Number(e.ratePerMile);
-                    const deduction = e.miles * rate;
-                    return (
-                      <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30">
-                        <td className="px-4 py-2 tabular-nums">{e.date.toISOString().slice(0, 10)}</td>
-                        <td className="px-4 py-2">
-                          {e.purpose}
-                          {e.notes && <span className="ml-1.5 text-xs text-muted-foreground">{e.notes}</span>}
-                        </td>
-                        <td className="px-4 py-2 text-right tabular-nums">{e.miles}</td>
-                        <td className="px-4 py-2 text-right tabular-nums text-xs text-muted-foreground">
-                          ${rate.toFixed(3)}
-                        </td>
-                        <td className="px-4 py-2 text-right tabular-nums font-medium">
-                          {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(deduction)}
-                        </td>
-                        <td className="px-4 py-2 text-xs">
-                          {e.billable ? (
-                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700">Billable</span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-                {entries.length > 0 && (
-                  <tr className="border-t bg-muted/30 font-semibold">
-                    <td colSpan={2} className="px-4 py-2">Total</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{totalMiles.toLocaleString()}</td>
-                    <td className="px-4 py-2" />
-                    <td className="px-4 py-2 text-right tabular-nums">
-                      {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
-                        totalDeductionCents / 100
-                      )}
-                    </td>
-                    <td className="px-4 py-2" />
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {entries.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                        No mileage entries for {currentYear}
+                      </td>
+                    </tr>
+                  ) : (
+                    entries.map((e) => {
+                      const rate = Number(e.ratePerMile);
+                      const deduction = e.miles * rate;
+                      return (
+                        <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="px-4 py-2 tabular-nums">{e.date.toISOString().slice(0, 10)}</td>
+                          <td className="px-4 py-2">
+                            {e.purpose}
+                            {e.notes && <span className="ml-1.5 text-xs text-muted-foreground">{e.notes}</span>}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">{e.miles}</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-xs text-muted-foreground">
+                            ${rate.toFixed(3)}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums font-medium">
+                            {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(deduction)}
+                          </td>
+                          <td className="px-4 py-2 text-xs">
+                            {e.billable ? (
+                              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700">Billable</span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                  {entries.length > 0 && (
+                    <tr className="border-t bg-muted/30 font-semibold">
+                      <td colSpan={2} className="px-4 py-2">Total</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{totalMiles.toLocaleString()}</td>
+                      <td className="px-4 py-2" />
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
+                          totalDeductionCents / 100
+                        )}
+                      </td>
+                      <td className="px-4 py-2" />
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </TableScroll>
           </CardContent>
         </Card>
 

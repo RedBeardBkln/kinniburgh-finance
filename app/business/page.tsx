@@ -87,7 +87,7 @@ export default async function BusinessPage() {
                   {/* Month P&L summary */}
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">This month</p>
-                    <div className="grid grid-cols-3 gap-2 text-sm">
+                    <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
                       <div>
                         <p className="text-xs text-muted-foreground">Income</p>
                         <p className="font-medium text-green-600">{formatDecimal(pl?.totalIncome)}</p>

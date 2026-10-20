@@ -146,7 +146,7 @@ function EditModal({ fact, onClose }: { fact: FactActionsProps; onClose: () => v
           <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500} className={field} />
         </label>
         {error && <p className="text-xs text-destructive">{error}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button type="button" onClick={onClose} disabled={pending} className={button}>
             Cancel
           </button>
@@ -184,7 +184,7 @@ function PolicyModal({ fact, onClose }: { fact: FactActionsProps; onClose: () =>
           <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500} className={field} />
         </label>
         {error && <p className="text-xs text-destructive">{error}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button type="button" onClick={onClose} disabled={pending} className={button}>
             Cancel
           </button>
@@ -224,7 +224,7 @@ function RetireModal({ fact, isOpenItem, onClose }: { fact: FactActionsProps; is
           <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500} className={field} />
         </label>
         {error && <p className="text-xs text-destructive">{error}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button type="button" onClick={onClose} disabled={pending} className={button}>
             Cancel
           </button>
@@ -365,7 +365,7 @@ function AddModal({ onClose }: { onClose: () => void }) {
           </label>
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button type="button" onClick={onClose} disabled={pending} className={button}>
             Cancel
           </button>

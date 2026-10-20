@@ -18,6 +18,7 @@ import { formatCents } from "@/lib/invoicing/money";
 import { loadClientPayments, loadOpenInvoices } from "@/lib/invoicing/payments-build";
 import { DISPLAY_STATE_LABELS, nyToday } from "@/lib/invoicing/state";
 import { toIsoDate, isUuid } from "@/lib/invoicing/validate";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ slug: string; id: string }>;
@@ -133,33 +134,35 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
           <CardTitle className="text-base">Lines</CardTitle>
         </CardHeader>
         <CardContent>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
-                <th className="py-2">Description</th>
-                <th className="text-right">Qty</th>
-                <th className="text-right">Rate</th>
-                <th className="text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.lines.map((l) => (
-                <tr key={l.id} className="border-b last:border-0 align-top">
-                  <td className="py-2">
-                    {l.description}
-                    {l.workDate ? <span className="block text-xs text-muted-foreground">Work date {l.workDate}</span> : null}
-                    {l.discountKind ? <span className="block text-xs text-muted-foreground">{l.discountKind === "percent" ? `${l.discountValueText}% off` : `$${l.discountValueText} off`}</span> : null}
-                  </td>
-                  <td className="text-right">
-                    {l.quantity}
-                    {l.unit ? ` ${l.unit}` : ""}
-                  </td>
-                  <td className="text-right">{formatCents(l.unitPriceCents)}</td>
-                  <td className="text-right">{formatCents(l.lineTotalCents)}</td>
+          <TableScroll>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th className="py-2">Description</th>
+                  <th className="text-right">Qty</th>
+                  <th className="text-right">Rate</th>
+                  <th className="text-right">Amount</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {detail.lines.map((l) => (
+                  <tr key={l.id} className="border-b last:border-0 align-top">
+                    <td className="py-2">
+                      {l.description}
+                      {l.workDate ? <span className="block text-xs text-muted-foreground">Work date {l.workDate}</span> : null}
+                      {l.discountKind ? <span className="block text-xs text-muted-foreground">{l.discountKind === "percent" ? `${l.discountValueText}% off` : `$${l.discountValueText} off`}</span> : null}
+                    </td>
+                    <td className="text-right">
+                      {l.quantity}
+                      {l.unit ? ` ${l.unit}` : ""}
+                    </td>
+                    <td className="text-right">{formatCents(l.unitPriceCents)}</td>
+                    <td className="text-right">{formatCents(l.lineTotalCents)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
           <dl className="ml-auto mt-4 max-w-xs space-y-1 text-sm">
             <div className="flex justify-between">
               <dt>Subtotal</dt>

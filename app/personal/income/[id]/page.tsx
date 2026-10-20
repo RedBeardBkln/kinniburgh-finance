@@ -36,8 +36,8 @@ export default async function PaystubDetailPage({ params }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Review Paystub</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="min-w-0 text-2xl font-semibold">Review Paystub</h1>
           <Link
             href="/personal/income"
             className="text-sm text-muted-foreground hover:text-foreground"

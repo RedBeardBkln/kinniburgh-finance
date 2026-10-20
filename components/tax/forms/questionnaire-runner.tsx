@@ -331,7 +331,7 @@ export function QuestionnaireRunner(props: QuestionnaireRunnerProps) {
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="space-y-4">
         <div className="space-y-1">
-          <div className="flex items-center justify-between text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 text-sm">
             <span className="font-medium">{statusLabel(summary.status)}</span>
             <span className="text-muted-foreground">
               {answeredCount} of {visible.length} questions shown answered

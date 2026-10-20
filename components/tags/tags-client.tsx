@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog } from "@/components/ui/dialog";
 import { createTag, updateTag, deleteTag, type TagWithCounts } from "@/actions/tags";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface Props {
   initialTags: TagWithCounts[];
@@ -211,149 +212,151 @@ export function TagsClient({ initialTags }: Props) {
 
       <Card>
         <CardContent className="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">Transactions</th>
-                <th className="px-4 py-3 font-medium">Rules</th>
-                <th className="px-4 py-3 font-medium">Children</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {tags.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
-                    No tags yet. Create one above.
-                  </td>
+          <TableScroll>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="px-4 py-3 font-medium">Name</th>
+                  <th className="px-4 py-3 font-medium">Transactions</th>
+                  <th className="px-4 py-3 font-medium">Rules</th>
+                  <th className="px-4 py-3 font-medium">Children</th>
+                  <th className="px-4 py-3" />
                 </tr>
-              )}
-              {tags.map((tag) => {
-                const depth = depthOf(tag.name);
-                const isEditing = editing?.id === tag.id;
-
-                return (
-                  <tr key={tag.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-2.5">
-                      {isEditing ? (
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="shrink-0"
-                            style={{ width: `${depth * 16}px` }}
-                          />
-                          <Input
-                            autoFocus
-                            value={editing.shortName}
-                            onChange={(e) =>
-                              setEditing({ ...editing, shortName: e.target.value })
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleSaveEdit();
-                              if (e.key === "Escape") setEditing(null);
-                            }}
-                            className="h-7 text-sm w-40"
-                          />
-                          <span className="text-xs text-muted-foreground">under:</span>
-                          <select
-                            value={editing.parentId ?? ""}
-                            onChange={(e) =>
-                              setEditing({ ...editing, parentId: e.target.value || null })
-                            }
-                            className="rounded border border-input bg-background px-2 py-1 text-xs"
-                          >
-                            <option value="">— Root</option>
-                            {eligibleParents(editing.id).map((t) => (
-                              <option key={t.id} value={t.id}>{t.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : (
-                        <div className="flex items-center">
-                          <div
-                            className="shrink-0 border-l border-dashed border-muted-foreground/30 mr-2"
-                            style={{
-                              width: `${depth * 16}px`,
-                              height: depth > 0 ? "1px" : undefined,
-                              display: depth > 0 ? "flex" : "none",
-                            }}
-                          />
-                          {depth > 0 && (
-                            <span className="mr-2 text-muted-foreground/40 text-xs select-none">└</span>
-                          )}
-                          <span className="font-medium">{tag.shortName}</span>
-                          {depth === 0 && tag.childCount > 0 && (
-                            <span className="ml-2 text-xs text-muted-foreground">{tag.name}</span>
-                          )}
-                          {depth > 0 && (
-                            <span className="ml-2 text-xs text-muted-foreground font-mono">{tag.name}</span>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {tag.txCount > 0 ? (
-                        <Badge variant="secondary">{tag.txCount}</Badge>
-                      ) : (
-                        <span className="text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {tag.ruleCount > 0 ? (
-                        <Badge variant="outline">{tag.ruleCount}</Badge>
-                      ) : (
-                        <span className="text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground text-xs">
-                      {tag.childCount > 0 ? tag.childCount : "—"}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {isEditing ? (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={handleSaveEdit}
-                            disabled={isPending}
-                            className="text-xs text-primary hover:underline disabled:opacity-50"
-                          >
-                            {isPending ? "Saving…" : "Save"}
-                          </button>
-                          <button
-                            onClick={() => { setEditing(null); setError(null); }}
-                            className="text-xs text-muted-foreground hover:text-foreground"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex gap-3">
-                          <button
-                            onClick={() =>
-                              setEditing({
-                                id: tag.id,
-                                shortName: tag.shortName,
-                                parentId: tag.parentId,
-                              })
-                            }
-                            className="text-xs text-muted-foreground hover:text-primary"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDelete(tag)}
-                            disabled={isPending}
-                            className="text-xs text-muted-foreground hover:text-destructive disabled:opacity-40"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      )}
+              </thead>
+              <tbody>
+                {tags.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                      No tags yet. Create one above.
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                )}
+                {tags.map((tag) => {
+                  const depth = depthOf(tag.name);
+                  const isEditing = editing?.id === tag.id;
+
+                  return (
+                    <tr key={tag.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-4 py-2.5">
+                        {isEditing ? (
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="shrink-0"
+                              style={{ width: `${depth * 16}px` }}
+                            />
+                            <Input
+                              autoFocus
+                              value={editing.shortName}
+                              onChange={(e) =>
+                                setEditing({ ...editing, shortName: e.target.value })
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveEdit();
+                                if (e.key === "Escape") setEditing(null);
+                              }}
+                              className="h-7 text-sm w-40"
+                            />
+                            <span className="text-xs text-muted-foreground">under:</span>
+                            <select
+                              value={editing.parentId ?? ""}
+                              onChange={(e) =>
+                                setEditing({ ...editing, parentId: e.target.value || null })
+                              }
+                              className="rounded border border-input bg-background px-2 py-1 text-xs"
+                            >
+                              <option value="">— Root</option>
+                              {eligibleParents(editing.id).map((t) => (
+                                <option key={t.id} value={t.id}>{t.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <div className="flex items-center">
+                            <div
+                              className="shrink-0 border-l border-dashed border-muted-foreground/30 mr-2"
+                              style={{
+                                width: `${depth * 16}px`,
+                                height: depth > 0 ? "1px" : undefined,
+                                display: depth > 0 ? "flex" : "none",
+                              }}
+                            />
+                            {depth > 0 && (
+                              <span className="mr-2 text-muted-foreground/40 text-xs select-none">└</span>
+                            )}
+                            <span className="font-medium">{tag.shortName}</span>
+                            {depth === 0 && tag.childCount > 0 && (
+                              <span className="ml-2 text-xs text-muted-foreground">{tag.name}</span>
+                            )}
+                            {depth > 0 && (
+                              <span className="ml-2 text-xs text-muted-foreground font-mono">{tag.name}</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        {tag.txCount > 0 ? (
+                          <Badge variant="secondary">{tag.txCount}</Badge>
+                        ) : (
+                          <span className="text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        {tag.ruleCount > 0 ? (
+                          <Badge variant="outline">{tag.ruleCount}</Badge>
+                        ) : (
+                          <span className="text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground text-xs">
+                        {tag.childCount > 0 ? tag.childCount : "—"}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {isEditing ? (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleSaveEdit}
+                              disabled={isPending}
+                              className="text-xs text-primary hover:underline disabled:opacity-50"
+                            >
+                              {isPending ? "Saving…" : "Save"}
+                            </button>
+                            <button
+                              onClick={() => { setEditing(null); setError(null); }}
+                              className="text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() =>
+                                setEditing({
+                                  id: tag.id,
+                                  shortName: tag.shortName,
+                                  parentId: tag.parentId,
+                                })
+                              }
+                              className="text-xs text-muted-foreground hover:text-primary"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDelete(tag)}
+                              disabled={isPending}
+                              className="text-xs text-muted-foreground hover:text-destructive disabled:opacity-40"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </TableScroll>
         </CardContent>
       </Card>
 

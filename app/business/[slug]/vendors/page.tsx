@@ -6,6 +6,7 @@ import { getEntityBySlug } from "@/lib/entity";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VendorSpendChart } from "@/components/business/vendor-spend-chart";
 import type { Route } from "next";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -88,33 +89,35 @@ export default async function VendorsPage({ params }: PageProps) {
               <CardTitle className="text-base">All vendors</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-2 font-medium">Vendor / Payee</th>
-                    <th className="px-4 py-2 font-medium text-right">Transactions</th>
-                    <th className="px-4 py-2 font-medium text-right">Total Spend</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {vendors.map((v, i) => (
-                    <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="px-4 py-2 font-medium">{v.vendor}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{v.txCount}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{fmtUSD(v.totalDollars)}</td>
+              <TableScroll>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-2 font-medium">Vendor / Payee</th>
+                      <th className="px-4 py-2 font-medium text-right">Transactions</th>
+                      <th className="px-4 py-2 font-medium text-right">Total Spend</th>
                     </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t bg-muted/30">
-                    <td className="px-4 py-2 font-semibold">Total</td>
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums">
-                      {vendors.reduce((s, v) => s + v.txCount, 0)}
-                    </td>
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums">{fmtUSD(totalSpend)}</td>
-                  </tr>
-                </tfoot>
-              </table>
+                  </thead>
+                  <tbody>
+                    {vendors.map((v, i) => (
+                      <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="px-4 py-2 font-medium">{v.vendor}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{v.txCount}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{fmtUSD(v.totalDollars)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t bg-muted/30">
+                      <td className="px-4 py-2 font-semibold">Total</td>
+                      <td className="px-4 py-2 text-right font-semibold tabular-nums">
+                        {vendors.reduce((s, v) => s + v.txCount, 0)}
+                      </td>
+                      <td className="px-4 py-2 text-right font-semibold tabular-nums">{fmtUSD(totalSpend)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </TableScroll>
             </CardContent>
           </Card>
         )}

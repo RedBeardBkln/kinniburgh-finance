@@ -21,6 +21,7 @@ import {
   type StatementStage,
 } from "@/lib/statement-import";
 import { LIABILITY_ACCOUNT_TYPES } from "@/lib/statement-review";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface AccountOption {
   id: string;
@@ -177,45 +178,47 @@ export function StatementsTable({ statements, accounts, entityId, entitySlug }: 
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-left text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Period</th>
-              <th className="px-4 py-3 font-medium">Account</th>
-              <th className="px-4 py-3 font-medium text-right">Opening</th>
-              <th className="px-4 py-3 font-medium text-right">Closing</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {statements.map((s) => {
-              // Balances not read yet (pending/processing/failed/skipped): that
-              // badge still drives the Parse/Retry buttons. Once read, the badge
-              // reports where the TRANSACTIONS stand instead.
-              const stageDisplay = describeStage(s.stage, s.importableRows, s.rowsInLedger);
-              const status =
-                s.extractStatus === "complete"
-                  ? { label: stageDisplay.label, cls: STAGE_TONE_CLASS[stageDisplay.tone] }
-                  : (STATUS_BADGE[s.extractStatus] ?? STATUS_BADGE.pending);
-              const needsReview = !s.confirmedAt || stageNeedsAttention(s.stage);
-              return (
-                <StatementRowItem
-                  key={s.id}
-                  statement={s}
-                  accounts={accounts}
-                  entitySlug={entitySlug}
-                  status={status ?? { label: s.extractStatus, cls: "bg-muted text-muted-foreground border-border" }}
-                  needsReview={needsReview}
-                  editing={editingId === s.id}
-                  onEdit={() => setEditingId(editingId === s.id ? null : s.id)}
-                  onDone={() => setEditingId(null)}
-                  router={router}
-                />
-              );
-            })}
-          </tbody>
-        </table>
+        <TableScroll>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-muted-foreground">
+                <th className="px-4 py-3 font-medium">Period</th>
+                <th className="px-4 py-3 font-medium">Account</th>
+                <th className="px-4 py-3 font-medium text-right">Opening</th>
+                <th className="px-4 py-3 font-medium text-right">Closing</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {statements.map((s) => {
+                // Balances not read yet (pending/processing/failed/skipped): that
+                // badge still drives the Parse/Retry buttons. Once read, the badge
+                // reports where the TRANSACTIONS stand instead.
+                const stageDisplay = describeStage(s.stage, s.importableRows, s.rowsInLedger);
+                const status =
+                  s.extractStatus === "complete"
+                    ? { label: stageDisplay.label, cls: STAGE_TONE_CLASS[stageDisplay.tone] }
+                    : (STATUS_BADGE[s.extractStatus] ?? STATUS_BADGE.pending);
+                const needsReview = !s.confirmedAt || stageNeedsAttention(s.stage);
+                return (
+                  <StatementRowItem
+                    key={s.id}
+                    statement={s}
+                    accounts={accounts}
+                    entitySlug={entitySlug}
+                    status={status ?? { label: s.extractStatus, cls: "bg-muted text-muted-foreground border-border" }}
+                    needsReview={needsReview}
+                    editing={editingId === s.id}
+                    onEdit={() => setEditingId(editingId === s.id ? null : s.id)}
+                    onDone={() => setEditingId(null)}
+                    router={router}
+                  />
+                );
+              })}
+            </tbody>
+          </table>
+        </TableScroll>
       </CardContent>
     </Card>
   );

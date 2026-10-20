@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { createVaultEntry, updateVaultEntry, deleteVaultEntry } from "@/actions/vault";
 import type { VaultEntryDecrypted, VaultField } from "@/actions/vault";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
 
 const CATEGORIES = [
   { value: "login", label: "Login" },
@@ -115,7 +117,7 @@ function EntryCard({ entry, onEdit, onDelete, deleting }: EntryCardProps) {
       ) : (
         <dl className="grid gap-1.5">
           {entry.fields.map((f, i) => (
-            <div key={i} className="grid grid-cols-[120px_1fr] gap-2 text-sm">
+            <div key={i} className="grid grid-cols-[120px_1fr] gap-2 text-sm max-sm:grid-cols-1 max-sm:gap-0.5">
               <dt className="text-muted-foreground truncate">{f.key}</dt>
               <dd className="font-mono truncate">
                 {revealed ? f.value || "—" : "••••••••"}
@@ -190,8 +192,8 @@ function EntryModal({ mode, entry, onClose }: EntryModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg bg-background rounded-lg shadow-xl flex flex-col max-h-[90vh]">
+    <div className={MODAL_OVERLAY}>
+      <div className={cn(modalPanelClass("lg", "inner"), "bg-background shadow-xl")}>
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="font-semibold">{mode === "add" ? "New Entry" : "Edit Entry"}</h2>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">×</button>
@@ -270,7 +272,7 @@ function EntryModal({ mode, entry, onClose }: EntryModalProps) {
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
 
-        <div className="flex justify-end gap-2 p-4 border-t">
+        <div className="flex flex-wrap justify-end gap-2 p-4 border-t">
           <button type="button" onClick={onClose} className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 h-9 text-sm hover:bg-accent">
             Cancel
           </button>
@@ -317,8 +319,8 @@ export function VaultClient({ initialEntries }: Props) {
   return (
     <>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold">Vault</h1>
             <p className="text-sm text-muted-foreground">Financial credentials and account details — end-to-end encrypted</p>
           </div>

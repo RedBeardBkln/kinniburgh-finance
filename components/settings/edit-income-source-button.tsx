@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateIncomeSource } from "@/actions/income-sources";
+import { cn } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
 
 interface Account {
   id: string;
@@ -128,8 +130,8 @@ export function EditIncomeSourceButton(props: Props) {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-lg border bg-background p-5 shadow-lg space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className={MODAL_OVERLAY}>
+          <div className={cn(modalPanelClass("lg"), "space-y-4 border bg-background p-5 shadow-lg")}>
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Edit income source</h3>
               <button
@@ -270,7 +272,7 @@ export function EditIncomeSourceButton(props: Props) {
             {error && <p className="text-sm text-destructive">{error}</p>}
             {savedMsg && <p className="text-sm text-green-600">{savedMsg}</p>}
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <button
                 onClick={() => setOpen(false)}
                 className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent"

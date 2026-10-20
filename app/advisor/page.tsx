@@ -61,7 +61,7 @@ export default async function AdvisorPage({ searchParams }: PageProps) {
 
   return (
     <AppShell>
-      <div className="flex h-[calc(100vh-7rem)] flex-col gap-4">
+      <div className="flex h-[calc(100vh-7rem)] flex-col gap-4 max-md:h-[calc(100dvh-14.5rem)]">
         <div>
           <h1 className="text-2xl font-bold">Financial Advisor</h1>
           <p className="mt-1 text-sm text-muted-foreground">

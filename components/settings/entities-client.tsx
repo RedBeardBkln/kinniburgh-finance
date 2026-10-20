@@ -66,8 +66,8 @@ export function EntitiesClient({ entities }: Props) {
     <div className="space-y-4">
       <div className="space-y-2">
         {entities.map((entity) => (
-          <div key={entity.id} className="flex items-center justify-between rounded-lg border px-4 py-3">
-            <div>
+          <div key={entity.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
+            <div className="min-w-0">
               <p className="text-sm font-medium">{entity.navLabel ?? entity.name}</p>
               <p className="text-xs text-muted-foreground">{entity.name}</p>
               {entity.slug && (

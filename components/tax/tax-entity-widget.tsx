@@ -78,7 +78,7 @@ export function TaxEntityWidget({ data }: { data: TaxWidgetData }) {
 
       <div className="space-y-3 px-4 py-3 flex-1">
         {/* Financial snapshot from entity data */}
-        <div className="grid grid-cols-3 gap-2 text-sm">
+        <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
           <div>
             <p className="text-xs text-muted-foreground">Income</p>
             <p className="font-medium text-green-600">{fmtUSD(data.totalIncome)}</p>

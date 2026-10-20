@@ -314,7 +314,7 @@ export function TaxReviewClient({
           isImage ? (
             // The pane scrolls in both directions, so a zoomed-in scan can always
             // be panned to its right-hand side.
-            <div className="h-[calc(100vh-9rem)] min-h-[24rem] overflow-auto rounded-md border bg-muted/20">
+            <div className="h-[calc(100vh-9rem)] min-h-[24rem] overflow-auto rounded-md border bg-muted/20 max-md:h-[70dvh]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={fileUrl} alt="Source document" style={{ width: `${imageZoom}%`, maxWidth: "none" }} className="block h-auto" />
             </div>
@@ -322,7 +322,7 @@ export function TaxReviewClient({
             <iframe
               title="Source document"
               src={fileUrl.includes("#") ? fileUrl : `${fileUrl}#view=FitH`}
-              className="h-[calc(100vh-9rem)] min-h-[24rem] w-full rounded-md border"
+              className="h-[calc(100vh-9rem)] min-h-[24rem] w-full rounded-md border max-md:h-[70dvh]"
             />
           )
         ) : (

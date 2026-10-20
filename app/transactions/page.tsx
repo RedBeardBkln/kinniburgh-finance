@@ -231,14 +231,14 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold">Transactions</h1>
             <p className="text-sm text-muted-foreground">
               {total} transactions · {bucketLabel}
             </p>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex flex-wrap gap-2 items-center">
             {plaidAccountCount > 0 && (
               <SyncNowButton entityId={entity?.id} />
             )}
@@ -268,8 +268,9 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center justify-between border-b">
-          <div className="flex gap-1">
+        {/* flex-wrap-reverse: if the review buttons wrap on a phone they go ABOVE the tabs, so the active tab's underline stays on the border. */}
+        <div className="flex flex-wrap-reverse items-center justify-between gap-2 border-b">
+          <div className="flex gap-1 overflow-x-auto">
             {[
               { slug: "all", label: "All" },
               { slug: "review", label: "Needs Review" },

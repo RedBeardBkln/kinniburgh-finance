@@ -244,7 +244,7 @@ function ImportInner() {
               Flip every amount (this file lists purchases as positive numbers)
             </label>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <Button onClick={() => handlePreview()} disabled={loading}>
                 {loading ? "Parsing…" : "Preview Import"}
               </Button>
@@ -259,7 +259,7 @@ function ImportInner() {
       {step === "preview" && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center justify-between">
+            <CardTitle className="flex flex-wrap items-center justify-between gap-2">
               3. Review {rows.length} rows
               <span className="text-sm font-normal text-muted-foreground">
                 {skippedRows.size} skipped · {rows.length - skippedRows.size} to import
@@ -294,7 +294,7 @@ function ImportInner() {
                 </button>
               </p>
             )}
-            <div className="flex gap-4 px-3 py-2 text-xs text-muted-foreground border-b">
+            <div className="flex flex-wrap gap-4 px-3 py-2 text-xs text-muted-foreground border-b">
               <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />Debit</span>
               <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Credit / Refund</span>
               <span><span className="inline-block w-2 h-2 rounded-full bg-purple-500 mr-1" />Transfer</span>
@@ -372,7 +372,7 @@ function ImportInner() {
                 </tbody>
               </table>
             </div>
-            <div className="flex gap-3 p-4">
+            <div className="flex flex-wrap gap-3 p-4">
               <Button onClick={handleImport} disabled={loading || rows.length === skippedRows.size}>
                 {loading ? "Importing…" : `Import ${rows.length - skippedRows.size} transactions`}
               </Button>
@@ -393,7 +393,7 @@ function ImportInner() {
             {result.skipped > 0 && (
               <p className="text-muted-foreground text-sm">{result.skipped} skipped (duplicates or invalid dates)</p>
             )}
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <Button onClick={() => router.push(`/transactions?bucket=${bucket}&tab=all`)}>View Transactions</Button>
               <Button variant="outline" onClick={() => {
                 setStep("upload");

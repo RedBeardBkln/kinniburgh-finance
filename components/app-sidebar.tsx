@@ -126,7 +126,7 @@ function SidebarNavContent({
                     href={buildHref(base)}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors max-md:py-3",
                       isActive(base)
                         ? "bg-accent font-medium text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -145,7 +145,7 @@ function SidebarNavContent({
                     href={buildHref(envelopeItem.base)}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors max-md:py-3",
                       isActive(envelopeItem.base)
                         ? "bg-accent font-medium text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -171,7 +171,7 @@ function SidebarNavContent({
                     href={href}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors max-md:py-3",
                       isActive(base)
                         ? "bg-accent font-medium text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -197,7 +197,7 @@ function SidebarNavContent({
                     href={href}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors max-md:py-3",
                       isActive(base)
                         ? "bg-accent font-medium text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -222,7 +222,7 @@ function SidebarNavContent({
                   href={"/projects" as Route}
                   onClick={onNavigate}
                   className={cn(
-                    "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                    "flex items-center rounded-md px-3 py-2 text-sm transition-colors max-md:py-3",
                     pathname === "/projects"
                       ? "bg-accent font-medium text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -258,7 +258,7 @@ function SidebarNavContent({
                     href={href}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors max-md:py-3",
                       // isActive expects a bare pathname — strip any `?query`
                       // (e.g. "/documents?bucket=taxes") before comparing, or
                       // it can never match usePathname()'s query-free value.
@@ -283,7 +283,7 @@ function SidebarNavContent({
                     href={href as Route}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                      "flex items-center rounded-md px-3 py-2 text-sm transition-colors max-md:py-3",
                       pathname === href
                         ? "bg-accent font-medium text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -303,7 +303,7 @@ function SidebarNavContent({
           href={"/vault" as Route}
           onClick={onNavigate}
           className={cn(
-            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors max-md:py-3",
             pathname.startsWith("/vault")
               ? "bg-accent font-medium text-accent-foreground"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -316,7 +316,7 @@ function SidebarNavContent({
           href={"/tags" as Route}
           onClick={onNavigate}
           className={cn(
-            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors max-md:py-3",
             pathname.startsWith("/tags") && !pathname.startsWith("/tag-rules")
               ? "bg-accent font-medium text-accent-foreground"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -329,7 +329,7 @@ function SidebarNavContent({
           href={"/tag-rules" as Route}
           onClick={onNavigate}
           className={cn(
-            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors max-md:py-3",
             pathname.startsWith("/tag-rules")
               ? "bg-accent font-medium text-accent-foreground"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -342,7 +342,7 @@ function SidebarNavContent({
           href={"/settings" as Route}
           onClick={onNavigate}
           className={cn(
-            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors max-md:py-3",
             pathname.startsWith("/settings")
               ? "bg-accent font-medium text-accent-foreground"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -436,7 +436,7 @@ export function AppSidebar({
             <button
               onClick={onMobileClose}
               aria-label="Close navigation menu"
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent"
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent max-md:p-3"
             >
               <X className="h-4 w-4" />
             </button>

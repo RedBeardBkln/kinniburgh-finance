@@ -11,6 +11,9 @@ import {
 } from "@/actions/envelope";
 import { runTransferMatchingNow } from "@/actions/transfer-match";
 import { TransferHistoryPanel } from "@/components/envelope/transfer-history-panel";
+import { cn } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -142,8 +145,8 @@ function TransferModal({ modal, accounts, onClose }: { modal: ModalState & { mod
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+    <div className={MODAL_OVERLAY}>
+      <div className={cn(modalPanelClass("md"), "bg-background p-6 shadow-xl")}>
         <h2 className="mb-4 text-lg font-semibold">
           {isEdit ? "Edit Transfer" : "Add Scheduled Transfer"}
         </h2>
@@ -232,7 +235,7 @@ function TransferModal({ modal, accounts, onClose }: { modal: ModalState & { mod
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} disabled={isPending} className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50">Cancel</button>
             <button type="submit" disabled={isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
               {isPending ? "Saving…" : "Save"}
@@ -329,80 +332,82 @@ export function ScheduledTransfersClient({ transfers, accounts }: Props) {
           </div>
         )}
         <CardContent className="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-muted-foreground">
-                <th className="px-4 py-2 font-medium">From</th>
-                <th className="px-4 py-2 font-medium">To</th>
-                <th className="px-4 py-2 font-medium">Amount</th>
-                <th className="px-4 py-2 font-medium">Cadence</th>
-                <th className="px-4 py-2 font-medium">Purpose</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transfers.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">
-                    No scheduled transfers yet.
-                  </td>
+          <TableScroll>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="px-4 py-2 font-medium">From</th>
+                  <th className="px-4 py-2 font-medium">To</th>
+                  <th className="px-4 py-2 font-medium">Amount</th>
+                  <th className="px-4 py-2 font-medium">Cadence</th>
+                  <th className="px-4 py-2 font-medium">Purpose</th>
+                  <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2 font-medium">Actions</th>
                 </tr>
-              )}
-              {transfers.map((t) => (
-                <Fragment key={t.id}>
-                  <tr className={`border-b last:border-0 hover:bg-muted/30 ${!t.active ? "opacity-50" : ""} ${deletingId === t.id ? "opacity-30" : ""}`}>
-                    <td className="px-4 py-2">
-                      <span className="font-medium">{t.fromNickname}</span>
-                      {t.fromMask && <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.fromMask}</span>}
-                    </td>
-                    <td className="px-4 py-2">
-                      <span className="font-medium">{t.toNickname}</span>
-                      {t.toMask && <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.toMask}</span>}
-                    </td>
-                    <td className="px-4 py-2 font-medium tabular-nums">
-                      ${parseFloat(t.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {cadenceLabel(t.cadence, t.dayRules)}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground">{t.purpose ?? "—"}</td>
-                    <td className="px-4 py-2">
-                      <Badge variant={t.active ? "default" : "outline"}>
-                        {t.active ? "Active" : "Paused"}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="flex items-center gap-3">
-                        <button onClick={() => setModal({ mode: "edit", transfer: t })} className="text-xs text-primary hover:underline">Edit</button>
-                        <button onClick={() => onTogglePause(t)} className="text-xs text-muted-foreground hover:text-foreground">
-                          {t.active ? "Pause" : "Resume"}
-                        </button>
-                        <button
-                          onClick={() => setHistoryOpenId(historyOpenId === t.id ? null : t.id)}
-                          className="text-xs text-muted-foreground hover:text-foreground"
-                        >
-                          {historyOpenId === t.id ? "Hide History" : "History"}
-                        </button>
-                        <button onClick={() => onDelete(t.id)} disabled={deletingId === t.id} className="text-xs text-destructive hover:underline disabled:opacity-50">Delete</button>
-                      </div>
+              </thead>
+              <tbody>
+                {transfers.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">
+                      No scheduled transfers yet.
                     </td>
                   </tr>
-                  {historyOpenId === t.id && (
-                    <tr className="border-b last:border-0">
-                      <td colSpan={7} className="bg-muted/10 px-4 py-3">
-                        <TransferHistoryPanel
-                          scheduledTransferId={t.id}
-                          fromNickname={t.fromNickname}
-                          toNickname={t.toNickname}
-                        />
+                )}
+                {transfers.map((t) => (
+                  <Fragment key={t.id}>
+                    <tr className={`border-b last:border-0 hover:bg-muted/30 ${!t.active ? "opacity-50" : ""} ${deletingId === t.id ? "opacity-30" : ""}`}>
+                      <td className="px-4 py-2">
+                        <span className="font-medium">{t.fromNickname}</span>
+                        {t.fromMask && <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.fromMask}</span>}
+                      </td>
+                      <td className="px-4 py-2">
+                        <span className="font-medium">{t.toNickname}</span>
+                        {t.toMask && <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.toMask}</span>}
+                      </td>
+                      <td className="px-4 py-2 font-medium tabular-nums">
+                        ${parseFloat(t.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-4 py-2 text-muted-foreground">
+                        {cadenceLabel(t.cadence, t.dayRules)}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground">{t.purpose ?? "—"}</td>
+                      <td className="px-4 py-2">
+                        <Badge variant={t.active ? "default" : "outline"}>
+                          {t.active ? "Active" : "Paused"}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => setModal({ mode: "edit", transfer: t })} className="text-xs text-primary hover:underline">Edit</button>
+                          <button onClick={() => onTogglePause(t)} className="text-xs text-muted-foreground hover:text-foreground">
+                            {t.active ? "Pause" : "Resume"}
+                          </button>
+                          <button
+                            onClick={() => setHistoryOpenId(historyOpenId === t.id ? null : t.id)}
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            {historyOpenId === t.id ? "Hide History" : "History"}
+                          </button>
+                          <button onClick={() => onDelete(t.id)} disabled={deletingId === t.id} className="text-xs text-destructive hover:underline disabled:opacity-50">Delete</button>
+                        </div>
                       </td>
                     </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
+                    {historyOpenId === t.id && (
+                      <tr className="border-b last:border-0">
+                        <td colSpan={7} className="bg-muted/10 px-4 py-3">
+                          <TransferHistoryPanel
+                            scheduledTransferId={t.id}
+                            fromNickname={t.fromNickname}
+                            toNickname={t.toNickname}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
         </CardContent>
       </Card>
 

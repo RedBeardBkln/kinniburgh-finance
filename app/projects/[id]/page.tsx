@@ -68,9 +68,9 @@ export default async function ProjectDetailPage({ params }: Props) {
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
               <h1 className="text-2xl font-semibold">{project.name}</h1>
               <span className={`rounded border px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[project.status] ?? STATUS_BADGE.active}`}>
                 {project.status}
@@ -90,7 +90,7 @@ export default async function ProjectDetailPage({ params }: Props) {
 
         {/* Budget summary */}
         <div className="rounded-lg border bg-card p-5 space-y-4">
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-1 gap-4 text-center sm:grid-cols-3">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wide">Budget</p>
               <p className="text-xl font-semibold mt-1">${budget.toFixed(2)}</p>

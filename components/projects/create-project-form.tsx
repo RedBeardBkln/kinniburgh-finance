@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createProject } from "@/actions/projects";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
 
 interface EntityOption {
   id: string;
@@ -70,8 +72,8 @@ export function CreateProjectForm({ entities, accounts }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <Card className="w-full max-w-lg">
+    <div className={cn(MODAL_OVERLAY, "bg-black/40")}>
+      <Card className={cn(modalPanelClass("lg"), "max-sm:rounded-b-none")}>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">New project</CardTitle>
         </CardHeader>
@@ -150,7 +152,7 @@ export function CreateProjectForm({ entities, accounts }: Props) {
             </div>
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex gap-2 pt-1">
+          <div className="flex flex-wrap gap-2 pt-1">
             <button
               onClick={handleCreate} disabled={isPending}
               className="inline-flex rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"

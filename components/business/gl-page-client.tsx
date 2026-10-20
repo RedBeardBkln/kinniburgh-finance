@@ -15,6 +15,7 @@ import {
   importGlCodes,
 } from "@/actions/gl-codes";
 import { buildTypeChangeWarning } from "@/lib/gl-code-warnings";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 const GL_TYPES = ["revenue", "expense", "asset", "liability", "equity"] as const;
 type GlType = (typeof GL_TYPES)[number];
@@ -309,24 +310,26 @@ export function GlPageClient({
                       {importRows.length} row{importRows.length !== 1 ? "s" : ""} parsed
                       {importRows.length > 10 ? " (showing first 10)" : ""}
                     </p>
-                    <table className="w-full text-xs rounded border">
-                      <thead>
-                        <tr className="border-b text-left text-muted-foreground">
-                          <th className="px-2 py-1">Code</th>
-                          <th className="px-2 py-1">Name</th>
-                          <th className="px-2 py-1">Type</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {importRows.slice(0, 10).map((r, i) => (
-                          <tr key={i} className="border-b last:border-0">
-                            <td className="px-2 py-1 font-mono">{r.code}</td>
-                            <td className="px-2 py-1">{r.name}</td>
-                            <td className="px-2 py-1">{r.type}</td>
+                    <TableScroll>
+                      <table className="w-full text-xs rounded border">
+                        <thead>
+                          <tr className="border-b text-left text-muted-foreground">
+                            <th className="px-2 py-1">Code</th>
+                            <th className="px-2 py-1">Name</th>
+                            <th className="px-2 py-1">Type</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {importRows.slice(0, 10).map((r, i) => (
+                            <tr key={i} className="border-b last:border-0">
+                              <td className="px-2 py-1 font-mono">{r.code}</td>
+                              <td className="px-2 py-1">{r.name}</td>
+                              <td className="px-2 py-1">{r.type}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </TableScroll>
                     <button
                       onClick={handleImport}
                       disabled={isImporting}
@@ -353,94 +356,96 @@ export function GlPageClient({
 
         <Card>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-3 py-2 font-medium text-xs">Code</th>
-                  <th className="px-3 py-2 font-medium text-xs">Name</th>
-                  <th className="px-3 py-2 font-medium text-xs">Type</th>
-                  <th className="px-3 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {glCodes.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground text-sm">
-                      No GL codes yet
-                    </td>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-3 py-2 font-medium text-xs">Code</th>
+                    <th className="px-3 py-2 font-medium text-xs">Name</th>
+                    <th className="px-3 py-2 font-medium text-xs">Type</th>
+                    <th className="px-3 py-2" />
                   </tr>
-                )}
-                {glCodes.map((g) => {
-                  const isEditing = editingId === g.id;
-                  return (
-                    <tr key={g.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="px-3 py-2 font-mono text-xs">{g.code}</td>
-                      {isEditing ? (
-                        <>
-                          <td className="px-3 py-2">
-                            <Input
-                              value={editName}
-                              onChange={(e) => setEditName(e.target.value)}
-                              className="h-7 text-xs"
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <select
-                              value={editType}
-                              onChange={(e) => setEditType(e.target.value as GlType)}
-                              className="block w-full rounded-md border border-input bg-background px-1.5 py-1 text-xs h-7"
-                            >
-                              {GL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                          </td>
-                          <td className="px-3 py-2 text-right whitespace-nowrap">
-                            <button
-                              onClick={() => handleSaveEdit(g.id)}
-                              disabled={isSavingEdit}
-                              className="text-xs text-primary hover:underline disabled:opacity-40 mr-2"
-                            >
-                              {isSavingEdit ? "Saving…" : "Save"}
-                            </button>
-                            <button
-                              onClick={handleCancelEdit}
-                              disabled={isSavingEdit}
-                              className="text-xs text-muted-foreground hover:underline disabled:opacity-40"
-                            >
-                              Cancel
-                            </button>
-                            {editError && <p className="text-xs text-destructive mt-1">{editError}</p>}
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-3 py-2 text-xs">{g.name}</td>
-                          <td className="px-3 py-2">
-                            <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${TYPE_COLORS[g.type] ?? ""}`}>
-                              {g.type}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-right whitespace-nowrap">
-                            <button
-                              onClick={() => handleStartEdit(g)}
-                              className="text-xs text-muted-foreground hover:text-primary mr-2"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleDelete(g.id)}
-                              disabled={isDeleting}
-                              className="text-xs text-muted-foreground hover:text-destructive disabled:opacity-40"
-                            >
-                              Delete
-                            </button>
-                          </td>
-                        </>
-                      )}
+                </thead>
+                <tbody>
+                  {glCodes.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground text-sm">
+                        No GL codes yet
+                      </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  )}
+                  {glCodes.map((g) => {
+                    const isEditing = editingId === g.id;
+                    return (
+                      <tr key={g.id} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="px-3 py-2 font-mono text-xs">{g.code}</td>
+                        {isEditing ? (
+                          <>
+                            <td className="px-3 py-2">
+                              <Input
+                                value={editName}
+                                onChange={(e) => setEditName(e.target.value)}
+                                className="h-7 text-xs"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <select
+                                value={editType}
+                                onChange={(e) => setEditType(e.target.value as GlType)}
+                                className="block w-full rounded-md border border-input bg-background px-1.5 py-1 text-xs h-7"
+                              >
+                                {GL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                              </select>
+                            </td>
+                            <td className="px-3 py-2 text-right whitespace-nowrap">
+                              <button
+                                onClick={() => handleSaveEdit(g.id)}
+                                disabled={isSavingEdit}
+                                className="text-xs text-primary hover:underline disabled:opacity-40 mr-2"
+                              >
+                                {isSavingEdit ? "Saving…" : "Save"}
+                              </button>
+                              <button
+                                onClick={handleCancelEdit}
+                                disabled={isSavingEdit}
+                                className="text-xs text-muted-foreground hover:underline disabled:opacity-40"
+                              >
+                                Cancel
+                              </button>
+                              {editError && <p className="text-xs text-destructive mt-1">{editError}</p>}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-3 py-2 text-xs">{g.name}</td>
+                            <td className="px-3 py-2">
+                              <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${TYPE_COLORS[g.type] ?? ""}`}>
+                                {g.type}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right whitespace-nowrap">
+                              <button
+                                onClick={() => handleStartEdit(g)}
+                                className="text-xs text-muted-foreground hover:text-primary mr-2"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDelete(g.id)}
+                                disabled={isDeleting}
+                                className="text-xs text-muted-foreground hover:text-destructive disabled:opacity-40"
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </TableScroll>
           </CardContent>
         </Card>
 
@@ -456,45 +461,47 @@ export function GlPageClient({
           {showArchived && (
             <Card>
               <CardContent className="p-0">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="px-3 py-2 font-medium text-xs">Code</th>
-                      <th className="px-3 py-2 font-medium text-xs">Name</th>
-                      <th className="px-3 py-2 font-medium text-xs">Type</th>
-                      <th className="px-3 py-2" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {archivedGlCodes.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground text-sm">
-                          No archived GL codes
-                        </td>
+                <TableScroll>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="px-3 py-2 font-medium text-xs">Code</th>
+                        <th className="px-3 py-2 font-medium text-xs">Name</th>
+                        <th className="px-3 py-2 font-medium text-xs">Type</th>
+                        <th className="px-3 py-2" />
                       </tr>
-                    )}
-                    {archivedGlCodes.map((g) => (
-                      <tr key={g.id} className="border-b last:border-0 hover:bg-muted/30">
-                        <td className="px-3 py-2 font-mono text-xs">{g.code}</td>
-                        <td className="px-3 py-2 text-xs">{g.name}</td>
-                        <td className="px-3 py-2">
-                          <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${TYPE_COLORS[g.type] ?? ""}`}>
-                            {g.type}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <button
-                            onClick={() => handleRestore(g.id)}
-                            disabled={isRestoring}
-                            className="text-xs text-primary hover:underline disabled:opacity-40"
-                          >
-                            Restore
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {archivedGlCodes.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground text-sm">
+                            No archived GL codes
+                          </td>
+                        </tr>
+                      )}
+                      {archivedGlCodes.map((g) => (
+                        <tr key={g.id} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="px-3 py-2 font-mono text-xs">{g.code}</td>
+                          <td className="px-3 py-2 text-xs">{g.name}</td>
+                          <td className="px-3 py-2">
+                            <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${TYPE_COLORS[g.type] ?? ""}`}>
+                              {g.type}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              onClick={() => handleRestore(g.id)}
+                              disabled={isRestoring}
+                              className="text-xs text-primary hover:underline disabled:opacity-40"
+                            >
+                              Restore
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableScroll>
               </CardContent>
             </Card>
           )}

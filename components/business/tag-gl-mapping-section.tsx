@@ -10,6 +10,7 @@ import {
 } from "@/actions/gl-code-mappings";
 import { GlBackfillModal } from "@/components/business/gl-backfill-modal";
 import { buildNonPLMappingWarning, isPLGlType } from "@/lib/gl-code-warnings";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface GlCodeOption {
   id: string;
@@ -138,88 +139,90 @@ export function TagGlMappingSection({ entityId, glCodes, inUse: initialInUse, un
 
       <Card>
         <CardContent className="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-muted-foreground">
-                <th className="px-3 py-2 font-medium text-xs">Tag</th>
-                <th className="px-3 py-2 font-medium text-xs">In-use count</th>
-                <th className="px-3 py-2 font-medium text-xs">GL Code</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="px-3 py-6 text-center text-muted-foreground text-sm">
-                    No tags to map yet
-                  </td>
+          <TableScroll>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="px-3 py-2 font-medium text-xs">Tag</th>
+                  <th className="px-3 py-2 font-medium text-xs">In-use count</th>
+                  <th className="px-3 py-2 font-medium text-xs">GL Code</th>
                 </tr>
-              )}
-              {rows.map((row) => (
-                <tr key={row.tagId} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-3 py-2 text-xs">{row.tagName}</td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">
-                    {row.usageCount > 0 ? row.usageCount : "—"}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={row.glCodeId ?? ""}
-                        onChange={(e) => handleSetMapping(row.tagId, row.tagName, e.target.value)}
-                        disabled={rowStatus[row.tagId] === "saving"}
-                        className="block w-full rounded border border-input bg-background px-1.5 py-1 text-xs"
-                      >
-                        <option value="">— unmapped —</option>
-                        {glCodes.map((g) => (
-                          <option key={g.id} value={g.id}>
-                            {g.code} {g.name}
-                          </option>
-                        ))}
-                      </select>
-                      {rowStatus[row.tagId] === "saving" && (
-                        <span className="shrink-0 text-xs text-muted-foreground">Saving…</span>
-                      )}
-                      {rowStatus[row.tagId] === "saved" && (
-                        <span className="shrink-0 text-xs text-green-600">Saved ✓</span>
-                      )}
-                      {row.glCodeId && rowStatus[row.tagId] !== "saving" && (
-                        <button
-                          onClick={() => handleSetMapping(row.tagId, row.tagName, "")}
-                          className="shrink-0 text-xs text-destructive hover:underline"
+              </thead>
+              <tbody>
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-3 py-6 text-center text-muted-foreground text-sm">
+                      No tags to map yet
+                    </td>
+                  </tr>
+                )}
+                {rows.map((row) => (
+                  <tr key={row.tagId} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-3 py-2 text-xs">{row.tagName}</td>
+                    <td className="px-3 py-2 text-xs text-muted-foreground">
+                      {row.usageCount > 0 ? row.usageCount : "—"}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={row.glCodeId ?? ""}
+                          onChange={(e) => handleSetMapping(row.tagId, row.tagName, e.target.value)}
+                          disabled={rowStatus[row.tagId] === "saving"}
+                          className="block w-full rounded border border-input bg-background px-1.5 py-1 text-xs"
                         >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                    {(() => {
-                      const mapped = row.glCodeId
-                        ? glCodes.find((g) => g.id === row.glCodeId)
-                        : undefined;
-                      if (!mapped || isPLGlType(mapped.type)) return null;
-                      return (
-                        <p className="mt-1 text-xs text-amber-600" role="note">
-                          Balance-sheet account ({mapped.type}) — excluded from P&amp;L.
+                          <option value="">— unmapped —</option>
+                          {glCodes.map((g) => (
+                            <option key={g.id} value={g.id}>
+                              {g.code} {g.name}
+                            </option>
+                          ))}
+                        </select>
+                        {rowStatus[row.tagId] === "saving" && (
+                          <span className="shrink-0 text-xs text-muted-foreground">Saving…</span>
+                        )}
+                        {rowStatus[row.tagId] === "saved" && (
+                          <span className="shrink-0 text-xs text-green-600">Saved ✓</span>
+                        )}
+                        {row.glCodeId && rowStatus[row.tagId] !== "saving" && (
+                          <button
+                            onClick={() => handleSetMapping(row.tagId, row.tagName, "")}
+                            className="shrink-0 text-xs text-destructive hover:underline"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      {(() => {
+                        const mapped = row.glCodeId
+                          ? glCodes.find((g) => g.id === row.glCodeId)
+                          : undefined;
+                        if (!mapped || isPLGlType(mapped.type)) return null;
+                        return (
+                          <p className="mt-1 text-xs text-amber-600" role="note">
+                            Balance-sheet account ({mapped.type}) — excluded from P&amp;L.
+                          </p>
+                        );
+                      })()}
+                      {rowStatus[row.tagId] === "error" && (
+                        <p className="mt-1 text-xs text-destructive">
+                          {rowError[row.tagId] ?? "Failed to save — try again."}
                         </p>
-                      );
-                    })()}
-                    {rowStatus[row.tagId] === "error" && (
-                      <p className="mt-1 text-xs text-destructive">
-                        {rowError[row.tagId] ?? "Failed to save — try again."}
-                      </p>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
         </CardContent>
       </Card>
 
       {remainingUnused.length > 0 && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={addingTagId}
             onChange={(e) => setAddingTagId(e.target.value)}
-            className="rounded border border-input bg-background px-2 py-1.5 text-xs"
+            className="max-w-full rounded border border-input bg-background px-2 py-1.5 text-xs max-sm:min-w-0 max-sm:flex-1"
           >
             <option value="">Map another tag…</option>
             {remainingUnused.map((t) => (

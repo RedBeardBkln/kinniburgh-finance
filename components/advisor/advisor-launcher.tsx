@@ -26,10 +26,11 @@ export function AdvisorLauncher() {
         }}
         aria-expanded={open}
         aria-haspopup="dialog"
-        className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition-colors hover:bg-primary/90 print:hidden"
+        aria-label="Ask the assistant"
+        className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition-colors hover:bg-primary/90 print:hidden max-sm:h-12 max-sm:w-12 max-sm:justify-center max-sm:px-0"
       >
         <MessageCircle className="h-4 w-4" aria-hidden="true" />
-        Ask the assistant
+        <span className="max-sm:sr-only">Ask the assistant</span>
       </button>
       {everOpened && <AdvisorSlideover open={open} onClose={() => setOpen(false)} pathname={pathname} />}
     </>

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createManualAsset, archiveManualAsset } from "@/actions/net-worth";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface AssetRow {
   id: string;
@@ -77,36 +78,38 @@ export function ManualAssetForm({ assets }: Props) {
 
         {/* Existing assets */}
         {assets.length > 0 && (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-muted-foreground">
-                <th className="pb-2 font-medium">Name</th>
-                <th className="pb-2 font-medium">Category</th>
-                <th className="pb-2 font-medium text-right">Value</th>
-                <th className="pb-2 font-medium">As of</th>
-                <th className="pb-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {assets.map((a) => (
-                <tr key={a.id} className="border-b last:border-0">
-                  <td className="py-2">{a.name}</td>
-                  <td className="py-2 text-xs text-muted-foreground">{CATEGORY_LABELS[a.category] ?? a.category}</td>
-                  <td className="py-2 text-right tabular-nums">
-                    ${(a.valueCents / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}
-                  </td>
-                  <td className="py-2 text-xs text-muted-foreground">
-                    {new Date(a.asOf).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
-                  </td>
-                  <td className="py-2 text-right">
-                    <button onClick={() => handleRemove(a.id, a.name)} className="text-xs text-muted-foreground hover:text-destructive">
-                      Remove
-                    </button>
-                  </td>
+          <TableScroll>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="pb-2 font-medium">Name</th>
+                  <th className="pb-2 font-medium">Category</th>
+                  <th className="pb-2 font-medium text-right">Value</th>
+                  <th className="pb-2 font-medium">As of</th>
+                  <th className="pb-2" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {assets.map((a) => (
+                  <tr key={a.id} className="border-b last:border-0">
+                    <td className="py-2">{a.name}</td>
+                    <td className="py-2 text-xs text-muted-foreground">{CATEGORY_LABELS[a.category] ?? a.category}</td>
+                    <td className="py-2 text-right tabular-nums">
+                      ${(a.valueCents / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                    </td>
+                    <td className="py-2 text-xs text-muted-foreground">
+                      {new Date(a.asOf).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                    </td>
+                    <td className="py-2 text-right">
+                      <button onClick={() => handleRemove(a.id, a.name)} className="text-xs text-muted-foreground hover:text-destructive">
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
         )}
 
         {showAdd ? (

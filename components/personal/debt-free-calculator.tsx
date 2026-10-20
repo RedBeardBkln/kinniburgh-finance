@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { computeCCPayoff } from "@/lib/payoff-math";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface AccountOption {
   id: string;
@@ -144,42 +145,44 @@ export function DebtFreeCalculator({ accounts }: DebtFreeCalculatorProps) {
             <CardTitle className="text-base">Payoff scenarios</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Scenario</th>
-                  <th className="px-4 py-2 font-medium text-right">Monthly Payment</th>
-                  <th className="px-4 py-2 font-medium text-right">Payoff Date</th>
-                  <th className="px-4 py-2 font-medium text-right">Months</th>
-                  <th className="px-4 py-2 font-medium text-right">Interest Saved</th>
-                </tr>
-              </thead>
-              <tbody>
-                {scenarios.map((s, i) => {
-                  const monthlyPayment = (Math.round(parseFloat(paymentStr) * 100) + s.extraMonthlyPaymentCents) / 100;
-                  const interestSaved = (baseScenario?.totalInterestCents ?? 0) - s.totalInterestCents;
-                  const isPastPayoff = s.monthsRemaining >= 600;
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">Scenario</th>
+                    <th className="px-4 py-2 font-medium text-right">Monthly Payment</th>
+                    <th className="px-4 py-2 font-medium text-right">Payoff Date</th>
+                    <th className="px-4 py-2 font-medium text-right">Months</th>
+                    <th className="px-4 py-2 font-medium text-right">Interest Saved</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scenarios.map((s, i) => {
+                    const monthlyPayment = (Math.round(parseFloat(paymentStr) * 100) + s.extraMonthlyPaymentCents) / 100;
+                    const interestSaved = (baseScenario?.totalInterestCents ?? 0) - s.totalInterestCents;
+                    const isPastPayoff = s.monthsRemaining >= 600;
 
-                  return (
-                    <tr key={i} className={`border-b last:border-0 ${i === 0 ? "" : "bg-green-50/30"}`}>
-                      <td className="px-4 py-2 font-medium">{EXTRA_LABELS[i]}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">
-                        {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(monthlyPayment)}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums">
-                        {isPastPayoff ? "Never" : fmtDate(s.payoffDate)}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums">
-                        {isPastPayoff ? "∞" : s.monthsRemaining}
-                      </td>
-                      <td className={`px-4 py-2 text-right tabular-nums font-medium ${i > 0 ? "text-green-600" : "text-muted-foreground"}`}>
-                        {i === 0 ? "—" : `+${fmtUSD(interestSaved)}`}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr key={i} className={`border-b last:border-0 ${i === 0 ? "" : "bg-green-50/30"}`}>
+                        <td className="px-4 py-2 font-medium">{EXTRA_LABELS[i]}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(monthlyPayment)}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {isPastPayoff ? "Never" : fmtDate(s.payoffDate)}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {isPastPayoff ? "∞" : s.monthsRemaining}
+                        </td>
+                        <td className={`px-4 py-2 text-right tabular-nums font-medium ${i > 0 ? "text-green-600" : "text-muted-foreground"}`}>
+                          {i === 0 ? "—" : `+${fmtUSD(interestSaved)}`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </TableScroll>
           </CardContent>
         </Card>
       )}

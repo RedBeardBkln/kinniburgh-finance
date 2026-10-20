@@ -46,8 +46,8 @@ export async function AppShell({ children, userName, wide }: AppShellProps) {
   const taxMileageHref = businessSlugs.length > 0 ? `/business/${businessSlugs[0]}/mileage` : null;
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background">
-      <Suspense fallback={<div className="h-14 border-b bg-background" />}>
+    <div className="flex h-screen max-md:h-dvh flex-col overflow-hidden bg-background">
+      <Suspense fallback={<div className="h-14 border-b bg-background max-md:h-[7.25rem]" />}>
         <AppShellNav
           userName={userName}
           unreadCount={unreadCount}

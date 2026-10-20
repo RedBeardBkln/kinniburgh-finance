@@ -88,7 +88,7 @@ export function ClientForm({ slug, client, readOnly = false }: { slug: string; c
         <Field label="City">
           <input className={INPUT} value={v.city} onChange={set("city")} />
         </Field>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <Field label="State">
             <input className={INPUT} value={v.state} onChange={set("state")} />
           </Field>

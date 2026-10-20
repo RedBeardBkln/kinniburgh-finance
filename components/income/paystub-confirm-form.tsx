@@ -219,9 +219,9 @@ export function PaystubConfirmForm(props: Props) {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">Extracted data</CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {props.extractStatus === "failed" && (
               <Badge variant="destructive" className="text-xs">
                 Extraction failed — enter manually
@@ -372,7 +372,7 @@ export function PaystubConfirmForm(props: Props) {
 
           {/* Pre-tax deductions */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Pre-tax deductions (where gross money goes before taxes)
               </label>
@@ -424,7 +424,7 @@ export function PaystubConfirmForm(props: Props) {
 
           {/* Tax breakdown */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Tax breakdown (Federal / Social Security / Medicare / State / Local)
               </label>
@@ -479,7 +479,7 @@ export function PaystubConfirmForm(props: Props) {
 
           {/* Additional tax withholding (beyond the stub's tax lines) */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Additional tax withholding (extra federal / state contributions)
               </label>

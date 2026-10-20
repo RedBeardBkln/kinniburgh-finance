@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import type { Route } from "next";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface IncomeSourceRow {
   id: string;
@@ -52,33 +53,35 @@ export function IncomeSourcesCard({ sources }: Props) {
             Forecast page — the forecast uses these for predictive banking.
           </p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-muted-foreground">
-                <th className="px-4 py-2 font-medium">Source</th>
-                <th className="px-4 py-2 font-medium">Cadence</th>
-                <th className="px-4 py-2 font-medium text-right">Gross per paycheck</th>
-                <th className="px-4 py-2 font-medium">Deposits into</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sources.map((s) => (
-                <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-2 font-medium">{s.description}</td>
-                  <td className="px-4 py-2 text-muted-foreground">
-                    {CADENCE_LABELS[s.cadence] ?? s.cadence}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums text-green-600 font-medium">
-                    +{fmtUSD(s.amount)}
-                  </td>
-                  <td className="px-4 py-2 text-xs text-muted-foreground">
-                    {s.accountNickname}
-                    {s.accountMask ? ` ···${s.accountMask}` : ""}
-                  </td>
+          <TableScroll>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="px-4 py-2 font-medium">Source</th>
+                  <th className="px-4 py-2 font-medium">Cadence</th>
+                  <th className="px-4 py-2 font-medium text-right">Gross per paycheck</th>
+                  <th className="px-4 py-2 font-medium">Deposits into</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sources.map((s) => (
+                  <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-2 font-medium">{s.description}</td>
+                    <td className="px-4 py-2 text-muted-foreground">
+                      {CADENCE_LABELS[s.cadence] ?? s.cadence}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums text-green-600 font-medium">
+                      +{fmtUSD(s.amount)}
+                    </td>
+                    <td className="px-4 py-2 text-xs text-muted-foreground">
+                      {s.accountNickname}
+                      {s.accountMask ? ` ···${s.accountMask}` : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
         )}
       </CardContent>
     </Card>

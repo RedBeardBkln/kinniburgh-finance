@@ -15,6 +15,7 @@ import { createTag } from "@/actions/tags";
 import { suggestPayeePattern } from "@/lib/tags";
 import { RetroactiveRuleModal } from "@/components/tag-rules/retroactive-rule-modal";
 import { cn } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
 
 interface Tag {
   id: string;
@@ -111,8 +112,8 @@ function RuleDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-md rounded-lg border bg-card shadow-xl p-6 space-y-4">
+    <div className={cn(MODAL_OVERLAY, "bg-black/40")}>
+      <div className={cn(modalPanelClass("md"), "space-y-4 border bg-card p-6 shadow-xl")}>
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-medium">
             Save as tag rule for{" "}
@@ -209,7 +210,7 @@ function RuleDialog({
           onCancel={() => setConflicts([])}
         />
 
-        <div className="flex gap-2 pt-1">
+        <div className="flex flex-wrap gap-2 pt-1">
           <Button size="sm" onClick={() => handleSave()} disabled={isPending || conflicts.length > 0}>
             {isPending ? "Saving…" : "Save rule"}
           </Button>
@@ -332,10 +333,12 @@ export function InlineTagCell({
     if (rect) {
       const DROPDOWN_HEIGHT = 320;
       const spaceBelow = window.innerHeight - rect.bottom;
+      // Keep the w-80 (320px) dropdown on screen: on a phone the cell can sit so far right that it would run off the edge.
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - 320 - 8));
       if (spaceBelow < DROPDOWN_HEIGHT) {
-        setDropPos({ bottom: window.innerHeight - rect.top + 4, left: rect.left });
+        setDropPos({ bottom: window.innerHeight - rect.top + 4, left });
       } else {
-        setDropPos({ top: rect.bottom + 4, left: rect.left });
+        setDropPos({ top: rect.bottom + 4, left });
       }
     }
     setOpen(true);
@@ -447,7 +450,7 @@ export function InlineTagCell({
     <div
       ref={dropdownRef}
       style={{ position: "fixed", top: dropPos.top, bottom: dropPos.bottom, left: dropPos.left, zIndex: 9999 }}
-      className="w-80 rounded-md border border-border bg-card shadow-2xl"
+      className="w-80 max-w-[calc(100vw-1rem)] rounded-md border border-border bg-card shadow-2xl"
     >
       {!createMode ? (
         <>

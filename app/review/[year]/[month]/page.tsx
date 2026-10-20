@@ -8,6 +8,7 @@ import type { Route } from "next";
 import { GenerateButton } from "@/components/monthly-review/generate-button";
 import type { ReviewData } from "@/lib/monthly-review-build";
 import { formatSchedule } from "@/lib/schedule-display";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ year: string; month: string }>;
@@ -82,8 +83,8 @@ export default async function MonthlyReviewPage({ params }: PageProps) {
   return (
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold">Monthly Review — {period}</h1>
             <p className="text-sm text-muted-foreground">
               Generated {new Date(data.generatedAt).toLocaleString("en-US", { timeZone: "America/New_York" })}
@@ -122,58 +123,60 @@ export default async function MonthlyReviewPage({ params }: PageProps) {
             <CardTitle className="text-base">Budget health</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Category</th>
-                  <th className="px-4 py-3 font-medium">Entity</th>
-                  <th className="px-4 py-3 font-medium text-right">Budgeted</th>
-                  <th className="px-4 py-3 font-medium text-right">Actual</th>
-                  <th className="px-4 py-3 font-medium text-right">Used</th>
-                  <th className="px-4 py-3 font-medium text-right">Projected</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.budgetHealth
-                  .sort((a, b) => b.percentUsed - a.percentUsed)
-                  .map((b, i) => (
-                    <tr key={i} className={cn("border-b last:border-0", STATUS_BG[b.status] ?? "")}>
-                      <td className="px-4 py-2 font-medium">{b.tagName}</td>
-                      <td className="px-4 py-2 text-muted-foreground text-xs">{b.entityName}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(b.budgetedCents)}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(b.actualCents)}</td>
-                      <td className={cn("px-4 py-2 text-right font-semibold tabular-nums", STATUS_COLORS[b.status])}>
-                        {b.percentUsed}%
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums">
-                        {b.projectedCents != null && b.projectedPercentUsed != null ? (
-                          <>
-                            <div>
-                              {b.forecastConfidence === "low" ? "~" : ""}
-                              {fmtMoney(b.projectedCents)}{" "}
-                              <span
-                                className={cn(
-                                  "font-semibold",
-                                  STATUS_COLORS[projectedStatus(b.projectedPercentUsed)]
-                                )}
-                              >
-                                ({b.projectedPercentUsed}%)
-                              </span>
-                            </div>
-                            {confidenceLabel(b.forecastConfidence) && (
-                              <div className="text-xs font-normal text-muted-foreground">
-                                {confidenceLabel(b.forecastConfidence)}
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-4 py-3 font-medium">Category</th>
+                    <th className="px-4 py-3 font-medium">Entity</th>
+                    <th className="px-4 py-3 font-medium text-right">Budgeted</th>
+                    <th className="px-4 py-3 font-medium text-right">Actual</th>
+                    <th className="px-4 py-3 font-medium text-right">Used</th>
+                    <th className="px-4 py-3 font-medium text-right">Projected</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.budgetHealth
+                    .sort((a, b) => b.percentUsed - a.percentUsed)
+                    .map((b, i) => (
+                      <tr key={i} className={cn("border-b last:border-0", STATUS_BG[b.status] ?? "")}>
+                        <td className="px-4 py-2 font-medium">{b.tagName}</td>
+                        <td className="px-4 py-2 text-muted-foreground text-xs">{b.entityName}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(b.budgetedCents)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(b.actualCents)}</td>
+                        <td className={cn("px-4 py-2 text-right font-semibold tabular-nums", STATUS_COLORS[b.status])}>
+                          {b.percentUsed}%
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {b.projectedCents != null && b.projectedPercentUsed != null ? (
+                            <>
+                              <div>
+                                {b.forecastConfidence === "low" ? "~" : ""}
+                                {fmtMoney(b.projectedCents)}{" "}
+                                <span
+                                  className={cn(
+                                    "font-semibold",
+                                    STATUS_COLORS[projectedStatus(b.projectedPercentUsed)]
+                                  )}
+                                >
+                                  ({b.projectedPercentUsed}%)
+                                </span>
                               </div>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+                              {confidenceLabel(b.forecastConfidence) && (
+                                <div className="text-xs font-normal text-muted-foreground">
+                                  {confidenceLabel(b.forecastConfidence)}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </TableScroll>
           </CardContent>
         </Card>
 
@@ -240,36 +243,38 @@ export default async function MonthlyReviewPage({ params }: PageProps) {
               <CardTitle className="text-base">Scheduled bills</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">Payee</th>
-                    <th className="px-4 py-3 font-medium">Entity</th>
-                    <th className="px-4 py-3 font-medium">Day</th>
-                    <th className="px-4 py-3 font-medium text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.upcomingBills.map((b, i) => (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className="px-4 py-2">{b.payee}</td>
-                      <td className="px-4 py-2 text-xs text-muted-foreground">{b.entityName}</td>
-                      <td className="px-4 py-2 text-muted-foreground">
-                        {formatSchedule({
-                          frequency: b.frequency ?? "monthly",
-                          payDay: b.autopayDay,
-                          payDayOfWeek: b.payDayOfWeek ?? null,
-                          biweeklyAnchorDate: null,
-                          payMonth: b.payMonth ?? null,
-                        })}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums">
-                        {b.amountCents ? fmtMoney(b.amountCents) : "—"}
-                      </td>
+              <TableScroll>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-3 font-medium">Payee</th>
+                      <th className="px-4 py-3 font-medium">Entity</th>
+                      <th className="px-4 py-3 font-medium">Day</th>
+                      <th className="px-4 py-3 font-medium text-right">Amount</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {data.upcomingBills.map((b, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                        <td className="px-4 py-2">{b.payee}</td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground">{b.entityName}</td>
+                        <td className="px-4 py-2 text-muted-foreground">
+                          {formatSchedule({
+                            frequency: b.frequency ?? "monthly",
+                            payDay: b.autopayDay,
+                            payDayOfWeek: b.payDayOfWeek ?? null,
+                            biweeklyAnchorDate: null,
+                            payMonth: b.payMonth ?? null,
+                          })}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {b.amountCents ? fmtMoney(b.amountCents) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableScroll>
             </CardContent>
           </Card>
         )}
@@ -288,35 +293,37 @@ export default async function MonthlyReviewPage({ params }: PageProps) {
               </p>
             </CardHeader>
             <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">Category</th>
-                    <th className="px-4 py-3 font-medium">Entity</th>
-                    <th className="px-4 py-3 font-medium text-right">Projected</th>
-                    <th className="px-4 py-3 font-medium text-right">Actual</th>
-                    <th className="px-4 py-3 font-medium text-right">Miss</th>
-                    <th className="px-4 py-3 font-medium">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.forecastAccuracy.map((row, i) => (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className="px-4 py-2 font-medium">{row.tagName}</td>
-                      <td className="px-4 py-2 text-muted-foreground text-xs">{row.entityName}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(row.projectedCents)}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(row.actualCents)}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">
-                        {row.percentOff !== null ? `${row.percentOff}%` : fmtMoney(row.missCents)}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-muted-foreground">
-                        {DIRECTION_COPY[row.direction]}
-                        {confidenceLabel(row.confidence) ? ` · ${confidenceLabel(row.confidence)}` : ""}
-                      </td>
+              <TableScroll>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-4 py-3 font-medium">Category</th>
+                      <th className="px-4 py-3 font-medium">Entity</th>
+                      <th className="px-4 py-3 font-medium text-right">Projected</th>
+                      <th className="px-4 py-3 font-medium text-right">Actual</th>
+                      <th className="px-4 py-3 font-medium text-right">Miss</th>
+                      <th className="px-4 py-3 font-medium">Notes</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {data.forecastAccuracy.map((row, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                        <td className="px-4 py-2 font-medium">{row.tagName}</td>
+                        <td className="px-4 py-2 text-muted-foreground text-xs">{row.entityName}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(row.projectedCents)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(row.actualCents)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {row.percentOff !== null ? `${row.percentOff}%` : fmtMoney(row.missCents)}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground">
+                          {DIRECTION_COPY[row.direction]}
+                          {confidenceLabel(row.confidence) ? ` · ${confidenceLabel(row.confidence)}` : ""}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableScroll>
             </CardContent>
           </Card>
         ) : (

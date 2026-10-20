@@ -65,7 +65,7 @@ export default async function TransactionDetailPage({
             <CardTitle className="text-base">Details</CardTitle>
           </CardHeader>
           <CardContent>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 text-sm">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 text-sm max-sm:gap-x-3 [&>dd]:min-w-0 [&>dd]:break-words">
               <dt className="text-muted-foreground">Date</dt>
               <dd>
                 {tx.postedAt.toLocaleDateString("en-US", {

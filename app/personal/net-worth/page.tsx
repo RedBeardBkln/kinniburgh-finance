@@ -8,6 +8,7 @@ import { ManualAssetForm } from "@/components/net-worth/manual-asset-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { Route } from "next";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 function fmtMoney(cents: number): string {
   const abs = Math.abs(cents / 100);
@@ -90,67 +91,69 @@ export default async function NetWorthPage() {
             <CardTitle className="text-base">Breakdown</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <tbody>
-                {/* Asset accounts */}
-                {assetAccounts.map((a, i) => (
-                  <tr key={i} className="border-b">
-                    <td className="px-4 py-2">{a.nickname}</td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground">{ACCOUNT_TYPE_LABELS[a.accountType] ?? a.accountType}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(a.balanceCents)}</td>
-                  </tr>
-                ))}
+            <TableScroll>
+              <table className="w-full text-sm">
+                <tbody>
+                  {/* Asset accounts */}
+                  {assetAccounts.map((a, i) => (
+                    <tr key={i} className="border-b">
+                      <td className="px-4 py-2">{a.nickname}</td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground">{ACCOUNT_TYPE_LABELS[a.accountType] ?? a.accountType}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(a.balanceCents)}</td>
+                    </tr>
+                  ))}
 
-                {/* Manual assets */}
-                {nw.manualAssets.map((a, i) => (
-                  <tr key={`ma-${i}`} className="border-b">
-                    <td className="px-4 py-2">{a.name}</td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground">
-                      {a.category === "real_estate" ? "Real estate" : a.category === "vehicle" ? "Vehicle" : "Other"}
+                  {/* Manual assets */}
+                  {nw.manualAssets.map((a, i) => (
+                    <tr key={`ma-${i}`} className="border-b">
+                      <td className="px-4 py-2">{a.name}</td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground">
+                        {a.category === "real_estate" ? "Real estate" : a.category === "vehicle" ? "Vehicle" : "Other"}
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(a.valueCents)}</td>
+                    </tr>
+                  ))}
+
+                  {/* Insurance cash values */}
+                  {nw.cashValues.map((c, i) => (
+                    <tr key={`cv-${i}`} className="border-b">
+                      <td className="px-4 py-2">{c.policyName}</td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground">Insurance cash value</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(c.cashValueCents)}</td>
+                    </tr>
+                  ))}
+
+                  {/* Total assets row */}
+                  <tr className="border-b bg-green-50/50">
+                    <td className="px-4 py-2 font-semibold" colSpan={2}>Total assets</td>
+                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-green-700">{fmtMoney(nw.totalAssetsCents)}</td>
+                  </tr>
+
+                  {/* Liabilities */}
+                  {liabilityAccounts.map((a, i) => (
+                    <tr key={`l-${i}`} className="border-b">
+                      <td className="px-4 py-2">{a.nickname}</td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground">{ACCOUNT_TYPE_LABELS[a.accountType] ?? a.accountType}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-destructive">({fmtMoney(a.balanceCents)})</td>
+                    </tr>
+                  ))}
+
+                  {/* Total liabilities row */}
+                  <tr className="border-b bg-red-50/50">
+                    <td className="px-4 py-2 font-semibold" colSpan={2}>Total liabilities</td>
+                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-destructive">({fmtMoney(nw.totalLiabilitiesCents)})</td>
+                  </tr>
+
+                  {/* Net worth */}
+                  <tr className="bg-muted/30">
+                    <td className="px-4 py-3 font-bold text-base" colSpan={2}>Net worth</td>
+                    <td className={cn("px-4 py-3 text-right font-bold text-base tabular-nums", nw.netWorthCents >= 0 ? "text-green-700" : "text-destructive")}>
+                      {fmtMoney(nw.netWorthCents)}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(a.valueCents)}</td>
                   </tr>
-                ))}
-
-                {/* Insurance cash values */}
-                {nw.cashValues.map((c, i) => (
-                  <tr key={`cv-${i}`} className="border-b">
-                    <td className="px-4 py-2">{c.policyName}</td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground">Insurance cash value</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{fmtMoney(c.cashValueCents)}</td>
-                  </tr>
-                ))}
-
-                {/* Total assets row */}
-                <tr className="border-b bg-green-50/50">
-                  <td className="px-4 py-2 font-semibold" colSpan={2}>Total assets</td>
-                  <td className="px-4 py-2 text-right font-semibold tabular-nums text-green-700">{fmtMoney(nw.totalAssetsCents)}</td>
-                </tr>
-
-                {/* Liabilities */}
-                {liabilityAccounts.map((a, i) => (
-                  <tr key={`l-${i}`} className="border-b">
-                    <td className="px-4 py-2">{a.nickname}</td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground">{ACCOUNT_TYPE_LABELS[a.accountType] ?? a.accountType}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-destructive">({fmtMoney(a.balanceCents)})</td>
-                  </tr>
-                ))}
-
-                {/* Total liabilities row */}
-                <tr className="border-b bg-red-50/50">
-                  <td className="px-4 py-2 font-semibold" colSpan={2}>Total liabilities</td>
-                  <td className="px-4 py-2 text-right font-semibold tabular-nums text-destructive">({fmtMoney(nw.totalLiabilitiesCents)})</td>
-                </tr>
-
-                {/* Net worth */}
-                <tr className="bg-muted/30">
-                  <td className="px-4 py-3 font-bold text-base" colSpan={2}>Net worth</td>
-                  <td className={cn("px-4 py-3 text-right font-bold text-base tabular-nums", nw.netWorthCents >= 0 ? "text-green-700" : "text-destructive")}>
-                    {fmtMoney(nw.netWorthCents)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </TableScroll>
           </CardContent>
         </Card>
 

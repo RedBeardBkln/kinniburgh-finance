@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
 import {
   previewGlCodeBackfill,
   applyGlCodeBackfill,
@@ -65,8 +67,8 @@ export function GlBackfillModal({ entityId, onDone }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <Card className="w-full max-w-2xl max-h-[90vh] flex flex-col shadow-xl">
+    <div className={cn(MODAL_OVERLAY, "bg-black/40")}>
+      <Card className={cn(modalPanelClass("2xl", "inner"), "shadow-xl max-sm:rounded-b-none")}>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Backfill GL codes from tag mappings</CardTitle>
         </CardHeader>
@@ -79,7 +81,7 @@ export function GlBackfillModal({ entityId, onDone }: Props) {
                 current tag mappings above.
               </p>
               {error && <p className="text-sm text-destructive">{error}</p>}
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button
                   onClick={handlePreview}
                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
@@ -127,7 +129,7 @@ export function GlBackfillModal({ entityId, onDone }: Props) {
                     {preview.wouldAssign.length !== 1 ? "s" : ""} that would be coded.
                     Uncheck any you want to skip.
                   </p>
-                  <div className="rounded-md border overflow-hidden">
+                  <div className="rounded-md border overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b bg-muted/50 text-left text-muted-foreground">
@@ -200,7 +202,7 @@ export function GlBackfillModal({ entityId, onDone }: Props) {
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
-              <div className="flex gap-3 items-center">
+              <div className="flex flex-wrap gap-3 items-center">
                 {preview.wouldAssign.length > 0 && (
                   <button
                     onClick={handleApply}

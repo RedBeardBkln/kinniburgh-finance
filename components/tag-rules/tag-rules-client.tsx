@@ -14,6 +14,7 @@ import {
   type RuleConflictView,
   type RuleShape,
 } from "@/lib/tag-rule-conflicts";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface RuleRow {
   id: string;
@@ -286,7 +287,7 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
   return (
     <>
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -415,86 +416,88 @@ export function TagRulesClient({ initialRules, allTags, accounts }: Props) {
 
       <Card>
         <CardContent className="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Payee pattern</th>
-                <th className="px-4 py-3 font-medium">Tag</th>
-                <th className="px-4 py-3 font-medium">Amount range</th>
-                <th className="px-4 py-3 font-medium">Account</th>
-                <th className="px-4 py-3 font-medium">Confidence</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {rules.length > 0 && visibleRules.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
-                    No rules match &ldquo;{search}&rdquo;.
-                  </td>
+          <TableScroll>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="px-4 py-3 font-medium">Payee pattern</th>
+                  <th className="px-4 py-3 font-medium">Tag</th>
+                  <th className="px-4 py-3 font-medium">Amount range</th>
+                  <th className="px-4 py-3 font-medium">Account</th>
+                  <th className="px-4 py-3 font-medium">Confidence</th>
+                  <th className="px-4 py-3" />
                 </tr>
-              )}
-              {rules.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
-                    No tag rules yet. Create one above or confirm a receipt to generate rules automatically.
-                  </td>
-                </tr>
-              )}
-              {visibleRules.map((r) => (
-                <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3 font-mono text-xs">
-                    {r.payeePattern}
-                    {conflictCountById.has(r.id) && (
-                      <button
-                        type="button"
-                        onClick={() => setSearch(r.payeePattern)}
-                        title="This rule overlaps with other rules — click to search for its payee"
-                        className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 font-sans text-[10px] font-medium text-amber-800 hover:bg-amber-200"
-                      >
-                        ⚠ {conflictCountById.get(r.id)} overlap
-                      </button>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge variant="secondary">{r.tagName}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">
-                    {r.amountMin || r.amountMax
-                      ? `$${r.amountMin ?? "0"} – $${r.amountMax ?? "∞"}`
-                      : "Any"}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">
-                    {r.accountIds && r.accountIds.length > 0
-                      ? r.accountIds.length === 1
-                        ? (accounts.find((a) => a.id === r.accountIds![0])?.nickname ?? "1 account")
-                        : `${r.accountIds.length} accounts`
-                      : r.accountNickname ?? "Any"}
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    {Math.round(r.confidence * 100)}%
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => handleStartEdit(r)}
-                        className="text-xs text-muted-foreground hover:text-primary"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(r.id)}
-                        disabled={isDeleting}
-                        className="text-xs text-muted-foreground hover:text-destructive disabled:opacity-40"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rules.length > 0 && visibleRules.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                      No rules match &ldquo;{search}&rdquo;.
+                    </td>
+                  </tr>
+                )}
+                {rules.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                      No tag rules yet. Create one above or confirm a receipt to generate rules automatically.
+                    </td>
+                  </tr>
+                )}
+                {visibleRules.map((r) => (
+                  <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {r.payeePattern}
+                      {conflictCountById.has(r.id) && (
+                        <button
+                          type="button"
+                          onClick={() => setSearch(r.payeePattern)}
+                          title="This rule overlaps with other rules — click to search for its payee"
+                          className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 font-sans text-[10px] font-medium text-amber-800 hover:bg-amber-200"
+                        >
+                          ⚠ {conflictCountById.get(r.id)} overlap
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge variant="secondary">{r.tagName}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">
+                      {r.amountMin || r.amountMax
+                        ? `$${r.amountMin ?? "0"} – $${r.amountMax ?? "∞"}`
+                        : "Any"}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">
+                      {r.accountIds && r.accountIds.length > 0
+                        ? r.accountIds.length === 1
+                          ? (accounts.find((a) => a.id === r.accountIds![0])?.nickname ?? "1 account")
+                          : `${r.accountIds.length} accounts`
+                        : r.accountNickname ?? "Any"}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {Math.round(r.confidence * 100)}%
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => handleStartEdit(r)}
+                          className="text-xs text-muted-foreground hover:text-primary"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(r.id)}
+                          disabled={isDeleting}
+                          className="text-xs text-muted-foreground hover:text-destructive disabled:opacity-40"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
         </CardContent>
       </Card>
     </div>

@@ -140,7 +140,7 @@ export function FormCard({
 
       {showReadiness && (
         <div className="mt-3 space-y-1.5">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <ReadinessBadge readiness={entry.readiness} />
             <span className="text-xs text-muted-foreground">
               {entry.fieldsReady}/{entry.fieldsTotal} fields have data

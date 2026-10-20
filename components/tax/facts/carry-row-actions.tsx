@@ -57,7 +57,7 @@ function StillTrueModal({ fact, onClose }: { fact: CarryActionsProps; onClose: (
           <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={500} className={field} />
         </label>
         {error && <p className="text-xs text-destructive">{error}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button type="button" onClick={onClose} disabled={pending} className={button}>
             Cancel
           </button>

@@ -211,8 +211,8 @@ export function PersonalTaxClient(props: Props) {
                     : "rounded-lg border p-4 space-y-3"
                 }
               >
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm font-medium">{questionText}</p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <p className="min-w-0 text-sm font-medium">{questionText}</p>
                   <div className="flex shrink-0 items-center gap-1.5">
                     {isPromoted && (
                       <Badge variant="warning" className="text-[10px]">
@@ -282,7 +282,7 @@ export function PersonalTaxClient(props: Props) {
               {questions
                 .filter((q) => q.answer !== null)
                 .map((q) => (
-                  <div key={q.id} className="flex items-center justify-between gap-2 text-sm">
+                  <div key={q.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span className="text-muted-foreground">
                       {ownerWording(q.question).split("\n\n")[0]}
                     </span>
@@ -305,7 +305,7 @@ export function PersonalTaxClient(props: Props) {
       {/* 3. AI review */}
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-base">3 · AI tax review</CardTitle>
             <button
               onClick={handleGenerateReview}
@@ -340,7 +340,7 @@ export function PersonalTaxClient(props: Props) {
                 {review.opportunities.map((op) => (
                   <div key={op.key} className="rounded-lg border p-3">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium">{op.title}</p>
+                      <p className="min-w-0 break-words text-sm font-medium">{op.title}</p>
                       <span
                         className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${
                           op.risk === "conservative"
@@ -400,7 +400,7 @@ export function PersonalTaxClient(props: Props) {
           {activeOpps.map((op) => (
             <div key={op.key} className="rounded-lg border p-3">
               <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-medium">{op.title}</p>
+                <p className="min-w-0 break-words text-sm font-medium">{op.title}</p>
                 <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${op.riskClass}`}>
                   {op.riskLabel}
                 </span>

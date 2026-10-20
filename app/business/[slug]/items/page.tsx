@@ -9,6 +9,7 @@ import { ItemForm, ItemRow } from "@/components/invoicing/item-forms";
 import { loadGlCodes, loadItems } from "@/lib/invoicing/catalog-build";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
 import { REIMBURSABLE_GROSS_DEFAULT_NOTE } from "@/lib/invoicing/items";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -52,23 +53,25 @@ export default async function ItemsPage({ params }: PageProps) {
           {items.length === 0 ? (
             <p className="text-sm text-muted-foreground">No items yet.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="py-2">Item</th>
-                  <th>Unit</th>
-                  <th className="text-right">Cost</th>
-                  <th className="text-right">Billed price</th>
-                  <th>Income account</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((i) => (
-                  <ItemRow key={i.id} slug={slug} item={i} glOptions={incomeAccounts} readOnly={readOnly} />
-                ))}
-              </tbody>
-            </table>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="py-2">Item</th>
+                    <th>Unit</th>
+                    <th className="text-right">Cost</th>
+                    <th className="text-right">Billed price</th>
+                    <th>Income account</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((i) => (
+                    <ItemRow key={i.id} slug={slug} item={i} glOptions={incomeAccounts} readOnly={readOnly} />
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
           )}
         </CardContent>
       </Card>

@@ -6,6 +6,7 @@ import { usePlaidLink } from "react-plaid-link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { inferAccountTypeFromPlaid } from "@/lib/plaid-account-type";
 import { ACCOUNT_TYPE_OPTIONS, type AccountType } from "@/lib/account-types";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface Suggestion {
   plaidAccountId: string;
@@ -356,77 +357,79 @@ function ConnectInner() {
               We auto-matched Plaid accounts to your seeded accounts by last 4 digits. Adjust any mismatches, pick
               &quot;+ Create new account&quot; to register one that doesn&apos;t exist yet, then confirm.
             </p>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="py-2 pr-4 font-medium">Plaid account</th>
-                  <th className="py-2 pr-4 font-medium">Mask</th>
-                  <th className="py-2 font-medium">Map to (our account)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {suggestions.map((s) => {
-                  const choice = rowChoices[s.plaidAccountId];
-                  return (
-                    <tr key={s.plaidAccountId} className="border-b align-top last:border-0">
-                      <td className="py-2 pr-4 font-medium">{s.name}</td>
-                      <td className="py-2 pr-4 font-mono text-muted-foreground">{s.mask ? `···${s.mask}` : "—"}</td>
-                      <td className="py-2">
-                        <select
-                          value={selectValueFor(choice)}
-                          onChange={(e) => handleRowSelectChange(s, e.target.value)}
-                          className="w-full rounded border px-2 py-1 text-sm"
-                        >
-                          <option value="">(skip this account)</option>
-                          {seededAccounts.map((a) => (
-                            <option key={a.id} value={a.id}>{a.nickname}{a.mask ? ` ···${a.mask}` : ""}</option>
-                          ))}
-                          <option value={CREATE_NEW_SENTINEL}>+ Create new account…</option>
-                        </select>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="py-2 pr-4 font-medium">Plaid account</th>
+                    <th className="py-2 pr-4 font-medium">Mask</th>
+                    <th className="py-2 font-medium">Map to (our account)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {suggestions.map((s) => {
+                    const choice = rowChoices[s.plaidAccountId];
+                    return (
+                      <tr key={s.plaidAccountId} className="border-b align-top last:border-0">
+                        <td className="py-2 pr-4 font-medium">{s.name}</td>
+                        <td className="py-2 pr-4 font-mono text-muted-foreground">{s.mask ? `···${s.mask}` : "—"}</td>
+                        <td className="py-2">
+                          <select
+                            value={selectValueFor(choice)}
+                            onChange={(e) => handleRowSelectChange(s, e.target.value)}
+                            className="w-full rounded border px-2 py-1 text-sm"
+                          >
+                            <option value="">(skip this account)</option>
+                            {seededAccounts.map((a) => (
+                              <option key={a.id} value={a.id}>{a.nickname}{a.mask ? ` ···${a.mask}` : ""}</option>
+                            ))}
+                            <option value={CREATE_NEW_SENTINEL}>+ Create new account…</option>
+                          </select>
 
-                        {choice?.kind === "new" && (
-                          <div className="mt-2 space-y-2 rounded border bg-muted/30 p-3">
-                            <div className="space-y-1">
-                              <label className="text-xs font-medium">Entity</label>
-                              <select
-                                value={choice.entityId}
-                                onChange={(e) => updateNewRow(s.plaidAccountId, { entityId: e.target.value })}
-                                className="w-full rounded border px-2 py-1 text-sm"
-                                required
-                              >
-                                <option value="">Select entity…</option>
-                                {entities.map((ent) => <option key={ent.id} value={ent.id}>{ent.name}</option>)}
-                              </select>
+                          {choice?.kind === "new" && (
+                            <div className="mt-2 space-y-2 rounded border bg-muted/30 p-3">
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium">Entity</label>
+                                <select
+                                  value={choice.entityId}
+                                  onChange={(e) => updateNewRow(s.plaidAccountId, { entityId: e.target.value })}
+                                  className="w-full rounded border px-2 py-1 text-sm"
+                                  required
+                                >
+                                  <option value="">Select entity…</option>
+                                  {entities.map((ent) => <option key={ent.id} value={ent.id}>{ent.name}</option>)}
+                                </select>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium">Nickname</label>
+                                <input
+                                  type="text"
+                                  value={choice.nickname}
+                                  onChange={(e) => updateNewRow(s.plaidAccountId, { nickname: e.target.value })}
+                                  maxLength={100}
+                                  className="w-full rounded border px-2 py-1 text-sm"
+                                  required
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium">Account Type</label>
+                                <select
+                                  value={choice.accountType}
+                                  onChange={(e) => updateNewRow(s.plaidAccountId, { accountType: e.target.value as AccountType })}
+                                  className="w-full rounded border px-2 py-1 text-sm"
+                                >
+                                  {ACCOUNT_TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                </select>
+                              </div>
                             </div>
-                            <div className="space-y-1">
-                              <label className="text-xs font-medium">Nickname</label>
-                              <input
-                                type="text"
-                                value={choice.nickname}
-                                onChange={(e) => updateNewRow(s.plaidAccountId, { nickname: e.target.value })}
-                                maxLength={100}
-                                className="w-full rounded border px-2 py-1 text-sm"
-                                required
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-xs font-medium">Account Type</label>
-                              <select
-                                value={choice.accountType}
-                                onChange={(e) => updateNewRow(s.plaidAccountId, { accountType: e.target.value as AccountType })}
-                                className="w-full rounded border px-2 py-1 text-sm"
-                              >
-                                {ACCOUNT_TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-                              </select>
-                            </div>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </TableScroll>
             <div className="flex gap-3 pt-2">
               <button onClick={confirmMapping} disabled={loading}
                 className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">

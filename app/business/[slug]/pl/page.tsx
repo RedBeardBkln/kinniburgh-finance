@@ -22,6 +22,7 @@ import {
   type QuarterForecastConfidence,
 } from "@/lib/business-quarter-forecast";
 import type { Route } from "next";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -166,38 +167,40 @@ export default async function PLPage({ params, searchParams }: PageProps) {
             <CardTitle className="text-base text-green-700">Income</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Code</th>
-                  <th className="px-4 py-2 font-medium">Name</th>
-                  <th className="px-4 py-2 font-medium text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pl.incomeLines.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
-                      No income transactions coded for this period
-                    </td>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">Code</th>
+                    <th className="px-4 py-2 font-medium">Name</th>
+                    <th className="px-4 py-2 font-medium text-right">Amount</th>
                   </tr>
-                ) : (
-                  pl.incomeLines.map((line) => (
-                    <tr key={line.glCodeId} className="border-b last:border-0">
-                      <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{line.code}</td>
-                      <td className="px-4 py-2">{line.name}</td>
-                      <td className="px-4 py-2 text-right font-medium text-green-600">
-                        {fmtCurrency(line.total)}
+                </thead>
+                <tbody>
+                  {pl.incomeLines.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
+                        No income transactions coded for this period
                       </td>
                     </tr>
-                  ))
-                )}
-                <tr className="border-t bg-muted/30 font-semibold">
-                  <td colSpan={2} className="px-4 py-2">Total Income</td>
-                  <td className="px-4 py-2 text-right text-green-600">{fmtCurrency(pl.totalIncome)}</td>
-                </tr>
-              </tbody>
-            </table>
+                  ) : (
+                    pl.incomeLines.map((line) => (
+                      <tr key={line.glCodeId} className="border-b last:border-0">
+                        <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{line.code}</td>
+                        <td className="px-4 py-2">{line.name}</td>
+                        <td className="px-4 py-2 text-right font-medium text-green-600">
+                          {fmtCurrency(line.total)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                  <tr className="border-t bg-muted/30 font-semibold">
+                    <td colSpan={2} className="px-4 py-2">Total Income</td>
+                    <td className="px-4 py-2 text-right text-green-600">{fmtCurrency(pl.totalIncome)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </TableScroll>
           </CardContent>
         </Card>
 
@@ -207,38 +210,40 @@ export default async function PLPage({ params, searchParams }: PageProps) {
             <CardTitle className="text-base text-destructive">Expenses</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Code</th>
-                  <th className="px-4 py-2 font-medium">Name</th>
-                  <th className="px-4 py-2 font-medium text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pl.expenseLines.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
-                      No expense transactions coded for this period
-                    </td>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">Code</th>
+                    <th className="px-4 py-2 font-medium">Name</th>
+                    <th className="px-4 py-2 font-medium text-right">Amount</th>
                   </tr>
-                ) : (
-                  pl.expenseLines.map((line) => (
-                    <tr key={line.glCodeId} className="border-b last:border-0">
-                      <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{line.code}</td>
-                      <td className="px-4 py-2">{line.name}</td>
-                      <td className="px-4 py-2 text-right font-medium text-destructive">
-                        {fmtCurrency(line.total)}
+                </thead>
+                <tbody>
+                  {pl.expenseLines.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
+                        No expense transactions coded for this period
                       </td>
                     </tr>
-                  ))
-                )}
-                <tr className="border-t bg-muted/30 font-semibold">
-                  <td colSpan={2} className="px-4 py-2">Total Expenses</td>
-                  <td className="px-4 py-2 text-right text-destructive">{fmtCurrency(pl.totalExpenses)}</td>
-                </tr>
-              </tbody>
-            </table>
+                  ) : (
+                    pl.expenseLines.map((line) => (
+                      <tr key={line.glCodeId} className="border-b last:border-0">
+                        <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{line.code}</td>
+                        <td className="px-4 py-2">{line.name}</td>
+                        <td className="px-4 py-2 text-right font-medium text-destructive">
+                          {fmtCurrency(line.total)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                  <tr className="border-t bg-muted/30 font-semibold">
+                    <td colSpan={2} className="px-4 py-2">Total Expenses</td>
+                    <td className="px-4 py-2 text-right text-destructive">{fmtCurrency(pl.totalExpenses)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </TableScroll>
           </CardContent>
         </Card>
 
@@ -262,28 +267,30 @@ export default async function PLPage({ params, searchParams }: PageProps) {
                   formattedAmount: fmtSignedCurrency(pl.excludedFromPL.netAmount),
                 })}
               </p>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-1 font-medium">Code</th>
-                    <th className="py-1 font-medium">Name</th>
-                    <th className="py-1 font-medium">Type</th>
-                    <th className="py-1 font-medium text-right">Transactions</th>
-                    <th className="py-1 font-medium text-right">Net amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pl.excludedFromPL.lines.map((line) => (
-                    <tr key={line.glCodeId} className="border-b last:border-0">
-                      <td className="py-1 font-mono text-muted-foreground">{line.code}</td>
-                      <td className="py-1">{line.name}</td>
-                      <td className="py-1">{line.type}</td>
-                      <td className="py-1 text-right tabular-nums">{line.transactionCount}</td>
-                      <td className="py-1 text-right tabular-nums">{fmtSignedCurrency(line.total)}</td>
+              <TableScroll>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="py-1 font-medium">Code</th>
+                      <th className="py-1 font-medium">Name</th>
+                      <th className="py-1 font-medium">Type</th>
+                      <th className="py-1 font-medium text-right">Transactions</th>
+                      <th className="py-1 font-medium text-right">Net amount</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {pl.excludedFromPL.lines.map((line) => (
+                      <tr key={line.glCodeId} className="border-b last:border-0">
+                        <td className="py-1 font-mono text-muted-foreground">{line.code}</td>
+                        <td className="py-1">{line.name}</td>
+                        <td className="py-1">{line.type}</td>
+                        <td className="py-1 text-right tabular-nums">{line.transactionCount}</td>
+                        <td className="py-1 text-right tabular-nums">{fmtSignedCurrency(line.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableScroll>
               <Link
                 href={
                   `/business/${slug}/gl?from=${encodeURIComponent(pl.periodFrom.toISOString())}&to=${encodeURIComponent(pl.periodTo.toISOString())}#excluded-from-pl` as Route

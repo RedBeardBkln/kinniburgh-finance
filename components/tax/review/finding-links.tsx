@@ -9,7 +9,9 @@ import { REVIEW_FILTER_EVENT, type FindingLink } from "@/lib/tax-review/links";
 // its place. An internal page uses next/link (no prefetch: the review sheet builds the whole return); the PDF and a jump inside this page are
 // plain anchors. A "findings" jump also tells the findings table which filter to apply (the table listens for the event). No window.open.
 
-const LINK_CLASS = "inline-flex min-h-[44px] items-center text-primary underline-offset-2 hover:underline sm:min-h-0";
+// `relative`: the sr-only "(opens in a new tab)" span is position:absolute; without a positioned ancestor it escaped the
+// return sheet's table scroll box and widened the whole window on a phone (mobile-layout-cleanup live audit).
+const LINK_CLASS = "relative inline-flex min-h-[44px] items-center text-primary underline-offset-2 hover:underline sm:min-h-0";
 
 function OneLink({ link }: { link: FindingLink }) {
   if (link.newTab) {

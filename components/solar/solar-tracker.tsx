@@ -7,6 +7,7 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { addSolarEntry } from "@/actions/solar";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 interface SolarEntryRow {
   id: string;
@@ -102,7 +103,7 @@ export function SolarTracker({ entries: initialEntries }: Props) {
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Monthly bill vs. pre-solar baseline</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="min-w-0">
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -124,7 +125,7 @@ export function SolarTracker({ entries: initialEntries }: Props) {
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Energy usage (kWh)</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="min-w-0">
             <ResponsiveContainer width="100%" height={160}>
               <LineChart data={chartData}>
                 <XAxis dataKey="period" tick={{ fontSize: 11 }} />
@@ -190,36 +191,38 @@ export function SolarTracker({ entries: initialEntries }: Props) {
             <CardTitle className="text-base">History</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Period</th>
-                  <th className="px-4 py-3 font-medium">Bill</th>
-                  <th className="px-4 py-3 font-medium">Grid credit</th>
-                  <th className="px-4 py-3 font-medium">Net</th>
-                  <th className="px-4 py-3 font-medium">kWh</th>
-                  <th className="px-4 py-3 font-medium text-green-600">Saved</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...initialEntries].reverse().map((e) => {
-                  const net = e.billAmountCents - (e.gridCreditCents ?? 0);
-                  const saved = baselineCents - net;
-                  return (
-                    <tr key={e.id} className="border-b last:border-0">
-                      <td className="px-4 py-2">{e.period}</td>
-                      <td className="px-4 py-2">{fmtMoney(e.billAmountCents)}</td>
-                      <td className="px-4 py-2 text-green-600">{e.gridCreditCents ? fmtMoney(e.gridCreditCents) : "—"}</td>
-                      <td className="px-4 py-2">{fmtMoney(net)}</td>
-                      <td className="px-4 py-2 text-muted-foreground">{e.usageKwh ?? "—"}</td>
-                      <td className={`px-4 py-2 ${saved > 0 ? "text-green-600" : "text-destructive"}`}>
-                        {saved > 0 ? "+" : ""}{fmtMoney(saved)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-4 py-3 font-medium">Period</th>
+                    <th className="px-4 py-3 font-medium">Bill</th>
+                    <th className="px-4 py-3 font-medium">Grid credit</th>
+                    <th className="px-4 py-3 font-medium">Net</th>
+                    <th className="px-4 py-3 font-medium">kWh</th>
+                    <th className="px-4 py-3 font-medium text-green-600">Saved</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...initialEntries].reverse().map((e) => {
+                    const net = e.billAmountCents - (e.gridCreditCents ?? 0);
+                    const saved = baselineCents - net;
+                    return (
+                      <tr key={e.id} className="border-b last:border-0">
+                        <td className="px-4 py-2">{e.period}</td>
+                        <td className="px-4 py-2">{fmtMoney(e.billAmountCents)}</td>
+                        <td className="px-4 py-2 text-green-600">{e.gridCreditCents ? fmtMoney(e.gridCreditCents) : "—"}</td>
+                        <td className="px-4 py-2">{fmtMoney(net)}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{e.usageKwh ?? "—"}</td>
+                        <td className={`px-4 py-2 ${saved > 0 ? "text-green-600" : "text-destructive"}`}>
+                          {saved > 0 ? "+" : ""}{fmtMoney(saved)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </TableScroll>
           </CardContent>
         </Card>
       )}

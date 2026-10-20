@@ -10,6 +10,7 @@ import { ScheduledTransfersClient, type SerializedTransfer } from "@/components/
 import { AccrualDrawsList } from "@/components/envelope/accrual-draws-list";
 import { db } from "@/lib/db";
 import { formatSchedule } from "@/lib/schedule-display";
+import { TableScroll } from "@/components/ui/table-scroll";
 
 // Server actions invoked from this page (Detect Transfers Now: the first one-sided marking run can take tens of seconds)
 // run under this route's function limit. 60s is the Vercel Hobby ceiling without Fluid compute, as in
@@ -110,7 +111,7 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
         {!slushTransferExists && (
           <Card className="border-amber-200 bg-amber-50/50">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex flex-wrap items-center gap-2">
                 <span>Proposed: Slush Funds Transfer</span>
                 <Badge variant="outline" className="text-amber-700 border-amber-300">
                   Pending your approval
@@ -122,7 +123,7 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
                 Your Slush Funds account (x3612) has $1,200/mo of Home Improvements + Home Repair budget
                 but no funding transfer. The app recommends a weekly transfer to cover this.
               </p>
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="font-medium">Proposed:</span>
                 <span>$277/week from Primary Checking → Slush Funds (≈ $1,200/mo)</span>
               </div>
@@ -137,7 +138,7 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
                   const dayOfWeek = parseInt(formData.get("dayOfWeek") as string, 10);
                   await approveSlushFundsTransfer({ amount, dayOfWeek });
                 }}
-                className="flex items-center gap-3 pt-1"
+                className="flex flex-wrap items-center gap-3 pt-1"
               >
                 <label className="flex items-center gap-1.5 text-sm">
                   Amount $
@@ -203,31 +204,33 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
                         <div className="border-b bg-muted/20 px-4 py-1.5">
                           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Incoming Transfers</p>
                         </div>
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b text-left text-muted-foreground">
-                              <th className="px-4 py-2 font-medium">From</th>
-                              <th className="px-4 py-2 font-medium">Cadence</th>
-                              <th className="px-4 py-2 font-medium">Purpose</th>
-                              <th className="px-4 py-2 font-medium text-right">Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {incoming.map((t) => (
-                              <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30">
-                                <td className="px-4 py-2">
-                                  <span className="font-medium">{t.fromNickname}</span>
-                                  {t.fromMask && <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.fromMask}</span>}
-                                </td>
-                                <td className="px-4 py-2 text-muted-foreground">{cadenceLabel(t.cadence, t.dayRules)}</td>
-                                <td className="px-4 py-2 text-xs text-muted-foreground">{t.purpose ?? "—"}</td>
-                                <td className="px-4 py-2 text-right font-medium text-green-600 tabular-nums">
-                                  +${parseFloat(t.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                                </td>
+                        <TableScroll>
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b text-left text-muted-foreground">
+                                <th className="px-4 py-2 font-medium">From</th>
+                                <th className="px-4 py-2 font-medium">Cadence</th>
+                                <th className="px-4 py-2 font-medium">Purpose</th>
+                                <th className="px-4 py-2 font-medium text-right">Amount</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {incoming.map((t) => (
+                                <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30">
+                                  <td className="px-4 py-2">
+                                    <span className="font-medium">{t.fromNickname}</span>
+                                    {t.fromMask && <span className="ml-1 font-mono text-xs text-muted-foreground">···{t.fromMask}</span>}
+                                  </td>
+                                  <td className="px-4 py-2 text-muted-foreground">{cadenceLabel(t.cadence, t.dayRules)}</td>
+                                  <td className="px-4 py-2 text-xs text-muted-foreground">{t.purpose ?? "—"}</td>
+                                  <td className="px-4 py-2 text-right font-medium text-green-600 tabular-nums">
+                                    +${parseFloat(t.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </TableScroll>
                       </>
                     )}
 
@@ -237,59 +240,61 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
                         <div className="border-b bg-muted/20 px-4 py-1.5">
                           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Scheduled Bills</p>
                         </div>
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b text-left text-muted-foreground">
-                              <th className="px-4 py-2 font-medium">Payee</th>
-                              <th className="px-4 py-2 font-medium">Type</th>
-                              <th className="px-4 py-2 font-medium text-right">Expected</th>
-                              <th className="px-4 py-2 font-medium">Autopay day</th>
-                              <th className="px-4 py-2 font-medium">Annual budget</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {accountBills.map((bill) => (
-                              <tr key={bill.id} className="border-b last:border-0 hover:bg-muted/30">
-                                <td className="px-4 py-2 font-medium">{bill.payee}</td>
-                                <td className="px-4 py-2">
-                                  <Badge
-                                    variant="outline"
-                                    className={`text-xs ${
-                                      bill.amountType === "accrued"
-                                        ? "border-blue-300 text-blue-700"
-                                        : bill.amountType === "fluctuating"
-                                        ? "border-amber-300 text-amber-700"
-                                        : ""
-                                    }`}
-                                  >
-                                    {bill.amountType}
-                                  </Badge>
-                                </td>
-                                <td className="px-4 py-2 text-right">
-                                  {bill.expectedAmount
-                                    ? formatUSD(decimalToNumber(new Prisma.Decimal(bill.expectedAmount)))
-                                    : "—"}
-                                </td>
-                                <td className="px-4 py-2 text-muted-foreground">
-                                  {bill.frequency !== "monthly" || bill.autopayDay
-                                    ? formatSchedule({
-                                        frequency: bill.frequency,
-                                        payDay: bill.autopayDay,
-                                        payDayOfWeek: bill.payDayOfWeek,
-                                        biweeklyAnchorDate: bill.biweeklyAnchorDate,
-                                        payMonth: bill.payMonth,
-                                      })
-                                    : "—"}
-                                </td>
-                                <td className="px-4 py-2 text-muted-foreground">
-                                  {bill.annualBudget
-                                    ? formatUSD(decimalToNumber(new Prisma.Decimal(bill.annualBudget)))
-                                    : "—"}
-                                </td>
+                        <TableScroll>
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b text-left text-muted-foreground">
+                                <th className="px-4 py-2 font-medium">Payee</th>
+                                <th className="px-4 py-2 font-medium">Type</th>
+                                <th className="px-4 py-2 font-medium text-right">Expected</th>
+                                <th className="px-4 py-2 font-medium">Autopay day</th>
+                                <th className="px-4 py-2 font-medium">Annual budget</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {accountBills.map((bill) => (
+                                <tr key={bill.id} className="border-b last:border-0 hover:bg-muted/30">
+                                  <td className="px-4 py-2 font-medium">{bill.payee}</td>
+                                  <td className="px-4 py-2">
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-xs ${
+                                        bill.amountType === "accrued"
+                                          ? "border-blue-300 text-blue-700"
+                                          : bill.amountType === "fluctuating"
+                                          ? "border-amber-300 text-amber-700"
+                                          : ""
+                                      }`}
+                                    >
+                                      {bill.amountType}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-4 py-2 text-right">
+                                    {bill.expectedAmount
+                                      ? formatUSD(decimalToNumber(new Prisma.Decimal(bill.expectedAmount)))
+                                      : "—"}
+                                  </td>
+                                  <td className="px-4 py-2 text-muted-foreground">
+                                    {bill.frequency !== "monthly" || bill.autopayDay
+                                      ? formatSchedule({
+                                          frequency: bill.frequency,
+                                          payDay: bill.autopayDay,
+                                          payDayOfWeek: bill.payDayOfWeek,
+                                          biweeklyAnchorDate: bill.biweeklyAnchorDate,
+                                          payMonth: bill.payMonth,
+                                        })
+                                      : "—"}
+                                  </td>
+                                  <td className="px-4 py-2 text-muted-foreground">
+                                    {bill.annualBudget
+                                      ? formatUSD(decimalToNumber(new Prisma.Decimal(bill.annualBudget)))
+                                      : "—"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </TableScroll>
                       </>
                     )}
                   </CardContent>
@@ -376,35 +381,37 @@ export default async function EnvelopePage({ searchParams }: PageProps) {
                         )}
 
                         {env.billsThisMonth.length > 0 && (
-                          <table className="w-full text-xs text-muted-foreground">
-                            <thead>
-                              <tr className="border-b">
-                                <th className="pb-1 text-left font-medium">Bill</th>
-                                <th className="pb-1 text-left font-medium">Due</th>
-                                <th className="pb-1 text-right font-medium">Amount</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {env.billsThisMonth.map((b, i) => (
-                                <tr key={i} className="border-b last:border-0">
-                                  <td className="py-1">{b.payee}</td>
-                                  <td className="py-1">
-                                    {b.dueDay || b.frequency !== "monthly"
-                                      ? formatSchedule({
-                                          frequency: b.frequency,
-                                          payDay: b.dueDay,
-                                          payDayOfWeek: b.payDayOfWeek,
-                                          biweeklyAnchorDate: null,
-                                        })
-                                      : "accrued"}
-                                  </td>
-                                  <td className="py-1 text-right">
-                                    {b.expectedAmount ? formatUSD(b.expectedAmount) : "—"}
-                                  </td>
+                          <TableScroll>
+                            <table className="w-full text-xs text-muted-foreground">
+                              <thead>
+                                <tr className="border-b">
+                                  <th className="pb-1 text-left font-medium">Bill</th>
+                                  <th className="pb-1 text-left font-medium">Due</th>
+                                  <th className="pb-1 text-right font-medium">Amount</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody>
+                                {env.billsThisMonth.map((b, i) => (
+                                  <tr key={i} className="border-b last:border-0">
+                                    <td className="py-1">{b.payee}</td>
+                                    <td className="py-1">
+                                      {b.dueDay || b.frequency !== "monthly"
+                                        ? formatSchedule({
+                                            frequency: b.frequency,
+                                            payDay: b.dueDay,
+                                            payDayOfWeek: b.payDayOfWeek,
+                                            biweeklyAnchorDate: null,
+                                          })
+                                        : "accrued"}
+                                    </td>
+                                    <td className="py-1 text-right">
+                                      {b.expectedAmount ? formatUSD(b.expectedAmount) : "—"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </TableScroll>
                         )}
                       </>
                     )}

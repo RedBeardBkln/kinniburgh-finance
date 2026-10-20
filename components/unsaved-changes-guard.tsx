@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
 
 interface UnsavedChangesGuardProps {
   /** True while the user has unsaved edits */
@@ -113,8 +115,8 @@ export function UnsavedChangesGuard({ isDirty, onSave, pendingHrefRef }: Unsaved
   if (!showModal) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-lg border bg-background p-5 shadow-xl space-y-4">
+    <div className={cn(MODAL_OVERLAY, "z-[60]")}>
+      <div className={cn(modalPanelClass("md"), "space-y-4 border bg-background p-5 shadow-xl")}>
         <div>
           <h3 className="text-base font-semibold">Save your work before leaving?</h3>
           <p className="mt-1 text-sm text-muted-foreground">

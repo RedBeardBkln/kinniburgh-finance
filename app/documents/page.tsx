@@ -272,7 +272,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                         {doc.createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" })}
                       </td>
                       <td className="px-4 py-2">
-                        <div className="flex items-center gap-2 justify-end">
+                        <div className="flex flex-wrap items-center gap-2 justify-end">
                           {extraction?.actions.includes("review") && (
                             // prefetch={false} — see the matching comment in
                             // components/bank-statements/statements-table.tsx;
