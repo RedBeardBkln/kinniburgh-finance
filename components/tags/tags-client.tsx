@@ -212,9 +212,10 @@ export function TagsClient({ initialTags }: Props) {
 
       <Card>
         <CardContent className="p-0">
-          <TableScroll>
+          {/* Bounded to the screen height so the sideways scrollbar sits at the bottom of the view, not after the last tag. */}
+          <TableScroll label="Tags" className="max-h-[calc(100dvh-14rem)] overflow-y-auto max-md:max-h-[calc(100dvh-18rem)]">
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-card">
                 <tr className="border-b text-left text-muted-foreground">
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Transactions</th>
