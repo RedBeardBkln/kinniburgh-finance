@@ -12,6 +12,7 @@ import { nestBudgetLines, type NestedBudgetRow } from "@/lib/budget-nesting";
 import { formatSchedule, scheduleSortKey } from "@/lib/schedule-display";
 import { endLineConfirmText, type LaterAddContext } from "@/lib/budget-first-edit-note";
 import { TableScroll } from "@/components/ui/table-scroll";
+import { RecurringTagSelect } from "@/components/forecast/recurring-tag-select";
 
 type RecurringExpenseSummary = {
   id: string;
@@ -519,6 +520,7 @@ export function BudgetPageClient({
                                             <th className="py-1 text-left font-medium">Expense</th>
                                             <th className="px-3 py-1 text-left font-medium">Frequency</th>
                                             <th className="py-1 text-right font-medium">Monthly equiv.</th>
+                                            <th className="pl-3 py-1 text-left font-medium">Budget line</th>
                                           </tr>
                                         </thead>
                                         <tbody>
@@ -534,6 +536,14 @@ export function BudgetPageClient({
                                               <td className="py-0.5 text-right tabular-nums">
                                                 {formatUSD(re.monthlyEquivCents / 100)}
                                               </td>
+                                              <td className="pl-3 py-0.5">
+                                                <RecurringTagSelect
+                                                  expenseId={re.id}
+                                                  expenseName={re.name}
+                                                  currentTagId={b.tagId}
+                                                  tags={tags}
+                                                />
+                                              </td>
                                             </tr>
                                           ))}
                                           <tr className="border-t font-medium">
@@ -541,6 +551,7 @@ export function BudgetPageClient({
                                             <td className="py-1 text-right tabular-nums">
                                               {formatUSD(b.recurringMonthlySumCents / 100)}
                                             </td>
+                                            <td />
                                           </tr>
                                         </tbody>
                                       </table>

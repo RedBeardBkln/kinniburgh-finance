@@ -8,6 +8,7 @@ import {
 } from "@/actions/recurring-expenses";
 import { monthlyEquivalentCents, FREQUENCY_LABELS } from "@/lib/recurring-expenses";
 import { visibleNotes } from "@/lib/recurring-series-marker";
+import { RecurringTagSelect } from "./recurring-tag-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatUSD } from "@/lib/utils";
 
@@ -313,11 +314,12 @@ export function RecurringExpensesSection({ expenses, entities, tags, defaultEnti
                           : "—"}
                       </td>
                       <td className="px-4 py-2">
-                        {exp.tag ? (
-                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{exp.tag.shortName}</span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
+                        <RecurringTagSelect
+                          expenseId={exp.id}
+                          expenseName={exp.name}
+                          currentTagId={exp.tagId}
+                          tags={tags}
+                        />
                       </td>
                       <td className="px-4 py-2">
                         <button

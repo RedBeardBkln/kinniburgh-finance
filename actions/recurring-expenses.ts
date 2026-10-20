@@ -69,6 +69,36 @@ export async function updateRecurringExpense(
   return { success: true };
 }
 
+const moveSchema = z.object({
+  id: z.string().uuid(),
+  tagId: z.string().uuid().nullable(),
+});
+
+/**
+ * Move a recurring expense to another budget line (or to none). Writes ONLY `tagId`, so the hidden `[pattern:<key>]`
+ * marker in `notes` (lib/recurring-series-marker.ts) stays and the detector keeps treating the series as recorded.
+ */
+export async function moveRecurringExpenseToTag(
+  input: z.infer<typeof moveSchema>
+): Promise<{ success: true } | { error: string }> {
+  await requireAuth();
+  const parsed = moveSchema.safeParse(input);
+  if (!parsed.success) return { error: "Invalid input" };
+  const { id, tagId } = parsed.data;
+
+  const expense = await db.recurringExpense.findUnique({ where: { id }, select: { id: true, tagId: true } });
+  if (!expense) return { error: "This recurring expense no longer exists. Refresh the page." };
+  if (expense.tagId === tagId) return { success: true };
+  if (tagId) {
+    const tag = await db.tag.findUnique({ where: { id: tagId }, select: { id: true } });
+    if (!tag) return { error: "That budget category no longer exists. Refresh the page." };
+  }
+
+  await db.recurringExpense.update({ where: { id }, data: { tagId } });
+  revalidateAll();
+  return { success: true };
+}
+
 export async function deleteRecurringExpense(id: string): Promise<void> {
   await requireAuth();
   await db.recurringExpense.delete({ where: { id } });
