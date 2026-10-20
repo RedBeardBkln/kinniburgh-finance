@@ -234,7 +234,8 @@ export function GlPageClient({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    // min-w-0 on the columns: a grid child defaults to min-width:auto and would grow to its table's width on phones.
+    <div className="grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
       {/* GL Code list */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
