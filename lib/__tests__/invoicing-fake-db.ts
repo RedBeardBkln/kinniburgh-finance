@@ -5,7 +5,7 @@
 //     committed on success and RESTORED when the callback throws, so "a failed issue burns no number" is genuinely exercised;
 //   - the profile counter UPDATE ... RETURNING, other raw SELECT ... FOR UPDATE statements are no-ops;
 //   - unique indexes that matter (BillingPayment.requestKey, BillingDocument entityId+kind+number) throw P2002;
-//   - nested `allocations` relations on documents and payments.
+//   - nested `allocations` relations on documents and payments, and a client's live `contacts`.
 // It is NOT a SQL engine: `select` is ignored (rows come back whole) and `where` supports only what the store uses.
 
 import { randomUUID } from "node:crypto";
@@ -93,11 +93,15 @@ export class FakeTable {
     if (this.name === "billingDocument") {
       out.allocations = this.db.allocationsWhere((a) => a.invoiceId === row.id).map((a) => ({ ...a, payment: this.db.billingPayment.rows.find((p) => p.id === a.paymentId) ?? null }));
       out.client = this.db.client.rows.find((c) => c.id === row.clientId) ?? null;
+      out.entity = this.db.entity.rows.find((e) => e.id === row.entityId) ?? null;
       out.lines = this.db.billingLine.rows
         .filter((l) => l.documentId === row.id)
         .sort((a, b) => (a.sortOrder as number) - (b.sortOrder as number))
         .map((l) => ({ ...l, quantity: new Prisma.Decimal(String(l.quantity)) }));
       out.events = this.db.billingEvent.rows.filter((e) => e.documentId === row.id).map((e) => ({ ...e }));
+    }
+    if (this.name === "client") {
+      out.contacts = this.db.clientContact.rows.filter((c) => c.clientId === row.id && c.archivedAt == null).map((c) => ({ ...c }));
     }
     if (this.name === "billingPayment") {
       out.allocations = this.db.allocationsWhere((a) => a.paymentId === row.id);

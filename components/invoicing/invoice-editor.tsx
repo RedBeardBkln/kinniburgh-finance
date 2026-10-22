@@ -4,7 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { Button } from "@/components/ui/button";
-import { archiveDraft, issueInvoice, saveDraft } from "@/actions/invoices";
+import { archiveDraft, issueInvoice, saveDraft, sendInvoice } from "@/actions/invoices";
+import { MODAL_OVERLAY, modalPanelClass } from "@/components/ui/modal-frame";
+import { cn } from "@/lib/utils";
+import { newRequestKey } from "@/lib/invoicing/request-key";
 import { BILLING_MODELS } from "@/lib/invoicing/constants";
 import { computeDocumentTotals, formatCents, parsePercentToBps, parseQuantityMilli, type DiscountInput, type DocumentTotals } from "@/lib/invoicing/money";
 import { parseDollarsToCents } from "@/lib/money-input";
@@ -15,6 +18,8 @@ import { ErrorLine, Field, INPUT, OkLine } from "@/components/invoicing/shared";
 // The invoice editor. The totals shown while typing come from lib/invoicing/money.ts, the SAME module the server recomputes with
 // (nothing the browser computes is trusted). Quantity x rate lines cover hourly work (hours typed directly; there is no time log or
 // timer), project and retainer billing. Issuing is owner-only and numbers the invoice; issued invoices are read-only.
+// One "Save" button opens a dialog: save as draft, save as final (issue), or save as final and send (issue, then e-mail it to the
+// client's contacts ticked "Receives invoices"). Nothing is ever e-mailed except by that last choice or the Send button.
 
 interface LineState {
   key: number;
@@ -39,6 +44,8 @@ export interface EditorClient {
   name: string;
   defaultNetDays: number | null;
   defaultTaxable: boolean;
+  /** The client's invoice e-mail addresses (contacts ticked "Receives invoices"). */
+  recipients: string[];
 }
 
 export interface EditorProfile {
@@ -123,6 +130,7 @@ export function InvoiceEditor({
   setupMissing,
   initial,
   preselectClientId,
+  emailReady,
 }: {
   slug: string;
   clients: EditorClient[];
@@ -135,6 +143,8 @@ export function InvoiceEditor({
   setupMissing: string[];
   initial?: InvoiceDetail;
   preselectClientId?: string;
+  /** E-mail is configured (decided on the server; no value of the environment is passed). */
+  emailReady: boolean;
 }) {
   const router = useRouter();
   const blankLine = (key: number, over: Partial<LineState> = {}): LineState => emptyLine(key, defaultGlId ?? "", over);
@@ -179,6 +189,7 @@ export function InvoiceEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [choosing, setChoosing] = useState(false);
 
   const hourly = billingModel === "hourly";
   const client = clients.find((c) => c.id === clientId);
@@ -272,8 +283,9 @@ export function InvoiceEditor({
     }
   }
 
-  async function onIssue() {
-    if (!window.confirm("Issue this invoice? It will be numbered and can no longer be edited (only voided).")) return;
+  /** Saves, issues (numbers) the draft and, when `send` is set, e-mails it. Lands on the issued invoice's page. */
+  async function onFinal(send: boolean) {
+    setChoosing(false);
     setBusy(true);
     setError(null);
     setOk(null);
@@ -285,7 +297,18 @@ export function InvoiceEditor({
         setError(r.error);
         return;
       }
-      router.replace(`/business/${slug}/invoices/${saved.id}` as Route);
+      let query = "";
+      if (send) {
+        let outcome = "failed";
+        try {
+          const sent = await sendInvoice({ slug, documentId: saved.id, requestKey: newRequestKey() });
+          outcome = "error" in sent ? (sent.sendFailure ?? "failed") : "ok";
+        } catch {
+          outcome = "failed";
+        }
+        query = `?send=${outcome}`;
+      }
+      router.replace(`/business/${slug}/invoices/${saved.id}${query}` as Route);
       router.refresh();
     } finally {
       setBusy(false);
@@ -499,24 +522,85 @@ export function InvoiceEditor({
       <ErrorLine message={error} />
       <OkLine message={ok} />
       {setupMissing.length > 0 ? (
-        <p className="text-sm text-yellow-800">Issuing is turned off until {setupMissing.join(" and ")} {setupMissing.length === 1 ? "is" : "are"} set in settings.</p>
+        <p className="text-sm text-yellow-800">Saving as final is turned off until {setupMissing.join(" and ")} {setupMissing.length === 1 ? "is" : "are"} set in settings.</p>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <Button onClick={onSave} disabled={busy || clientId === ""}>
-          {busy ? "Working…" : "Save draft"}
+        <Button onClick={() => setChoosing(true)} disabled={busy || clientId === ""}>
+          {busy ? "Working…" : "Save"}
         </Button>
-        {canIssue && setupMissing.length === 0 ? (
-          <Button variant="outline" onClick={onIssue} disabled={busy || clientId === ""}>
-            Save and issue
-          </Button>
-        ) : (
-          <span className="self-center text-xs text-muted-foreground">{canIssue ? "" : "Only the owner can issue an invoice."}</span>
-        )}
+        {canIssue ? null : <span className="self-center text-xs text-muted-foreground">Only the owner can issue an invoice.</span>}
         {docId ? (
           <Button variant="ghost" onClick={onArchive} disabled={busy}>
             Archive draft
           </Button>
         ) : null}
+      </div>
+      {choosing ? (
+        <SaveChoiceDialog
+          finalBlocked={!canIssue ? "Only the owner can issue an invoice." : setupMissing.length > 0 ? `Saving as final is turned off until ${setupMissing.join(" and ")} ${setupMissing.length === 1 ? "is" : "are"} set in settings.` : null}
+          sendBlocked={!emailReady ? "E-mail is not set up yet (INVOICE_EMAIL_FROM is not set in Vercel, or is not an address on the verified domain)." : (client?.recipients.length ?? 0) === 0 ? "No contact of this client is ticked \"Receives invoices\"." : null}
+          recipients={client?.recipients ?? []}
+          onCancel={() => setChoosing(false)}
+          onDraft={() => {
+            setChoosing(false);
+            void onSave();
+          }}
+          onFinal={() => void onFinal(false)}
+          onFinalAndSend={() => void onFinal(true)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function SaveChoiceDialog({
+  finalBlocked,
+  sendBlocked,
+  recipients,
+  onCancel,
+  onDraft,
+  onFinal,
+  onFinalAndSend,
+}: {
+  finalBlocked: string | null;
+  sendBlocked: string | null;
+  recipients: string[];
+  onCancel: () => void;
+  onDraft: () => void;
+  onFinal: () => void;
+  onFinalAndSend: () => void;
+}) {
+  return (
+    <div className={MODAL_OVERLAY} role="dialog" aria-modal="true" aria-label="Save invoice">
+      <div className={cn(modalPanelClass("md"), "space-y-4 bg-background p-5 shadow-lg")}>
+        <h2 className="text-base font-semibold">Save invoice</h2>
+        <div className="space-y-3">
+          <div>
+            <Button className="w-full justify-start" variant="outline" onClick={onDraft}>
+              Save as draft
+            </Button>
+            <p className="mt-1 text-xs text-muted-foreground">Keeps it editable. No number, nothing is sent.</p>
+          </div>
+          <div>
+            <Button className="w-full justify-start" variant="outline" onClick={onFinal} disabled={finalBlocked !== null}>
+              Save as final
+            </Button>
+            <p className="mt-1 text-xs text-muted-foreground">{finalBlocked ?? "Numbers the invoice; it can no longer be edited (only voided). Nothing is e-mailed."}</p>
+          </div>
+          <div>
+            <Button className="w-full justify-start" onClick={onFinalAndSend} disabled={finalBlocked !== null || sendBlocked !== null}>
+              Save as final and send
+            </Button>
+            <p className="mt-1 break-all text-xs text-muted-foreground">
+              {finalBlocked ?? sendBlocked ?? `Numbers the invoice and e-mails the PDF to ${recipients.join(", ")}.`}
+            </p>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
       </div>
     </div>
   );

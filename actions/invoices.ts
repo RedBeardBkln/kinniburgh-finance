@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { audit, sessionUser, todayNY, type ActionError } from "@/lib/invoicing/action-kit";
 import { detailToDraftInput } from "@/lib/invoicing/draft-input";
+import { loadClient } from "@/lib/invoicing/clients-build";
+import { buildInvoiceEmail, emailPreflight, invoiceRecipients, isSendableAddress, SEND_FAILURE_MESSAGES, type SendFailureCategory } from "@/lib/invoicing/email";
+import { formatCents } from "@/lib/invoicing/money";
+import { loadInvoicePdfSource } from "@/lib/invoicing/pdf-build";
+import { renderInvoicePdf } from "@/lib/invoicing/pdf/render";
+import { sendEmail } from "@/lib/resend";
 import { MAX_SHORT } from "@/lib/invoicing/constants";
 import { loadInvoiceDetail } from "@/lib/invoicing/documents-build";
 import { CHANGED_IN_OTHER_TAB, InvoicingRefusal, userMessageFor } from "@/lib/invoicing/errors";
@@ -11,7 +17,8 @@ import { requireInvoicingEntity, requireInvoicingOwner } from "@/lib/invoicing/g
 import * as store from "@/lib/invoicing/store";
 import { cleanText, parseCalendarDate, validateDraft, type DraftInput } from "@/lib/invoicing/validate";
 
-// Invoice drafts, issue, void, duplicate (plan task 1.7). Every export starts with `await requireAuth();` (a test pins it), then
+// Invoice drafts, issue, void, duplicate (plan task 1.7) and e-mail delivery (task 1.10: an invoice is e-mailed ONLY when the owner
+// clicks Send / Resend or "Save as final and send"; nothing sends on issue, on a schedule or from a cron). Every export starts with `await requireAuth();` (a test pins it), then
 // resolves the entity through the gate and the owner rule. EVERY export here is owner-only (fail closed; owner decision 2026-10-16:
 // Eva, and any other signed-in non-owner, has read-only access to invoicing; a guard test pins the owner gate on every mutating export).
 //
@@ -217,6 +224,85 @@ export async function duplicateInvoice(input: z.input<typeof duplicateSchema>): 
     await audit(user.id, "invoicing_invoice_duplicate", { entityId: entity.id, documentId: saved.id, sourceId: documentId });
     pages(slug, saved.id);
     return { success: true, id: saved.id };
+  } catch (err) {
+    return { error: userMessageFor(err) };
+  }
+}
+
+const sendSchema = z.object({ slug: slugSchema, documentId: z.string().uuid(), requestKey: z.string().uuid() });
+
+/**
+ * E-mails an ISSUED invoice, with its PDF attached, to the client's contacts ticked "Receives invoices" (owner only; only ever on an
+ * explicit click), from the invoice sender INVOICE_EMAIL_FROM (never the app's EMAIL_FROM). Fails closed before any provider call when
+ * that sender is unset, malformed or on resend.dev, or the
+ * client has no recipient. `requestKey` is fresh per click and becomes the provider's idempotency key, so a double-submitted click
+ * sends once. On delivery: `sentAt` (first send), `lastSentAt`, `sendCount` and an "emailed" timeline row (count only, never an
+ * address). A provider failure leaves the invoice as it was and adds an "email_failed" row. Addresses and provider messages are never
+ * logged; errors are logged by name only.
+ */
+export async function sendInvoice(
+  input: z.input<typeof sendSchema>
+): Promise<{ success: true; recipientCount: number; sendCount: number } | (ActionError & { sendFailure?: SendFailureCategory })> {
+  const user = await requireAuth();
+  const parsed = sendSchema.safeParse(input);
+  if (!parsed.success) return { error: "Invalid request." };
+  const { slug, documentId, requestKey } = parsed.data;
+  try {
+    const { entity, profile } = await requireInvoicingEntity(slug);
+    await requireInvoicingOwner(user.id, entity.name);
+    const detail = await loadInvoiceDetail(entity.id, documentId, todayNY());
+    if (!detail) throw new InvoicingRefusal("That invoice was not found.");
+    if (detail.status !== "issued") return { error: detail.status === "void" ? "A voided invoice cannot be e-mailed." : "Only a final (issued) invoice can be e-mailed. Save it as final first." };
+    const client = await loadClient(entity.id, detail.clientId, { includeArchived: true });
+    const to = client ? invoiceRecipients(client.contacts) : [];
+    if (to.length === 0) return { error: SEND_FAILURE_MESSAGES.no_recipients, sendFailure: "no_recipients" };
+    const preflight = emailPreflight(process.env);
+    if (!preflight.ok) return { error: SEND_FAILURE_MESSAGES.not_configured, sendFailure: "not_configured" };
+
+    const source = await loadInvoicePdfSource(documentId);
+    if (source.status !== "ok" || source.entityId !== entity.id) throw new InvoicingRefusal("That invoice was not found.");
+    const rendered = await renderInvoicePdf(source.input, { logo: source.logo });
+    const pdf = source.input;
+    const email = buildInvoiceEmail({
+      displayNumber: pdf.displayNumber ?? "",
+      businessName: pdf.business.dbaName?.trim() || pdf.business.name,
+      totalText: formatCents(pdf.totalCents),
+      balanceText: formatCents(pdf.balanceCents),
+      dueText: pdf.dueText,
+      footerText: pdf.footerText,
+    });
+    const replyTo = profile.replyToEmail && isSendableAddress(profile.replyToEmail.trim()) ? profile.replyToEmail.trim() : undefined;
+    try {
+      await sendEmail({
+        from: preflight.from,
+        to,
+        subject: email.subject,
+        html: email.html,
+        text: email.text,
+        replyTo,
+        attachments: [{ filename: source.filename, content: Buffer.from(rendered.bytes) }],
+        idempotencyKey: `invoice-send/${documentId}/${requestKey}`,
+      });
+    } catch (err) {
+      console.error("Invoice e-mail failed", err instanceof Error ? err.name : "UnknownError");
+      try {
+        await store.recordSendFailure({ entityId: entity.id, userId: user.id, documentId, category: "provider_error" });
+      } catch (logErr) {
+        console.error("Invoice e-mail failure row failed", logErr instanceof Error ? logErr.name : "UnknownError");
+      }
+      pages(slug, documentId);
+      return { error: SEND_FAILURE_MESSAGES.provider_error, sendFailure: "provider_error" };
+    }
+    let sendCount: number;
+    try {
+      ({ sendCount } = await store.markInvoiceSent({ entityId: entity.id, userId: user.id, documentId, recipientCount: to.length, at: new Date() }));
+    } catch (err) {
+      console.error("Invoice sent, but recording it failed", err instanceof Error ? err.name : "UnknownError");
+      return { error: "The invoice was e-mailed, but recording the send failed. Reload the page before sending again." };
+    }
+    await audit(user.id, "invoicing_invoice_email", { entityId: entity.id, documentId, recipientCount: to.length, sendNumber: sendCount });
+    pages(slug, documentId);
+    return { success: true, recipientCount: to.length, sendCount };
   } catch (err) {
     return { error: userMessageFor(err) };
   }

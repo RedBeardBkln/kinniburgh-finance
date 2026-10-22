@@ -99,3 +99,11 @@ export function canVoidPayment(status: string, activeAllocationCount: number): {
   if (activeAllocationCount > 0) return { ok: false, error: "Remove this payment's applications to invoices first, then void it." };
   return { ok: true };
 }
+
+const NY_DATE_TIME = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+
+/** A stored timestamp (ISO) as New York wall-clock text, e.g. "Oct 22, 2026, 3:41 PM ET" (timeline and "last sent" lines). */
+export function formatNyDateTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : `${NY_DATE_TIME.format(d)} ET`;
+}

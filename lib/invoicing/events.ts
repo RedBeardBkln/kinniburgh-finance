@@ -17,6 +17,8 @@ export const EVENT_KINDS = [
   "deallocated",
   "deposit_linked",
   "deposit_unlinked",
+  "emailed",
+  "email_failed",
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 

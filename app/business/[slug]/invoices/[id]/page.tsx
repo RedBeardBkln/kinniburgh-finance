@@ -9,19 +9,25 @@ import { InvoicingNav } from "@/components/invoicing/invoicing-nav";
 import { NeedsSetupNotice, NotMigratedNotice } from "@/components/invoicing/gate-notices";
 import { InvoiceActions } from "@/components/invoicing/invoice-actions";
 import { InvoiceEditor } from "@/components/invoicing/invoice-editor";
+import { SendInvoiceButton } from "@/components/invoicing/send-invoice";
 import { PaymentForm, PaymentsList } from "@/components/invoicing/payment-forms";
-import { loadClients } from "@/lib/invoicing/clients-build";
+import { loadClient, loadClients } from "@/lib/invoicing/clients-build";
+import { emailPreflight, invoiceRecipients, SEND_FAILURE_MESSAGES, type SendFailureCategory } from "@/lib/invoicing/email";
 import { loadCostTransactionOptions, loadGlCodes, loadItems } from "@/lib/invoicing/catalog-build";
 import { loadInvoiceDetail } from "@/lib/invoicing/documents-build";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
 import { formatCents } from "@/lib/invoicing/money";
 import { loadClientPayments, loadOpenInvoices } from "@/lib/invoicing/payments-build";
-import { DISPLAY_STATE_LABELS, nyToday } from "@/lib/invoicing/state";
+import { DISPLAY_STATE_LABELS, formatNyDateTime, nyToday } from "@/lib/invoicing/state";
 import { toIsoDate, isUuid } from "@/lib/invoicing/validate";
 import { TableScroll } from "@/components/ui/table-scroll";
 
+// Rendering and e-mailing the PDF runs inside this page's server actions ("Save as final and send", "Send invoice").
+export const maxDuration = 30;
+
 interface PageProps {
   params: Promise<{ slug: string; id: string }>;
+  searchParams: Promise<{ send?: string }>;
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -36,12 +42,33 @@ const EVENT_LABELS: Record<string, string> = {
   deallocated: "Application removed",
   deposit_linked: "Bank deposit linked",
   deposit_unlinked: "Bank deposit unlinked",
+  emailed: "Sent by e-mail",
+  email_failed: "E-mail not delivered",
 };
 
-export default async function InvoiceDetailPage({ params }: PageProps) {
+function eventLabel(kind: string, data: Record<string, string | number | boolean | null>): string {
+  const base = EVENT_LABELS[kind] ?? kind;
+  if (kind === "emailed") {
+    const n = typeof data.recipientCount === "number" ? data.recipientCount : null;
+    const resent = typeof data.sendNumber === "number" && data.sendNumber > 1;
+    return `${resent ? "Resent by e-mail" : base}${n ? ` to ${n} recipient${n === 1 ? "" : "s"}` : ""}`;
+  }
+  return base;
+}
+
+// "Save as final and send" lands here with ?send=<outcome>; only these fixed values are read (never echoed text).
+const SEND_NOTICE: Record<string, { ok: boolean; text: string }> = {
+  ok: { ok: true, text: "Saved as final and e-mailed." },
+  ...Object.fromEntries(
+    (Object.keys(SEND_FAILURE_MESSAGES) as SendFailureCategory[]).map((k) => [k, { ok: false, text: `Saved as final, but not e-mailed. ${SEND_FAILURE_MESSAGES[k]}` }])
+  ),
+  failed: { ok: false, text: "Saved as final, but the e-mail could not be sent. Use Send invoice to try again." },
+};
+export default async function InvoiceDetailPage({ params, searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login" as Route);
   const { slug, id } = await params;
+  const sendNotice = SEND_NOTICE[(await searchParams).send ?? ""] ?? null;
   const ctx = await loadInvoicingContext(slug, session.user.id);
   if (ctx.status === "not_allowed" || !isUuid(id)) notFound();
 
@@ -74,7 +101,8 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
       "Draft invoice",
       <InvoiceEditor
         slug={slug}
-        clients={clients.map((c) => ({ id: c.id, name: c.name, defaultNetDays: c.defaultNetDays, defaultTaxable: c.defaultTaxable }))}
+        clients={clients.map((c) => ({ id: c.id, name: c.name, defaultNetDays: c.defaultNetDays, defaultTaxable: c.defaultTaxable, recipients: invoiceRecipients(c.contacts) }))}
+        emailReady={emailPreflight(process.env).ok}
         items={items}
         glOptions={incomeAccounts}
         costOptions={costs}
@@ -94,7 +122,12 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
     );
   }
 
-  const [openInvoices, clientPayments] = await Promise.all([loadOpenInvoices(ctx.entity.id, detail.clientId), loadClientPayments(ctx.entity.id, detail.clientId)]);
+  const [openInvoices, clientPayments, client] = await Promise.all([
+    loadOpenInvoices(ctx.entity.id, detail.clientId),
+    loadClientPayments(ctx.entity.id, detail.clientId),
+    loadClient(ctx.entity.id, detail.clientId, { includeArchived: true }),
+  ]);
+  const recipients = client ? invoiceRecipients(client.contacts) : [];
   const related = clientPayments.filter((p) => p.allocations.some((a) => a.invoiceId === detail.id));
   const activeApplications = detail.allocations.filter((a) => a.voidedAt === null);
   const voidBlockedReason = activeApplications.length > 0 ? "This invoice has payments applied. Remove those applications (or void the payments) first, then void the invoice." : null;
@@ -110,8 +143,29 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
         <Link className="text-sm text-primary underline" href={`/business/${slug}/clients/${detail.clientId}` as Route}>
           {detail.clientName}
         </Link>
-        {detail.state === "issued_unsent" ? <span className="text-xs text-muted-foreground">Issued, not sent. Download the PDF to send it yourself (e-mail delivery is a later step).</span> : null}
+        {detail.state === "issued_unsent" ? <span className="text-xs text-muted-foreground">Final, not sent yet. Nothing is e-mailed until you click Send invoice.</span> : null}
       </div>
+
+      {sendNotice ? (
+        <p className={sendNotice.ok ? "rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800" : "rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900"}>{sendNotice.text}</p>
+      ) : null}
+
+      {detail.status === "issued" && ctx.owner.allowed ? (
+        <SendInvoiceButton
+          slug={slug}
+          documentId={detail.id}
+          displayNumber={detail.displayNumber ?? ""}
+          sendCount={detail.sendCount}
+          lastSentText={detail.lastSentAt ? formatNyDateTime(detail.lastSentAt) : null}
+          recipients={recipients}
+          emailReady={emailPreflight(process.env).ok}
+        />
+      ) : detail.lastSentAt ? (
+        <p className="text-xs text-muted-foreground">
+          Last sent {formatNyDateTime(detail.lastSentAt)}
+          {detail.sendCount > 1 ? ` (sent ${detail.sendCount} times)` : ""}
+        </p>
+      ) : null}
 
       <InvoiceActions slug={slug} documentId={detail.id} status={detail.status} canEdit={ctx.owner.allowed} voidBlockedReason={voidBlockedReason} />
 
@@ -220,8 +274,8 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
           <ul className="space-y-1 text-sm">
             {detail.events.map((e) => (
               <li key={e.id} className="flex justify-between">
-                <span>{EVENT_LABELS[e.kind] ?? e.kind}</span>
-                <span className="text-xs text-muted-foreground">{e.createdAt.slice(0, 16).replace("T", " ")} UTC</span>
+                <span>{eventLabel(e.kind, e.data)}</span>
+                <span className="text-xs text-muted-foreground">{formatNyDateTime(e.createdAt)}</span>
               </li>
             ))}
           </ul>

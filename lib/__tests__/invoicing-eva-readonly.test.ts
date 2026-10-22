@@ -61,6 +61,7 @@ const CALLS: Record<string, () => Promise<unknown>> = {
   voidInvoice: () => invoices.voidInvoice({ slug: SLUG, documentId: U, reason: "x" }),
   archiveDraft: () => invoices.archiveDraft({ slug: SLUG, documentId: U, expectedUpdatedAt: STAMP }),
   duplicateInvoice: () => invoices.duplicateInvoice({ slug: SLUG, documentId: U }),
+  sendInvoice: () => invoices.sendInvoice({ slug: SLUG, documentId: U, requestKey: U }),
   // clients
   createClient: () => clients.createClient({ slug: SLUG, name: "Acme" }),
   updateClient: () => clients.updateClient({ slug: SLUG, id: U, name: "Acme" }),

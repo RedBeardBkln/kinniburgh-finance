@@ -120,6 +120,7 @@ const CALLS: Record<string, Call> = {
   voidInvoice: (i) => invoices.voidInvoice({ slug: SLUG, documentId: i.invoice, reason: "oops" }),
   archiveDraft: (i) => invoices.archiveDraft({ slug: SLUG, documentId: i.draft, expectedUpdatedAt: i.draftAt }),
   duplicateInvoice: (i) => invoices.duplicateInvoice({ slug: SLUG, documentId: i.invoice }),
+  sendInvoice: (i) => invoices.sendInvoice({ slug: SLUG, documentId: i.invoice, requestKey: "66666666-6666-4666-8666-666666666666" }),
   setupInvoicing: () => setup.setupInvoicing({ slug: SLUG, goLiveOn: "2026-10-01", invoicePrefix: "", nextInvoiceNumber: 3100, quotePrefix: "Q-", nextQuoteNumber: 2001, numberPad: 0, defaultNetDays: 0, termsLabel: "Due upon receipt", businessAddress: "1 Test Road", glMap: GLS } as never),
   updateInvoicingProfile: () => setup.updateInvoicingProfile({ slug: SLUG, invoicePrefix: "X", numberPad: 0, defaultNetDays: 5, termsLabel: "Net 5", businessAddress: "2 Other Road", showEinOnInvoice: false, quotePrefix: "QQ-", nextQuoteNumber: 5000, glMap: GLS } as never),
   setInvoiceCounterAction: () => setup.setInvoiceCounterAction({ slug: SLUG, nextInvoiceNumber: 9000 }),
@@ -147,17 +148,17 @@ function exportedNamesFromSource(): string[] {
 }
 
 describe("independent Eva / stranger / anonymous refusal matrix", () => {
-  it("the call table covers exactly the exports read from the source (34), no more, no fewer", () => {
+  it("the call table covers exactly the exports read from the source (35), no more, no fewer", () => {
     const names = exportedNamesFromSource();
     expect(names.filter((n) => n.startsWith("NONFUNCTION_EXPORT"))).toEqual([]);
-    expect(names).toHaveLength(34);
+    expect(names).toHaveLength(35);
     expect([...names].sort()).toEqual(Object.keys(CALLS).sort());
   });
 
   it.each([
     ["Eva (real household user, not the owner)", EVA, NOT_INVOICING_OWNER_MESSAGE],
     ["a signed-in id that is in no user row", NOBODY, NOT_INVOICING_OWNER_MESSAGE],
-  ])("%s: all 34 actions refuse with the owner message, nothing changes, nothing leaks", async (_l, who, msg) => {
+  ])("%s: all 35 actions refuse with the owner message, nothing changes, nothing leaks", async (_l, who, msg) => {
     const ids = await build();
     const before = snapshot();
     asUser(who);

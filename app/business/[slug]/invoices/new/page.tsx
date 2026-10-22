@@ -7,9 +7,13 @@ import { InvoicingNav } from "@/components/invoicing/invoicing-nav";
 import { NeedsSetupNotice, NotMigratedNotice } from "@/components/invoicing/gate-notices";
 import { InvoiceEditor } from "@/components/invoicing/invoice-editor";
 import { loadClients } from "@/lib/invoicing/clients-build";
+import { emailPreflight, invoiceRecipients } from "@/lib/invoicing/email";
 import { loadCostTransactionOptions, loadGlCodes, loadItems } from "@/lib/invoicing/catalog-build";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
 import { nyToday } from "@/lib/invoicing/state";
+
+// Rendering and e-mailing the PDF runs inside this page's server actions ("Save as final and send").
+export const maxDuration = 30;
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -67,7 +71,8 @@ export default async function NewInvoicePage({ params, searchParams }: PageProps
   return shell(
     <InvoiceEditor
       slug={slug}
-      clients={clients.map((c) => ({ id: c.id, name: c.name, defaultNetDays: c.defaultNetDays, defaultTaxable: c.defaultTaxable }))}
+      clients={clients.map((c) => ({ id: c.id, name: c.name, defaultNetDays: c.defaultNetDays, defaultTaxable: c.defaultTaxable, recipients: invoiceRecipients(c.contacts) }))}
+      emailReady={emailPreflight(process.env).ok}
       items={items}
       glOptions={incomeAccounts}
       costOptions={costs}

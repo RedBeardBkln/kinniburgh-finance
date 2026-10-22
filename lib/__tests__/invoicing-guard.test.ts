@@ -57,6 +57,7 @@ const PURE_FILES = [
   "lib/invoicing/items.ts",
   "lib/invoicing/gl-map.ts",
   "lib/invoicing/events.ts",
+  "lib/invoicing/email.ts",
   "lib/invoicing/errors.ts",
   "lib/invoicing/cents.ts",
   "lib/invoicing/draft-input.ts",

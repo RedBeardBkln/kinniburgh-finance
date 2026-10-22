@@ -42,7 +42,7 @@ export interface EventArgs {
 }
 
 /** Appends one timeline row. Append-only: this is the only function that creates a BillingEvent. */
-async function appendEvent(client: Tx, e: EventArgs): Promise<void> {
+async function appendEvent(client: Tx | typeof db, e: EventArgs): Promise<void> {
   await client.billingEvent.create({
     data: {
       entityId: e.entityId,
@@ -508,6 +508,33 @@ export async function voidInvoice(args: { entityId: string; userId: string; docu
     if (res.count !== 1) throw new InvoicingRefusal(CHANGED_IN_OTHER_TAB);
     await appendEvent(tx, { entityId, kind: "voided", actorId: userId, documentId });
   }, TX_OPTIONS);
+}
+
+// ── Delivery (e-mail) ─────────────────────────────────────────────────────────────
+
+/**
+ * Records a delivered e-mail: the first send sets `sentAt`, every send sets `lastSentAt` and adds one to `sendCount`, and the
+ * timeline gets an "emailed" row (recipient count and send number only; never an address). Only an issued invoice is marked.
+ */
+export async function markInvoiceSent(args: { entityId: string; userId: string; documentId: string; recipientCount: number; at: Date }): Promise<{ sendCount: number }> {
+  const { entityId, userId, documentId, recipientCount, at } = args;
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "BillingDocument" WHERE "id" = ${documentId} FOR UPDATE`;
+    const doc = await tx.billingDocument.findFirst({ where: { id: documentId, entityId, kind: "invoice", status: "issued" }, select: { sentAt: true, sendCount: true, clientId: true } });
+    if (!doc) throw new InvoicingRefusal("Only an issued invoice can be marked as sent.");
+    const sendCount = doc.sendCount + 1;
+    await tx.billingDocument.updateMany({
+      where: { id: documentId, entityId, kind: "invoice", status: "issued" },
+      data: { sentAt: doc.sentAt ?? at, lastSentAt: at, sendCount },
+    });
+    await appendEvent(tx, { entityId, kind: "emailed", actorId: userId, documentId, clientId: doc.clientId, data: { recipientCount, sendNumber: sendCount } });
+    return { sendCount };
+  }, TX_OPTIONS);
+}
+
+/** Records a send that did not go out (a static category only), so the timeline shows the attempt. The invoice is unchanged. */
+export async function recordSendFailure(args: { entityId: string; userId: string; documentId: string; category: string }): Promise<void> {
+  await appendEvent(db, { entityId: args.entityId, kind: "email_failed", actorId: args.userId, documentId: args.documentId, data: { category: args.category } });
 }
 
 // ── Payments and allocations ──────────────────────────────────────────────────────

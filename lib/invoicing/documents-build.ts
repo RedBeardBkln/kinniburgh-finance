@@ -117,6 +117,9 @@ export interface EventView {
 
 export interface InvoiceDetail extends InvoiceRow {
   number: number | null;
+  /** When the invoice was last e-mailed (ISO), and how many times it has been e-mailed. */
+  lastSentAt: string | null;
+  sendCount: number;
   billingModel: string;
   poNumber: string | null;
   netDays: number | null;
@@ -166,6 +169,8 @@ export async function loadInvoiceDetail(entityId: string, id: string, today: Dat
       includeRemitTo: true,
       showEin: true,
       issuedAt: true,
+      lastSentAt: true,
+      sendCount: true,
       voidReason: true,
       lines: {
         select: {
@@ -208,6 +213,8 @@ export async function loadInvoiceDetail(entityId: string, id: string, today: Dat
     voidedAt: r.voidedAt ? r.voidedAt.toISOString() : null,
     updatedAt: r.updatedAt.toISOString(),
     number: r.number,
+    lastSentAt: r.lastSentAt ? r.lastSentAt.toISOString() : null,
+    sendCount: r.sendCount,
     billingModel: r.billingModel,
     poNumber: r.poNumber,
     netDays: r.netDays,
