@@ -15,6 +15,8 @@ const nextConfig: NextConfig = {
     "/tax/forms/**": ["./data/forms/**/*", "./data/tax-sources/**/*"],
     // The advisor chat route reads the TY2025 review state, which builds its link context from the blank forms (failure only costs the links).
     "/api/advisor/**": ["./data/forms/**/*"],
+    // The invoice PDF route embeds the LaunchTime Solutions fonts and default logo (lib/invoicing/pdf/brand.ts reads them at run time).
+    "/api/invoicing/**": ["./data/invoicing/**/*"],
   },
   headers: async () => [
     {

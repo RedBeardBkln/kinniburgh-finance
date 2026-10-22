@@ -89,14 +89,14 @@ describe("tester: invoice PDF (real render)", () => {
 
   it("'Due upon receipt' terms do not collide with the Terms label", async () => {
     const items = (await textItems((await renderInvoicePdf(base())).bytes))[0]!;
-    const label = items.find((i) => i.str === "Terms:")!;
+    const label = items.find((i) => i.str === "TERMS" && i.x > 300)!;
     const value = items.find((i) => i.str === "Due upon receipt" && i.x > 300)!;
     expect(value.x).toBeGreaterThanOrEqual(label.x + label.w);
   });
 
   it("D-3: 'Net N days, due <date>' terms text does not overlap the 'Terms:' label in the header", async () => {
     const items = (await textItems((await renderInvoicePdf(base({ dueText: "Net 30 days, due 2026-11-15" }))).bytes))[0]!;
-    const label = items.find((i) => i.str === "Terms:")!;
+    const label = items.find((i) => i.str === "TERMS" && i.x > 300)!;
     const value = items.find((i) => i.str.startsWith("Net 30 days") && i.x > 300)!;
     expect(value.x).toBeGreaterThanOrEqual(label.x + label.w);
   });
@@ -118,7 +118,7 @@ describe("tester: invoice PDF (real render)", () => {
     const items = (await textItems((await renderInvoicePdf(base())).bytes))[0]!;
     const title = items.find((i) => i.str === "INVOICE")!;
     const number = items.find((i) => i.str === "3100")!;
-    const numberLabel = items.find((i) => i.str === "Invoice number:")!;
+    const numberLabel = items.find((i) => i.str === "INVOICE NUMBER")!;
     // vertically apart (the 18 pt title sits above the detail rows) ...
     expect(title.y - number.y).toBeGreaterThanOrEqual(12);
     // ... and the number never sits inside the label's box
@@ -136,7 +136,7 @@ describe("tester: invoice PDF (real render)", () => {
     expect(all.replace(/\s+/g, "")).toContain("Healthcare");
     // the left block stays left of the right-hand labels on every shared baseline
     const leftMaxRight = Math.max(...items.filter((i) => Math.abs(i.x - 54) < 0.5 && i.y > 620 && i.str.trim() !== "").map((i) => i.x + i.w));
-    const labelMinLeft = Math.min(...items.filter((i) => i.y > 600 && /^(Invoice number|Issue date|Terms|PO number):$/.test(i.str)).map((i) => i.x));
+    const labelMinLeft = Math.min(...items.filter((i) => i.y > 600 && /^(INVOICE NUMBER|ISSUE DATE|TERMS|PO NUMBER)$/.test(i.str)).map((i) => i.x));
     expect(leftMaxRight).toBeLessThan(labelMinLeft);
   });
 

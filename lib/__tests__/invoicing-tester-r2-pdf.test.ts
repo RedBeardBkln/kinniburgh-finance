@@ -1,11 +1,11 @@
-// Tester round 2 (ek-consulting-invoicing): layout fuzz over the REAL pdf render read back with pdfjs. Widths are recomputed with pdf-lib
-// (pdfjs measures its substitute font up to ~5 pt wider, which is a reading artefact, not a layout fault). Checks: no two text boxes overlap,
-// nothing past the right/left margin, totals only on the last page. The bottom-margin checks (D-11 and the last-block cases of review item S2) are separate cases below.
+// Tester round 2 (ek-consulting-invoicing): layout fuzz over the REAL pdf render read back with pdfjs. The invoice embeds its fonts
+// (Roboto / Roboto Slab, the LaunchTime template), so pdfjs reads the true glyph widths (the former Helvetica render needed them
+// recomputed with pdf-lib: pdfjs measured its substitute font up to ~5 pt wider). Checks: no two text boxes overlap,
+// nothing past the right/left margin, totals once after the rows. The bottom-margin checks (D-11 and the last-block cases of review item S2) are separate cases below.
 import { describe, expect, it, vi } from "vitest";
 import { deflateSync } from "node:zlib";
 import { renderInvoicePdf } from "@/lib/invoicing/pdf/render";
 import { buildPdfModel, LAYOUT } from "@/lib/invoicing/pdf/model";
-import { PDFDocument, StandardFonts } from "pdf-lib";
 import type { PdfInput } from "@/lib/invoicing/pdf/model";
 
 // S3 (review round 3): every test in this file may render a real PDF (and read it back with pdfjs). The default 5 s timeout flaked under
@@ -14,24 +14,14 @@ vi.setConfig({ testTimeout: 30_000 });
 
 type Item = { str: string; x: number; y: number; w: number; h: number };
 
-let FR: { widthOfTextAtSize(t: string, s: number): number } | null = null;
-let FB: { widthOfTextAtSize(t: string, s: number): number } | null = null;
-function exactW(str: string, size: number, pdfjsW: number): number {
-  if (!FR || !FB) return pdfjsW;
-  let a: number; let b: number;
-  try { a = FR.widthOfTextAtSize(str, size); b = FB.widthOfTextAtSize(str, size); } catch { return pdfjsW; }
-  return Math.abs(a - pdfjsW) <= Math.abs(b - pdfjsW) ? a : b;
-}
-
 async function textItems(bytes: Uint8Array): Promise<Item[][]> {
-  if (!FR) { const d = await PDFDocument.create(); FR = await d.embedFont(StandardFonts.Helvetica); FB = await d.embedFont(StandardFonts.HelveticaBold); }
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), useSystemFonts: true, disableFontFace: true }).promise;
   const pages: Item[][] = [];
   for (let i = 1; i <= doc.numPages; i += 1) {
     const tc = await (await doc.getPage(i)).getTextContent();
     const items: Item[] = [];
-    for (const it of tc.items) if ("str" in it && it.str.trim() !== "") items.push({ str: it.str, x: it.transform[4] as number, y: it.transform[5] as number, w: exactW(it.str, Math.abs(it.transform[3] as number), it.width as number), h: Math.abs(it.transform[3] as number) || (it.height as number) });
+    for (const it of tc.items) if ("str" in it && it.str.trim() !== "") items.push({ str: it.str, x: it.transform[4] as number, y: it.transform[5] as number, w: it.width as number, h: Math.abs(it.transform[3] as number) || (it.height as number) });
     pages.push(items);
   }
   return pages;
@@ -116,7 +106,7 @@ function scenario(): { input: PdfInput; logo: { w: number; h: number } | null; d
 }
 
 describe("round 2 layout fuzz", () => {
-  it("no overprint, nothing past the left/right margin, totals only on the last page, over 60 random invoices (seeded)", async () => {
+  it("no overprint, nothing past the left/right margin, totals once after the rows (on the last page unless the last block outgrows a page), over 60 random invoices (seeded)", async () => {
     const problems: string[] = [];
     for (let n = 0; n < 60; n += 1) {
       const sc = scenario();
@@ -144,10 +134,11 @@ describe("round 2 layout fuzz", () => {
           }
         }
       });
-      // totals on last page only
-      const last = pages.length - 1;
+      // totals exactly once, after every row: on the last page, or (when the last block is taller than a page and flows on, the
+      // documented rule in model.ts) on the page where that block starts, with no table row on a later page
       const withTotal = pages.map((p, i) => (p.some((it) => it.str === "Subtotal") ? i : -1)).filter((x) => x >= 0);
-      if (withTotal.length !== 1 || withTotal[0] !== last) problems.push(`#${n} totals not only on last page: ${JSON.stringify(withTotal)} of ${pages.length}`);
+      const rowsAfter = withTotal.length === 1 && pages.slice(withTotal[0]! + 1).some((p) => p.some((it) => it.str === "$1,268.75" || it.str === "DESCRIPTION"));
+      if (withTotal.length !== 1 || rowsAfter) problems.push(`#${n} totals not once after the rows: ${JSON.stringify(withTotal)} of ${pages.length}`);
     }
     expect(problems).toEqual([]);
   }, 600_000);
@@ -178,9 +169,9 @@ describe("round 2 layout fuzz", () => {
     const below = pages.flat().filter((i) => i.y < BOTTOM && !/^Page \d+ of \d+$/.test(i.str) && i.str !== "DRAFT" && i.str !== "VOID");
     expect(below).toEqual([]);
     // The row's table header sits with it on a later page, never alone at the bottom of page 1.
-    const withHead = pages.map((p, i) => (p.some((it) => it.str === "Description") ? i : -1)).filter((x) => x >= 0);
+    const withHead = pages.map((p, i) => (p.some((it) => it.str === "DESCRIPTION") ? i : -1)).filter((x) => x >= 0);
     expect(withHead).toHaveLength(1);
-    expect(pages.flat().some((i) => i.str === "Amount")).toBe(true);
+    expect(pages.flat().some((i) => i.str === "AMOUNT")).toBe(true);
   });
 
   it("the first row is not forced onto page 1 (model level): page 1 keeps only the header and bill-to block when the row does not fit", () => {
@@ -199,7 +190,9 @@ describe("round 2 layout fuzz", () => {
     expect(m.pages.length).toBeGreaterThanOrEqual(2);
     expect(m.pages[0]!.rows).toHaveLength(0);
     expect(m.pages[0]!.items.some((i) => i.kind === "tableHead")).toBe(false); // no orphan table header on page 1
-    expect(m.pages[1]!.items[0]!.kind).toBe("tableHead");
+    // The page that carries the row has the table header right above it (bill-to rows that did not fit may come first).
+    const rowPage = m.pages.find((p) => p.rows.length > 0)!;
+    expect(rowPage.items.find((i) => i.kind === "tableHead" || i.kind === "row")!.kind).toBe("tableHead");
     expect(m.pages.flatMap((p) => p.rows)).toHaveLength(1);
   });
 
@@ -250,7 +243,7 @@ describe("round 2 layout fuzz", () => {
     for (const t of all) if (!text.includes(t)) problems.push(`${label} text missing from the PDF: ${t}`);
     const subtotal = pages.map((p, i) => (p.some((it) => it.str === "Subtotal") ? i : -1)).filter((x) => x >= 0);
     if (subtotal.length !== 1) problems.push(`${label} totals box appears on ${subtotal.length} pages`);
-    if (pages.flat().filter((i) => i.str === "Amount due").length !== 1) problems.push(`${label} "Amount due" does not appear exactly once`);
+    if (pages.flat().filter((i) => i.str === "AMOUNT DUE").length !== 1) problems.push(`${label} "AMOUNT DUE" does not appear exactly once`);
     return problems;
   };
 

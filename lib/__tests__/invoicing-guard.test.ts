@@ -290,7 +290,7 @@ describe("no credit memos and no estimates (owner decisions 2026-10-16: quotes i
 });
 
 describe("real-PDF-render test files carry an explicit generous timeout (S3: the default 5 s flaked under load)", () => {
-  const LISTED = ["lib/__tests__/invoicing-pdf.test.ts", "lib/__tests__/invoicing-tester-pdf.test.ts", "lib/__tests__/invoicing-tester-r2-pdf.test.ts", "lib/__tests__/invoicing-tester-r3-pdf.test.ts"];
+  const LISTED = ["lib/__tests__/invoicing-pdf-template.test.ts", "lib/__tests__/invoicing-pdf.test.ts", "lib/__tests__/invoicing-tester-pdf.test.ts", "lib/__tests__/invoicing-tester-r2-pdf.test.ts", "lib/__tests__/invoicing-tester-r3-pdf.test.ts"];
   it.each(LISTED)("%s", (f) => {
     const m = read(f).match(/vi\.setConfig\(\{ testTimeout: ([\d_]+) \}\)/);
     expect(m, `${f} must call vi.setConfig({ testTimeout: ... })`).not.toBeNull();

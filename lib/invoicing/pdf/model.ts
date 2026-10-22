@@ -1,12 +1,17 @@
 // Page model of the invoice PDF (plan task 1.8, section 9). PURE: given the document content and a text-measuring function it decides
 // the wrapped text, the pagination and what goes on which page. The renderer (render.ts) only draws this model with pdf-lib.
 //
-// Layout rules pinned by tests: the page content is a FLOW of items (bill-to lines, title lines, the table header, rows, the totals
-// box, payment lines, notes, terms, footer lines) paginated by one function. Nothing is ever drawn below the bottom margin:
+// The look follows the LaunchTime Solutions invoice template (invoice-template/invoice.template.html): a gold rule across the top, the
+// logo and the business block on the left, "INVOICE" and the number / date / terms on the right, "Bill to" and "Project" side by side,
+// the item table, the totals ending in a large "Amount due", then "Terms" / "Mail checks to" beside "Bank / ACH details", and the
+// footer message centred at the end. Section labels are small upper-case Roboto Slab; body text is Roboto.
+//
+// Layout rules pinned by tests: the page content is a FLOW of items (bill-to / project rows, the table header, rows, the totals box,
+// payment rows, notes, terms, footer lines) paginated by one function. Nothing is ever drawn below the bottom margin:
 //  - a row (or any other unit) that does not fit the room left on a page moves to a continuation page, INCLUDING the first table row on
 //    page 1 (page 1 may then carry only the header and the bill-to block);
 //  - the table header is repeated on every page that has rows;
-//  - the last block (totals, payment lines, notes, terms, footer) is kept together: on the current page when it fits, else on a page of
+//  - the last block (totals, payment rows, notes, terms, footer) is kept together: on the current page when it fits, else on a page of
 //    its own when it fits one page, so in ordinary use the totals are on the last page;
 //  - a last block taller than a whole page (notes, terms and footer near their 2,000-character caps) flows line by line onto
 //    continuation pages (a section label never ends a page alone), so the totals are then on the page where the block starts;
@@ -59,17 +64,27 @@ export interface PdfRow {
   height: number;
 }
 
+/**
+ * One cell of a two-column row (bill-to / project, terms / bank details). `label` is a small upper-case section label, `name` the
+ * client or project name, `muted` ordinary grey text, `kv` one "Label: value" bank line (`key` is set on its first line only), `space`
+ * a blank line between two groups of the same column.
+ */
+export interface PairCell {
+  style: "label" | "name" | "muted" | "kv" | "space";
+  text: string;
+  key?: string;
+}
+
 /** One unit of the page flow, drawn top to bottom in order. `height` is what the paginator reserves for it. */
 export type PdfItem =
   | { kind: "gap"; height: number }
-  | { kind: "billLabel"; height: number }
-  | { kind: "billLine"; text: string; bold: boolean; height: number }
-  | { kind: "titleLine"; text: string; height: number }
+  | { kind: "divider"; height: number }
+  | { kind: "pair"; left: PairCell | null; right: PairCell | null; height: number }
   | { kind: "tableHead"; height: number }
   | { kind: "row"; row: PdfRow; height: number }
   | { kind: "totals"; height: number }
   | { kind: "sectionLabel"; text: string; height: number }
-  | { kind: "line"; text: string; style: "normal" | "bold" | "gray"; height: number };
+  | { kind: "line"; text: string; style: "normal" | "thanks"; height: number };
 
 export interface PdfPage {
   items: PdfItem[];
@@ -85,19 +100,22 @@ export interface PdfModel {
   pages: PdfPage[];
   /** Height reserved for the business / number block on page 1 (the flow items of page 1 must fit in the rest of the page). */
   headerBlockH: number;
-  /** Wrapped to the column left of the right-hand block; the first `headerLeftBold` lines are the (bold, 12 pt) business name. */
+  /** Wrapped to the column left of the right-hand block; the first `headerLeftBold` lines are the business name (Roboto Slab). */
   headerLeft: string[];
   headerLeftBold: number;
   /** `valueLines` is `value` wrapped to `headerRightLayout.valueW` (a long value never runs into its label). */
   headerRight: { label: string; value: string; valueLines: string[] }[];
   /** Column geometry of the right-hand block: values are right-aligned at the margin, labels end `valueW + 10` pt to its left. */
   headerRightLayout: { labelW: number; valueW: number };
-  /** Wrapped to the page width; the first `billToBold` lines are the client name. */
+  /** Wrapped to the bill-to column; the first `billToBold` lines are the client name. */
   billToLines: string[];
   billToBold: number;
   titleLines: string[];
+  /** The last entry is the amount still owed ("Amount due", or "Balance due" after a payment); it is drawn large. */
   totals: { label: string; value: string; bold?: boolean }[];
+  /** The payment block as plain text (labels end with ":"), for callers and tests; the page draws `payment` in two columns. */
   paymentLines: string[];
+  payment: { left: PairCell[]; right: PairCell[]; bankKeyW: number };
   notesLines: string[];
   termsLines: string[];
   footerLines: string[];
@@ -109,13 +127,34 @@ export const LAYOUT = {
   pageH: 792,
   margin: 54,
   lineH: 13,
-  rowPad: 6,
+  rowPad: 8,
   tableHeaderH: 22,
   pageNumberReserve: 0, // the page number sits inside the bottom margin (y = margin - 20)
   contHeaderH: 38,
   descColW: 300,
   descSize: 10,
   textSize: 10,
+  /** Small upper-case Roboto Slab labels ("BILL TO", "INVOICE NUMBER", the table header). */
+  labelSize: 7.5,
+  /**
+   * Letter spacing (pt) of those labels and of the title. The template asks for .12em to .18em, but a PDF reader then extracts the text
+   * as "I N V O I C E" (pdfjs inserts a space above about .1em), which breaks copy and search; .07em keeps the look and the words.
+   */
+  labelTrack: 0.55,
+  titleTrack: 1.5,
+  /** The business name on page 1 and the client / project names. */
+  nameSize: 11.5,
+  partyNameSize: 12,
+  /** The document label at the top right ("INVOICE"). */
+  titleSize: 22,
+  /** The amount due at the end of the totals. */
+  dueSize: 18,
+  /** Gap between the two columns of a two-column block; each column is (content width - gap) / 2 wide. */
+  colGap: 24,
+  /** Width of the totals block at the right margin. */
+  totalsW: 225,
+  /** Bank-line labels ("Routing #") are at most this wide; a longer label wraps into the value. */
+  bankKeyMaxW: 95,
   // A safety valve only: a description is at most 500 characters (validate.ts), at most about 18 lines even in the widest letters,
   // so this is never reached by validated input. If it ever is, the last line ends with "..." (nothing is cut silently).
   maxDescLines: 40,
@@ -125,10 +164,16 @@ export const LAYOUT = {
   maxHeaderLeftLines: 36,
 };
 
-export type Measure = (text: string, size: number, bold?: boolean) => number;
+/** Height of the "INVOICE" title at the top right, above the number / date / terms rows. */
+export const TITLE_BLOCK_H = 34;
+
+/** Roboto Slab for labels, names and the large figures; Roboto for body text (`bold` = Roboto Medium); italic for the footer. */
+export type Face = "slab" | "italic";
+export type Measure = (text: string, size: number, bold?: boolean, face?: Face) => number;
 
 /** Greedy word wrap with a hard break for words wider than the column. Never returns an empty list for non-empty text. */
-export function wrapText(text: string, maxWidth: number, size: number, measure: Measure, bold = false): string[] {
+export function wrapText(text: string, maxWidth: number, size: number, measure: Measure, bold = false, face?: Face): string[] {
+  const m = (s: string) => measure(s, size, bold, face);
   const out: string[] = [];
   for (const paragraph of text.split("\n")) {
     const words = paragraph.split(/\s+/).filter((w) => w !== "");
@@ -140,9 +185,9 @@ export function wrapText(text: string, maxWidth: number, size: number, measure: 
     for (const word of words) {
       let w = word;
       // Hard-break a single over-long word.
-      while (measure(w, size, bold) > maxWidth && w.length > 1) {
+      while (m(w) > maxWidth && w.length > 1) {
         let cut = w.length - 1;
-        while (cut > 1 && measure(w.slice(0, cut), size, bold) > maxWidth) cut -= 1;
+        while (cut > 1 && m(w.slice(0, cut)) > maxWidth) cut -= 1;
         if (current !== "") {
           out.push(current);
           current = "";
@@ -151,7 +196,7 @@ export function wrapText(text: string, maxWidth: number, size: number, measure: 
         w = w.slice(cut);
       }
       const candidate = current === "" ? w : `${current} ${w}`;
-      if (measure(candidate, size, bold) <= maxWidth) current = candidate;
+      if (m(candidate) <= maxWidth) current = candidate;
       else {
         if (current !== "") out.push(current);
         current = w;
@@ -167,6 +212,26 @@ export function rightRowH(row: { valueLines: string[] }): number {
   return Math.max(1, row.valueLines.length) * LAYOUT.lineH + LAYOUT.lineH * 0.4;
 }
 
+/** Height of a pair row: a label row is a little taller (air above the text under it), a name row taller still. */
+export function pairCellH(cell: PairCell | null): number {
+  if (!cell) return 0;
+  if (cell.style === "label") return LAYOUT.lineH + 2;
+  if (cell.style === "name") return LAYOUT.lineH + 3;
+  if (cell.style === "space") return 8;
+  return LAYOUT.lineH;
+}
+
+/** Height of the totals unit: the gap above, one row per figure, then the rule and the large amount-due row (render.ts draws to it). */
+export function totalsBlockH(count: number): number {
+  return 10 + Math.max(0, count - 1) * (LAYOUT.lineH + 3) + 28;
+}
+
+/** Splits an owner-typed bank line "Routing #: 021000021" into a label and a value; a line without a short label stays whole. */
+export function splitBankLine(line: string): { key: string; value: string } | null {
+  const m = /^([^:]{1,30}):\s+(\S.*)$/.exec(line.trim());
+  return m ? { key: m[1]!.trim(), value: m[2]! } : null;
+}
+
 export function money(cents: number): string {
   const sign = cents < 0 ? "-" : "";
   const abs = Math.abs(cents);
@@ -176,23 +241,27 @@ export function money(cents: number): string {
 export function buildPdfModel(input: PdfInput, measure: Measure, logoHeight = 0): PdfModel {
   const L = LAYOUT;
   const contentW = L.pageW - L.margin * 2;
+  const colW = (contentW - L.colGap) / 2;
   const wrap = (t: string | null, w: number, size = L.textSize, bold = false) => (t && t.trim() !== "" ? wrapText(t, w, size, measure, bold) : []);
   /** One logical line wrapped to `w`; a line that already fits is returned untouched (inner spacing kept). */
-  const fit = (t: string, w: number, size = L.textSize, bold = false): string[] => (measure(t, size, bold) <= w ? [t] : wrapText(t, w, size, measure, bold));
+  const fit = (t: string, w: number, size = L.textSize, bold = false, face?: Face): string[] =>
+    measure(t, size, bold, face) <= w ? [t] : wrapText(t, w, size, measure, bold, face);
+  const labelW = (t: string) => measure(t.toUpperCase(), L.labelSize, false, "slab") + L.labelTrack * (t.length - 1);
 
-  // Right-hand block: labels in one column, values right-aligned in another, a long value wraps inside its own column.
+  // Right-hand block: "INVOICE" on top, then labels in one column and values right-aligned in another; a long value wraps inside its
+  // own column.
   const headerRightRaw: { label: string; value: string }[] = [
     { label: `${input.documentLabel} number`, value: input.status === "draft" || !input.displayNumber ? "DRAFT" : input.displayNumber },
     { label: "Issue date", value: input.issueDate ?? "Not issued" },
     { label: "Terms", value: input.dueText },
   ];
   if (input.poNumber) headerRightRaw.push({ label: "PO number", value: input.poNumber });
-  const labelW = Math.max(...headerRightRaw.map((r) => measure(`${r.label}:`, 9)));
-  const valueW = Math.min(Math.max(...headerRightRaw.map((r) => measure(r.value, L.textSize, true))), L.headerValueMaxW);
-  const headerRight: PdfModel["headerRight"] = headerRightRaw.map((r) => ({ ...r, valueLines: fit(r.value, valueW, L.textSize, true) }));
-  const leftW = Math.max(150, contentW - (labelW + 10 + valueW) - 24);
+  const metaLabelW = Math.max(...headerRightRaw.map((r) => labelW(r.label)));
+  const valueW = Math.min(Math.max(...headerRightRaw.map((r) => measure(r.value, L.textSize))), L.headerValueMaxW);
+  const headerRight: PdfModel["headerRight"] = headerRightRaw.map((r) => ({ ...r, valueLines: fit(r.value, valueW) }));
+  const leftW = Math.max(150, contentW - (metaLabelW + 10 + valueW) - 24);
 
-  const nameLines = fit(input.business.name, leftW, 12, true);
+  const nameLines = fit(input.business.name, leftW, L.nameSize, true, "slab");
   const headerLeft = [
     ...nameLines,
     ...[...(input.business.dbaName ? [`dba ${input.business.dbaName}`] : []), ...input.business.addressLines, ...(input.business.einText ? [`EIN ${input.business.einText}`] : [])].flatMap((l) => fit(l, leftW)),
@@ -203,9 +272,13 @@ export function buildPdfModel(input: PdfInput, measure: Measure, logoHeight = 0)
     while (last.length > 0 && measure(`${last}...`, L.textSize) > leftW) last = last.slice(0, -1);
     headerLeft[L.maxHeaderLeftLines - 1] = `${last}...`;
   }
-  const billToName = fit(input.billTo.name, contentW, L.textSize, true);
-  const billToLines = [...billToName, ...input.billTo.addressLines.flatMap((l) => fit(l, contentW))];
-  const titleLines = wrap(input.title, contentW, 12, true);
+
+  // Bill to (left) and Project (right, only when the document has a title).
+  const billToName = fit(input.billTo.name, colW, L.partyNameSize, true);
+  const billToLines = [...billToName, ...input.billTo.addressLines.flatMap((l) => fit(l, colW))];
+  const titleLines = wrap(input.title, colW, L.partyNameSize, true);
+  const partyLeft: PairCell[] = [{ style: "label", text: "Bill to" }, ...billToLines.map((text, k): PairCell => ({ style: k < billToName.length ? "name" : "muted", text }))];
+  const partyRight: PairCell[] = titleLines.length > 0 ? [{ style: "label", text: "Project" }, ...titleLines.map((text): PairCell => ({ style: "name", text }))] : [];
 
   const rows: PdfRow[] = input.lines.map((l) => {
     let descLines = wrapText(l.description, L.descColW, L.descSize, measure);
@@ -237,58 +310,73 @@ export function buildPdfModel(input: PdfInput, measure: Measure, logoHeight = 0)
   if (input.paidCents > 0) totals.push({ label: "Paid", value: `-${money(input.paidCents)}` });
   totals.push({ label: input.paidCents > 0 ? "Balance due" : "Amount due", value: money(input.balanceCents), bold: true });
 
-  const paymentLines: string[] = [];
-  /** Wraps one payment-block line to the page width; an indented line keeps its two-space indent on every wrapped line. */
-  const pushPayment = (line: string) => {
-    if (measure(line, L.textSize) <= contentW) {
-      paymentLines.push(line);
-      return;
-    }
-    const indented = line.startsWith("  ");
-    wrapText(indented ? line.slice(2) : line, contentW - measure("  ", L.textSize), L.textSize, measure).forEach((l, i) => paymentLines.push(indented || i > 0 ? `  ${l}` : l));
-  };
-  pushPayment(`Terms: ${input.dueText}`);
+  // Payment block: "Terms" and "Mail checks to" in the left column, "Bank / ACH details" in the right one (only when supplied).
+  const payLeft: PairCell[] = [{ style: "label", text: "Terms" }, ...fit(input.dueText, colW).map((text): PairCell => ({ style: "muted", text }))];
+  const paymentLines: string[] = [`Terms: ${input.dueText}`];
   if (input.remit.mailingLines.length > 0 || input.remit.payableTo) {
-    pushPayment("Mail checks to:");
-    if (input.remit.payableTo) pushPayment(`  ${input.remit.payableTo}`);
-    for (const l of input.remit.mailingLines) pushPayment(`  ${l}`);
+    payLeft.push({ style: "space", text: "" }, { style: "label", text: "Mail checks to" });
+    paymentLines.push("Mail checks to:");
+    for (const l of [...(input.remit.payableTo ? [input.remit.payableTo] : []), ...input.remit.mailingLines]) {
+      for (const text of fit(l, colW)) payLeft.push({ style: "muted", text });
+      paymentLines.push(`  ${l}`);
+    }
   }
-  if (input.remit.bankLines.length > 0) {
-    pushPayment("Bank / ACH details:");
-    for (const l of input.remit.bankLines) pushPayment(`  ${l}`);
+  const payRight: PairCell[] = [];
+  const bankParts = input.remit.bankLines.map((l) => ({ raw: l, kv: splitBankLine(l) }));
+  const bankKeyW = Math.min(L.bankKeyMaxW, Math.max(0, ...bankParts.map((p) => (p.kv ? measure(p.kv.key, L.textSize) : 0))));
+  if (bankParts.length > 0) {
+    payRight.push({ style: "label", text: "Bank / ACH details" });
+    paymentLines.push("Bank / ACH details:");
+    for (const p of bankParts) {
+      paymentLines.push(`  ${p.raw}`);
+      if (p.kv && measure(p.kv.key, L.textSize) <= bankKeyW) {
+        fit(p.kv.value, colW - bankKeyW - 10).forEach((text, k) => payRight.push(k === 0 ? { style: "kv", key: p.kv!.key, text } : { style: "kv", text }));
+      } else {
+        for (const text of fit(p.raw, colW)) payRight.push({ style: "muted", text });
+      }
+    }
   }
+
   const notesLines = wrap(input.notes, contentW);
   const termsLines = wrap(input.termsText, contentW);
-  const footerLines = wrap(input.footerText, contentW);
+  const footerLines = input.footerText && input.footerText.trim() !== "" ? wrapText(input.footerText, contentW, L.textSize, measure, false, "italic") : [];
 
   // Page 1 starts with the unsplittable business / number block; everything below it is a flow of items.
-  const leftH = headerLeft.length * L.lineH;
-  const rightH = headerRight.reduce((sum, r) => sum + rightRowH(r), 0);
-  const headerBlockH = 26 + logoHeight + Math.max(leftH, rightH) + 18;
+  const leftH = logoHeight + headerLeft.length * L.lineH + 2;
+  const rightH = TITLE_BLOCK_H + headerRight.reduce((sum, r) => sum + rightRowH(r), 0);
+  const headerBlockH = Math.max(leftH, rightH) + 14;
   const usable = L.pageH - L.margin * 2 - L.pageNumberReserve;
   const freshRoom = usable - L.contHeaderH;
-  const totalsH = 10 + totals.length * (L.lineH + 2) + 10;
+  const totalsH = totalsBlockH(totals.length);
 
   type Entry = { item: PdfItem; keep?: boolean };
+  /** Zips two columns into pair rows; a row holding a label (or a spacer) stays with the row under it. */
+  const pairs = (left: PairCell[], right: PairCell[]): Entry[] =>
+    Array.from({ length: Math.max(left.length, right.length) }, (_, k) => {
+      const l = left[k] ?? null;
+      const r = right[k] ?? null;
+      const keep = [l, r].some((c) => c !== null && (c.style === "label" || c.style === "space"));
+      return { item: { kind: "pair", left: l, right: r, height: Math.max(pairCellH(l), pairCellH(r)) }, keep };
+    });
+
   const entries: Entry[] = [];
-  entries.push({ item: { kind: "billLabel", height: L.lineH }, keep: true });
-  billToLines.forEach((text, k) => entries.push({ item: { kind: "billLine", text, bold: k < billToName.length, height: L.lineH } }));
-  entries.push({ item: { kind: "gap", height: 6 }, keep: true });
-  titleLines.forEach((text) => entries.push({ item: { kind: "titleLine", text, height: 15 } }));
-  if (titleLines.length > 0) entries.push({ item: { kind: "gap", height: 8 }, keep: true });
+  entries.push({ item: { kind: "divider", height: 16 }, keep: true });
+  entries.push(...pairs(partyLeft, partyRight));
+  entries.push({ item: { kind: "gap", height: 12 }, keep: true });
   for (const row of rows) entries.push({ item: { kind: "row", row, height: row.height } });
 
   const lastBlock: Entry[] = [{ item: { kind: "totals", height: totalsH } }];
-  for (const text of paymentLines) lastBlock.push({ item: { kind: "line", text, style: text.endsWith(":") && !text.startsWith(" ") ? "bold" : "normal", height: L.lineH } });
-  const section = (label: string | null, lines: string[], gap: number, style: "normal" | "gray") => {
+  lastBlock.push({ item: { kind: "gap", height: 10 }, keep: true }, { item: { kind: "divider", height: 16 }, keep: true });
+  lastBlock.push(...pairs(payLeft, payRight));
+  const section = (label: string | null, lines: string[], gap: number, style: "normal" | "thanks") => {
     if (lines.length === 0) return;
     lastBlock.push({ item: { kind: "gap", height: gap }, keep: true });
-    if (label) lastBlock.push({ item: { kind: "sectionLabel", text: label, height: L.lineH }, keep: true });
+    if (label) lastBlock.push({ item: { kind: "sectionLabel", text: label, height: L.lineH + 2 }, keep: true });
     for (const text of lines) lastBlock.push({ item: { kind: "line", text, style, height: L.lineH } });
   };
-  section("Notes", notesLines, 8, "normal");
-  section("Terms", termsLines, 8, "normal");
-  section(null, footerLines, 12, "gray");
+  section("Notes", notesLines, 12, "normal");
+  section("Terms and conditions", termsLines, 12, "normal");
+  section(null, footerLines, 18, "thanks");
   entries.push(...lastBlock);
   const lastBlockH = lastBlock.reduce((sum, en) => sum + en.item.height, 0);
 
@@ -314,7 +402,6 @@ export function buildPdfModel(input: PdfInput, measure: Measure, logoHeight = 0)
       else break;
     }
     e += 1;
-    const first = group[0]!;
     // A row that starts a table segment on this page is preceded by the (repeated) table header, after any gap that leads the group.
     const withHead = (g: PdfItem[]): PdfItem[] => {
       const at = g.findIndex((it) => it.kind !== "gap");
@@ -324,11 +411,11 @@ export function buildPdfModel(input: PdfInput, measure: Measure, logoHeight = 0)
     // Page 1 may be left with only its header; a continuation page is never left empty (the group is placed even if too tall).
     const canBreak = cur.items.length > 0 || pages.length === 0;
     // The last block stays together when it fits one page: move all of it to a fresh page rather than splitting it.
-    const keepLastTogether = first.kind === "totals" && lastBlockH > room && lastBlockH <= freshRoom;
+    const keepLastTogether = group[0]!.kind === "totals" && lastBlockH > room && lastBlockH <= freshRoom;
     if ((sum(placed) > room || keepLastTogether) && canBreak) {
       startPage();
-      // A gap at the top of a page is dropped.
-      while (group.length > 0 && group[0]!.kind === "gap") group = group.slice(1);
+      // A gap or divider at the top of a page is dropped.
+      while (group.length > 0 && (group[0]!.kind === "gap" || group[0]!.kind === "divider")) group = group.slice(1);
       placed = withHead(group);
     }
     for (const it of placed) {
@@ -347,12 +434,13 @@ export function buildPdfModel(input: PdfInput, measure: Measure, logoHeight = 0)
     headerLeft,
     headerLeftBold: nameLines.length,
     headerRight,
-    headerRightLayout: { labelW, valueW },
+    headerRightLayout: { labelW: metaLabelW, valueW },
     billToLines,
     billToBold: billToName.length,
     titleLines,
     totals,
     paymentLines,
+    payment: { left: payLeft, right: payRight, bankKeyW },
     notesLines,
     termsLines,
     footerLines,

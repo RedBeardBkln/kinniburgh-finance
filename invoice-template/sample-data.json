@@ -1,0 +1,118 @@
+{
+  "company": {
+    "legal_name": "Eric Kinniburgh Consulting, LLC",
+    "dba": "LaunchTime Solutions",
+    "address_line1": "27 Old Barry Rd.",
+    "address_line2": "",
+    "city": "Quaker Hill",
+    "state": "CT",
+    "postal_code": "06375",
+    "ein": "00-0000000"
+  },
+  "invoice": {
+    "number": "3001",
+    "issue_date": "2026-10-08",
+    "terms": "Due upon receipt"
+  },
+  "client": {
+    "name": "Sample Client LLC",
+    "address_line1": "100 Example Street",
+    "address_line2": "Suite 1",
+    "city": "New York",
+    "state": "NY",
+    "postal_code": "10000"
+  },
+  "project": {
+    "title": "Greek Yogurt SOW",
+    "description": ""
+  },
+  "line_items": [
+    {
+      "description": "Project Fee",
+      "quantity": "1",
+      "unit": "",
+      "rate": "$5,000.00",
+      "amount": "$5,000.00"
+    },
+    {
+      "description": "Shipping Fee (UPS)",
+      "quantity": "1",
+      "unit": "ea",
+      "rate": "$18.45",
+      "amount": "$18.45"
+    },
+    {
+      "description": "Ice Pack",
+      "quantity": "7",
+      "unit": "ea",
+      "rate": "$3.33",
+      "amount": "$23.31"
+    },
+    {
+      "description": "Milk, Skim UF",
+      "quantity": "6",
+      "unit": "ea",
+      "rate": "$4.99",
+      "amount": "$29.94"
+    },
+    {
+      "description": "Milk, Whole UF",
+      "quantity": "2",
+      "unit": "ea",
+      "rate": "$4.99",
+      "amount": "$9.98"
+    },
+    {
+      "description": "Vitamins & Minerals",
+      "quantity": "1",
+      "unit": "ea",
+      "rate": "$62.91",
+      "amount": "$62.91"
+    },
+    {
+      "description": "Shipping Fee - Recipient A (10/22/26)",
+      "quantity": "1",
+      "unit": "ea",
+      "rate": "$8.22",
+      "amount": "$8.22"
+    },
+    {
+      "description": "Shipping Fee - Recipient B",
+      "quantity": "1",
+      "unit": "",
+      "rate": "$9.60",
+      "amount": "$9.60"
+    },
+    {
+      "description": "Pick Up Fee (10/22/26)",
+      "quantity": "1",
+      "unit": "",
+      "rate": "$14.00",
+      "amount": "$14.00"
+    },
+    {
+      "description": "Milk, Skim UF",
+      "quantity": "8",
+      "unit": "",
+      "rate": "$6.39",
+      "amount": "$51.12"
+    }
+  ],
+  "totals": {
+    "subtotal": "$5,227.53",
+    "discount": "$2,500.00",
+    "deposit": "",
+    "total": "$2,727.53",
+    "amount_due": "$2,727.53"
+  },
+  "payment": {
+    "check_payee": "Eric Kinniburgh Consulting, LLC",
+    "check_address": "27 Old Barry Rd. Quaker Hill, CT 06375",
+    "bank_name": "Sample Bank",
+    "bank_location": "1 Bank Street, City, ST 00000",
+    "routing_number": "000000000",
+    "account_number": "0000000000",
+    "account_type": "Checking"
+  },
+  "footer_message": "Thank you for your business!"
+}

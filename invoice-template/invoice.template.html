@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invoice {{invoice.number}}</title>
+<!-- Handlebars/Mustache template. Placeholders: {{path}}. Blocks: {{#each}}, {{#if}}. See README.md and invoice.schema.json. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;500;600&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--gold:#D7B418;--gold-text:#7A6200;--navy:#292F49;--ink:#201D16;--muted:#6B645A;--line:#E4DDD0;--strong:#B9AF9C}
+@page{size:Letter;margin:0.5in}
+*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;font:14px/1.45 Roboto,sans-serif;color:var(--ink);background:#fff}
+.page{max-width:7.5in;margin:0 auto;padding:0.4in 0;border-top:4px solid var(--gold)}
+.slab{font-family:'Roboto Slab',serif}
+.label{font-family:'Roboto Slab',serif;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-text);margin:0 0 6px}
+.head{display:flex;justify-content:space-between;gap:24px;align-items:flex-start}
+.head img{height:72px;display:block;margin-bottom:8px}
+.from{color:var(--muted);font-size:13px}.from strong{display:block;color:var(--ink);font:600 15px 'Roboto Slab',serif}
+h1{font:500 30px 'Roboto Slab',serif;letter-spacing:.18em;margin:0 0 10px;text-align:right}
+.meta{display:grid;grid-template-columns:auto auto;gap:2px 14px;justify-content:end;text-align:right}
+.meta dt{font:11px 'Roboto Slab',serif;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}.meta dd{margin:0}
+.parties{display:grid;grid-template-columns:1fr 1fr;gap:32px;border-top:1px solid var(--line);margin-top:20px;padding-top:16px}
+.parties b{display:block;font-size:16px}.parties p{margin:0;color:var(--muted);white-space:pre-line}
+table.items{width:100%;border-collapse:collapse;margin-top:20px}
+.items th{font:11px 'Roboto Slab',serif;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:right;padding:8px 0;border-bottom:2px solid var(--strong)}
+.items th:first-child,.items td:first-child{text-align:left}
+.items td{text-align:right;padding:6px 0 6px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.items td:first-child{padding-left:0}.items tr{break-inside:avoid}.items thead{display:table-header-group}
+.totals{margin:16px 0 0 auto;width:300px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;break-inside:avoid}
+.totals span:nth-child(even){text-align:right}
+.due{grid-column:1/3;display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid var(--strong);padding-top:8px;margin-top:4px;font-family:'Roboto Slab',serif}
+.due b{font-size:24px;font-weight:600}.due span:first-child{font-size:13px;letter-spacing:.12em;text-transform:uppercase}
+.pay{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:28px;border-top:1px solid var(--line);padding-top:16px;break-inside:avoid}
+.pay p{margin:0;color:var(--muted)}.pay dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:2px 12px;color:var(--muted)}.pay dt{color:var(--ink)}.pay dd{margin:0}
+.thanks{margin-top:28px;text-align:center;font:italic 14px 'Source Serif 4',Georgia,serif;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="head">
+    <div>
+      <img src="logo.png" alt="LaunchTime Solutions">
+      <div class="from">
+        <strong>{{company.legal_name}}</strong>
+        {{#if company.dba}}dba {{company.dba}}<br>{{/if}}
+        {{company.address_line1}}{{#if company.address_line2}}, {{company.address_line2}}{{/if}}<br>
+        {{company.city}}, {{company.state}} {{company.postal_code}}
+        {{#if company.ein}}<br>EIN {{company.ein}}{{/if}}
+      </div>
+    </div>
+    <div>
+      <h1>INVOICE</h1>
+      <dl class="meta">
+        <dt>Invoice number</dt><dd>{{invoice.number}}</dd>
+        <dt>Issue date</dt><dd>{{invoice.issue_date}}</dd>
+        <dt>Terms</dt><dd>{{invoice.terms}}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="parties">
+    <div>
+      <div class="label">Bill to</div>
+      <b>{{client.name}}</b>
+      <p>{{client.address_line1}}{{#if client.address_line2}}
+{{client.address_line2}}{{/if}}
+{{client.city}}, {{client.state}} {{client.postal_code}}</p>
+    </div>
+    <div>
+      <div class="label">Project</div>
+      <b>{{project.title}}</b>
+      {{#if project.description}}<p>{{project.description}}</p>{{/if}}
+    </div>
+  </div>
+
+  <table class="items">
+    <thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+    <tbody>
+    {{#each line_items}}
+      <tr><td>{{description}}</td><td>{{quantity}}{{#if unit}} {{unit}}{{/if}}</td><td>{{rate}}</td><td>{{amount}}</td></tr>
+    {{/each}}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <span>Subtotal</span><span>{{totals.subtotal}}</span>
+    {{#if totals.discount}}<span>Discount</span><span>−{{totals.discount}}</span>{{/if}}
+    {{#if totals.deposit}}<span>Deposit received</span><span>−{{totals.deposit}}</span>{{/if}}
+    <span>Total</span><span>{{totals.total}}</span>
+    <div class="due"><span>Amount due</span><b>{{totals.amount_due}}</b></div>
+  </div>
+
+  <div class="pay">
+    <div>
+      <div class="label">Terms</div>
+      <p>{{invoice.terms}}</p>
+      <div class="label" style="margin-top:14px">Mail checks to</div>
+      <p>{{payment.check_payee}}<br>{{payment.check_address}}</p>
+    </div>
+    <div>
+      <div class="label">Bank / ACH details</div>
+      <dl>
+        <dt>Bank name</dt><dd>{{payment.bank_name}}</dd>
+        <dt>Bank location</dt><dd>{{payment.bank_location}}</dd>
+        <dt>Routing #</dt><dd>{{payment.routing_number}}</dd>
+        <dt>Account #</dt><dd>{{payment.account_number}}</dd>
+        <dt>Account type</dt><dd>{{payment.account_type}}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="thanks">{{footer_message}}</div>
+</div>
+</body>
+</html>

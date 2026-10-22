@@ -2,34 +2,17 @@
 // renderInvoicePdf, read back with pdfjs (positions), widths of every text run recomputed with pdf-lib so pdfjs' substitute-font
 // widths cannot cause false alarms. Checks per document: nothing below the bottom margin (page numbers excepted), nothing past either
 // side margin, no two text boxes overlap, "Page i of N" is right on every page, the table header appears on every page that has rows
-// (and nowhere else), every row appears exactly once and in order, the totals box ("Subtotal" and "Amount due") appears exactly once,
+// (and nowhere else), every row appears exactly once and in order, the totals box ("Subtotal" and "AMOUNT DUE") appears exactly once,
 // and no text token of the long blocks is lost.
 import { describe, expect, it, vi } from "vitest";
 import { renderInvoicePdf } from "@/lib/invoicing/pdf/render";
-import { PDFDocument, StandardFonts } from "pdf-lib";
 import type { PdfInput } from "@/lib/invoicing/pdf/model";
 
 vi.setConfig({ testTimeout: 60_000 });
 
 type Item = { str: string; x: number; y: number; w: number; h: number };
-let FR: { widthOfTextAtSize(t: string, s: number): number } | null = null;
-let FB: { widthOfTextAtSize(t: string, s: number): number } | null = null;
-function exactW(str: string, size: number, pdfjsW: number): number {
-  if (!FR || !FB) return pdfjsW;
-  try {
-    const a = FR.widthOfTextAtSize(str, size);
-    const b = FB.widthOfTextAtSize(str, size);
-    return Math.abs(a - pdfjsW) <= Math.abs(b - pdfjsW) ? a : b;
-  } catch {
-    return pdfjsW;
-  }
-}
+// The invoice embeds its fonts (Roboto / Roboto Slab), so pdfjs reads the true glyph widths.
 async function pagesOf(bytes: Uint8Array): Promise<Item[][]> {
-  if (!FR) {
-    const d = await PDFDocument.create();
-    FR = await d.embedFont(StandardFonts.Helvetica);
-    FB = await d.embedFont(StandardFonts.HelveticaBold);
-  }
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), useSystemFonts: true, disableFontFace: true }).promise;
   const out: Item[][] = [];
@@ -39,7 +22,7 @@ async function pagesOf(bytes: Uint8Array): Promise<Item[][]> {
     for (const it of tc.items) {
       if (!("str" in it) || it.str.trim() === "") continue;
       const size = Math.abs(it.transform[3] as number);
-      items.push({ str: it.str, x: it.transform[4] as number, y: it.transform[5] as number, w: exactW(it.str, size, it.width as number), h: size || (it.height as number) });
+      items.push({ str: it.str, x: it.transform[4] as number, y: it.transform[5] as number, w: it.width as number, h: size || (it.height as number) });
     }
     out.push(items);
   }
@@ -133,11 +116,11 @@ function audit(label: string, pages: Item[][], all: string[], rowTokens: string[
   const rowPage = (t: string) => pages.findIndex((items) => items.some((i) => i.str.includes(t)));
   const pagesWithRows = new Set(rowTokens.map(rowPage).filter((x) => x >= 0));
   pages.forEach((items, pi) => {
-    const heads = items.filter((i) => i.str === "Description").length;
+    const heads = items.filter((i) => i.str === "DESCRIPTION").length;
     if (pagesWithRows.has(pi) && heads !== 1) p.push(`${label} p${pi + 1} carries rows but has ${heads} table headers`);
     if (!pagesWithRows.has(pi) && heads !== 0) p.push(`${label} p${pi + 1} has an orphan table header (${heads})`);
     // header sits above (greater y) every row on that page
-    const head = items.find((i) => i.str === "Description");
+    const head = items.find((i) => i.str === "DESCRIPTION");
     if (head) for (const t of rowTokens) for (const it of items) if (it.str.includes(t) && it.y >= head.y) p.push(`${label} p${pi + 1} row ${t} not below the table header`);
   });
   // rows: each exactly once, in order
@@ -153,7 +136,7 @@ function audit(label: string, pages: Item[][], all: string[], rowTokens: string[
   });
   // totals exactly once
   const flat = pages.flat();
-  for (const label2 of ["Subtotal", "Amount due"]) {
+  for (const label2 of ["Subtotal", "AMOUNT DUE"]) {
     const c = flat.filter((i) => i.str === label2).length;
     if (c !== 1) p.push(`${label} "${label2}" appears ${c} times`);
   }
@@ -177,7 +160,7 @@ describe("round 3 PDF pagination: real renders", () => {
     expect(audit("lost", pages, [...all, "NOTE999WWWW"], rowTokens).some((x) => x.includes("missing token"))).toBe(true);
     const renum = pages.map((p, pi) => p.map((i) => (isPageNo(i) ? { ...i, str: `Page ${pi + 2} of ${pages.length}` } : i)));
     expect(audit("renum", renum, all, rowTokens).some((x) => x.includes("expected"))).toBe(true);
-    const noHead = pages.map((p, pi) => (pi === 1 ? p.filter((i) => i.str !== "Description") : p));
+    const noHead = pages.map((p, pi) => (pi === 1 ? p.filter((i) => i.str !== "DESCRIPTION") : p));
     expect(audit("nohead", noHead, all, rowTokens).some((x) => x.includes("table headers") || x.includes("orphan"))).toBe(true);
   });
 

@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LaunchTime invoice",
+  "type": "object",
+  "required": [
+    "company",
+    "invoice",
+    "client",
+    "project",
+    "line_items",
+    "totals",
+    "payment"
+  ],
+  "properties": {
+    "company": {
+      "type": "object",
+      "required": [
+        "legal_name",
+        "address_line1",
+        "city",
+        "state",
+        "postal_code"
+      ],
+      "properties": {
+        "legal_name": {
+          "type": "string",
+          "description": "Invoicing entity"
+        },
+        "dba": {
+          "type": "string",
+          "description": "Optional trade name"
+        },
+        "address_line1": {
+          "type": "string"
+        },
+        "address_line2": {
+          "type": "string"
+        },
+        "city": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "postal_code": {
+          "type": "string"
+        },
+        "ein": {
+          "type": "string",
+          "description": "Optional"
+        }
+      }
+    },
+    "invoice": {
+      "type": "object",
+      "required": [
+        "number",
+        "issue_date",
+        "terms"
+      ],
+      "properties": {
+        "number": {
+          "type": "string",
+          "description": "Unique, sequential"
+        },
+        "issue_date": {
+          "type": "string",
+          "description": "YYYY-MM-DD"
+        },
+        "terms": {
+          "type": "string",
+          "description": "e.g. Due upon receipt"
+        }
+      }
+    },
+    "client": {
+      "type": "object",
+      "required": [
+        "name",
+        "address_line1",
+        "city",
+        "state",
+        "postal_code"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "address_line1": {
+          "type": "string"
+        },
+        "address_line2": {
+          "type": "string"
+        },
+        "city": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "postal_code": {
+          "type": "string"
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "required": [
+        "title"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "e.g. SOW name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional"
+        }
+      }
+    },
+    "line_items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "description",
+          "quantity",
+          "rate",
+          "amount"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string",
+            "description": "Optional, e.g. ea"
+          },
+          "rate": {
+            "type": "string",
+            "description": "Formatted currency"
+          },
+          "amount": {
+            "type": "string",
+            "description": "Formatted currency; = quantity x rate"
+          }
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "required": [
+        "subtotal",
+        "total",
+        "amount_due"
+      ],
+      "properties": {
+        "subtotal": {
+          "type": "string",
+          "description": "Sum of line amounts"
+        },
+        "discount": {
+          "type": "string",
+          "description": "Optional; shown as a deduction"
+        },
+        "deposit": {
+          "type": "string",
+          "description": "Optional; shown as a deduction"
+        },
+        "total": {
+          "type": "string",
+          "description": "subtotal - discount - deposit"
+        },
+        "amount_due": {
+          "type": "string",
+          "description": "Balance owed"
+        }
+      }
+    },
+    "payment": {
+      "type": "object",
+      "properties": {
+        "check_payee": {
+          "type": "string"
+        },
+        "check_address": {
+          "type": "string"
+        },
+        "bank_name": {
+          "type": "string"
+        },
+        "bank_location": {
+          "type": "string"
+        },
+        "routing_number": {
+          "type": "string"
+        },
+        "account_number": {
+          "type": "string"
+        },
+        "account_type": {
+          "type": "string"
+        }
+      }
+    },
+    "footer_message": {
+      "type": "string",
+      "description": "Closing line"
+    }
+  }
+}

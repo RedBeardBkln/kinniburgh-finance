@@ -11,6 +11,7 @@ import { loadInvoiceDetail, type InvoiceDetail } from "@/lib/invoicing/documents
 import { nyToday } from "@/lib/invoicing/state";
 import { readBusinessEin, readRemitText } from "@/lib/invoicing/tin-store";
 import { safeFilename } from "@/lib/invoicing/pdf/filename";
+import { loadBrandAssets } from "@/lib/invoicing/pdf/brand";
 import type { PdfInput } from "@/lib/invoicing/pdf/model";
 import { downloadLogoFile } from "@/lib/supabase-storage";
 
@@ -50,14 +51,17 @@ export async function loadInvoicePdfSource(documentId: string): Promise<PdfSourc
     const einText = detail.showEin && profile.einLast4 ? await readBusinessEin(head.entityId) : null;
     const bankText = detail.includeRemitTo && profile.hasRemitBank ? await readRemitText(head.entityId) : null;
 
+    // An uploaded logo wins; otherwise the LaunchTime Solutions logo of the invoice template (data/invoicing). A missing logo never
+    // blocks the invoice.
     let logo: { bytes: Uint8Array; mime: string } | null = null;
     if (profile.logoKey && profile.logoMime) {
       try {
         logo = { bytes: new Uint8Array(await downloadLogoFile(profile.logoKey)), mime: profile.logoMime };
       } catch {
-        logo = null; // a missing logo never blocks the invoice
+        logo = null;
       }
     }
+    logo ??= (await loadBrandAssets()).logo;
 
     const percentDisc = detail.discountKind === "percent";
     const input: PdfInput = {
