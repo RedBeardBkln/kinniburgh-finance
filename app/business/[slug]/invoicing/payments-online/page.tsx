@@ -6,11 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TableScroll } from "@/components/ui/table-scroll";
 import { InvoicingNav } from "@/components/invoicing/invoicing-nav";
 import { NeedsSetupNotice, NotMigratedNotice } from "@/components/invoicing/gate-notices";
-import { FeeUnknownList, PayoutLinker, StripeFlagsList } from "@/components/invoicing/online-payments";
+import { BankPendingList, FeeUnknownList, PayoutLinker, StripeFlagsList, type BankPendingRow } from "@/components/invoicing/online-payments";
 import { PAY_FEATURE_NOT_SET_UP } from "@/lib/invoicing/constants";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
 import { loadOnlinePaymentsOverview, loadPaySettings } from "@/lib/invoicing/pay-build";
-import { formatNyDateTime } from "@/lib/invoicing/state";
+import { formatNyDateTime, nyToday } from "@/lib/invoicing/state";
+import { OWNER_BANK_PENDING_UNREADABLE } from "@/lib/invoicing/stripe/bank-pending";
+import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
 
 // The owner's "Online payments" page (Phase 2): flags to review, unmatched Stripe events, payments whose Stripe fee is not known yet, and
 // linking one bank payout deposit to several Stripe payments (task 2.6). Everyone signed in can view it; every button is owner-only (and
@@ -58,7 +60,7 @@ export default async function OnlinePaymentsPage({ params }: PageProps) {
   if (ctx.status === "not_migrated") return shell(<NotMigratedNotice />);
   if (ctx.status === "needs_setup") return shell(<NeedsSetupNotice slug={slug} />);
 
-  const [settings, overview] = await Promise.all([loadPaySettings(ctx.entity.id), loadOnlinePaymentsOverview(ctx.entity.id)]);
+  const [settings, overview] = await Promise.all([loadPaySettings(ctx.entity.id), loadOnlinePaymentsOverview(ctx.entity.id, { mode: payEnvironment(process.env).mode, today: nyToday(new Date()) })]);
   if (overview.status !== "ok" || settings.status !== "ok") {
     return shell(
       <Card>
@@ -67,6 +69,7 @@ export default async function OnlinePaymentsPage({ params }: PageProps) {
     );
   }
   const canEdit = ctx.owner.allowed;
+  const bankRows: BankPendingRow[] = overview.bankPending.flatMap((b) => b.state.items.map((i) => ({ ...i, documentId: b.documentId, invoiceNumber: b.invoiceNumber })));
 
   return shell(
     <>
@@ -110,6 +113,22 @@ export default async function OnlinePaymentsPage({ params }: PageProps) {
               </TableScroll>
             </div>
           ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Bank payments processing</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {overview.bankPendingFailed ? (
+            <p className="text-sm text-muted-foreground">{OWNER_BANK_PENDING_UNREADABLE}</p>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">Bank (ACH) payments clients started that Stripe has not confirmed yet. &quot;Pay online&quot; stays hidden for these invoices until the result arrives.</p>
+              <BankPendingList slug={slug} rows={bankRows} canEdit={canEdit} showInvoice />
+            </>
+          )}
         </CardContent>
       </Card>
 

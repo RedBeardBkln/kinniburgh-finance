@@ -42,9 +42,14 @@ export interface PublicInvoiceView {
   bankLines: string[];
   /** "Pay online" is offered (online payments on and configured, a balance of at least the minimum due). */
   canPayOnline: boolean;
+  /**
+   * A bank (ACH) payment of this invoice is still processing: the sentence shown INSTEAD of "Pay online" (amount and start date only,
+   * never a Stripe id). Null unless the invoice is open.
+   */
+  bankPending: { text: string; overdue: boolean } | null;
 }
 
-export function toPublicInvoiceView(input: PdfInput, opts: { canPayOnline: boolean }): PublicInvoiceView {
+export function toPublicInvoiceView(input: PdfInput, opts: { canPayOnline: boolean; bankPending?: { text: string; overdue: boolean } | null }): PublicInvoiceView {
   const state: PublicInvoiceView["state"] = input.status === "void" ? "void" : input.balanceCents <= 0 ? "paid" : "open";
   return {
     state,
@@ -76,5 +81,6 @@ export function toPublicInvoiceView(input: PdfInput, opts: { canPayOnline: boole
     mailingLines: [...input.remit.mailingLines],
     bankLines: [...input.remit.bankLines],
     canPayOnline: state === "open" && opts.canPayOnline,
+    bankPending: state === "open" && opts.bankPending ? { text: opts.bankPending.text, overdue: opts.bankPending.overdue } : null,
   };
 }

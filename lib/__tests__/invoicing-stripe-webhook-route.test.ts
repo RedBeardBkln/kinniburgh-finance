@@ -19,6 +19,7 @@ vi.mock("@/lib/invoicing/stripe/client", async (orig) => {
 import { db } from "@/lib/db";
 import { POST } from "@/app/api/stripe/webhook/route";
 import { retrieveCheckoutSession, retrievePaymentIntentFee, type CheckoutSessionLite } from "@/lib/invoicing/stripe/client";
+import { loadBankPendingFor } from "@/lib/invoicing/pay-build";
 
 const fake = db as unknown as FakeDb;
 const sessionMock = vi.mocked(retrieveCheckoutSession);
@@ -166,6 +167,9 @@ describe("recording", () => {
       ["evt_2", "recorded"],
       ["evt_3", "duplicate_payment"],
     ]);
+    // The waiting step also wrote ONE "bank_payment_pending" row, closed by the recorded payment's PaymentIntent.
+    expect(fake.billingEvent.rows.filter((e) => e.kind === "bank_payment_pending")).toHaveLength(1);
+    expect(await loadBankPendingFor(E, DOC, "test", TODAY)).toBeNull();
   });
   it("a refund only flags (the payment and its application stay)", async () => {
     await POST(request(eventBody()));
@@ -206,5 +210,60 @@ describe("source pins", () => {
     for (const m of code.matchAll(/console\.(error|warn|info|log)\(([^;]*)\);/g)) {
       expect(m[2], m[0]).toMatch(/^"[^"]*"(, err instanceof Error \? err\.name : "UnknownError")?$/);
     }
+  });
+});
+
+// stripe-ach-pending-hide-pay: a bank payment that completed "unpaid" hides "Pay online" until its result arrives.
+const TODAY = new Date("2026-10-15T00:00:00Z"); // the fake db's clock day
+const pendingRows = () => fake.billingEvent.rows.filter((e) => e.kind === "bank_payment_pending");
+
+describe("bank (ACH) payment processing", () => {
+  it("completed-unpaid writes the StripeEvent row and ONE bank_payment_pending row (exact data and key); a replay writes nothing more", async () => {
+    sessionMock.mockResolvedValue(session({ paymentStatus: "unpaid" }));
+    const body = eventBody({ id: "evt_ach1" });
+    expect((await POST(request(body))).status).toBe(200);
+    expect((await POST(request(body))).status).toBe(200);
+    expect(fake.stripeEvent.rows).toMatchObject([{ id: "evt_ach1", outcome: "awaiting_async", entityId: E, documentId: DOC, paymentId: null }]);
+    expect(pendingRows()).toHaveLength(1);
+    expect(pendingRows()[0]).toMatchObject({ entityId: E, documentId: DOC, actorId: null, eventKey: "stripe:evt_ach1:bank_pending" });
+    expect(pendingRows()[0]!.data).toEqual({ amountCents: 10_000, paymentIntentId: "pi_test_a1", livemode: false });
+    expect(fake.billingEvent.rows).toHaveLength(1);
+    expect(fake.billingPayment.rows).toHaveLength(0);
+    expect(await loadBankPendingFor(E, DOC, "test", TODAY)).toMatchObject({ totalCents: 10_000, startedOn: "2026-10-15", overdue: false });
+  });
+
+  it("one transaction: if the timeline insert fails, no StripeEvent row remains (500, Stripe retries)", async () => {
+    sessionMock.mockResolvedValue(session({ paymentStatus: "unpaid" }));
+    const spy = vi.spyOn(fake.billingEvent, "create").mockRejectedValueOnce(Object.assign(new Error("db down"), { name: "PrismaClientUnknownRequestError" }));
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect((await POST(request(eventBody({ id: "evt_ach2" })))).status).toBe(500);
+    log.mockRestore();
+    spy.mockRestore();
+    nothingWritten();
+  });
+
+  it("an async failure flags with the PaymentIntent and closes the processing row", async () => {
+    sessionMock.mockResolvedValue(session({ paymentStatus: "unpaid" }));
+    await POST(request(eventBody({ id: "evt_ach3" })));
+    expect(await loadBankPendingFor(E, DOC, "test", TODAY)).not.toBeNull();
+    expect((await POST(request(eventBody({ id: "evt_ach4", type: "checkout.session.async_payment_failed" })))).status).toBe(200);
+    expect(fake.billingEvent.rows.filter((e) => e.kind === "stripe_flag").map((e) => e.data)).toEqual([{ reason: "ach_failed", amountCents: 10_000, paymentIntentId: "pi_test_a1" }]);
+    expect(await loadBankPendingFor(E, DOC, "test", TODAY)).toBeNull();
+  });
+
+  it("order-independent: a success processed BEFORE the completed event leaves nothing open", async () => {
+    feeMock.mockResolvedValue({ feeCents: 5, chargeId: "py_1", methodType: "us_bank_account" });
+    expect((await POST(request(eventBody({ id: "evt_ach5", type: "checkout.session.async_payment_succeeded" })))).status).toBe(200);
+    sessionMock.mockResolvedValue(session({ paymentStatus: "unpaid" }));
+    expect((await POST(request(eventBody({ id: "evt_ach6" })))).status).toBe(200);
+    expect(pendingRows()).toHaveLength(1);
+    expect(await loadBankPendingFor(E, DOC, "test", TODAY)).toBeNull();
+  });
+
+  it("a row of the other mode does not block (a live configuration ignores a test-mode row)", async () => {
+    sessionMock.mockResolvedValue(session({ paymentStatus: "unpaid" }));
+    await POST(request(eventBody({ id: "evt_ach7" })));
+    expect(await loadBankPendingFor(E, DOC, "live", TODAY)).toBeNull();
+    expect(await loadBankPendingFor(E, DOC, null, TODAY)).not.toBeNull();
   });
 });

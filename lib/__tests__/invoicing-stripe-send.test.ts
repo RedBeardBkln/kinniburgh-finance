@@ -23,6 +23,7 @@ import { issueInvoice, saveDraft, sendInvoice } from "@/actions/invoices";
 import { addContact, createClient } from "@/actions/clients";
 import { buildInvoiceEmail } from "@/lib/invoicing/email";
 import { LINK_SEND_IN_PROGRESS } from "@/lib/invoicing/store";
+import { GET as clientPdf } from "@/app/i/[token]/pdf/route";
 
 const fake = db as unknown as FakeDb;
 const authMock = vi.mocked(auth) as unknown as { mockResolvedValue: (v: unknown) => void };
@@ -33,7 +34,7 @@ const GL = "33333333-3333-4333-8333-333333333333";
 const SLUG = "ek-consulting";
 const K = (n: number) => `44444444-4444-4444-8444-${String(n).padStart(12, "0")}`;
 
-const ENV_KEYS = ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_MODE", "NEXTAUTH_URL", "VERCEL_ENV", "RESEND_API_KEY", "INVOICE_EMAIL_FROM", "ENCRYPTION_KEY"] as const;
+const ENV_KEYS = ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_MODE", "NEXTAUTH_URL", "VERCEL_ENV", "RESEND_API_KEY", "INVOICE_EMAIL_FROM", "ENCRYPTION_KEY", "INVOICE_PUBLIC_BASE_URL"] as const;
 const saved: Record<string, string | undefined> = {};
 function stripeEnv(on: boolean) {
   if (on) {
@@ -53,6 +54,7 @@ function seed() {
   process.env.INVOICE_EMAIL_FROM = "LaunchTime Solutions <invoices@example.test>";
   process.env.NEXTAUTH_URL = "https://finance.example.test";
   delete process.env.VERCEL_ENV;
+  delete process.env.INVOICE_PUBLIC_BASE_URL;
   stripeEnv(true);
   fake.entity.rows = [{ id: E, name: "Eric Kinniburgh Consulting, LLC", slug: SLUG, dbaName: "LaunchTime Solutions", archivedAt: null }];
   fake.user.rows = [{ id: ERIC, name: "Eric Kinniburgh" }];
@@ -134,6 +136,12 @@ describe("pay link in the e-mail and its PDF", () => {
     expect(text).toContain(`View and pay online: ${inText[0]}`);
     expect(html).toContain(`<a href="${inText[0]}"`);
     expect(new Set([...html.matchAll(LINK)].map((m) => m[0]))).toEqual(new Set(inText));
+    // Scope addition 2: a button; the URL is ONLY in the href (exactly once) and never visible text in the HTML.
+    expect(html.split(inText[0]!)).toHaveLength(2);
+    expect(html.split(`href="${inText[0]}"`)).toHaveLength(2);
+    const visible = html.replace(/<[^>]*>/g, " ");
+    expect(visible).toContain("View and pay online");
+    expect(visible).not.toMatch(/https?:|\/i\//);
     const pdf = (await pdfText(attachments[0]!.content)).replace(/\s+/g, "");
     expect(pdf.toLowerCase()).toContain("payonline");
     expect(pdf).toContain(inText[0]!.replace(/\s+/g, ""));
@@ -205,5 +213,103 @@ describe("pay link in the e-mail and its PDF", () => {
     const id = await issuedInvoice();
     expect(await sendInvoice({ slug: SLUG, documentId: id, requestKey: K(1) })).toMatchObject({ success: true, payLink: "not_applicable" });
     expect(fake.billingAccessToken.rows).toHaveLength(0);
+  });
+});
+
+// stripe-ach-pending-hide-pay: a bank payment still processing omits the pay link; the ACH-preferred sentence rides with the link only.
+describe("a bank (ACH) payment still processing", () => {
+  const ACH = "Bank transfer (ACH) is preferred.";
+  const addPending = (documentId: string) =>
+    fake.billingEvent.rows.push({ id: "bp1", entityId: E, kind: "bank_payment_pending", actorId: null, documentId, paymentId: null, clientId: null, eventKey: "stripe:evt_1:bank_pending", createdAt: new Date(), data: { amountCents: 10_000, paymentIntentId: "pi_b1", livemode: false } });
+
+  it("the e-mail goes out WITHOUT a link (no token minted) and the result says why", async () => {
+    const id = await issuedInvoice();
+    addPending(id);
+    expect(await sendInvoice({ slug: SLUG, documentId: id, requestKey: K(1) })).toEqual({ success: true, recipientCount: 1, sendCount: 1, payLink: "omitted_bank_pending" });
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    const { text, html, attachments } = lastSent();
+    expect(text).not.toMatch(/\/i\//);
+    expect(html).not.toMatch(/\/i\//);
+    expect(text).not.toContain(ACH);
+    expect(html).not.toContain(ACH);
+    expect(fake.billingAccessToken.rows).toHaveLength(0);
+    expect(await pdfText(attachments[0]!.content)).not.toMatch(/Pay online/i);
+  });
+
+  it("a failed check also omits the link (fail closed), never the e-mail", async () => {
+    const id = await issuedInvoice();
+    const real = fake.billingEvent.findMany.bind(fake.billingEvent);
+    const spy = vi.spyOn(fake.billingEvent, "findMany").mockImplementation(async (args) => {
+      const kind = args?.where?.kind as { in?: string[] } | undefined;
+      if (kind && Array.isArray(kind.in) && kind.in.includes("bank_payment_pending")) throw Object.assign(new Error("db"), { name: "PrismaClientUnknownRequestError" });
+      return real(args);
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(await sendInvoice({ slug: SLUG, documentId: id, requestKey: K(1) })).toMatchObject({ success: true, payLink: "omitted_check_failed" });
+    spy.mockRestore();
+    log.mockRestore();
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(lastSent().text).not.toMatch(/\/i\//);
+    expect(fake.billingAccessToken.rows).toHaveLength(0);
+  });
+
+  it("with a link, the text and the HTML carry 'Bank transfer (ACH) is preferred.' once, right after it", async () => {
+    const id = await issuedInvoice();
+    await sendInvoice({ slug: SLUG, documentId: id, requestKey: K(1) });
+    const { text, html } = lastSent();
+    const link = [...text.matchAll(LINK)][0]![0];
+    expect(text).toContain(`View and pay online: ${link}\n${ACH}`);
+    expect(text.split(ACH)).toHaveLength(2);
+    expect(html.split(ACH)).toHaveLength(2);
+    expect(html.indexOf(ACH)).toBeGreaterThan(html.indexOf(`<a href="${link}"`));
+    expect(`${text}${html}`).not.toMatch(/surcharge|\bfee\b/i);
+  });
+
+  it("INVOICE_PUBLIC_BASE_URL set: the e-mail (text and button) and its PDF carry the link on that origin, never NEXTAUTH_URL's", async () => {
+    process.env.INVOICE_PUBLIC_BASE_URL = "https://pay.example.test/";
+    const id = await issuedInvoice();
+    expect(await sendInvoice({ slug: SLUG, documentId: id, requestKey: K(1) })).toMatchObject({ success: true, payLink: "included" });
+    const { text, html, attachments } = lastSent();
+    const PAY = /https:\/\/pay\.example\.test\/i\/([A-Za-z0-9_-]{43})/g;
+    const inText = [...text.matchAll(PAY)].map((m) => m[0]);
+    expect(inText).toHaveLength(1);
+    expect(html.split(`href="${inText[0]}"`)).toHaveLength(2);
+    expect(`${text}${html}`).not.toContain("finance.example.test");
+    const pdf = (await pdfText(attachments[0]!.content)).replace(/\s+/g, "");
+    expect(pdf).toContain(inText[0]!.replace(/\s+/g, ""));
+    expect(pdf).not.toContain("finance.example.test");
+  });
+
+  it("an invalid INVOICE_PUBLIC_BASE_URL sends the e-mail without a link (no fallback to NEXTAUTH_URL)", async () => {
+    process.env.INVOICE_PUBLIC_BASE_URL = "http://pay.example.test";
+    const id = await issuedInvoice();
+    expect(await sendInvoice({ slug: SLUG, documentId: id, requestKey: K(1) })).toMatchObject({ success: true, payLink: "omitted_not_configured" });
+    expect(lastSent().text).not.toMatch(/\/i\//);
+    expect(lastSent().html).not.toMatch(/\/i\//);
+    expect(fake.billingAccessToken.rows).toHaveLength(0);
+  });
+
+  it("the no-link e-mail is byte-identical to the Phase-1 e-mail", () => {
+    const base = { displayNumber: "3100", businessName: "LaunchTime Solutions", totalText: "$100.00", balanceText: "$100.00", dueText: "Due upon receipt", footerText: null };
+    const a = buildInvoiceEmail(base);
+    expect(buildInvoiceEmail({ ...base, payUrl: null })).toEqual(a);
+    expect(a.text).toBe(["Hello,", "", "Please find attached invoice 3100 from LaunchTime Solutions for $100.00.", "Due upon receipt.", "", "If you have any questions, simply reply to this e-mail.", "", "Thank you for your business.", "LaunchTime Solutions"].join("\n"));
+    expect(a.html).not.toContain(ACH);
+  });
+
+  it("the client's PDF (/i/<token>/pdf) has no pay line while the payment is processing, and has it again once it closes", async () => {
+    const id = await issuedInvoice();
+    await sendInvoice({ slug: SLUG, documentId: id, requestKey: K(1) });
+    const token = /\/i\/([A-Za-z0-9_-]{43})/.exec(lastSent().text)![1]!;
+    const get = async () => {
+      const res = await clientPdf(new Request(`https://finance.example.test/i/${token}/pdf`), { params: Promise.resolve({ token }) });
+      expect(res.status).toBe(200);
+      return pdfText(new Uint8Array(await res.arrayBuffer()));
+    };
+    expect(await get()).toMatch(/Pay online/i);
+    addPending(id);
+    expect(await get()).not.toMatch(/Pay online/i);
+    fake.billingEvent.rows.push({ id: "rel1", entityId: E, kind: "bank_payment_released", documentId: id, createdAt: new Date(), data: { pendingEventId: "bp1" } });
+    expect(await get()).toMatch(/Pay online/i);
   });
 });

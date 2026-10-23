@@ -22,9 +22,10 @@ import { DISPLAY_STATE_LABELS, formatNyDateTime, nyToday } from "@/lib/invoicing
 import { toIsoDate, isUuid } from "@/lib/invoicing/validate";
 import { TableScroll } from "@/components/ui/table-scroll";
 import { PayLinksCard } from "@/components/invoicing/pay-links";
-import { StripeFlagsList } from "@/components/invoicing/online-payments";
+import { BankPendingList, StripeFlagsList, type BankPendingRow } from "@/components/invoicing/online-payments";
 import { PAY_FEATURE_NOT_SET_UP, STRIPE_FLAG_LABELS, type StripeFlagReason } from "@/lib/invoicing/constants";
-import { loadInvoiceLinks, loadInvoiceStripeFlags, loadPaySettings } from "@/lib/invoicing/pay-build";
+import { loadBankPendingFor, loadInvoiceLinks, loadInvoiceStripeFlags, loadPaySettings } from "@/lib/invoicing/pay-build";
+import { OWNER_BANK_PENDING_UNREADABLE, type BankPendingState } from "@/lib/invoicing/stripe/bank-pending";
 import { payLinkSendNote, payOnlineEligibility } from "@/lib/invoicing/stripe/eligibility";
 import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
 
@@ -57,6 +58,8 @@ const EVENT_LABELS: Record<string, string> = {
   stripe_flag: "Online payment flagged",
   stripe_flag_reviewed: "Flag reviewed",
   fee_recorded: "Stripe fee recorded",
+  bank_payment_pending: "Bank payment processing (ACH)",
+  bank_payment_released: "Stopped waiting for a bank payment",
 };
 
 function eventLabel(kind: string, data: Record<string, string | number | boolean | null>): string {
@@ -75,6 +78,8 @@ function eventLabel(kind: string, data: Record<string, string | number | boolean
 const SEND_NOTICE: Record<string, { ok: boolean; text: string }> = {
   ok: { ok: true, text: "Saved as final and e-mailed." },
   ok_nolink: { ok: true, text: "Saved as final and e-mailed, without a pay link: online payments are on but not set up (see Invoicing settings)." },
+  ok_bankpending: { ok: true, text: "Saved as final and e-mailed, without a pay link: a bank payment for this invoice is still processing." },
+  ok_nolinkcheck: { ok: true, text: "Saved as final and e-mailed, without a pay link: the bank payment status could not be checked." },
   ...Object.fromEntries(
     (Object.keys(SEND_FAILURE_MESSAGES) as SendFailureCategory[]).map((k) => [k, { ok: false, text: `Saved as final, but not e-mailed. ${SEND_FAILURE_MESSAGES[k]}` }])
   ),
@@ -149,8 +154,25 @@ export default async function InvoiceDetailPage({ params, searchParams }: PagePr
   // Online payments (Phase 2): what the next e-mail will carry, decided here on the server (booleans and fixed sentences only).
   const onlineOn = pay.status === "ok" && pay.stripePayEnabled;
   const payEnv = payEnvironment(process.env);
-  const eligible = payOnlineEligibility({ enabled: onlineOn, configured: payEnv.configured, baseUrl: payEnv.baseUrl, status: detail.status, balanceCents: detail.balanceCents });
-  const payLinkNote = payLinkSendNote(onlineOn, eligible);
+  // A bank (ACH) payment still processing (fail soft here: the page shows one line; the send action re-checks and fails closed).
+  let bankPending: BankPendingState | null = null;
+  let bankPendingFailed = false;
+  try {
+    bankPending = await loadBankPendingFor(ctx.entity.id, detail.id, payEnv.mode, today);
+  } catch (err) {
+    console.error("Bank payment status could not be read", err instanceof Error ? err.name : "UnknownError");
+    bankPendingFailed = true;
+  }
+  const bankRows: BankPendingRow[] = bankPending ? bankPending.items.map((i) => ({ ...i, documentId: detail.id, invoiceNumber: detail.displayNumber })) : [];
+  const eligible = payOnlineEligibility({
+    enabled: onlineOn,
+    configured: payEnv.configured,
+    baseUrl: payEnv.baseUrl,
+    status: detail.status,
+    balanceCents: detail.balanceCents,
+    bankPending: bankPendingFailed || bankPending !== null,
+  });
+  const payLinkNote = payLinkSendNote(onlineOn, eligible, payEnv.baseUrlProblem === "invoice_public_base_url_invalid");
   const recipients = client ? invoiceRecipients(client.contacts) : [];
   const related = clientPayments.filter((p) => p.allocations.some((a) => a.invoiceId === detail.id));
   const activeApplications = detail.allocations.filter((a) => a.voidedAt === null);
@@ -276,6 +298,24 @@ export default async function InvoiceDetailPage({ params, searchParams }: PagePr
           {detail.notes ? <p className="mt-4 whitespace-pre-line text-sm text-muted-foreground">{detail.notes}</p> : null}
         </CardContent>
       </Card>
+
+      {bankRows.length > 0 || bankPendingFailed ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Bank payment processing</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {bankPendingFailed ? (
+              <p className="text-sm text-muted-foreground">{OWNER_BANK_PENDING_UNREADABLE}</p>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground">The client started a bank (ACH) payment. &quot;Pay online&quot; stays hidden for this invoice until Stripe reports the result.</p>
+                <BankPendingList slug={slug} rows={bankRows} canEdit={ctx.owner.allowed} showInvoice={false} />
+              </>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {flags.length > 0 ? (
         <Card>

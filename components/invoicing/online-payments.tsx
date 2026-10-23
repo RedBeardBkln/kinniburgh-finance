@@ -5,13 +5,14 @@ import type { Route } from "next";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { TableScroll } from "@/components/ui/table-scroll";
-import { markStripeFlagReviewed } from "@/actions/invoices";
+import { markStripeFlagReviewed, releaseBankPending } from "@/actions/invoices";
 import { linkPayoutDeposit, refreshStripeFee, searchPayoutCandidates } from "@/actions/billing-payments";
 import { ErrorLine, OkLine, useRunner } from "@/components/invoicing/shared";
 import { formatCents } from "@/lib/invoicing/money";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/invoicing/constants";
 import { formatNyDateTime } from "@/lib/invoicing/state";
 import type { FlagView, PayoutCandidateView, StripePaymentView } from "@/lib/invoicing/pay-build";
+import { BANK_RELEASE_CONFIRM, OWNER_BANK_OVERDUE_TEXT, ownerBankPendingItemText, type BankPendingItem } from "@/lib/invoicing/stripe/bank-pending";
 
 // The owner's review of online (Stripe) payments: open flags, payments whose Stripe fee is not known yet, and payments waiting for their
 // bank payout. Every button is owner-only on the server as well; `canEdit` (decided on the server) only hides them for Eva. Nothing here
@@ -42,6 +43,60 @@ export function StripeFlagsList({ slug, flags, canEdit, showInvoice }: { slug: s
             {canEdit ? (
               <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => markStripeFlagReviewed({ slug, flagEventId: f.id }))}>
                 Mark reviewed
+              </Button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      <ErrorLine message={error} />
+    </div>
+  );
+}
+
+/** One processing bank (ACH) payment as the owner's list shows it (plain values, decided on the server). */
+export interface BankPendingRow extends BankPendingItem {
+  documentId: string;
+  invoiceNumber: string | null;
+}
+
+/**
+ * Bank (ACH) payments still processing: "Pay online" stays hidden for their invoices until Stripe reports the result. The owner's
+ * "Stop waiting for this payment" (after a confirm) only closes the row; it reverses nothing. `canEdit` only hides the button for Eva;
+ * the action is owner-only on the server as well.
+ */
+export function BankPendingList({ slug, rows, canEdit, showInvoice }: { slug: string; rows: BankPendingRow[]; canEdit: boolean; showInvoice: boolean }) {
+  const { pending, error, run } = useRunner();
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">None.</p>;
+  return (
+    <div className="space-y-2">
+      <ul className="space-y-2 text-sm">
+        {rows.map((r) => (
+          <li key={r.id} className={`flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 ${r.overdue ? "border-yellow-200 bg-yellow-50 text-yellow-900" : ""}`}>
+            <span>
+              Bank payment processing: {ownerBankPendingItemText(r)}
+              {showInvoice ? (
+                <>
+                  {" "}
+                  Invoice{" "}
+                  <Link className="underline" href={`/business/${slug}/invoices/${r.documentId}` as Route}>
+                    {r.invoiceNumber ?? "(no number)"}
+                  </Link>
+                  .
+                </>
+              ) : null}
+              {r.livemode === false ? <span className="ml-2 rounded border px-1 text-xs">Test mode</span> : null}
+              {r.overdue ? <span className="block text-xs font-medium">{OWNER_BANK_OVERDUE_TEXT}</span> : null}
+            </span>
+            {canEdit ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={() => {
+                  if (window.confirm(BANK_RELEASE_CONFIRM)) run(() => releaseBankPending({ slug, pendingEventId: r.id }));
+                }}
+              >
+                Stop waiting for this payment
               </Button>
             ) : null}
           </li>

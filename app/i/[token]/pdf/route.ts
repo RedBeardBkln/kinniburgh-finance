@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { INVALID_LINK_MESSAGE } from "@/lib/invoicing/constants";
 import { invoiceLinkUrl } from "@/lib/invoicing/access-token";
 import { loadInvoicePdfSource } from "@/lib/invoicing/pdf-build";
-import { loadPaySettings, resolvePublicAccess } from "@/lib/invoicing/pay-build";
+import { loadBankPendingFor, loadPaySettings, resolvePublicAccess } from "@/lib/invoicing/pay-build";
 import { renderInvoicePdf } from "@/lib/invoicing/pdf/render";
 import { payOnlineEligibility } from "@/lib/invoicing/stripe/eligibility";
 import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
+import { nyToday } from "@/lib/invoicing/state";
 
 // The invoice PDF for the client's link (/i/<token>/pdf). SANCTIONED EXCEPTION to "every route starts with auth()": the gate is the
 // TOKEN, validated FIRST on every request; any invalid token is a 404 with the neutral sentence. The PDF is the owner's invoice PDF
@@ -26,12 +27,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
     if (source.status !== "ok" || source.entityId !== access.entityId) return new NextResponse(INVALID_LINK_MESSAGE, { status: 404, headers: NO_STORE });
     const settings = await loadPaySettings(access.entityId);
     const env = payEnvironment(process.env);
+    // A bank (ACH) payment still processing removes the pay line; a failed read fails CLOSED (no pay line), the PDF is still served.
+    let bankPending = true;
+    try {
+      bankPending = (await loadBankPendingFor(access.entityId, access.documentId, env.mode, nyToday(new Date()))) !== null;
+    } catch (err) {
+      console.error("Bank payment status could not be read", err instanceof Error ? err.name : "UnknownError");
+    }
     const eligible = payOnlineEligibility({
       enabled: settings.status === "ok" && settings.stripePayEnabled,
       configured: env.configured,
       baseUrl: env.baseUrl,
       status: source.input.status,
       balanceCents: source.input.balanceCents,
+      bankPending,
     });
     const input = eligible.ok && env.baseUrl ? { ...source.input, payOnline: { url: invoiceLinkUrl(env.baseUrl, token) } } : source.input;
     const rendered = await renderInvoicePdf(input, { logo: source.logo });

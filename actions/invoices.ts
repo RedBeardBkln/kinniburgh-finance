@@ -16,7 +16,7 @@ import { CHANGED_IN_OTHER_TAB, InvoicingRefusal, userMessageFor } from "@/lib/in
 import { requireInvoicingEntity, requireInvoicingOwner } from "@/lib/invoicing/gate-build";
 import * as store from "@/lib/invoicing/store";
 import { invoiceLinkUrl, mintInvoiceToken, tokenExpiry } from "@/lib/invoicing/access-token";
-import { loadPaySettings, type PaySettings } from "@/lib/invoicing/pay-build";
+import { loadBankPendingFor, loadPaySettings, type PaySettings } from "@/lib/invoicing/pay-build";
 import { payOnlineEligibility } from "@/lib/invoicing/stripe/eligibility";
 import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
 import { cleanText, parseCalendarDate, validateDraft, type DraftInput } from "@/lib/invoicing/validate";
@@ -236,7 +236,7 @@ export async function duplicateInvoice(input: z.input<typeof duplicateSchema>): 
 const sendSchema = z.object({ slug: slugSchema, documentId: z.string().uuid(), requestKey: z.string().uuid() });
 
 /** Whether the e-mail carried the client's view-and-pay link (Phase 2). */
-type PayLinkOutcome = "included" | "omitted_not_configured" | "not_applicable";
+type PayLinkOutcome = "included" | "omitted_not_configured" | "omitted_bank_pending" | "omitted_check_failed" | "not_applicable";
 
 /**
  * E-mails an ISSUED invoice, with its PDF attached, to the client's contacts ticked "Receives invoices" (owner only; only ever on an
@@ -284,8 +284,20 @@ export async function sendInvoice(
     }
     if (settings.status === "ok" && settings.stripePayEnabled) {
       const env = payEnvironment(process.env);
-      const eligible = payOnlineEligibility({ enabled: true, configured: env.configured, baseUrl: env.baseUrl, status: detail.status, balanceCents: detail.balanceCents });
-      if (eligible.ok && env.baseUrl) {
+      // A bank (ACH) payment still processing means no pay link (and no minted token); a failed check also omits it (fail closed),
+      // never the e-mail.
+      let bankPending = true;
+      let pendingCheckFailed = false;
+      try {
+        bankPending = (await loadBankPendingFor(entity.id, documentId, env.mode, todayNY())) !== null;
+      } catch (err) {
+        console.error("Bank payment status could not be read", err instanceof Error ? err.name : "UnknownError");
+        pendingCheckFailed = true;
+      }
+      const eligible = payOnlineEligibility({ enabled: true, configured: env.configured, baseUrl: env.baseUrl, status: detail.status, balanceCents: detail.balanceCents, bankPending });
+      if (!eligible.ok && eligible.reason === "bank_payment_pending") {
+        payLink = pendingCheckFailed ? "omitted_check_failed" : "omitted_bank_pending";
+      } else if (eligible.ok && env.baseUrl) {
         const now = new Date();
         const { token, tokenHash } = mintInvoiceToken();
         const minted = await store.mintAccessToken({
@@ -366,6 +378,30 @@ export async function sendInvoice(
     await audit(user.id, "invoicing_invoice_email", { entityId: entity.id, documentId, recipientCount: to.length, sendNumber: sendCount, payLink: payLink === "included" });
     pages(slug, documentId);
     return { success: true, recipientCount: to.length, sendCount, payLink };
+  } catch (err) {
+    return { error: userMessageFor(err) };
+  }
+}
+
+const releaseSchema = z.object({ slug: slugSchema, pendingEventId: z.string().uuid() });
+
+/**
+ * "Stop waiting for this payment" on a bank (ACH) payment that is still processing (owner only). Reverses nothing and records no money:
+ * it only lets "Pay online" be offered again. If the payment still succeeds later, the webhook records it as usual (anything above the
+ * balance becomes a deposit on account with a flag). Repeating it changes nothing.
+ */
+export async function releaseBankPending(input: z.input<typeof releaseSchema>): Promise<{ success: true } | ActionError> {
+  const user = await requireAuth();
+  const parsed = releaseSchema.safeParse(input);
+  if (!parsed.success) return { error: "Invalid request." };
+  try {
+    const { entity } = await requireInvoicingEntity(parsed.data.slug);
+    await requireInvoicingOwner(user.id, entity.name);
+    await store.releaseBankPending({ entityId: entity.id, userId: user.id, pendingEventId: parsed.data.pendingEventId });
+    await audit(user.id, "invoicing_bank_pending_release", { entityId: entity.id, pendingEventId: parsed.data.pendingEventId });
+    pages(parsed.data.slug);
+    revalidatePath(`/business/${parsed.data.slug}/invoicing/payments-online`);
+    return { success: true };
   } catch (err) {
     return { error: userMessageFor(err) };
   }

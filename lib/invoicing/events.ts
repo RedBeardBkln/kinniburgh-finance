@@ -27,6 +27,9 @@ export const EVENT_KINDS = [
   "stripe_flag",
   "stripe_flag_reviewed",
   "fee_recorded",
+  // A US bank (ACH) payment that is still processing, and the owner's "Stop waiting for this payment" (stripe-ach-pending-hide-pay)
+  "bank_payment_pending",
+  "bank_payment_released",
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 

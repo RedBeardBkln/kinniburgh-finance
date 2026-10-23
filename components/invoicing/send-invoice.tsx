@@ -105,7 +105,11 @@ export function SendInvoiceButton({
                             ? `Invoice ${displayNumber} was e-mailed. Included a pay link.`
                             : link === "omitted_not_configured"
                               ? `Invoice ${displayNumber} was e-mailed, without a pay link: online payments are not set up (see Invoicing settings).`
-                              : `Invoice ${displayNumber} was e-mailed.`
+                              : link === "omitted_bank_pending"
+                                ? `Invoice ${displayNumber} was e-mailed, without a pay link: a bank payment for this invoice is still processing.`
+                                : link === "omitted_check_failed"
+                                  ? `Invoice ${displayNumber} was e-mailed, without a pay link: the bank payment status could not be checked.`
+                                  : `Invoice ${displayNumber} was e-mailed.`
                         );
                       },
                     }

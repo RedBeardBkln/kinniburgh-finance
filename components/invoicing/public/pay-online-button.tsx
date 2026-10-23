@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { startCheckout } from "@/actions/public-invoice";
+import { ACH_PREFERRED_TEXT } from "@/lib/invoicing/constants";
 
 // "Pay online" on the client's invoice page. The amount is the balance the SERVER reads when the button is clicked (the action takes the
 // token only); the browser then opens Stripe's hosted Checkout page. Errors are static sentences.
@@ -29,7 +30,7 @@ export function PayOnlineButton({ token, amountText }: { token: string; amountTe
       >
         {pending ? "Opening secure checkout…" : `Pay ${amountText} online`}
       </Button>
-      <p className="text-xs text-muted-foreground">Card or US bank account (ACH), through Stripe.</p>
+      <p className="text-xs text-muted-foreground">Card or US bank account (ACH), through Stripe. {ACH_PREFERRED_TEXT}</p>
       {error ? (
         <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}

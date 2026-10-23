@@ -12,6 +12,8 @@
 //  - the body never carries bank / remit-to text (that is only in the PDF when the invoice ticks it); every header-bound value has
 //    CR/LF removed; the HTML is escaped.
 
+import { ACH_PREFERRED_TEXT } from "@/lib/invoicing/constants";
+
 export type SendFailureCategory = "not_configured" | "no_recipients" | "provider_error";
 
 export const SEND_FAILURE_MESSAGES: Record<SendFailureCategory, string> = {
@@ -105,6 +107,24 @@ function safePayUrl(raw: string): string | null {
   return /^https?:\/\/[^\s"'<>]+$/.test(u) ? u : null;
 }
 
+/** The LaunchTime brand colour of the pay button (the same gold as the e-mail's link colour before the button). */
+const PAY_BUTTON_COLOUR = "#7A6200";
+
+/**
+ * "View and pay online" as an e-mail-safe ("bulletproof") button: a one-cell presentation table with the brand background (for clients
+ * that ignore padding on links) around an inline-block anchor with the same background, padding, rounded corners and white bold text.
+ * Inline styles only. The URL appears ONLY in the href (escaped), never as visible text; the plain-text part keeps it written out.
+ */
+function payButtonHtml(payUrl: string): string {
+  const c = PAY_BUTTON_COLOUR;
+  return (
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 6px;border-collapse:separate"><tr>` +
+    `<td align="center" bgcolor="${c}" style="border-radius:6px;background-color:${c}">` +
+    `<a href="${escapeHtml(payUrl)}" style="display:inline-block;padding:12px 24px;border:1px solid ${c};border-radius:6px;background-color:${c};color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;line-height:1.2;text-decoration:none">View and pay online</a>` +
+    `</td></tr></table>`
+  );
+}
+
 export function buildInvoiceEmail(i: InvoiceEmailInput): InvoiceEmail {
   const number = headerSafe(i.displayNumber);
   const business = headerSafe(i.businessName);
@@ -117,7 +137,8 @@ export function buildInvoiceEmail(i: InvoiceEmailInput): InvoiceEmail {
     `Please find attached invoice ${number} from ${business} for ${i.totalText}.`,
     paid ? `The balance due is ${i.balanceText}.` : null,
     `${headerSafe(i.dueText)}.`,
-    ...(payUrl ? ["", `View and pay online: ${payUrl}`] : []),
+    // The owner prefers bank transfers (2026-10-23): one plain sentence, only beside the pay link, never a fee or surcharge.
+    ...(payUrl ? ["", `View and pay online: ${payUrl}`, ACH_PREFERRED_TEXT] : []),
     "",
     "If you have any questions, simply reply to this e-mail.",
     "",
@@ -126,13 +147,16 @@ export function buildInvoiceEmail(i: InvoiceEmailInput): InvoiceEmail {
   ].filter((l): l is string => l !== null);
   const text = lines.join("\n");
   const payLine = payUrl ? `View and pay online: ${payUrl}` : null;
+  const payIndex = payLine ? lines.indexOf(payLine) : -1;
   const html = `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#201D16">${lines
-    .map((l) =>
+    .map((l, idx) =>
       l === ""
         ? ""
-        : l === payLine && payUrl
-          ? `<p style="margin:0 0 4px"><a href="${escapeHtml(payUrl)}" style="color:#7A6200;font-weight:bold">View and pay online</a><br><span style="font-size:12px;color:#6B645A">${escapeHtml(payUrl)}</span></p>`
-          : `<p style="margin:0 0 4px">${escapeHtml(l)}</p>`
+        : idx === payIndex && payUrl
+          ? payButtonHtml(payUrl)
+          : payIndex >= 0 && idx === payIndex + 1
+            ? `<p style="margin:0 0 4px;font-size:12px;color:#6B645A">${escapeHtml(l)}</p>`
+            : `<p style="margin:0 0 4px">${escapeHtml(l)}</p>`
     )
     .join("")}</body></html>`;
   return { subject, text, html };

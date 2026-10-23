@@ -87,6 +87,42 @@ describe("the client's invoice page", () => {
     expect(toPublicInvoiceView(input({ status: "void" }), { canPayOnline: true }).canPayOnline).toBe(false);
   });
 
+  // stripe-ach-pending-hide-pay
+  const PROCESSING = { text: "A bank payment of $750.00 is processing (started Oct 23, 2026); it usually takes up to 4 business days.", overdue: false };
+  const withPending = (i: PdfInput, bankPending: { text: string; overdue: boolean }, canPayOnline = false) =>
+    renderToStaticMarkup(<PublicInvoice view={toPublicInvoiceView(i, { canPayOnline, bankPending })} token={TOKEN} track={false} />);
+
+  it("a bank payment still processing: the notice instead of the Pay button (the PDF link stays)", () => {
+    const h = withPending(input(), PROCESSING);
+    expect(h).toContain(PROCESSING.text);
+    expect(h).toContain('role="status"');
+    expect(h).not.toMatch(/Pay \$/);
+    expect(h).not.toContain("Bank transfer (ACH) is preferred.");
+    expect(h).toContain(`/i/${TOKEN}/pdf`);
+    // Even if a caller passed canPayOnline, the notice wins.
+    expect(withPending(input(), PROCESSING, true)).not.toMatch(/Pay \$/);
+  });
+
+  it("the overdue sentence is shown the same way, still without a Pay button", () => {
+    const late = { text: "A bank payment of $750.00 started Oct 23, 2026 is still being confirmed. Please contact us before paying again.", overdue: true };
+    const h = withPending(input(), late);
+    expect(h).toContain(late.text);
+    expect(h).not.toMatch(/Pay \$/);
+  });
+
+  it("a paid or void invoice shows no processing notice", () => {
+    expect(withPending(input({ paidCents: 100_000, balanceCents: 0 }), PROCESSING)).not.toContain("is processing");
+    expect(withPending(input({ status: "void", paidCents: 0, balanceCents: 0 }), PROCESSING)).not.toContain("is processing");
+    expect(toPublicInvoiceView(input({ status: "void" }), { canPayOnline: false, bankPending: PROCESSING }).bankPending).toBeNull();
+  });
+
+  it("'Bank transfer (ACH) is preferred.' appears beside the Pay button only, with no fee wording", () => {
+    const h = html(input());
+    expect(h).toContain("Bank transfer (ACH) is preferred.");
+    expect(h).not.toMatch(/\bfee|surcharge/i);
+    expect(html(input(), false)).not.toContain("Bank transfer (ACH) is preferred.");
+  });
+
   it("the invalid-link page shows only the neutral sentence", () => {
     const h = renderToStaticMarkup(<InvalidInvoiceLink />);
     expect(h).toContain(INVALID_LINK_MESSAGE);

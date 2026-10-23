@@ -126,3 +126,45 @@ describe("flags and event-only rows", () => {
     await expect(store.markStripeFlagReviewed({ entityId: E, userId: "u1", flagEventId: "nope" })).rejects.toThrow("That flag was not found.");
   });
 });
+
+// stripe-ach-pending-hide-pay: the processing-bank-payment row and the owner's release.
+describe("bank (ACH) payment processing rows", () => {
+  const E2 = "11111111-1111-4111-8111-111111111112";
+  const achMeta = { eventId: "evt_a", type: "checkout.session.completed", livemode: false };
+  const pending = () => fake.billingEvent.rows.find((e) => e.kind === "bank_payment_pending")!;
+
+  it("recordStripeAchPending writes the StripeEvent row and the pending row in one transaction; a replay is already_processed", async () => {
+    const tx = vi.spyOn(fake, "$transaction");
+    const args = { entityId: E, documentId: DOC, amountCents: 10_000, paymentIntentId: "pi_1" };
+    expect(await store.recordStripeAchPending(achMeta, args)).toEqual({ status: "applied", outcome: "awaiting_async", paymentId: null });
+    expect(await store.recordStripeAchPending(achMeta, args)).toEqual({ status: "already_processed" });
+    expect(tx).toHaveBeenCalledTimes(2);
+    expect(fake.stripeEvent.rows).toMatchObject([{ id: "evt_a", outcome: "awaiting_async", entityId: E, documentId: DOC }]);
+    expect(fake.billingEvent.rows).toHaveLength(1);
+    expect(pending()).toMatchObject({ actorId: null, documentId: DOC, eventKey: "stripe:evt_a:bank_pending", data: { amountCents: 10_000, paymentIntentId: "pi_1", livemode: false } });
+  });
+
+  it("a PaymentIntent id the timeline cannot store is omitted (the row is still written) rather than losing it", async () => {
+    await store.recordStripeAchPending(achMeta, { entityId: E, documentId: DOC, amountCents: 10_000, paymentIntentId: "p".repeat(81) });
+    expect(pending().data).toEqual({ amountCents: 10_000, livemode: false });
+    await store.applyStripeFlag({ ...achMeta, eventId: "evt_f" }, { entityId: E, reason: "ach_failed", documentIds: [DOC], paymentId: null, amountCents: 1, paymentIntentId: "bad id" });
+    expect(fake.billingEvent.rows.find((e) => e.kind === "stripe_flag")!.data).toEqual({ reason: "ach_failed", amountCents: 1 });
+  });
+
+  it("releaseBankPending: one release row through the timeline writer, idempotent, never another entity's or another kind's row", async () => {
+    await store.recordStripeAchPending(achMeta, { entityId: E, documentId: DOC, amountCents: 10_000, paymentIntentId: "pi_1" });
+    const id = pending().id as string;
+    const create = vi.spyOn(fake.billingEvent, "create");
+    await store.releaseBankPending({ entityId: E, userId: "u1", pendingEventId: id });
+    await store.releaseBankPending({ entityId: E, userId: "u1", pendingEventId: id });
+    const rel = fake.billingEvent.rows.filter((e) => e.kind === "bank_payment_released");
+    expect(rel).toHaveLength(1);
+    expect(rel[0]).toMatchObject({ entityId: E, actorId: "u1", documentId: DOC, eventKey: `bank-released:${id}`, data: { pendingEventId: id } });
+    expect(create).toHaveBeenCalled();
+    expect(fake.billingPayment.rows).toHaveLength(0);
+    await expect(store.releaseBankPending({ entityId: E2, userId: "u1", pendingEventId: id })).rejects.toThrow("That bank payment was not found.");
+    await store.applyStripeFlag(meta("evt_r", "charge.refunded"), { entityId: E, reason: "refunded", documentIds: [DOC], paymentId: null, amountCents: 1 });
+    const flagId = fake.billingEvent.rows.find((e) => e.kind === "stripe_flag")!.id as string;
+    await expect(store.releaseBankPending({ entityId: E, userId: "u1", pendingEventId: flagId })).rejects.toThrow("That bank payment was not found.");
+  });
+});

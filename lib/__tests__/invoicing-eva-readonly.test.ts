@@ -64,6 +64,7 @@ const CALLS: Record<string, () => Promise<unknown>> = {
   duplicateInvoice: () => invoices.duplicateInvoice({ slug: SLUG, documentId: U }),
   sendInvoice: () => invoices.sendInvoice({ slug: SLUG, documentId: U, requestKey: U }),
   markStripeFlagReviewed: () => invoices.markStripeFlagReviewed({ slug: SLUG, flagEventId: U }),
+  releaseBankPending: () => invoices.releaseBankPending({ slug: SLUG, pendingEventId: U }),
   // clients
   createClient: () => clients.createClient({ slug: SLUG, name: "Acme" }),
   updateClient: () => clients.updateClient({ slug: SLUG, id: U, name: "Acme" }),

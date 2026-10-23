@@ -9,7 +9,7 @@ import { SetupForm } from "@/components/invoicing/setup-form";
 import { CounterForm, EinForm, LogoForm, OnlinePaymentsForm, ProfileForm, RemitForm, type OnlinePaymentsEnvView } from "@/components/invoicing/settings-forms";
 import { PAY_FEATURE_NOT_SET_UP } from "@/lib/invoicing/constants";
 import { loadPaySettings } from "@/lib/invoicing/pay-build";
-import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
+import { payBaseUrlProblemMessage, payEnvironment } from "@/lib/invoicing/stripe/pay-env";
 import { STRIPE_MODE_MISMATCH_MESSAGE, STRIPE_NOT_CONFIGURED_MESSAGE } from "@/lib/invoicing/stripe/preflight";
 import { loadGlCodes, loadGlCodesLite } from "@/lib/invoicing/catalog-build";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
@@ -79,9 +79,7 @@ export default async function InvoicingSettingsPage({ params }: PageProps) {
         ? STRIPE_MODE_MISMATCH_MESSAGE
         : STRIPE_NOT_CONFIGURED_MESSAGE
       : env.baseUrl === null
-        ? env.mode === "live"
-          ? "NEXTAUTH_URL must be the app's public https address in live mode."
-          : "NEXTAUTH_URL (the app's public address) is not set, so no client link can be built."
+        ? payBaseUrlProblemMessage(env.baseUrlProblem ?? "app_url_missing")
         : null,
   };
 

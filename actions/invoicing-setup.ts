@@ -10,7 +10,7 @@ import { userMessageFor, InvoicingRefusal } from "@/lib/invoicing/errors";
 import { PAY_FEATURE_NOT_SET_UP, PUBLIC_TOKEN_TTL_MAX_DAYS, PUBLIC_TOKEN_TTL_MIN_DAYS } from "@/lib/invoicing/constants";
 import { loadPaySettings } from "@/lib/invoicing/pay-build";
 import { STRIPE_MODE_MISMATCH_MESSAGE, STRIPE_NOT_CONFIGURED_MESSAGE } from "@/lib/invoicing/stripe/preflight";
-import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
+import { INVOICE_PUBLIC_BASE_URL_INVALID_MESSAGE, payEnvironment } from "@/lib/invoicing/stripe/pay-env";
 import { requireInvoicingEntity, requireInvoicingEntityForSetup, requireInvoicingOwner } from "@/lib/invoicing/gate-build";
 import { validateGlMap } from "@/lib/invoicing/gl-map";
 import { QUOTE_PREFIX_RULE_MESSAGE, isValidDocumentNumber, isValidPrefix, isValidQuotePrefix } from "@/lib/invoicing/numbering";
@@ -404,7 +404,8 @@ const onlineSchema = z.object({ slug: slugSchema, enabled: z.boolean() });
 /**
  * Turns "Online payments" (the Stripe pay link in e-mails, PDFs and on the client's link page) on or off (owner only; default off).
  * Turning it ON is refused unless STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and STRIPE_MODE pass the pre-flight (a key of the same mode)
- * and NEXTAUTH_URL gives a usable public address (https in live mode). The refusal names the variables, never a value. Turning it OFF is
+ * and a usable public address exists (INVOICE_PUBLIC_BASE_URL when set, which must then be valid, else NEXTAUTH_URL; https in live mode).
+ * The refusal names the variables, never a value. Turning it OFF is
  * always allowed.
  */
 export async function setOnlinePayments(input: z.input<typeof onlineSchema>): Promise<Result> {
@@ -420,6 +421,7 @@ export async function setOnlinePayments(input: z.input<typeof onlineSchema>): Pr
       const env = payEnvironment(process.env);
       if (!env.preflight.ok) return { error: env.preflight.category === "mode_mismatch" ? STRIPE_MODE_MISMATCH_MESSAGE : STRIPE_NOT_CONFIGURED_MESSAGE };
       if (!env.baseUrl) {
+        if (env.baseUrlProblem === "invoice_public_base_url_invalid") return { error: `Online payments need a usable client link address: ${INVOICE_PUBLIC_BASE_URL_INVALID_MESSAGE}` };
         return { error: env.mode === "live" ? "Online payments need the app's public https address: NEXTAUTH_URL must start with https:// in live mode." : "Online payments need the app's public address: set NEXTAUTH_URL in Vercel." };
       }
     }

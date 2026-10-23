@@ -97,10 +97,11 @@ export async function POST(req: Request) {
         break;
       }
       case "flag":
-        await store.applyStripeFlag(meta, { entityId: decision.entityId, reason: decision.reason, documentIds: decision.documentIds, paymentId: decision.paymentId, amountCents: decision.amountCents });
+        await store.applyStripeFlag(meta, { entityId: decision.entityId, reason: decision.reason, documentIds: decision.documentIds, paymentId: decision.paymentId, amountCents: decision.amountCents, paymentIntentId: decision.paymentIntentId });
         break;
       case "noop":
-        await store.recordStripeEventOnly(meta, decision.outcome, { entityId: decision.entityId, documentId: decision.documentId });
+        // A bank (ACH) payment is processing: the event row plus a "bank_payment_pending" row that hides "Pay online" until it closes.
+        await store.recordStripeAchPending(meta, { entityId: decision.entityId, documentId: decision.documentId, amountCents: decision.amountCents, paymentIntentId: decision.paymentIntentId });
         break;
       case "unmatched":
         await store.recordStripeEventOnly(meta, decision.outcome);

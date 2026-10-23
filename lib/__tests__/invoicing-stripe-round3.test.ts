@@ -43,7 +43,7 @@ describe("flag loader (N-1)", () => {
 });
 
 describe("payLinkSendNote (N-2)", () => {
-  const base = { enabled: true, configured: true, baseUrl: "https://app.example", status: "issued" };
+  const base = { enabled: true, configured: true, baseUrl: "https://app.example", status: "issued", bankPending: false };
 
   it("a fully paid invoice says it is paid, never 'less than $0.50'", () => {
     const note = payLinkSendNote(true, payOnlineEligibility({ ...base, balanceCents: 0 }));
@@ -65,9 +65,16 @@ describe("payLinkSendNote (N-2)", () => {
     expect(payLinkSendNote(false, payOnlineEligibility({ ...base, enabled: false, balanceCents: 5000 }))).toBeNull();
   });
 
+  it("a bank payment still processing: its own sentence; no_balance wins over it, it wins over below_minimum", () => {
+    expect(payLinkSendNote(true, payOnlineEligibility({ ...base, bankPending: true, balanceCents: 5000 }))).toBe("No pay link: a bank payment for this invoice is still processing.");
+    expect(payOnlineEligibility({ ...base, bankPending: true, balanceCents: 0 })).toEqual({ ok: false, reason: "no_balance" });
+    expect(payOnlineEligibility({ ...base, bankPending: true, balanceCents: 49 })).toEqual({ ok: false, reason: "bank_payment_pending" });
+    expect(payOnlineEligibility({ ...base, bankPending: true, status: "void", balanceCents: 5000 })).toEqual({ ok: false, reason: "not_issued" });
+  });
+
   it("the invoice page uses the helper instead of its own sentence", () => {
     const src = readFileSync(join(process.cwd(), "app/business/[slug]/invoices/[id]/page.tsx"), "utf8");
-    expect(src).toContain("payLinkSendNote(onlineOn, eligible)");
+    expect(src).toContain("payLinkSendNote(onlineOn, eligible, ");
     expect(src).not.toContain("less than $0.50");
   });
 });

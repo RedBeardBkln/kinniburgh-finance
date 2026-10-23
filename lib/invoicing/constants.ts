@@ -132,3 +132,13 @@ export const STRIPE_FLAG_LABELS: Record<StripeFlagReason, string> = {
 export const PAY_FEATURE_NOT_SET_UP = "Online payments are not set up yet (the database update has not been applied).";
 /** The one sentence every invalid, revoked, expired or unknown client link shows (no reason is ever leaked). */
 export const INVALID_LINK_MESSAGE = "This link is no longer valid. Please contact the sender for a new one.";
+
+// ── A US bank (ACH) payment still processing (.claude/pipeline/stripe-ach-pending-hide-pay/01-plan.md) ──
+
+/**
+ * A processing bank payment older than this many business days (Mon-Fri, no holiday calendar) is shown as "needs a look". It is a LABEL
+ * only: it never re-enables "Pay online" (the owner releases it by hand, or Stripe's late success / failure event closes it).
+ */
+export const BANK_PENDING_CAP_BUSINESS_DAYS = 10;
+/** Shown next to "Pay online" on the client's page and under the e-mail's pay link (owner request 2026-10-23). Never a fee or surcharge. */
+export const ACH_PREFERRED_TEXT = "Bank transfer (ACH) is preferred.";

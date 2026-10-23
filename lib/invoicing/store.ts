@@ -32,6 +32,7 @@ import type { GlMap } from "@/lib/invoicing/gl-map";
 import { canVoidInvoice, canVoidPayment } from "@/lib/invoicing/state";
 import type { StripeFlagReason } from "@/lib/invoicing/constants";
 import { splitStripeAmount } from "@/lib/invoicing/stripe/apply-event";
+import { safeStripeIdOrNull } from "@/lib/invoicing/stripe/bank-pending";
 import { canChangeCounter, formatDisplayNumber } from "@/lib/invoicing/numbering";
 import { dueDateFor, type ValidatedDraft, type ValidatedPayment } from "@/lib/invoicing/validate";
 import type { ValidatedItem } from "@/lib/invoicing/items";
@@ -894,6 +895,33 @@ export async function recordStripeEventOnly(meta: StripeEventMeta, outcome: stri
   }
 }
 
+/**
+ * A bank (ACH) Checkout Session completed "unpaid" (awaiting the async result): stores the StripeEvent row AND a "bank_payment_pending"
+ * timeline row in ONE transaction (stripe-ach-pending-hide-pay). While that row is open, "Pay online" is hidden for the invoice
+ * (lib/invoicing/stripe/bank-pending.ts). A replay hits the StripeEvent primary key (or the event key) and changes nothing. A
+ * PaymentIntent id that the timeline cannot store is omitted (the row can then only be closed by the owner's release).
+ */
+export async function recordStripeAchPending(meta: StripeEventMeta, p: { entityId: string; documentId: string; amountCents: number; paymentIntentId: string }): Promise<StripeApplyResult> {
+  const paymentIntentId = safeStripeIdOrNull(p.paymentIntentId);
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.stripeEvent.create({ data: { id: meta.eventId, type: meta.type, livemode: meta.livemode, outcome: "awaiting_async", entityId: p.entityId, documentId: p.documentId, paymentId: null } });
+      await appendEvent(tx, {
+        entityId: p.entityId,
+        kind: "bank_payment_pending",
+        actorId: null,
+        documentId: p.documentId,
+        eventKey: `stripe:${meta.eventId}:bank_pending`,
+        data: { amountCents: p.amountCents, ...(paymentIntentId ? { paymentIntentId } : {}), livemode: meta.livemode },
+      });
+    }, TX_OPTIONS);
+    return { status: "applied", outcome: "awaiting_async", paymentId: null };
+  } catch (err) {
+    if (isUniqueViolation(err)) return { status: "already_processed" };
+    throw err;
+  }
+}
+
 export interface StripePaymentWrite {
   entityId: string;
   invoiceId: string;
@@ -1006,8 +1034,11 @@ export async function applyStripePayment(meta: StripeEventMeta, p: StripePayment
 /** Stores a flagged event (ACH failure, refund, dispute) and one `stripe_flag` timeline row per invoice it concerns. Reverses nothing. */
 export async function applyStripeFlag(
   meta: StripeEventMeta,
-  f: { entityId: string; reason: StripeFlagReason; documentIds: string[]; paymentId: string | null; amountCents: number | null }
+  f: { entityId: string; reason: StripeFlagReason; documentIds: string[]; paymentId: string | null; amountCents: number | null; paymentIntentId?: string | null }
 ): Promise<StripeApplyResult> {
+  // A failed bank payment carries its PaymentIntent (it closes that payment's "processing" row); refunds and disputes keep exactly
+  // { reason, amountCents }. An id the timeline cannot store is omitted rather than losing the flag.
+  const paymentIntentId = f.paymentIntentId ? safeStripeIdOrNull(f.paymentIntentId) : null;
   try {
     await db.$transaction(async (tx) => {
       await tx.stripeEvent.create({ data: { id: meta.eventId, type: meta.type, livemode: meta.livemode, outcome: "flagged", entityId: f.entityId, documentId: f.documentIds[0] ?? null, paymentId: f.paymentId } });
@@ -1020,7 +1051,7 @@ export async function applyStripeFlag(
           documentId,
           paymentId: f.paymentId,
           eventKey: `stripe:${meta.eventId}:${f.reason}:${documentId ?? "none"}`,
-          data: { reason: f.reason, amountCents: f.amountCents },
+          data: { reason: f.reason, amountCents: f.amountCents, ...(paymentIntentId ? { paymentIntentId } : {}) },
         });
       }
     }, TX_OPTIONS);
@@ -1039,6 +1070,25 @@ export async function markStripeFlagReviewed(args: { entityId: string; userId: s
       const flag = await tx.billingEvent.findFirst({ where: { id: flagEventId, entityId, kind: "stripe_flag" }, select: { documentId: true, paymentId: true } });
       if (!flag) throw new InvoicingRefusal("That flag was not found.");
       await appendEvent(tx, { entityId, kind: "stripe_flag_reviewed", actorId: userId, documentId: flag.documentId, paymentId: flag.paymentId, eventKey: `flag-reviewed:${flagEventId}`, data: { flagEventId } });
+    }, TX_OPTIONS);
+  } catch (err) {
+    if (isUniqueViolation(err)) return;
+    throw err;
+  }
+}
+
+/**
+ * The owner's "Stop waiting for this payment" on a processing bank payment (idempotent: a second release changes nothing). It reverses
+ * nothing and writes no money row: it only closes the "bank_payment_pending" row, so "Pay online" can be offered again. If the payment
+ * still succeeds later it is recorded as usual by the webhook.
+ */
+export async function releaseBankPending(args: { entityId: string; userId: string; pendingEventId: string }): Promise<void> {
+  const { entityId, userId, pendingEventId } = args;
+  try {
+    await db.$transaction(async (tx) => {
+      const row = await tx.billingEvent.findFirst({ where: { id: pendingEventId, entityId, kind: "bank_payment_pending" }, select: { documentId: true } });
+      if (!row) throw new InvoicingRefusal("That bank payment was not found.");
+      await appendEvent(tx, { entityId, kind: "bank_payment_released", actorId: userId, documentId: row.documentId, eventKey: `bank-released:${pendingEventId}`, data: { pendingEventId } });
     }, TX_OPTIONS);
   } catch (err) {
     if (isUniqueViolation(err)) return;

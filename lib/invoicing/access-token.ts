@@ -43,7 +43,7 @@ export function tokenExpiry(now: Date, ttlDays: number): Date {
   return new Date(now.getTime() + ttlDays * 86_400_000);
 }
 
-/** The client link for a token (`baseUrl` from resolveAppBaseUrl, no trailing slash). */
+/** The client link for a token (`baseUrl` from payEnvironment: INVOICE_PUBLIC_BASE_URL or NEXTAUTH_URL, no trailing slash). */
 export function invoiceLinkUrl(baseUrl: string, token: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/i/${token}`;
 }

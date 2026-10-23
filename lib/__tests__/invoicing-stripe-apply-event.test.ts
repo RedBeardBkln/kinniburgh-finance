@@ -26,7 +26,7 @@ describe("checkout events", () => {
     expect(d).toMatchObject({ action: "record_payment", outcome: "recorded", invoiceId: DOC, entityId: E, clientId: CLIENT, amountCents: 10_000, paymentIntentId: "pi_1", sessionId: "cs_1", defaultMethod: "card" });
   });
   it("ACH: completed + unpaid -> awaiting_async; async_payment_succeeded + paid -> record, method ach", () => {
-    expect(decideStripeEvent({ type: "checkout.session.completed", created, session: session({ paymentStatus: "unpaid" }), invoice: invoice() })).toEqual({ action: "noop", outcome: "awaiting_async", entityId: E, documentId: DOC });
+    expect(decideStripeEvent({ type: "checkout.session.completed", created, session: session({ paymentStatus: "unpaid" }), invoice: invoice() })).toEqual({ action: "noop", outcome: "awaiting_async", entityId: E, documentId: DOC, amountCents: 10_000, paymentIntentId: "pi_1" });
     expect(decideStripeEvent({ type: "checkout.session.async_payment_succeeded", created, session: session(), invoice: invoice() })).toMatchObject({ action: "record_payment", defaultMethod: "ach" });
     expect(decideStripeEvent({ type: "checkout.session.async_payment_succeeded", created, session: session({ paymentStatus: "unpaid" }), invoice: invoice() })).toEqual({ action: "unmatched", outcome: "unmatched_status" });
   });
@@ -39,6 +39,7 @@ describe("checkout events", () => {
       documentIds: [DOC],
       paymentId: null,
       amountCents: 10_000,
+      paymentIntentId: "pi_1",
     });
   });
   it("the toggle being OFF does not block recording (the money was taken), but a disabled profile or another entity does", () => {
@@ -72,8 +73,8 @@ describe("checkout events", () => {
 describe("refunds and disputes", () => {
   const payment = { id: "pay1", entityId: E, invoiceIds: [DOC, DOC] };
   it("flag the payment found by its PaymentIntent and each invoice it is applied to; never a payment change", () => {
-    expect(decideStripeEvent({ type: "charge.refunded", paymentIntentId: "pi_1", amountCents: 2_500, payment })).toEqual({ action: "flag", outcome: "flagged", reason: "refunded", entityId: E, documentIds: [DOC], paymentId: "pay1", amountCents: 2_500 });
-    expect(decideStripeEvent({ type: "charge.dispute.created", paymentIntentId: "pi_1", amountCents: 10_000, payment })).toMatchObject({ action: "flag", reason: "disputed", amountCents: 10_000 });
+    expect(decideStripeEvent({ type: "charge.refunded", paymentIntentId: "pi_1", amountCents: 2_500, payment })).toEqual({ action: "flag", outcome: "flagged", reason: "refunded", entityId: E, documentIds: [DOC], paymentId: "pay1", amountCents: 2_500, paymentIntentId: null });
+    expect(decideStripeEvent({ type: "charge.dispute.created", paymentIntentId: "pi_1", amountCents: 10_000, payment })).toMatchObject({ action: "flag", reason: "disputed", amountCents: 10_000, paymentIntentId: null });
   });
   it("an unknown PaymentIntent (or none) is unmatched", () => {
     expect(decideStripeEvent({ type: "charge.refunded", paymentIntentId: "pi_x", amountCents: 1, payment: null })).toEqual({ action: "unmatched", outcome: "unmatched_payment" });

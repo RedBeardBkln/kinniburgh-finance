@@ -115,7 +115,8 @@ describe("webhook end-to-end (tester additions)", () => {
     sessionMock.mockResolvedValue(session({ paymentStatus: "unpaid" }));
     expect((await POST(req(body({ id: "evt_t_fail", type: "checkout.session.async_payment_failed" })))).status).toBe(200);
     expect(fake.billingPayment.rows).toHaveLength(0);
-    expect(flags()).toEqual([{ reason: "ach_failed", amountCents: 10_000 }]);
+    // The failed bank payment now carries its PaymentIntent (it closes that payment's "processing" row; stripe-ach-pending-hide-pay).
+    expect(flags()).toEqual([{ reason: "ach_failed", amountCents: 10_000, paymentIntentId: "pi_test_t1" }]);
     expect(outcomes()).toEqual(["flagged"]);
   });
 

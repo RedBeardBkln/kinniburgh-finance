@@ -31,7 +31,7 @@ export interface CheckoutInput {
   entityId: string;
   displayNumber: string;
   balanceCents: number;
-  /** The app origin from resolveAppBaseUrl (no trailing slash). */
+  /** The client-link origin from payEnvironment (INVOICE_PUBLIC_BASE_URL or NEXTAUTH_URL; no trailing slash). */
   baseUrl: string;
   nowMs: number;
 }

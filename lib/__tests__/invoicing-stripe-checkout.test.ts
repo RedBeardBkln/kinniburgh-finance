@@ -68,7 +68,7 @@ describe("buildCheckoutParams (pure)", () => {
 });
 
 describe("payOnlineEligibility (pure)", () => {
-  const ok = { enabled: true, configured: true, baseUrl: BASE, status: "issued", balanceCents: 100 };
+  const ok = { enabled: true, configured: true, baseUrl: BASE, status: "issued", balanceCents: 100, bankPending: false };
   it("one table of reasons", () => {
     expect(payOnlineEligibility(ok)).toEqual({ ok: true });
     expect(payOnlineEligibility({ ...ok, enabled: false })).toEqual({ ok: false, reason: "off" });
@@ -78,11 +78,12 @@ describe("payOnlineEligibility (pure)", () => {
     expect(payOnlineEligibility({ ...ok, balanceCents: 0 })).toEqual({ ok: false, reason: "no_balance" });
     expect(payOnlineEligibility({ ...ok, balanceCents: 49 })).toEqual({ ok: false, reason: "below_minimum" });
     expect(payOnlineEligibility({ ...ok, balanceCents: 50 })).toEqual({ ok: true });
+    expect(payOnlineEligibility({ ...ok, bankPending: true })).toEqual({ ok: false, reason: "bank_payment_pending" });
   });
 });
 
 describe("startCheckout (token-gated)", () => {
-  const ENV_KEYS = ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_MODE", "NEXTAUTH_URL", "VERCEL_ENV"] as const;
+  const ENV_KEYS = ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_MODE", "NEXTAUTH_URL", "VERCEL_ENV", "INVOICE_PUBLIC_BASE_URL"] as const;
   const saved: Record<string, string | undefined> = {};
   let token = "";
   function seed() {
@@ -91,6 +92,7 @@ describe("startCheckout (token-gated)", () => {
     process.env.STRIPE_MODE = "test";
     process.env.NEXTAUTH_URL = BASE;
     delete process.env.VERCEL_ENV;
+    delete process.env.INVOICE_PUBLIC_BASE_URL;
     fake.entity.rows = [{ id: E, name: "Eric Kinniburgh Consulting, LLC", slug: "ek-consulting", dbaName: null, archivedAt: null }];
     fake.invoicingProfile.rows = [{ id: "p1", entityId: E, enabled: true, stripePayEnabled: true, publicTokenTtlDays: 90 }];
     fake.client.rows = [{ id: CLIENT, entityId: E, name: "Acme", archivedAt: null }];
@@ -136,6 +138,7 @@ describe("startCheckout (token-gated)", () => {
     ["online payments off", () => (fake.invoicingProfile.rows[0]!.stripePayEnabled = false)],
     ["Stripe not configured", () => delete process.env.STRIPE_SECRET_KEY],
     ["no public address", () => delete process.env.NEXTAUTH_URL],
+    ["an invalid INVOICE_PUBLIC_BASE_URL (no fallback to NEXTAUTH_URL)", () => (process.env.INVOICE_PUBLIC_BASE_URL = "https://pay.example.test/path")],
     ["a void invoice", () => (fake.billingDocument.rows[0]!.status = "void")],
     ["nothing due", () => (fake.billingAllocation.rows[0]!.amountCents = 10_000)],
     ["less than $0.50 due", () => (fake.billingAllocation.rows[0]!.amountCents = 9_951)],
@@ -163,8 +166,70 @@ describe("startCheckout (token-gated)", () => {
     expect(fake.billingEvent.rows).toHaveLength(0);
   });
 
+  it("with INVOICE_PUBLIC_BASE_URL set, Checkout returns to /i/paid and /i/cancelled on that origin", async () => {
+    process.env.INVOICE_PUBLIC_BASE_URL = "https://pay.example.test";
+    expect(await startCheckout(token)).toMatchObject({ ok: true });
+    const [params] = createMock.mock.calls[0]!;
+    expect(params.success_url).toBe("https://pay.example.test/i/paid");
+    expect(params.cancel_url).toBe("https://pay.example.test/i/cancelled");
+  });
+
   it("a non-https URL from Stripe is never handed to the browser", async () => {
     createMock.mockResolvedValueOnce({ id: "cs_x", url: "javascript:alert(1)" });
     expect(await startCheckout(token)).toEqual({ ok: false, error: "Online payment is not available right now. Please try again later." });
+  });
+
+  // stripe-ach-pending-hide-pay: a bank payment still processing pauses online payment on the server.
+  describe("a bank (ACH) payment still processing", () => {
+    const PAUSED = "A bank payment for this invoice is still processing, so online payment is paused. Please check back later or contact the sender.";
+    const addPending = (over: Record<string, unknown> = {}) =>
+      fake.billingEvent.rows.push({ id: "bp1", entityId: E, kind: "bank_payment_pending", actorId: null, documentId: DOC, paymentId: null, clientId: null, eventKey: "stripe:evt_1:bank_pending", createdAt: new Date(), data: { amountCents: 7_500, paymentIntentId: "pi_b1", livemode: false }, ...over });
+    const started = () => fake.billingEvent.rows.filter((e) => e.kind === "checkout_started");
+
+    it("refuses with its own sentence, never calls Stripe and records no checkout_started", async () => {
+      addPending();
+      expect(await startCheckout(token)).toEqual({ ok: false, error: PAUSED });
+      expect(createMock).not.toHaveBeenCalled();
+      expect(started()).toHaveLength(0);
+    });
+    it("still refuses past the 10-business-day cap (the cap is a label, never a re-enable)", async () => {
+      addPending({ createdAt: new Date(Date.now() - 60 * 86_400_000) });
+      expect(await startCheckout(token)).toEqual({ ok: false, error: PAUSED });
+      expect(createMock).not.toHaveBeenCalled();
+    });
+    it.each([
+      ["the payment was recorded (any status)", () => fake.billingPayment.rows.push({ id: "pay_b", entityId: E, status: "void", stripePaymentIntentId: "pi_b1", amountCents: 7_500 })],
+      ["the bank payment failed", () => fake.billingEvent.rows.push({ id: "f1", entityId: E, kind: "stripe_flag", documentId: DOC, createdAt: new Date(), data: { reason: "ach_failed", amountCents: 7_500, paymentIntentId: "pi_b1" } })],
+      ["the owner stopped waiting", () => fake.billingEvent.rows.push({ id: "r1", entityId: E, kind: "bank_payment_released", documentId: DOC, createdAt: new Date(), data: { pendingEventId: "bp1" } })],
+      ["the row is a test-mode row and Stripe is live", () => {
+        process.env.STRIPE_SECRET_KEY = "sk_" + "live_" + "x".repeat(24);
+        process.env.STRIPE_MODE = "live";
+      }],
+    ])("proceeds once closed: %s", async (_l, close) => {
+      addPending();
+      close();
+      const r = await startCheckout(token);
+      expect(r).toMatchObject({ ok: true });
+      expect(createMock).toHaveBeenCalledTimes(1);
+    });
+    it("open, uncompleted Checkout Sessions (checkout_started rows only) never block", async () => {
+      fake.billingEvent.rows.push({ id: "cs1", entityId: E, kind: "checkout_started", documentId: DOC, createdAt: new Date(), eventKey: "checkout:x", data: { amountCents: 7_500 } });
+      expect(await startCheckout(token)).toMatchObject({ ok: true });
+    });
+    it("a failed read fails CLOSED: the static unavailable sentence and no Stripe call", async () => {
+      addPending();
+      const real = fake.billingPayment.findMany.bind(fake.billingPayment);
+      // Only the pending check's own read (payments by PaymentIntent) fails.
+      const spy = vi.spyOn(fake.billingPayment, "findMany").mockImplementation(async (args) => {
+        if (args && args.where && "stripePaymentIntentId" in args.where) throw Object.assign(new Error("db"), { name: "PrismaClientUnknownRequestError" });
+        return real(args);
+      });
+      const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      expect(await startCheckout(token)).toEqual({ ok: false, error: "Online payment is not available right now. Please try again later." });
+      expect(createMock).not.toHaveBeenCalled();
+      expect(started()).toHaveLength(0);
+      spy.mockRestore();
+      log.mockRestore();
+    });
   });
 });

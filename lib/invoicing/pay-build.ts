@@ -16,6 +16,8 @@ import { scorePayoutDeposits, type DepositCandidate } from "@/lib/invoicing/depo
 import { isInvoicingSlug } from "@/lib/invoicing/entity-gate";
 import { isMissingInvoicingTable, isMissingPayFeature } from "@/lib/invoicing/errors";
 import { openStripeFlags, type OpenStripeFlag } from "@/lib/invoicing/stripe/flags";
+import { deriveBankPending, failedIntentsFrom, pendingRowFromEvent, releasedIdsFrom, type BankPendingState, type RawEventRow } from "@/lib/invoicing/stripe/bank-pending";
+import { nyToday } from "@/lib/invoicing/state";
 import type { StripeInvoiceRef, StripePaymentRef, UnmatchedReason } from "@/lib/invoicing/stripe/apply-event";
 import { isUuid, toIsoDate } from "@/lib/invoicing/validate";
 
@@ -174,14 +176,30 @@ export interface UnmatchedEventView {
   receivedAt: string;
 }
 
+export interface BankPendingView {
+  documentId: string;
+  invoiceNumber: string | null;
+  state: BankPendingState;
+}
+
 export type OnlinePaymentsOverview =
-  | { status: "ok"; flags: FlagView[]; feeUnknown: StripePaymentView[]; awaitingDeposit: StripePaymentView[]; unmatched: UnmatchedEventView[] }
+  | {
+      status: "ok";
+      flags: FlagView[];
+      feeUnknown: StripePaymentView[];
+      awaitingDeposit: StripePaymentView[];
+      unmatched: UnmatchedEventView[];
+      /** Bank (ACH) payments still processing, oldest first. */
+      bankPending: BankPendingView[];
+      /** The processing-bank-payment read failed (the rest of the overview is still shown). */
+      bankPendingFailed: boolean;
+    }
   | { status: "not_set_up" };
 
 const UNMATCHED_REASONS: UnmatchedReason[] = ["metadata", "reference", "invoice", "entity", "currency", "amount", "payment_intent", "status", "payment"];
 const UNMATCHED_OUTCOMES = [...UNMATCHED_REASONS.map((r) => `unmatched_${r}`), "unsupported_format"];
 
-export async function loadOnlinePaymentsOverview(entityId: string): Promise<OnlinePaymentsOverview> {
+export async function loadOnlinePaymentsOverview(entityId: string, opts: { mode?: "test" | "live" | null; today?: Date } = {}): Promise<OnlinePaymentsOverview> {
   try {
     const flags = await withNumbers(entityId, openStripeFlags(await flagRows({ entityId })));
     const pays = await db.billingPayment.findMany({
@@ -217,9 +235,27 @@ export async function loadOnlinePaymentsOverview(entityId: string): Promise<Onli
       orderBy: { receivedAt: "desc" },
       take: 200,
     });
+    let bankPending: BankPendingView[] = [];
+    let bankPendingFailed = false;
+    try {
+      const loaded = await loadBankPending(entityId, "all", opts.mode ?? null, opts.today ?? nyToday(new Date()));
+      if (loaded.status === "ok" && loaded.byDocument.size > 0) {
+        const ids = [...loaded.byDocument.keys()];
+        const docs = await db.billingDocument.findMany({ where: { id: { in: ids }, entityId }, select: { id: true, displayNumber: true } });
+        const num = new Map(docs.map((d) => [d.id, d.displayNumber]));
+        bankPending = [...loaded.byDocument.entries()]
+          .map(([documentId, state]) => ({ documentId, invoiceNumber: num.get(documentId) ?? null, state }))
+          .sort((a, b) => a.state.startedOn.localeCompare(b.state.startedOn) || a.documentId.localeCompare(b.documentId));
+      }
+    } catch (err) {
+      console.error("Processing bank payments could not be read", err instanceof Error ? err.name : "UnknownError");
+      bankPendingFailed = true;
+    }
     return {
       status: "ok",
       flags,
+      bankPending,
+      bankPendingFailed,
       feeUnknown: views.filter((v) => !v.feeKnown),
       awaitingDeposit: views.filter((v) => v.feeKnown && !v.depositLinked),
       unmatched: unmatchedRows.map((r) => ({ id: r.id, type: r.type, outcome: r.outcome, receivedAt: r.receivedAt.toISOString() })),
@@ -228,6 +264,60 @@ export async function loadOnlinePaymentsOverview(entityId: string): Promise<Onli
     if (notSetUp(err)) return { status: "not_set_up" };
     throw err;
   }
+}
+
+// ── Bank (ACH) payments still processing (stripe-ach-pending-hide-pay) ────────────
+
+export type BankPendingLoad = { status: "ok"; byDocument: Map<string, BankPendingState> } | { status: "not_set_up" };
+
+const BANK_KINDS = ["bank_payment_pending", "bank_payment_released"];
+
+const asData = (d: unknown): Record<string, unknown> => (typeof d === "object" && d !== null && !Array.isArray(d) ? (d as Record<string, unknown>) : {});
+
+/**
+ * The open bank payments of the given invoices ("all": the whole entity), per invoice; see lib/invoicing/stripe/bank-pending.ts for the
+ * rule. A missing table or column is "not_set_up" (no pending: online pay is unavailable then anyway); any other error THROWS, and each
+ * caller decides: the client's paths fail CLOSED (no pay button, no pay line, no Checkout, no pay link), the owner's pages fail soft.
+ */
+export async function loadBankPending(entityId: string, documentIds: readonly string[] | "all", mode: "test" | "live" | null, today: Date): Promise<BankPendingLoad> {
+  const empty: BankPendingLoad = { status: "ok", byDocument: new Map() };
+  if (documentIds !== "all" && documentIds.length === 0) return empty;
+  try {
+    const rows = await db.billingEvent.findMany({
+      where: { entityId, kind: { in: BANK_KINDS }, ...(documentIds === "all" ? {} : { documentId: { in: [...documentIds] } }) },
+      select: { id: true, kind: true, documentId: true, createdAt: true, data: true },
+      // Newest first so that past the cap the OLDEST rows drop; a release is always newer than the row it releases.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 500,
+    });
+    const raw: RawEventRow[] = rows.map((r) => ({ id: r.id, kind: r.kind, documentId: r.documentId, createdAt: r.createdAt.toISOString(), data: asData(r.data) }));
+    const pending = raw.filter((r) => r.kind === "bank_payment_pending").map(pendingRowFromEvent);
+    if (pending.length === 0) return empty;
+    const pendingDocs = [...new Set(pending.map((p) => p.documentId).filter((x): x is string => x !== null))];
+    const flagRowsRead = pendingDocs.length
+      ? await db.billingEvent.findMany({
+          where: { entityId, kind: "stripe_flag", documentId: { in: pendingDocs } },
+          select: { id: true, kind: true, documentId: true, createdAt: true, data: true },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: 2000,
+        })
+      : [];
+    const failedIntents = failedIntentsFrom(flagRowsRead.map((r) => ({ id: r.id, kind: r.kind, documentId: r.documentId, createdAt: r.createdAt.toISOString(), data: asData(r.data) })));
+    const intents = [...new Set(pending.map((p) => p.paymentIntentId).filter((x): x is string => x !== null))];
+    // ANY status: a voided Stripe payment still means the bank payment completed.
+    const paid = intents.length ? await db.billingPayment.findMany({ where: { stripePaymentIntentId: { in: intents } }, select: { stripePaymentIntentId: true } }) : [];
+    const paidIntents = new Set(paid.map((p) => p.stripePaymentIntentId).filter((x): x is string => typeof x === "string"));
+    return { status: "ok", byDocument: deriveBankPending({ pending, paidIntents, failedIntents, releasedIds: releasedIdsFrom(raw), mode, today }) };
+  } catch (err) {
+    if (notSetUp(err)) return { status: "not_set_up" };
+    throw err;
+  }
+}
+
+/** True when an open bank payment blocks "Pay online" for this invoice (throws on a read error; see `loadBankPending`). */
+export async function loadBankPendingFor(entityId: string, documentId: string, mode: "test" | "live" | null, today: Date): Promise<BankPendingState | null> {
+  const loaded = await loadBankPending(entityId, [documentId], mode, today);
+  return loaded.status === "ok" ? (loaded.byDocument.get(documentId) ?? null) : null;
 }
 
 /** The PaymentIntent of a Stripe payment whose fee is still unknown (for "Fetch fee"). */

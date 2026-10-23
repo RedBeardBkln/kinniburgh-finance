@@ -121,7 +121,20 @@ export function PublicInvoice({ view, token, track = true }: { view: PublicInvoi
       </dl>
 
       <div className="flex flex-wrap items-center gap-3">
-        {view.canPayOnline ? <PayOnlineButton token={token} amountText={formatCents(view.balanceCents)} /> : null}
+        {view.bankPending ? (
+          <p
+            role="status"
+            className={
+              view.bankPending.overdue
+                ? "rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900"
+                : "rounded-md border bg-muted px-3 py-2 text-sm"
+            }
+          >
+            {view.bankPending.text}
+          </p>
+        ) : view.canPayOnline ? (
+          <PayOnlineButton token={token} amountText={formatCents(view.balanceCents)} />
+        ) : null}
         {/* A plain link on purpose: the PDF is a route handler, not a page. */}
         <a href={pdfHref} target="_blank" rel="noopener noreferrer" className="inline-flex h-10 items-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent">
           Download PDF

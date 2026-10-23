@@ -85,8 +85,19 @@ export type Decision =
       /** The method if the charge cannot tell: the event type's usual method. */
       defaultMethod: "card" | "ach";
     }
-  | { action: "flag"; outcome: "flagged"; reason: StripeFlagReason; entityId: string; documentIds: string[]; paymentId: string | null; amountCents: number | null }
-  | { action: "noop"; outcome: "awaiting_async"; entityId: string; documentId: string }
+  | {
+      action: "flag";
+      outcome: "flagged";
+      reason: StripeFlagReason;
+      entityId: string;
+      documentIds: string[];
+      paymentId: string | null;
+      amountCents: number | null;
+      /** The session's PaymentIntent for a failed bank payment (closes its "processing" row); null for refunds and disputes. */
+      paymentIntentId: string | null;
+    }
+  /** A bank (ACH) payment completed "unpaid": the store writes a "bank_payment_pending" row keyed by its PaymentIntent. */
+  | { action: "noop"; outcome: "awaiting_async"; entityId: string; documentId: string; amountCents: number; paymentIntentId: string }
   | { action: "unmatched"; outcome: `unmatched_${UnmatchedReason}` };
 
 const unmatched = (r: UnmatchedReason): Decision => ({ action: "unmatched", outcome: `unmatched_${r}` });
@@ -102,6 +113,7 @@ export function decideStripeEvent(input: DecideInput): Decision {
       documentIds: [...new Set(input.payment.invoiceIds)].sort(),
       paymentId: input.payment.id,
       amountCents: input.amountCents !== null && Number.isSafeInteger(input.amountCents) && input.amountCents >= 0 ? input.amountCents : null,
+      paymentIntentId: null,
     };
   }
 
@@ -115,7 +127,7 @@ export function decideStripeEvent(input: DecideInput): Decision {
   if (!inv.allowListed || !inv.profileEnabled) return unmatched("entity");
 
   if (input.type === "checkout.session.async_payment_failed") {
-    return { action: "flag", outcome: "flagged", reason: "ach_failed", entityId: inv.entityId, documentIds: [inv.id], paymentId: null, amountCents: s.amountTotal !== null && s.amountTotal > 0 ? s.amountTotal : null };
+    return { action: "flag", outcome: "flagged", reason: "ach_failed", entityId: inv.entityId, documentIds: [inv.id], paymentId: null, amountCents: s.amountTotal !== null && s.amountTotal > 0 ? s.amountTotal : null, paymentIntentId: s.paymentIntentId };
   }
 
   if (s.currency !== "usd") return unmatched("currency");
@@ -123,7 +135,7 @@ export function decideStripeEvent(input: DecideInput): Decision {
   if (!s.paymentIntentId) return unmatched("payment_intent");
 
   if (s.paymentStatus !== "paid") {
-    if (input.type === "checkout.session.completed" && s.paymentStatus === "unpaid") return { action: "noop", outcome: "awaiting_async", entityId: inv.entityId, documentId: inv.id };
+    if (input.type === "checkout.session.completed" && s.paymentStatus === "unpaid") return { action: "noop", outcome: "awaiting_async", entityId: inv.entityId, documentId: inv.id, amountCents: s.amountTotal, paymentIntentId: s.paymentIntentId };
     return unmatched("status");
   }
   return {

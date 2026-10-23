@@ -17,7 +17,7 @@ import { auth } from "@/lib/auth";
 import { INVALID_LINK_MESSAGE } from "@/lib/invoicing/constants";
 import { loadInvoiceDetail } from "@/lib/invoicing/documents-build";
 import { InvoicingRefusal } from "@/lib/invoicing/errors";
-import { loadPaySettings, resolvePublicAccess } from "@/lib/invoicing/pay-build";
+import { loadBankPendingFor, loadPaySettings, resolvePublicAccess } from "@/lib/invoicing/pay-build";
 import { nyToday } from "@/lib/invoicing/state";
 import * as store from "@/lib/invoicing/store";
 import { buildCheckoutParams } from "@/lib/invoicing/stripe/checkout-params";
@@ -27,6 +27,7 @@ import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
 
 const PAY_UNAVAILABLE = "Online payment is not available right now. Please try again later.";
 const PAY_NOT_OFFERED = "Online payment is not available for this invoice. Please contact the sender.";
+const PAY_BANK_PENDING = "A bank payment for this invoice is still processing, so online payment is paused. Please check back later or contact the sender.";
 
 async function requireInvoiceAccess(token: string) {
   const access = await resolvePublicAccess(token, new Date());
@@ -69,13 +70,18 @@ export async function startCheckout(token: string): Promise<{ ok: true; url: str
     const settings = await loadPaySettings(access.entityId);
     const detail = await loadInvoiceDetail(access.entityId, access.documentId, nyToday(now));
     if (!detail) return { ok: false, error: PAY_NOT_OFFERED };
+    // A bank (ACH) payment still processing pauses online payment (never trust the page): checked BEFORE any Stripe call. A read error
+    // throws into the outer catch (PAY_UNAVAILABLE), so nothing is started either.
+    const bankPending = (await loadBankPendingFor(access.entityId, detail.id, env.mode, nyToday(now))) !== null;
     const eligible = payOnlineEligibility({
       enabled: settings.status === "ok" && settings.stripePayEnabled,
       configured: env.configured,
       baseUrl: env.baseUrl,
       status: detail.status,
       balanceCents: detail.balanceCents,
+      bankPending,
     });
+    if (!eligible.ok && eligible.reason === "bank_payment_pending") return { ok: false, error: PAY_BANK_PENDING };
     if (!eligible.ok || !env.baseUrl) return { ok: false, error: PAY_NOT_OFFERED };
     const built = buildCheckoutParams({
       invoiceId: detail.id,

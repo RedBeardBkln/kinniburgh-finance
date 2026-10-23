@@ -31,11 +31,11 @@ const SLUG = "ek-consulting";
 const K = (n: number) => `44444444-4444-4444-8444-${String(n).padStart(12, "0")}`;
 const asUser = (id: string) => authMock.mockResolvedValue({ user: { id, name: id === ERIC ? "Eric Kinniburgh" : "Eva" } });
 
-const ENV_KEYS = ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_MODE", "NEXTAUTH_URL", "VERCEL_ENV"] as const;
+const ENV_KEYS = ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_MODE", "NEXTAUTH_URL", "VERCEL_ENV", "INVOICE_PUBLIC_BASE_URL"] as const;
 const saved: Record<string, string | undefined> = {};
 const fakeKey = (mode: "test" | "live") => "sk_" + mode + "_" + "x".repeat(24);
 function setEnv(over: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>>) {
-  const base = { STRIPE_SECRET_KEY: fakeKey("test"), STRIPE_WEBHOOK_SECRET: "whsec" + "_" + "y".repeat(24), STRIPE_MODE: "test", NEXTAUTH_URL: "https://finance.example.test", VERCEL_ENV: undefined };
+  const base = { STRIPE_SECRET_KEY: fakeKey("test"), STRIPE_WEBHOOK_SECRET: "whsec" + "_" + "y".repeat(24), STRIPE_MODE: "test", NEXTAUTH_URL: "https://finance.example.test", VERCEL_ENV: undefined, INVOICE_PUBLIC_BASE_URL: undefined };
   for (const k of ENV_KEYS) {
     const v = k in over ? over[k] : base[k];
     if (v === undefined) delete process.env[k];
@@ -132,6 +132,22 @@ describe("client links (owner)", () => {
     expect(fake.auditLog.rows).toHaveLength(0);
   });
 
+  it("INVOICE_PUBLIC_BASE_URL (valid) is the origin of the link shown once; trailing slash trimmed", async () => {
+    setEnv({ INVOICE_PUBLIC_BASE_URL: "https://Pay.Example.test/" });
+    const r = await createPayLink({ slug: SLUG, documentId: DOC, requestKey: K(1) });
+    expect((r as { url: string }).url).toMatch(/^https:\/\/pay\.example\.test\/i\/[A-Za-z0-9_-]{43}$/);
+  });
+
+  it("an INVALID INVOICE_PUBLIC_BASE_URL never falls back to NEXTAUTH_URL: no link, the error names the variable (not the value)", async () => {
+    for (const bad of ["http://pay.example.test", "https://pay.example.test/pay", "https://pay.example.test?x=1", "pay.example.test"]) {
+      setEnv({ INVOICE_PUBLIC_BASE_URL: bad });
+      const r = await createPayLink({ slug: SLUG, documentId: DOC, requestKey: K(1) });
+      expect(r, bad).toEqual({ error: expect.stringMatching(/^INVOICE_PUBLIC_BASE_URL is invalid/) });
+      expect(JSON.stringify(r)).not.toContain(bad);
+    }
+    expect(fake.billingAccessToken.rows).toHaveLength(0);
+  });
+
   it("without NEXTAUTH_URL (or with localhost in production) no link is made", async () => {
     setEnv({ NEXTAUTH_URL: undefined });
     expect(await createPayLink({ slug: SLUG, documentId: DOC, requestKey: K(1) })).toEqual({ error: expect.stringMatching(/NEXTAUTH_URL/) });
@@ -165,7 +181,15 @@ describe("the Online payments toggle and the link lifetime", () => {
     expect(r).toEqual({ error: expect.stringMatching(/NEXTAUTH_URL/) });
     setEnv({ STRIPE_SECRET_KEY: fakeKey("live"), STRIPE_MODE: "live", NEXTAUTH_URL: "http://finance.example.test" });
     expect(await setOnlinePayments({ slug: SLUG, enabled: true })).toEqual({ error: expect.stringMatching(/https/) });
+    // An invalid INVOICE_PUBLIC_BASE_URL is refused by name even when NEXTAUTH_URL would work (no silent fallback).
+    setEnv({ INVOICE_PUBLIC_BASE_URL: "https://pay.example.test/somewhere" });
+    const bad = await setOnlinePayments({ slug: SLUG, enabled: true });
+    expect(bad).toEqual({ error: expect.stringMatching(/INVOICE_PUBLIC_BASE_URL is invalid/) });
+    expect(JSON.stringify(bad)).not.toContain("somewhere");
     expect(profile().stripePayEnabled).toBe(false);
+    setEnv({ INVOICE_PUBLIC_BASE_URL: "https://pay.example.test", NEXTAUTH_URL: undefined });
+    expect(await setOnlinePayments({ slug: SLUG, enabled: true })).toEqual({ success: true });
+    profile().stripePayEnabled = false;
     for (const msg of [STRIPE_NOT_CONFIGURED_MESSAGE, STRIPE_MODE_MISMATCH_MESSAGE]) expect(msg).not.toMatch(/x{10}|y{10}/);
   });
   it("turning off is always allowed", async () => {

@@ -9,7 +9,7 @@ import { userMessageFor } from "@/lib/invoicing/errors";
 import { requireInvoicingEntity, requireInvoicingOwner } from "@/lib/invoicing/gate-build";
 import { loadPaySettings } from "@/lib/invoicing/pay-build";
 import * as store from "@/lib/invoicing/store";
-import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
+import { INVOICE_PUBLIC_BASE_URL_INVALID_MESSAGE, payEnvironment } from "@/lib/invoicing/stripe/pay-env";
 
 // The owner's client-link management on an invoice (Phase 2, plan P1 / S4). Every export starts with `await requireAuth();` (a test pins it)
 // and is OWNER-ONLY (fail closed): Eva and any other signed-in non-owner see the links card read-only. A new link is shown to the owner
@@ -40,7 +40,7 @@ async function mintOwnerLink(user: { id: string }, entity: { id: string }, input
   const settings = await loadPaySettings(entity.id);
   if (settings.status !== "ok") return { error: PAY_FEATURE_NOT_SET_UP };
   const env = payEnvironment(process.env);
-  if (!env.baseUrl) return { error: NO_BASE_URL };
+  if (!env.baseUrl) return { error: env.baseUrlProblem === "invoice_public_base_url_invalid" ? INVOICE_PUBLIC_BASE_URL_INVALID_MESSAGE : NO_BASE_URL };
   const now = new Date();
   const { token, tokenHash } = mintInvoiceToken();
   const r = await store.mintAccessToken({

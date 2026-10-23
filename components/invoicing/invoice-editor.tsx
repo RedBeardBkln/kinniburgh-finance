@@ -302,7 +302,16 @@ export function InvoiceEditor({
         let outcome = "failed";
         try {
           const sent = await sendInvoice({ slug, documentId: saved.id, requestKey: newRequestKey() });
-          outcome = "error" in sent ? (sent.sendFailure ?? "failed") : sent.payLink === "omitted_not_configured" ? "ok_nolink" : "ok";
+          outcome =
+            "error" in sent
+              ? (sent.sendFailure ?? "failed")
+              : sent.payLink === "omitted_not_configured"
+                ? "ok_nolink"
+                : sent.payLink === "omitted_bank_pending"
+                  ? "ok_bankpending"
+                  : sent.payLink === "omitted_check_failed"
+                    ? "ok_nolinkcheck"
+                    : "ok";
         } catch {
           outcome = "failed";
         }
