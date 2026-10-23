@@ -8,6 +8,8 @@ import {
   revealRemitBankText,
   setBusinessEin,
   setInvoiceCounterAction,
+  setOnlinePayments,
+  setPublicLinkTtl,
   setRemitBankText,
   setRemitMailing,
   updateInvoicingProfile,
@@ -313,6 +315,66 @@ export function LogoForm({ slug, hasLogo, previewSrc }: { slug: string; hasLogo:
       <p className="text-xs text-muted-foreground">PNG or JPEG, {LOGO_MAX_LABEL} at most.</p>
       <ErrorLine message={error} />
       <OkLine message={ok} />
+    </div>
+  );
+}
+
+/** The server's view of whether online payments can work (booleans and a mode word only; never an env value). */
+export interface OnlinePaymentsEnvView {
+  configured: boolean;
+  mode: "test" | "live" | null;
+  hasBaseUrl: boolean;
+  /** A plain sentence naming the variable(s) to fix, or null. */
+  problem: string | null;
+}
+
+export function OnlinePaymentsForm({ slug, enabled, ttlDays, env }: { slug: string; enabled: boolean; ttlDays: number; env: OnlinePaymentsEnvView }) {
+  const toggle = useRunner();
+  const ttl = useRunner();
+  const [days, setDays] = useState(String(ttlDays));
+  return (
+    <div className="space-y-4">
+      <p className="text-sm">
+        Status:{" "}
+        {env.configured ? (
+          <strong>
+            Stripe is set up ({env.mode === "live" ? "live mode: real payments" : "test mode: no real money moves"})
+          </strong>
+        ) : (
+          <strong>Stripe is not set up</strong>
+        )}
+        . Online payments are <strong>{enabled ? "on" : "off"}</strong>.
+      </p>
+      {env.problem ? <p className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900">{env.problem}</p> : null}
+      <p className="text-xs text-muted-foreground">
+        When on, an e-mailed invoice with a balance of $0.50 or more carries a &quot;View and pay online&quot; link (in the e-mail and in its PDF). The client pays the
+        full balance by card or US bank account (ACH) on Stripe&apos;s page; the payment is recorded here when Stripe confirms it. Refunds and disputes are only
+        flagged for you; nothing is reversed automatically.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {enabled ? (
+          <Button variant="outline" disabled={toggle.pending} onClick={() => toggle.run(() => setOnlinePayments({ slug, enabled: false }), { okMessage: "Online payments turned off." })}>
+            Turn online payments off
+          </Button>
+        ) : (
+          <Button disabled={toggle.pending} onClick={() => toggle.run(() => setOnlinePayments({ slug, enabled: true }), { okMessage: "Online payments turned on." })}>
+            Turn online payments on
+          </Button>
+        )}
+      </div>
+      <ErrorLine message={toggle.error} />
+      <OkLine message={toggle.ok} />
+
+      <div className="flex max-w-md items-end gap-2 border-t pt-4">
+        <Field label="Client links stay valid for (days, 7 to 365)" className="flex-1">
+          <input className={INPUT} inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} />
+        </Field>
+        <Button variant="outline" disabled={ttl.pending} onClick={() => ttl.run(() => setPublicLinkTtl({ slug, days: Number(days) }), { okMessage: "Saved. New links use this lifetime." })}>
+          Save
+        </Button>
+      </div>
+      <ErrorLine message={ttl.error} />
+      <OkLine message={ttl.ok} />
     </div>
   );
 }

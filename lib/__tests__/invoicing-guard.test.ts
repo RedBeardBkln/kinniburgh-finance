@@ -63,6 +63,14 @@ const PURE_FILES = [
   "lib/invoicing/draft-input.ts",
   "lib/invoicing/pdf/model.ts",
   "lib/invoicing/pdf/filename.ts",
+  // Phase 2
+  "lib/invoicing/access-token.ts",
+  "lib/invoicing/public-view.ts",
+  "lib/invoicing/stripe/preflight.ts",
+  "lib/invoicing/stripe/eligibility.ts",
+  "lib/invoicing/stripe/checkout-params.ts",
+  "lib/invoicing/stripe/apply-event.ts",
+  "lib/invoicing/stripe/flags.ts",
 ];
 const BUILD_FILES = [
   "lib/invoicing/gate-build.ts",
@@ -71,16 +79,21 @@ const BUILD_FILES = [
   "lib/invoicing/documents-build.ts",
   "lib/invoicing/payments-build.ts",
   "lib/invoicing/pdf-build.ts",
+  "lib/invoicing/pay-build.ts",
 ];
 const STORE_FILES = ["lib/invoicing/store.ts", "lib/invoicing/tin-store.ts"];
+/** Phase 2 public surface (client view link, Stripe webhook, the token-gated public actions): in scope of the import and vocabulary guards. */
+const PHASE2_PUBLIC_FILES = (f: string): boolean => f.startsWith("app/i/") || f === "app/api/stripe/webhook/route.ts" || f === "actions/public-invoice.ts";
+
 const ACTION_FILES = [
   "actions/invoicing-setup.ts",
   "actions/clients.ts",
   "actions/reimbursable-items.ts",
   "actions/invoices.ts",
   "actions/billing-payments.ts",
+  "actions/invoice-links.ts",
 ];
-const MODEL_ACCESS = /\b(?:db|tx)\.(invoicingProfile|client|clientContact|reimbursableItem|billingDocument|billingLine|billingPayment|billingAllocation|billingEvent)\b/;
+const MODEL_ACCESS = /\b(?:db|tx)\.(invoicingProfile|client|clientContact|reimbursableItem|billingDocument|billingLine|billingPayment|billingAllocation|billingEvent|billingAccessToken|stripeEvent)\b/;
 
 describe("the files exist", () => {
   it.each([...PURE_FILES, ...BUILD_FILES, ...STORE_FILES, ...ACTION_FILES, "prisma/migrations/20261014000000_invoicing_core/migration.sql"])("%s", (f) => {
@@ -206,8 +219,9 @@ describe("import direction", () => {
     for (const f of guarded) expect(FORBIDDEN_TARGET.test(noComments(read(f))), f).toBe(false);
   });
   it("the invoicing code imports from the tax side only the owner rule, the PDF text helpers and (Phase 1.12) the ledger P&L", () => {
-    const mine = SOURCE_FILES.filter((f) => f.startsWith("lib/invoicing/") || f.startsWith("components/invoicing/") || ACTION_FILES.includes(f) || /^app\/business\/\[slug\]\/(invoices|clients|items|invoicing)\//.test(f) || f.startsWith("app/api/invoicing/"));
+    const mine = SOURCE_FILES.filter((f) => f.startsWith("lib/invoicing/") || f.startsWith("components/invoicing/") || ACTION_FILES.includes(f) || /^app\/business\/\[slug\]\/(invoices|clients|items|invoicing)\//.test(f) || f.startsWith("app/api/invoicing/") || PHASE2_PUBLIC_FILES(f));
     expect(mine.length).toBeGreaterThan(10);
+    for (const f of ["app/i/[token]/page.tsx", "app/i/[token]/pdf/route.ts", "app/i/paid/page.tsx", "app/i/cancelled/page.tsx", "app/api/stripe/webhook/route.ts", "actions/public-invoice.ts"]) expect(mine, f).toContain(f);
     const ALLOWED = new Set(["@/lib/tax-year-close/closer", "@/lib/tax2025/pdf/safe-text", "@/lib/tax2025/pdf/winansi", "@/lib/tax-extraction-schema", "@/lib/reports"]);
     for (const f of mine) {
       const imports = [...noComments(read(f)).matchAll(/from "(@\/lib\/(?:tax[^"]*|reports))"/g)].map((m) => m[1]!);
@@ -261,10 +275,72 @@ describe("migration is additive", () => {
   });
 });
 
+describe("Phase 2 migration is additive (ek-consulting-stripe-pay-link)", () => {
+  const sql = () => read("prisma/migrations/20261023000000_invoicing_stripe/migration.sql");
+  const code = () =>
+    sql()
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("--"))
+      .join("\n")
+      .replace(/ON (DELETE|UPDATE) (CASCADE|RESTRICT|SET NULL)/g, "");
+  const statements = () =>
+    code()
+      .split(";")
+      .map((x) => x.trim())
+      .filter((x) => x !== "");
+  it("has no DROP / DELETE / UPDATE / TRUNCATE / INSERT", () => {
+    expect(code()).not.toMatch(/\b(DROP|DELETE|UPDATE|TRUNCATE|INSERT)\b/i);
+  });
+  it("creates exactly the two new tables", () => {
+    expect([...code().matchAll(/CREATE TABLE "(\w+)"/g)].map((m) => m[1]).sort()).toEqual(["BillingAccessToken", "StripeEvent"]);
+  });
+  it("every ALTER targets a new table, or ADDs nullable / defaulted columns to InvoicingProfile or BillingPayment", () => {
+    const created = new Set(["BillingAccessToken", "StripeEvent"]);
+    for (const st of statements().filter((x) => x.startsWith("ALTER TABLE"))) {
+      const m = /^ALTER TABLE "(\w+)" (\w+)/.exec(st)!;
+      expect(m, st).not.toBeNull();
+      if (created.has(m[1]!)) {
+        expect(m[2]).toBe("ADD");
+        continue;
+      }
+      expect(["InvoicingProfile", "BillingPayment"]).toContain(m[1]);
+      const cols = st.split(/ADD COLUMN\s+/).slice(1).map((c) => c.replace(/,\s*$/, "").trim());
+      expect(cols.length, st).toBeGreaterThan(0);
+      expect(st.replace(/^ALTER TABLE "\w+" /, "").split(/,\s*\n?\s*/).every((part) => part.trim().startsWith("ADD COLUMN")), st).toBe(true);
+      for (const c of cols) expect(/NOT NULL/.test(c) ? /DEFAULT/.test(c) : true, c).toBe(true);
+    }
+  });
+  it("indexes only the new tables and the new BillingPayment column", () => {
+    for (const m of code().matchAll(/CREATE (?:UNIQUE )?INDEX "[^"]+" ON "(\w+)"\(([^)]*)\)/g)) {
+      if (m[1] === "BillingPayment") expect(m[2]).toBe('"stripePaymentIntentId"');
+      else expect(["BillingAccessToken", "StripeEvent"]).toContain(m[1]);
+    }
+    expect(code()).toMatch(/CREATE UNIQUE INDEX "\w+" ON "BillingPayment"\("stripePaymentIntentId"\)/);
+  });
+  it("adds zero CHECK constraints, no secret-like column, and the two profile defaults", () => {
+    expect(code()).not.toMatch(/_chk|CHECK \(/);
+    const cols = [...code().matchAll(/"(\w+)" (?:TEXT|BOOLEAN|INTEGER|TIMESTAMP)/g)].map((m) => m[1]!);
+    // A column that could hold a raw credential (a secret, an API key, a password or a raw token): only the token HASH is stored.
+    for (const c of cols) expect(c, c).not.toMatch(/secret|apiKey|password|token$/i);
+    expect(cols).toContain("tokenHash");
+    expect(code()).toMatch(/"stripePayEnabled" BOOLEAN NOT NULL DEFAULT false/);
+    expect(code()).toMatch(/"publicTokenTtlDays" INTEGER NOT NULL DEFAULT 90/);
+  });
+  it("is not applied by the coder (the header says so) and the core migration is not touched", () => {
+    expect(sql()).toMatch(/NOT applied by the coder/);
+    const core = read("prisma/migrations/20261014000000_invoicing_core/migration.sql")
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("--"))
+      .join("\n");
+    expect(core).not.toMatch(/stripe/i);
+  });
+});
+
 describe("no credit memos and no estimates (owner decisions 2026-10-16: quotes instead of estimates; credits are deposits applied to open invoices)", () => {
-  const mine = () => SOURCE_FILES.filter((f) => f.startsWith("lib/invoicing/") || f.startsWith("components/invoicing/") || ACTION_FILES.includes(f) || /^app\/(business\/\[slug\]\/(invoices|clients|items|invoicing)|api\/invoicing)\//.test(f));
+  const mine = () => SOURCE_FILES.filter((f) => f.startsWith("lib/invoicing/") || f.startsWith("components/invoicing/") || ACTION_FILES.includes(f) || /^app\/(business\/\[slug\]\/(invoices|clients|items|invoicing)|api\/invoicing)\//.test(f) || PHASE2_PUBLIC_FILES(f));
   it("the invoicing code (comments aside) never mentions a credit memo or an estimate", () => {
     expect(mine().length).toBeGreaterThan(20);
+    for (const f of ["app/i/[token]/page.tsx", "app/api/stripe/webhook/route.ts", "actions/public-invoice.ts"]) expect(mine(), f).toContain(f);
     for (const f of mine()) expect(noComments(read(f)), f).not.toMatch(/credit[ _-]?memo|creditMemo|CreditMemo|estimate/i);
   });
   it("the invoicing models in schema.prisma have no credit-memo or estimate field, relation or index, and an allocation belongs to a payment only", () => {
@@ -291,7 +367,7 @@ describe("no credit memos and no estimates (owner decisions 2026-10-16: quotes i
 });
 
 describe("real-PDF-render test files carry an explicit generous timeout (S3: the default 5 s flaked under load)", () => {
-  const LISTED = ["lib/__tests__/invoicing-pdf-template.test.ts", "lib/__tests__/invoicing-pdf.test.ts", "lib/__tests__/invoicing-tester-pdf.test.ts", "lib/__tests__/invoicing-tester-r2-pdf.test.ts", "lib/__tests__/invoicing-tester-r3-pdf.test.ts"];
+  const LISTED = ["lib/__tests__/invoicing-pdf-template.test.ts", "lib/__tests__/invoicing-pdf.test.ts", "lib/__tests__/invoicing-stripe-pdf.test.ts", "lib/__tests__/invoicing-tester-pdf.test.ts", "lib/__tests__/invoicing-tester-r2-pdf.test.ts", "lib/__tests__/invoicing-tester-r3-pdf.test.ts"];
   it.each(LISTED)("%s", (f) => {
     const m = read(f).match(/vi\.setConfig\(\{ testTimeout: ([\d_]+) \}\)/);
     expect(m, `${f} must call vi.setConfig({ testTimeout: ... })`).not.toBeNull();
@@ -314,10 +390,13 @@ describe("the string income is never a GlCode type in the new code", () => {
 });
 
 describe("middleware", () => {
-  it("no invoicing path is public in Phase 1 (the public view link and the Stripe webhook arrive with Phase 2)", () => {
+  // Phase 2 (ek-consulting-stripe-pay-link) deliberately made EXACTLY two invoicing paths public: the client's link "/i" (gated by its
+  // token on every request) and the Stripe webhook (gated by the signature). Anything else added to the list fails here.
+  it("PUBLIC_PATHS is exactly the nine pre-Phase-2 entries plus /i and /api/stripe/webhook", () => {
     const mw = read("middleware.ts");
     const list = /const PUBLIC_PATHS = \[([^\]]*)\]/.exec(mw)?.[1] ?? "";
-    expect(list).not.toMatch(/invoic|stripe|\/i"/);
+    const entries = [...list.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+    expect(entries).toEqual(["/login", "/forgot-password", "/reset-password", "/privacy", "/offline", "/queue", "/api/logo", "/api/favicon", "/api/cron", "/i", "/api/stripe/webhook"]);
   });
 });
 

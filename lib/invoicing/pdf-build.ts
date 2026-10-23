@@ -28,7 +28,16 @@ function dueText(d: InvoiceDetail, termsLabel: string): string {
   return termsLabel;
 }
 
-export async function loadInvoicePdfSource(documentId: string): Promise<PdfSource> {
+export interface PdfSourceOptions {
+  /** Phase 2: print this client view-and-pay link under "Pay online" (the caller decided it applies). */
+  payUrl?: string | null;
+  /** Phase 2: the client's own link page never shows the business EIN, even when the invoice prints it. */
+  hideEin?: boolean;
+  /** Skip reading the logo (the client's link page shows no logo; only a rendered PDF needs it). */
+  noLogo?: boolean;
+}
+
+export async function loadInvoicePdfSource(documentId: string, opts: PdfSourceOptions = {}): Promise<PdfSource> {
   try {
     const head = await db.billingDocument.findFirst({
       where: { id: documentId, kind: "invoice", archivedAt: null },
@@ -48,20 +57,20 @@ export async function loadInvoicePdfSource(documentId: string): Promise<PdfSourc
     const cityLine = [client.city, [client.state, client.postalCode].filter(Boolean).join(" ")].filter((x) => x && x !== "").join(", ");
     const billAddress = [client.addressLine1, client.addressLine2, cityLine, client.country && client.country !== "US" ? client.country : null].filter((x): x is string => Boolean(x && x.trim() !== ""));
 
-    const einText = detail.showEin && profile.einLast4 ? await readBusinessEin(head.entityId) : null;
+    const einText = detail.showEin && profile.einLast4 && !opts.hideEin ? await readBusinessEin(head.entityId) : null;
     const bankText = detail.includeRemitTo && profile.hasRemitBank ? await readRemitText(head.entityId) : null;
 
     // An uploaded logo wins; otherwise the LaunchTime Solutions logo of the invoice template (data/invoicing). A missing logo never
     // blocks the invoice.
     let logo: { bytes: Uint8Array; mime: string } | null = null;
-    if (profile.logoKey && profile.logoMime) {
+    if (profile.logoKey && profile.logoMime && !opts.noLogo) {
       try {
         logo = { bytes: new Uint8Array(await downloadLogoFile(profile.logoKey)), mime: profile.logoMime };
       } catch {
         logo = null;
       }
     }
-    logo ??= (await loadBrandAssets()).logo;
+    if (!opts.noLogo) logo ??= (await loadBrandAssets()).logo;
 
     const percentDisc = detail.discountKind === "percent";
     const input: PdfInput = {
@@ -92,6 +101,7 @@ export async function loadInvoicePdfSource(documentId: string): Promise<PdfSourc
       termsText: profile.termsText,
       footerText: profile.footerText,
       remit: { payableTo: profile.checkPayableTo, mailingLines: splitLines(profile.remitToMailingAddress), bankLines: splitLines(bankText) },
+      payOnline: opts.payUrl ? { url: opts.payUrl } : null,
       documentLabel: "Invoice",
     };
     return { status: "ok", input, logo, filename: safeFilename(detail.displayNumber), entityId: head.entityId, documentId };

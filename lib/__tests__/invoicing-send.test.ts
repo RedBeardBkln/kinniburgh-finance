@@ -144,7 +144,7 @@ describe("sendInvoice", () => {
       { email: "ceo@acme.test", receivesInvoices: false },
     ]);
     const r = await sendInvoice({ slug: SLUG, documentId: id, requestKey: KEY1 });
-    expect(r).toEqual({ success: true, recipientCount: 2, sendCount: 1 });
+    expect(r).toEqual({ success: true, recipientCount: 2, sendCount: 1, payLink: "not_applicable" }); // Phase 2: online payments are off here
     expect(sendMock).toHaveBeenCalledTimes(1);
     const arg = sendMock.mock.calls[0]![0];
     expect(arg.to).toEqual(["ap@acme.test", "lead@acme.test"]);
@@ -160,7 +160,7 @@ describe("sendInvoice", () => {
     expect(d.lastSentAt).toEqual(d.sentAt);
     const ev = events(id, "emailed");
     expect(ev).toHaveLength(1);
-    expect(ev[0]!.data).toEqual({ recipientCount: 2, sendNumber: 1 });
+    expect(ev[0]!.data).toEqual({ recipientCount: 2, sendNumber: 1, payLink: false });
     expect(JSON.stringify(fake.billingEvent.rows)).not.toContain("@");
     expect(JSON.stringify(fake.auditLog.rows)).not.toContain("@");
   });
@@ -171,7 +171,7 @@ describe("sendInvoice", () => {
     const first = doc(id).sentAt as Date;
     await new Promise((r) => setTimeout(r, 5));
     const r = await sendInvoice({ slug: SLUG, documentId: id, requestKey: KEY2 });
-    expect(r).toEqual({ success: true, recipientCount: 1, sendCount: 2 });
+    expect(r).toEqual({ success: true, recipientCount: 1, sendCount: 2, payLink: "not_applicable" });
     expect(doc(id).sentAt).toEqual(first);
     expect((doc(id).lastSentAt as Date).getTime()).toBeGreaterThan(first.getTime());
     expect(events(id, "emailed").map((e) => (e.data as { sendNumber: number }).sendNumber)).toEqual([1, 2]);

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { isReviewQueuePath, shouldShowInstallBanner } from "@/lib/pwa-install";
+import { isPublicInvoicePath, isReviewQueuePath, shouldShowInstallBanner } from "@/lib/pwa-install";
 
 const DISMISSED_KEY = "pwaInstallDismissed";
 
@@ -79,7 +79,7 @@ export function PwaInstallPrompt() {
   }
 
   // Never on the public /queue/[token] pages (it would cover the sticky Save bar).
-  if (!visible || isReviewQueuePath(pathname)) {
+  if (!visible || isReviewQueuePath(pathname) || isPublicInvoicePath(pathname)) {
     return null;
   }
 

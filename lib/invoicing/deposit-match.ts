@@ -80,3 +80,39 @@ export function scoreDeposits(payment: PaymentForMatch, candidates: readonly Dep
   }
   return out.sort((a, b) => b.score - a.score || a.transactionId.localeCompare(b.transactionId));
 }
+
+/**
+ * Phase 2 (task 2.6): suggests the bank deposit that is the Stripe PAYOUT of several Stripe payments. Stripe pays out the sum of the
+ * payments NET of its fees, usually a few days after the latest payment, so the window runs from `latestReceivedOn` forward (and a little
+ * before, for a same-day payout). An exact match of the net sum comes first; deposit text that mentions Stripe adds to the score. The Σ
+ * rule only requires the nets to fit, so a payout reduced by a refund or a dispute fee still links (the remainder stays visible).
+ */
+export function scorePayoutDeposits(netSumCents: number, latestReceivedOn: Date, candidates: readonly DepositCandidate[], windowDays = DEPOSIT_WINDOW_DAYS): ScoredDeposit[] {
+  const out: ScoredDeposit[] = [];
+  for (const c of candidates) {
+    if (!depositCapacityOk(c.amountCents, c.alreadyLinkedNetCents, netSumCents)) continue;
+    const days = Math.round((c.postedAt.getTime() - latestReceivedOn.getTime()) / 86_400_000);
+    if (days < -1 || days > windowDays) continue;
+    const remaining = c.amountCents - c.alreadyLinkedNetCents;
+    let score = 0;
+    const reasons: string[] = [];
+    if (c.amountCents === netSumCents && c.alreadyLinkedNetCents === 0) {
+      score += 60;
+      reasons.push("same as the total after Stripe fees");
+    } else if (remaining === netSumCents) {
+      score += 45;
+      reasons.push("fills the rest of a shared deposit");
+    } else {
+      score += 5;
+      reasons.push("deposit is large enough");
+    }
+    score += Math.max(0, 20 - Math.abs(days));
+    reasons.push(days === 0 ? "same day as the latest payment" : `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ${days < 0 ? "before" : "after"} the latest payment`);
+    if (/stripe/i.test(c.text)) {
+      score += 25;
+      reasons.push("the deposit text mentions Stripe");
+    }
+    out.push({ transactionId: c.transactionId, score, reasons, remainingCents: remaining });
+  }
+  return out.sort((a, b) => b.score - a.score || a.transactionId.localeCompare(b.transactionId));
+}

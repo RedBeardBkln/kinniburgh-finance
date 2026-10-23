@@ -8,6 +8,7 @@ const ITEMS = [
   { key: "invoices", label: "Invoices", path: "invoices" },
   { key: "clients", label: "Clients", path: "clients" },
   { key: "items", label: "Items", path: "items" },
+  { key: "online", label: "Online payments", path: "invoicing/payments-online" },
   { key: "settings", label: "Settings", path: "invoicing/settings" },
 ] as const;
 

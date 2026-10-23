@@ -17,6 +17,8 @@ const nextConfig: NextConfig = {
     "/api/advisor/**": ["./data/forms/**/*"],
     // The invoice PDF route embeds the LaunchTime Solutions fonts and default logo (lib/invoicing/pdf/brand.ts reads them at run time).
     "/api/invoicing/**": ["./data/invoicing/**/*"],
+    // The client's invoice link page renders the same PDF (/i/[token]/pdf), with the same fonts and default logo.
+    "/i/**": ["./data/invoicing/**/*"],
   },
   headers: async () => [
     {
@@ -40,6 +42,15 @@ const nextConfig: NextConfig = {
       // rules in order, last wins per key).
       source: "/queue/:path*",
       headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+    },
+    {
+      // The client's invoice link (/i/<token>) carries a bearer token in the path, like /queue: no Referer, and never cached
+      // (it shows a live balance). Listed after the catch-all so these values win.
+      source: "/i/:path*",
+      headers: [
+        { key: "Referrer-Policy", value: "no-referrer" },
+        { key: "Cache-Control", value: "private, no-store" },
+      ],
     },
   ],
 };

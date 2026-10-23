@@ -104,7 +104,7 @@ export class FakeTable {
       out.contacts = this.db.clientContact.rows.filter((c) => c.clientId === row.id && c.archivedAt == null).map((c) => ({ ...c }));
     }
     if (this.name === "billingPayment") {
-      out.allocations = this.db.allocationsWhere((a) => a.paymentId === row.id);
+      out.allocations = this.db.allocationsWhere((a) => a.paymentId === row.id).map((a) => ({ ...a, invoice: this.db.billingDocument.rows.find((d) => d.id === a.invoiceId) ?? null }));
       out.client = this.db.client.rows.find((c) => c.id === row.clientId) ?? null;
     }
     return out;
@@ -155,7 +155,13 @@ export class FakeTable {
     await Promise.resolve();
     const targets = this.rows.filter((x) => matches(x, args.where));
     for (const t of targets) {
-      const next = { ...t, ...args.data, updatedAt: this.db.tick() };
+      // Prisma's atomic number operations ({ increment: n }) are applied to the current value.
+      const data: Row = {};
+      for (const [k, v] of Object.entries(args.data)) {
+        if (v !== null && typeof v === "object" && !isDate(v) && "increment" in (v as Row)) data[k] = Number(t[k] ?? 0) + Number((v as Row).increment);
+        else data[k] = v;
+      }
+      const next = { ...t, ...data, updatedAt: this.db.tick() };
       this.checkUnique(next, t.id);
       Object.assign(t, next);
     }
@@ -190,7 +196,7 @@ export class FakeDb {
   reimbursableItem = new FakeTable(this, "reimbursableItem", () => ({ archivedAt: null }), [["entityId", "name"]]);
   billingDocument = new FakeTable(this, "billingDocument", () => ({ number: null, displayNumber: null, status: "draft", archivedAt: null, sendCount: 0, voidedAt: null }), [["entityId", "kind", "number"]]);
   billingLine = new FakeTable(this, "billingLine");
-  billingPayment = new FakeTable(this, "billingPayment", () => ({ status: "recorded", feeCents: 0, depositTransactionId: null }), [["requestKey"]]);
+  billingPayment = new FakeTable(this, "billingPayment", () => ({ status: "recorded", feeCents: 0, depositTransactionId: null }), [["requestKey"], ["stripePaymentIntentId"]]);
   billingAllocation = new FakeTable(this, "billingAllocation", () => ({ voidedAt: null }));
   billingEvent = new FakeTable(this, "billingEvent", () => ({}), [["eventKey"]]);
   glCode = new FakeTable(this, "glCode");
@@ -200,9 +206,12 @@ export class FakeDb {
   auditLog = new FakeTable(this, "auditLog");
   entity = new FakeTable(this, "entity");
   user = new FakeTable(this, "user");
+  // Phase 2 (online payments)
+  billingAccessToken = new FakeTable(this, "billingAccessToken", () => ({ revokedAt: null, firstViewedAt: null, lastViewedAt: null, viewCount: 0 }), [["tokenHash"], ["mintKey"]]);
+  stripeEvent = new FakeTable(this, "stripeEvent", () => ({}), [["id"]]);
 
   private tables(): FakeTable[] {
-    return [this.invoicingProfile, this.client, this.clientContact, this.reimbursableItem, this.billingDocument, this.billingLine, this.billingPayment, this.billingAllocation, this.billingEvent, this.glCode, this.transaction, this.receipt, this.document, this.auditLog, this.entity, this.user];
+    return [this.invoicingProfile, this.client, this.clientContact, this.reimbursableItem, this.billingDocument, this.billingLine, this.billingPayment, this.billingAllocation, this.billingEvent, this.glCode, this.transaction, this.receipt, this.document, this.auditLog, this.entity, this.user, this.billingAccessToken, this.stripeEvent];
   }
 
   allocationsWhere(pred: (a: Row) => boolean): Row[] {

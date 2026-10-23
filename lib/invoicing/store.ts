@@ -2,6 +2,13 @@
 // (actions/invoicing-setup.ts, clients.ts, reimbursable-items.ts, invoices.ts, billing-payments.ts) have already run
 // `requireAuth()`, the entity gate and (for owner-only operations) the owner rule.
 //
+// Phase 2 (migration 20261023000000_invoicing_stripe) added columns to InvoicingProfile and BillingPayment. Every Phase-1 write on those
+// two tables therefore carries an explicit `select`, which narrows the RETURNING clause so that Phase-1 UPDATES (both tables) and the
+// BillingPayment CREATE (its new columns have no default) keep working on a database where that migration is not applied yet.
+// A `select` does NOT narrow an INSERT's column list: Prisma writes every static `@default` column into the INSERT itself, so
+// `invoicingProfile.create` always names the new `stripePayEnabled` / `publicTokenTtlDays` columns and fails with P2022 before the
+// migration. `createProfile` maps that to a clear "not set up yet (database update not applied)" refusal instead of working.
+//
 // Rules this file keeps:
 //  - archive-only: nothing is deleted or upserted. The ONE exception is `replaceDraftLines`, which deletes the lines of a DRAFT
 //    document (a draft is not a financial record) after asserting, in the same transaction, that the document is still a draft.
@@ -13,14 +20,18 @@
 //  - every query carries entityId; a row of another entity is "not found".
 //  - a bank Transaction is only ever READ (and locked FOR UPDATE while a deposit is linked), never written.
 
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { decimalToCents } from "@/lib/invoicing/cents";
 import { depositCapacityOk } from "@/lib/invoicing/deposit-match";
-import { InvoicingRefusal, CHANGED_IN_OTHER_TAB, isUniqueViolation } from "@/lib/invoicing/errors";
+import { InvoicingRefusal, CHANGED_IN_OTHER_TAB, isMissingColumn, isMissingInvoicingTable, isMissingPayFeature, isUniqueViolation } from "@/lib/invoicing/errors";
+import { INVOICING_NOT_SET_UP, INVOICING_SETUP_NEEDS_PAY_UPDATE } from "@/lib/invoicing/constants";
 import { assertSafeEventData, type EventKind } from "@/lib/invoicing/events";
 import type { GlMap } from "@/lib/invoicing/gl-map";
 import { canVoidInvoice, canVoidPayment } from "@/lib/invoicing/state";
+import type { StripeFlagReason } from "@/lib/invoicing/constants";
+import { splitStripeAmount } from "@/lib/invoicing/stripe/apply-event";
 import { canChangeCounter, formatDisplayNumber } from "@/lib/invoicing/numbering";
 import { dueDateFor, type ValidatedDraft, type ValidatedPayment } from "@/lib/invoicing/validate";
 import type { ValidatedItem } from "@/lib/invoicing/items";
@@ -82,9 +93,15 @@ export async function createProfile(entityId: string, data: ProfileSetup): Promi
   try {
     await db.invoicingProfile.create({
       data: { entityId, enabled: true, ...data, glMap: data.glMap as unknown as Prisma.InputJsonValue },
+      select: { id: true },
     });
   } catch (err) {
     if (isUniqueViolation(err)) throw new InvoicingRefusal("Invoicing is already set up for this business.");
+    // A missing column (P2022 / 42703): Prisma always INSERTs the defaulted Phase-2 columns, so first setup needs that migration too.
+    // Checked first: the P2022 message also names "InvoicingProfile ... does not exist", which the table heuristic would match.
+    if (isMissingPayFeature(err) && isMissingColumn(err)) throw new InvoicingRefusal(INVOICING_SETUP_NEEDS_PAY_UPDATE);
+    // A missing InvoicingProfile table (P2021): the Phase-1 migration is not applied.
+    if (isMissingInvoicingTable(err)) throw new InvoicingRefusal(INVOICING_NOT_SET_UP);
     throw err;
   }
 }
@@ -127,7 +144,7 @@ async function setCounter(entityId: string, kind: "invoice" | "quote", requested
     const current = kind === "invoice" ? profile.nextInvoiceNumber : profile.nextQuoteNumber;
     const ck = canChangeCounter(current, requested, max._max.number ?? null);
     if (!ck.ok) throw new InvoicingRefusal(ck.error);
-    await tx.invoicingProfile.update({ where: { entityId }, data: kind === "invoice" ? { nextInvoiceNumber: requested } : { nextQuoteNumber: requested } });
+    await tx.invoicingProfile.update({ where: { entityId }, data: kind === "invoice" ? { nextInvoiceNumber: requested } : { nextQuoteNumber: requested }, select: { id: true } });
   }, TX_OPTIONS);
 }
 
@@ -146,12 +163,12 @@ export async function setGoLive(entityId: string, goLiveOn: Date): Promise<void>
   await db.$transaction(async (tx) => {
     const issued = await tx.billingDocument.count({ where: { entityId, status: { not: "draft" } } });
     if (issued > 0) throw new InvoicingRefusal("The start date cannot be changed once an invoice has been issued.");
-    await tx.invoicingProfile.update({ where: { entityId }, data: { goLiveOn } });
+    await tx.invoicingProfile.update({ where: { entityId }, data: { goLiveOn }, select: { id: true } });
   }, TX_OPTIONS);
 }
 
 export async function setBusinessEinEncrypted(entityId: string, encrypted: string | null, last4: string | null): Promise<void> {
-  await db.invoicingProfile.update({ where: { entityId }, data: { einEncrypted: encrypted, einLast4: last4 } });
+  await db.invoicingProfile.update({ where: { entityId }, data: { einEncrypted: encrypted, einLast4: last4 }, select: { id: true } });
 }
 
 /**
@@ -167,11 +184,12 @@ export async function setRemitBankEncrypted(entityId: string, encrypted: string 
       encrypted === null
         ? { remitToEncrypted: null, remitToUpdatedAt: null, remitToApprovedAt: null, remitToApprovedById: null, includeRemitToByDefault: false }
         : { remitToEncrypted: encrypted, remitToUpdatedAt: now, remitToApprovedAt: now, remitToApprovedById: userId, includeRemitToByDefault: includeByDefault },
+    select: { id: true },
   });
 }
 
 export async function setLogo(entityId: string, key: string | null, mime: string | null): Promise<void> {
-  await db.invoicingProfile.update({ where: { entityId }, data: { logoKey: key, logoMime: mime } });
+  await db.invoicingProfile.update({ where: { entityId }, data: { logoKey: key, logoMime: mime }, select: { id: true } });
 }
 
 // ── Clients and contacts ──────────────────────────────────────────────────────────
@@ -516,7 +534,7 @@ export async function voidInvoice(args: { entityId: string; userId: string; docu
  * Records a delivered e-mail: the first send sets `sentAt`, every send sets `lastSentAt` and adds one to `sendCount`, and the
  * timeline gets an "emailed" row (recipient count and send number only; never an address). Only an issued invoice is marked.
  */
-export async function markInvoiceSent(args: { entityId: string; userId: string; documentId: string; recipientCount: number; at: Date }): Promise<{ sendCount: number }> {
+export async function markInvoiceSent(args: { entityId: string; userId: string; documentId: string; recipientCount: number; at: Date; payLink?: boolean }): Promise<{ sendCount: number }> {
   const { entityId, userId, documentId, recipientCount, at } = args;
   return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "BillingDocument" WHERE "id" = ${documentId} FOR UPDATE`;
@@ -527,7 +545,7 @@ export async function markInvoiceSent(args: { entityId: string; userId: string; 
       where: { id: documentId, entityId, kind: "invoice", status: "issued" },
       data: { sentAt: doc.sentAt ?? at, lastSentAt: at, sendCount },
     });
-    await appendEvent(tx, { entityId, kind: "emailed", actorId: userId, documentId, clientId: doc.clientId, data: { recipientCount, sendNumber: sendCount } });
+    await appendEvent(tx, { entityId, kind: "emailed", actorId: userId, documentId, clientId: doc.clientId, data: { recipientCount, sendNumber: sendCount, payLink: args.payLink === true } });
     return { sendCount };
   }, TX_OPTIONS);
 }
@@ -716,9 +734,12 @@ export async function linkDeposit(args: { entityId: string; userId: string; paym
   const { entityId, userId, paymentId, depositTransactionId } = args;
   await db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "BillingPayment" WHERE "id" = ${paymentId} FOR UPDATE`;
-    const pay = await tx.billingPayment.findFirst({ where: { id: paymentId, entityId, status: "recorded" }, select: { amountCents: true, feeCents: true, depositTransactionId: true } });
+    const pay = await tx.billingPayment.findFirst({ where: { id: paymentId, entityId, status: "recorded" }, select: { amountCents: true, feeCents: true, depositTransactionId: true, source: true } });
     if (!pay) throw new InvoicingRefusal("That payment was not found.");
     if (pay.depositTransactionId) throw new InvoicingRefusal("This payment already has a bank deposit linked. Unlink it first.");
+    // A Stripe payment (Phase 2) links only once its fee is known. Only such a payment's own row is read for that column, so a manual
+    // payment never touches it (the Phase-1 path works on a database without the Phase-2 migration).
+    if (pay.source === "stripe") await assertStripeFeeKnown(tx, paymentId);
     await checkDeposit(tx, entityId, depositTransactionId, pay.amountCents - pay.feeCents, paymentId);
     const res = await tx.billingPayment.updateMany({ where: { id: paymentId, entityId, status: "recorded", depositTransactionId: null }, data: { depositTransactionId } });
     if (res.count !== 1) throw new InvoicingRefusal(CHANGED_IN_OTHER_TAB);
@@ -732,5 +753,350 @@ export async function unlinkDeposit(args: { entityId: string; userId: string; pa
     const res = await tx.billingPayment.updateMany({ where: { id: paymentId, entityId, status: "recorded", depositTransactionId: { not: null } }, data: { depositTransactionId: null } });
     if (res.count !== 1) throw new InvoicingRefusal("That payment has no linked deposit.");
     await appendEvent(tx, { entityId, kind: "deposit_unlinked", actorId: userId, paymentId });
+  }, TX_OPTIONS);
+}
+
+// ── Phase 2: online-payment settings ──────────────────────────────────────────────
+// (ek-consulting-stripe-pay-link; migration 20261023000000_invoicing_stripe). The Phase-2 columns are written ONLY here and read only by
+// lib/invoicing/pay-build.ts, so the Phase-1 functions above keep working on a database without that migration.
+
+export async function updatePaySettings(entityId: string, patch: { stripePayEnabled?: boolean; publicTokenTtlDays?: number }): Promise<void> {
+  const res = await db.invoicingProfile.updateMany({ where: { entityId }, data: patch });
+  if (res.count !== 1) throw new InvoicingRefusal("Invoicing is not set up for this business.");
+}
+
+// ── Phase 2: client view links ────────────────────────────────────────────────────
+// Only the sha256 hash of a token is ever passed here (never the raw token). Tokens are revoked, never deleted.
+
+export const LINK_SEND_IN_PROGRESS = "This send is already in progress or done. Reload the page.";
+export const LINK_CREATE_DUPLICATE = "This link was already created. Reload the page.";
+export const LINK_CAP_REACHED = "This invoice already has the most client links allowed. Revoke old links first.";
+
+export async function mintAccessToken(args: {
+  entityId: string;
+  documentId: string;
+  tokenHash: string;
+  mintKey: string;
+  purpose: "email" | "manual";
+  expiresAt: Date;
+  createdById: string | null;
+  now: Date;
+  maxLive: number;
+  /** "Replace link": revoke every live link of the invoice first, in the same transaction. */
+  revokeExisting?: boolean;
+}): Promise<{ tokenId: string; revokedCount: number }> {
+  const { entityId, documentId, now } = args;
+  const duplicate = args.purpose === "email" ? LINK_SEND_IN_PROGRESS : LINK_CREATE_DUPLICATE;
+  try {
+    return await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "BillingDocument" WHERE "id" = ${documentId} FOR UPDATE`;
+      const doc = await tx.billingDocument.findFirst({ where: { id: documentId, entityId, kind: "invoice", status: "issued", archivedAt: null }, select: { clientId: true } });
+      if (!doc) throw new InvoicingRefusal("Only an issued invoice can have a client link.");
+      const again = await tx.billingAccessToken.findUnique({ where: { mintKey: args.mintKey }, select: { id: true } });
+      if (again) throw new InvoicingRefusal(duplicate);
+      let revokedCount = 0;
+      if (args.revokeExisting) {
+        revokedCount = (await tx.billingAccessToken.updateMany({ where: { documentId, entityId, revokedAt: null }, data: { revokedAt: now } })).count;
+        if (revokedCount > 0) await appendEvent(tx, { entityId, kind: "link_revoked", actorId: args.createdById, documentId, data: { count: revokedCount } });
+      }
+      const live = await tx.billingAccessToken.count({ where: { documentId, entityId, revokedAt: null, expiresAt: { gt: now } } });
+      if (live >= args.maxLive) throw new InvoicingRefusal(LINK_CAP_REACHED);
+      const row = await tx.billingAccessToken.create({
+        data: { entityId, documentId, tokenHash: args.tokenHash, mintKey: args.mintKey, purpose: args.purpose, expiresAt: args.expiresAt, createdById: args.createdById },
+        select: { id: true },
+      });
+      await appendEvent(tx, { entityId, kind: "link_created", actorId: args.createdById, documentId, data: { tokenId: row.id, purpose: args.purpose } });
+      return { tokenId: row.id, revokedCount };
+    }, TX_OPTIONS);
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new InvoicingRefusal(duplicate);
+    throw err;
+  }
+}
+
+/** Revokes every live link of an invoice ("Revoke all links"). Returns how many were revoked. */
+export async function revokeAccessTokens(args: { entityId: string; documentId: string; userId: string | null; now: Date }): Promise<number> {
+  const { entityId, documentId, now } = args;
+  return db.$transaction(async (tx) => {
+    const res = await tx.billingAccessToken.updateMany({ where: { documentId, entityId, revokedAt: null }, data: { revokedAt: now } });
+    if (res.count > 0) await appendEvent(tx, { entityId, kind: "link_revoked", actorId: args.userId, documentId, data: { count: res.count } });
+    return res.count;
+  }, TX_OPTIONS);
+}
+
+/** Revokes ONE link (e.g. the link minted for an e-mail the provider did not deliver). */
+export async function revokeAccessTokenById(args: { entityId: string; tokenId: string; userId: string | null; now: Date }): Promise<void> {
+  const { entityId, tokenId, now } = args;
+  await db.$transaction(async (tx) => {
+    const row = await tx.billingAccessToken.findFirst({ where: { id: tokenId, entityId }, select: { documentId: true } });
+    if (!row) return;
+    const res = await tx.billingAccessToken.updateMany({ where: { id: tokenId, entityId, revokedAt: null }, data: { revokedAt: now } });
+    if (res.count > 0) await appendEvent(tx, { entityId, kind: "link_revoked", actorId: args.userId, documentId: row.documentId, data: { count: res.count } });
+  }, TX_OPTIONS);
+}
+
+/** Counts a client's view of a link (called from the client's page after mount). The timeline gets a row on the FIRST view only. */
+export async function markTokenViewed(args: { tokenId: string; now: Date }): Promise<void> {
+  const { tokenId, now } = args;
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "BillingAccessToken" WHERE "id" = ${tokenId} FOR UPDATE`;
+      const row = await tx.billingAccessToken.findFirst({ where: { id: tokenId }, select: { entityId: true, documentId: true, firstViewedAt: true } });
+      if (!row) return;
+      await tx.billingAccessToken.updateMany({ where: { id: tokenId }, data: { firstViewedAt: row.firstViewedAt ?? now, lastViewedAt: now, viewCount: { increment: 1 } } });
+      if (row.firstViewedAt === null) {
+        await appendEvent(tx, { entityId: row.entityId, kind: "link_viewed", actorId: null, documentId: row.documentId, eventKey: `link-viewed:${tokenId}`, data: { tokenId } });
+      }
+    }, TX_OPTIONS);
+  } catch (err) {
+    if (isUniqueViolation(err)) return; // a racing first view already wrote the timeline row
+    throw err;
+  }
+}
+
+/** One "Online payment started" row per invoice, balance and 10-minute bucket (a duplicate key is swallowed). */
+export async function recordCheckoutStarted(args: { entityId: string; documentId: string; eventKey: string; amountCents: number }): Promise<void> {
+  try {
+    await appendEvent(db, { entityId: args.entityId, kind: "checkout_started", actorId: null, documentId: args.documentId, eventKey: args.eventKey, data: { amountCents: args.amountCents } });
+  } catch (err) {
+    if (isUniqueViolation(err)) return;
+    throw err;
+  }
+}
+
+// ── Phase 2: the Stripe webhook ───────────────────────────────────────────────────
+// Every decided event is ONE StripeEvent row (its primary key is the Stripe event id: a replay hits the unique key and changes nothing),
+// written in the same transaction as the payment it records. StripeEvent is insert-only. A Stripe payment is an ordinary BillingPayment
+// (source "stripe") with ordinary allocations, so the derived ledger, A/R and the cash view need no change.
+
+export interface StripeEventMeta {
+  eventId: string;
+  type: string;
+  livemode: boolean;
+}
+
+export type StripeApplyResult = { status: "applied"; outcome: string; paymentId: string | null } | { status: "already_processed" };
+
+async function stripeEventExists(eventId: string): Promise<boolean> {
+  return (await db.stripeEvent.findUnique({ where: { id: eventId }, select: { id: true } })) !== null;
+}
+
+/** Stores a decided event that writes nothing else (awaiting ACH, unmatched, unsupported format). */
+export async function recordStripeEventOnly(meta: StripeEventMeta, outcome: string, refs: { entityId?: string | null; documentId?: string | null; paymentId?: string | null } = {}): Promise<StripeApplyResult> {
+  try {
+    await db.stripeEvent.create({
+      data: { id: meta.eventId, type: meta.type, livemode: meta.livemode, outcome, entityId: refs.entityId ?? null, documentId: refs.documentId ?? null, paymentId: refs.paymentId ?? null },
+    });
+    return { status: "applied", outcome, paymentId: null };
+  } catch (err) {
+    if (isUniqueViolation(err)) return { status: "already_processed" };
+    throw err;
+  }
+}
+
+export interface StripePaymentWrite {
+  entityId: string;
+  invoiceId: string;
+  amountCents: number;
+  paymentIntentId: string;
+  sessionId: string;
+  receivedOn: Date;
+  method: "card" | "ach";
+  /** The Stripe fee in cents, or null when it could not be read (stored as stripeFeeStatus "unknown", fee 0 until fetched). */
+  feeCents: number | null;
+  chargeId: string | null;
+}
+
+/**
+ * Records a paid Checkout Session as ONE payment, exactly once per PaymentIntent, in one transaction: lock the invoice row, check that
+ * no payment carries this PaymentIntent (else "duplicate_payment"), read the CURRENT balance, insert the StripeEvent row, then the
+ * payment, then the application of min(amount, balance). Any remainder stays unapplied (a deposit on account) with a flag; a void /
+ * not-issued invoice keeps the whole amount unapplied with a flag. Nothing is adjusted silently.
+ */
+export async function applyStripePayment(meta: StripeEventMeta, p: StripePaymentWrite): Promise<StripeApplyResult> {
+  const run = () =>
+    db.$transaction(async (tx): Promise<StripeApplyResult> => {
+      await tx.$queryRaw`SELECT "id" FROM "BillingDocument" WHERE "id" = ${p.invoiceId} FOR UPDATE`;
+      const existing = await tx.billingPayment.findUnique({ where: { stripePaymentIntentId: p.paymentIntentId }, select: { id: true } });
+      if (existing) {
+        await tx.stripeEvent.create({ data: { id: meta.eventId, type: meta.type, livemode: meta.livemode, outcome: "duplicate_payment", entityId: p.entityId, documentId: p.invoiceId, paymentId: existing.id } });
+        return { status: "applied", outcome: "duplicate_payment", paymentId: existing.id };
+      }
+      const inv = await tx.billingDocument.findFirst({
+        where: { id: p.invoiceId, entityId: p.entityId, kind: "invoice" },
+        select: { status: true, issueDate: true, totalCents: true, clientId: true, allocations: { where: { voidedAt: null }, select: { amountCents: true } } },
+      });
+      if (!inv) {
+        await tx.stripeEvent.create({ data: { id: meta.eventId, type: meta.type, livemode: meta.livemode, outcome: "unmatched_invoice", entityId: null, documentId: null, paymentId: null } });
+        return { status: "applied", outcome: "unmatched_invoice", paymentId: null };
+      }
+      const balance = inv.status === "issued" ? inv.totalCents - inv.allocations.reduce((s, a) => s + a.amountCents, 0) : 0;
+      const split = splitStripeAmount(p.amountCents, inv.status, balance);
+      const outcome = split.flag ? "recorded_with_flag" : "recorded";
+      const feeKnown = p.feeCents !== null && Number.isSafeInteger(p.feeCents) && p.feeCents >= 0 && p.feeCents <= p.amountCents;
+      const feeCents = feeKnown ? (p.feeCents as number) : 0;
+      const paymentId = randomUUID();
+      // The event row first: a replay of the same Stripe event fails here on the primary key and the whole transaction is rolled back.
+      await tx.stripeEvent.create({ data: { id: meta.eventId, type: meta.type, livemode: meta.livemode, outcome, entityId: p.entityId, documentId: p.invoiceId, paymentId } });
+      await tx.billingPayment.create({
+        data: {
+          id: paymentId,
+          entityId: p.entityId,
+          clientId: inv.clientId,
+          method: p.method,
+          receivedOn: p.receivedOn,
+          amountCents: p.amountCents,
+          feeCents,
+          reference: null,
+          notes: null,
+          depositTransactionId: null,
+          source: "stripe",
+          requestKey: null,
+          createdById: null,
+          stripePaymentIntentId: p.paymentIntentId,
+          stripeChargeId: p.chargeId,
+          stripeCheckoutSessionId: p.sessionId,
+          stripeFeeStatus: feeKnown ? "known" : "unknown",
+        },
+        select: { id: true },
+      });
+      if (split.allocateCents > 0) {
+        await tx.billingAllocation.create({
+          data: { entityId: p.entityId, invoiceId: p.invoiceId, paymentId, amountCents: split.allocateCents, appliedOn: maxDate(p.receivedOn, inv.issueDate ?? p.receivedOn), createdById: null },
+        });
+        await appendEvent(tx, { entityId: p.entityId, kind: "allocated", actorId: null, documentId: p.invoiceId, paymentId, data: { amountCents: split.allocateCents } });
+      }
+      await appendEvent(tx, {
+        entityId: p.entityId,
+        kind: "payment_recorded",
+        actorId: null,
+        paymentId,
+        clientId: inv.clientId,
+        data: { amountCents: p.amountCents, feeCents, allocationCount: split.allocateCents > 0 ? 1 : 0, hasDeposit: false, source: "stripe", feeKnown },
+      });
+      if (split.flag) {
+        await appendEvent(tx, {
+          entityId: p.entityId,
+          kind: "stripe_flag",
+          actorId: null,
+          documentId: p.invoiceId,
+          paymentId,
+          eventKey: `stripe:${meta.eventId}:${split.flag}`,
+          data: { reason: split.flag, amountCents: split.remainderCents },
+        });
+      }
+      return { status: "applied", outcome, paymentId };
+    }, TX_OPTIONS);
+  try {
+    return await run();
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    if (await stripeEventExists(meta.eventId)) return { status: "already_processed" };
+    // The PaymentIntent's unique index is the backstop for a race the pre-check did not see: run once more, which then finds the
+    // other event's payment and stores this event as "duplicate_payment".
+    try {
+      return await run();
+    } catch (again) {
+      if (isUniqueViolation(again) && (await stripeEventExists(meta.eventId))) return { status: "already_processed" };
+      throw again;
+    }
+  }
+}
+
+/** Stores a flagged event (ACH failure, refund, dispute) and one `stripe_flag` timeline row per invoice it concerns. Reverses nothing. */
+export async function applyStripeFlag(
+  meta: StripeEventMeta,
+  f: { entityId: string; reason: StripeFlagReason; documentIds: string[]; paymentId: string | null; amountCents: number | null }
+): Promise<StripeApplyResult> {
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.stripeEvent.create({ data: { id: meta.eventId, type: meta.type, livemode: meta.livemode, outcome: "flagged", entityId: f.entityId, documentId: f.documentIds[0] ?? null, paymentId: f.paymentId } });
+      const targets: (string | null)[] = f.documentIds.length > 0 ? f.documentIds : [null];
+      for (const documentId of targets) {
+        await appendEvent(tx, {
+          entityId: f.entityId,
+          kind: "stripe_flag",
+          actorId: null,
+          documentId,
+          paymentId: f.paymentId,
+          eventKey: `stripe:${meta.eventId}:${f.reason}:${documentId ?? "none"}`,
+          data: { reason: f.reason, amountCents: f.amountCents },
+        });
+      }
+    }, TX_OPTIONS);
+    return { status: "applied", outcome: "flagged", paymentId: f.paymentId };
+  } catch (err) {
+    if (isUniqueViolation(err)) return { status: "already_processed" };
+    throw err;
+  }
+}
+
+/** The owner marks a flag reviewed (idempotent: a second review of the same flag changes nothing). */
+export async function markStripeFlagReviewed(args: { entityId: string; userId: string; flagEventId: string }): Promise<void> {
+  const { entityId, userId, flagEventId } = args;
+  try {
+    await db.$transaction(async (tx) => {
+      const flag = await tx.billingEvent.findFirst({ where: { id: flagEventId, entityId, kind: "stripe_flag" }, select: { documentId: true, paymentId: true } });
+      if (!flag) throw new InvoicingRefusal("That flag was not found.");
+      await appendEvent(tx, { entityId, kind: "stripe_flag_reviewed", actorId: userId, documentId: flag.documentId, paymentId: flag.paymentId, eventKey: `flag-reviewed:${flagEventId}`, data: { flagEventId } });
+    }, TX_OPTIONS);
+  } catch (err) {
+    if (isUniqueViolation(err)) return;
+    throw err;
+  }
+}
+
+/**
+ * Sets the Stripe fee of a Stripe payment whose fee was not known. The ONLY update ever made to an amount-like column of a recorded
+ * payment: it goes from "unknown" to "known" once, and is refused once a bank deposit is linked (the deposit sum rule was checked with
+ * the old net).
+ */
+export async function refreshStripeFee(args: { entityId: string; userId: string; paymentId: string; feeCents: number }): Promise<void> {
+  const { entityId, userId, paymentId, feeCents } = args;
+  await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "BillingPayment" WHERE "id" = ${paymentId} FOR UPDATE`;
+    const pay = await tx.billingPayment.findFirst({ where: { id: paymentId, entityId, source: "stripe" }, select: { amountCents: true, clientId: true } });
+    if (!pay) throw new InvoicingRefusal("That online payment was not found.");
+    if (!Number.isSafeInteger(feeCents) || feeCents < 0 || feeCents > pay.amountCents) throw new InvoicingRefusal("Stripe returned a fee that cannot be right for this payment. Nothing was changed.");
+    const res = await tx.billingPayment.updateMany({
+      where: { id: paymentId, entityId, source: "stripe", stripeFeeStatus: "unknown", depositTransactionId: null, status: "recorded" },
+      data: { feeCents, stripeFeeStatus: "known" },
+    });
+    if (res.count !== 1) throw new InvoicingRefusal("The fee of this payment is already known, or a bank deposit is already linked to it.");
+    await appendEvent(tx, { entityId, kind: "fee_recorded", actorId: userId, paymentId, clientId: pay.clientId, data: { feeCents } });
+  }, TX_OPTIONS);
+}
+
+/** Refuses a Stripe payment whose fee is not known yet (linking it would overstate the net against the deposit). */
+async function assertStripeFeeKnown(tx: Tx, paymentId: string): Promise<void> {
+  const row = await tx.billingPayment.findFirst({ where: { id: paymentId }, select: { stripeFeeStatus: true } });
+  if (!row || row.stripeFeeStatus !== "known") throw new InvoicingRefusal(STRIPE_FEE_UNKNOWN);
+}
+
+export const STRIPE_FEE_UNKNOWN = "Fetch the Stripe fee first: until it is known, the amount that reached the bank is not known.";
+
+/**
+ * Links ONE bank deposit (a Stripe payout, paid out net of fees) to SEVERAL payments in one transaction (task 2.6): every payment must be
+ * this entity's, recorded, not linked yet, and (for a Stripe payment) have a known fee; the sum of their nets plus whatever is already
+ * linked to the deposit may not exceed the deposit. One "deposit_linked" row per payment. The deposit itself is never changed.
+ */
+export async function linkDepositToPayments(args: { entityId: string; userId: string; depositTransactionId: string; paymentIds: string[] }): Promise<void> {
+  const { entityId, userId, depositTransactionId } = args;
+  const ids = [...new Set(args.paymentIds)].sort();
+  if (ids.length === 0) throw new InvoicingRefusal("Choose at least one payment.");
+  await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "BillingPayment" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
+    const pays = await tx.billingPayment.findMany({ where: { id: { in: ids }, entityId }, select: { id: true, status: true, depositTransactionId: true, amountCents: true, feeCents: true, source: true } });
+    if (pays.length !== ids.length) throw new InvoicingRefusal("One of the payments was not found.");
+    for (const p of pays) {
+      if (p.status !== "recorded") throw new InvoicingRefusal("A voided payment cannot be linked to a deposit.");
+      if (p.depositTransactionId) throw new InvoicingRefusal("One of the payments already has a bank deposit linked. Unlink it first.");
+      if (p.source === "stripe") await assertStripeFeeKnown(tx, p.id);
+    }
+    const net = pays.reduce((s, p) => s + p.amountCents - p.feeCents, 0);
+    await checkDeposit(tx, entityId, depositTransactionId, net, null);
+    const res = await tx.billingPayment.updateMany({ where: { id: { in: ids }, entityId, status: "recorded", depositTransactionId: null }, data: { depositTransactionId } });
+    if (res.count !== ids.length) throw new InvoicingRefusal(CHANGED_IN_OTHER_TAB);
+    for (const p of pays) await appendEvent(tx, { entityId, kind: "deposit_linked", actorId: userId, paymentId: p.id, data: { batchSize: ids.length } });
   }, TX_OPTIONS);
 }

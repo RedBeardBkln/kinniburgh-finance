@@ -54,6 +54,7 @@ model User {
   billingDocumentsCreated    BillingDocument[]   @relation("BillingDocumentCreator")
   billingPaymentsCreated     BillingPayment[]    @relation("BillingPaymentCreator")
   billingAllocationsCreated  BillingAllocation[] @relation("BillingAllocationCreator")
+  billingAccessTokensCreated BillingAccessToken[] @relation("BillingAccessTokenCreator")
   advisorConversations       AdvisorConversation[] @relation("AdvisorConversationOwner")
   advisorMemoriesAuthored    AdvisorMemory[]     @relation("AdvisorMemoryAuthor")
   advisorUsages              AdvisorUsage[]      @relation("AdvisorUsageUser")
@@ -133,6 +134,7 @@ model Entity {
   billingPayments    BillingPayment[]
   billingAllocations BillingAllocation[]
   billingEvents      BillingEvent[]
+  billingAccessTokens BillingAccessToken[]
 }
 
 model Institution {
@@ -1327,6 +1329,11 @@ model InvoicingProfile {
   remitToApprovedById    String?   // plain column, no FK
   // GL role map: { ar, unearned, discounts, billableIncome, processingFees } -> GlCode.id (validated in the action)
   glMap                  Json?
+  // Phase 2 (migration 20261023000000_invoicing_stripe): the owner's "Online payments" toggle (default off) and the lifetime of a
+  // client view link in days (7-365). Read ONLY by the Phase-2 loaders (lib/invoicing/pay-build.ts), never by PROFILE_SELECT, so the
+  // Phase-1 pages keep working on a database without this migration.
+  stripePayEnabled       Boolean   @default(false)
+  publicTokenTtlDays     Int       @default(90)
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
@@ -1460,6 +1467,7 @@ model BillingDocument {
   lines          BillingLine[]
   allocations    BillingAllocation[] @relation("AllocationInvoice")
   events         BillingEvent[]
+  accessTokens   BillingAccessToken[]
 
   @@unique([entityId, kind, number])
   @@unique([scheduleId, schedulePeriod])
@@ -1516,6 +1524,13 @@ model BillingPayment {
   voidReason           String?
   createdById          String?
   createdAt            DateTime  @default(now())
+  // Phase 2: a payment recorded by the Stripe webhook (source = "stripe"). One PaymentIntent is one payment (unique), whichever event
+  // delivered it. The fee is known | unknown (null for manual payments); it is set once, from unknown to known, and never after a
+  // deposit is linked. Read ONLY by the Phase-2 loaders and the webhook store functions.
+  stripePaymentIntentId   String?  @unique
+  stripeChargeId          String?
+  stripeCheckoutSessionId String?
+  stripeFeeStatus         String?  // known | unknown
 
   entity             Entity  @relation(fields: [entityId], references: [id])
   client             Client  @relation(fields: [clientId], references: [id])
@@ -1572,6 +1587,47 @@ model BillingEvent {
   @@index([documentId, createdAt])
   @@index([paymentId, createdAt])
   @@index([entityId, createdAt])
+}
+
+// Phase 2 (ek-consulting-stripe-pay-link): a client's view-and-pay link to ONE invoice (/i/<token>). Only the sha256 hash of the 256-bit
+// token is stored; the raw token exists only in the e-mail (one new token per send) or in the owner's browser once (an owner-made
+// link). A token is valid until `expiresAt` (exclusive) unless `revokedAt` is set. `mintKey` makes a double-submitted send or create
+// mint one token. Never deleted (revoke only).
+model BillingAccessToken {
+  id            String    @id @default(uuid())
+  entityId      String
+  documentId    String
+  tokenHash     String    @unique
+  mintKey       String?   @unique
+  purpose       String    // email | manual
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  firstViewedAt DateTime?
+  lastViewedAt  DateTime?
+  viewCount     Int       @default(0)
+
+  entity    Entity          @relation(fields: [entityId], references: [id])
+  document  BillingDocument @relation(fields: [documentId], references: [id])
+  createdBy User?           @relation("BillingAccessTokenCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([documentId])
+}
+
+// Phase 2: every Stripe webhook event we decided on, keyed by the Stripe event id (idempotency: inserted in the same transaction as the
+// payment write). Plain columns without foreign keys on purpose: an unmatched event may name nothing of ours. Insert-only.
+model StripeEvent {
+  id         String   @id // the Stripe event id
+  type       String
+  livemode   Boolean
+  receivedAt DateTime @default(now())
+  outcome    String   // recorded | recorded_with_flag | awaiting_async | flagged | duplicate_payment | unmatched_<reason> | unsupported_format
+  entityId   String?
+  documentId String?
+  paymentId  String?
+
+  @@index([outcome, receivedAt])
 }
 
 // One step of the AI review passes (L3) of a TaxReviewRun: run_started (config + estimate), payload (the exact redacted JSON that was

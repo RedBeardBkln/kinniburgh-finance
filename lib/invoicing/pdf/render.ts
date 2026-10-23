@@ -81,6 +81,7 @@ export function cleanInput(input: PdfInput): { input: PdfInput; refused: number 
       mailingLines: input.remit.mailingLines.map(c),
       bankLines: input.remit.bankLines.map(sanitizeBankLine),
     },
+    payOnline: input.payOnline ? { url: c(input.payOnline.url) } : null,
     documentLabel: c(input.documentLabel),
   };
   return { input: cleaned, refused };

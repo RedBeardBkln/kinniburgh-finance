@@ -6,7 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InvoicingNav } from "@/components/invoicing/invoicing-nav";
 import { NotMigratedNotice } from "@/components/invoicing/gate-notices";
 import { SetupForm } from "@/components/invoicing/setup-form";
-import { CounterForm, EinForm, LogoForm, ProfileForm, RemitForm } from "@/components/invoicing/settings-forms";
+import { CounterForm, EinForm, LogoForm, OnlinePaymentsForm, ProfileForm, RemitForm, type OnlinePaymentsEnvView } from "@/components/invoicing/settings-forms";
+import { PAY_FEATURE_NOT_SET_UP } from "@/lib/invoicing/constants";
+import { loadPaySettings } from "@/lib/invoicing/pay-build";
+import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
+import { STRIPE_MODE_MISMATCH_MESSAGE, STRIPE_NOT_CONFIGURED_MESSAGE } from "@/lib/invoicing/stripe/preflight";
 import { loadGlCodes, loadGlCodesLite } from "@/lib/invoicing/catalog-build";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
 import { suggestGlMap } from "@/lib/invoicing/gl-map";
@@ -63,7 +67,23 @@ export default async function InvoicingSettingsPage({ params }: PageProps) {
   }
 
   const { profile, owner } = ctx;
-  const glOptions = await loadGlCodes(ctx.entity.id);
+  const [glOptions, pay] = await Promise.all([loadGlCodes(ctx.entity.id), loadPaySettings(ctx.entity.id)]);
+  // Online payments (Phase 2): booleans and a mode word only, never an env value.
+  const env = payEnvironment(process.env);
+  const payEnv: OnlinePaymentsEnvView = {
+    configured: env.configured,
+    mode: env.mode,
+    hasBaseUrl: env.baseUrl !== null,
+    problem: !env.preflight.ok
+      ? env.preflight.category === "mode_mismatch"
+        ? STRIPE_MODE_MISMATCH_MESSAGE
+        : STRIPE_NOT_CONFIGURED_MESSAGE
+      : env.baseUrl === null
+        ? env.mode === "live"
+          ? "NEXTAUTH_URL must be the app's public https address in live mode."
+          : "NEXTAUTH_URL (the app's public address) is not set, so no client link can be built."
+        : null,
+  };
 
   let logoSrc: string | null = null;
   if (profile.logoKey && profile.logoMime) {
@@ -145,6 +165,18 @@ export default async function InvoicingSettingsPage({ params }: PageProps) {
           </Card>
           <Card>
             <CardHeader>
+              <CardTitle className="text-base">Online payments</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {pay.status === "ok" ? (
+                <OnlinePaymentsForm slug={slug} enabled={pay.stripePayEnabled} ttlDays={pay.publicTokenTtlDays} env={payEnv} />
+              ) : (
+                <p className="text-sm text-muted-foreground">{PAY_FEATURE_NOT_SET_UP}</p>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
               <CardTitle className="text-base">Business EIN</CardTitle>
             </CardHeader>
             <CardContent>
@@ -152,7 +184,16 @@ export default async function InvoicingSettingsPage({ params }: PageProps) {
             </CardContent>
           </Card>
         </>
-      ) : null}
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Online payments</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {pay.status === "ok" ? `Online payments are ${pay.stripePayEnabled ? "on" : "off"}. Client links stay valid for ${pay.publicTokenTtlDays} days.` : PAY_FEATURE_NOT_SET_UP}
+          </CardContent>
+        </Card>
+      )}
     </>
   );
 }

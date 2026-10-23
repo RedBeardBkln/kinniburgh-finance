@@ -27,6 +27,14 @@ export function isReviewQueuePath(pathname: string | null | undefined): boolean 
   return pathname != null && (pathname === "/queue" || pathname.startsWith("/queue/"));
 }
 
+/**
+ * True for the EK Consulting client's invoice link pages (/i and /i/...): a client is not an app user, and the banner would sit over
+ * the Pay button. Exactly the segment "i" ("/invoices" and "/income" do not match).
+ */
+export function isPublicInvoicePath(pathname: string | null | undefined): boolean {
+  return pathname != null && (pathname === "/i" || pathname.startsWith("/i/"));
+}
+
 export function shouldShowInstallBanner(opts: ShouldShowInstallBannerOptions): boolean {
   return opts.hasDeferredPrompt && !opts.isStandalone && !opts.dismissed;
 }

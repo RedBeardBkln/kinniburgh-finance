@@ -86,6 +86,11 @@ export interface InvoiceEmailInput {
   /** e.g. "Due upon receipt" or "Due 2026-11-07". */
   dueText: string;
   footerText: string | null;
+  /**
+   * Phase 2: the client's view-and-pay link (/i/<token>), only when online payments apply to this invoice (on, configured, a balance of
+   * at least the minimum due). Absent or null: the e-mail is exactly the Phase-1 e-mail.
+   */
+  payUrl?: string | null;
 }
 
 export interface InvoiceEmail {
@@ -94,17 +99,25 @@ export interface InvoiceEmail {
   html: string;
 }
 
+/** The pay link must be a plain https (or, for local testing, http) URL without spaces or quotes; anything else is dropped. */
+function safePayUrl(raw: string): string | null {
+  const u = raw.trim();
+  return /^https?:\/\/[^\s"'<>]+$/.test(u) ? u : null;
+}
+
 export function buildInvoiceEmail(i: InvoiceEmailInput): InvoiceEmail {
   const number = headerSafe(i.displayNumber);
   const business = headerSafe(i.businessName);
   const subject = headerSafe(`Invoice ${number} from ${business}`);
   const paid = i.balanceText !== i.totalText;
+  const payUrl = i.payUrl ? safePayUrl(i.payUrl) : null;
   const lines = [
     "Hello,",
     "",
     `Please find attached invoice ${number} from ${business} for ${i.totalText}.`,
     paid ? `The balance due is ${i.balanceText}.` : null,
     `${headerSafe(i.dueText)}.`,
+    ...(payUrl ? ["", `View and pay online: ${payUrl}`] : []),
     "",
     "If you have any questions, simply reply to this e-mail.",
     "",
@@ -112,8 +125,15 @@ export function buildInvoiceEmail(i: InvoiceEmailInput): InvoiceEmail {
     business,
   ].filter((l): l is string => l !== null);
   const text = lines.join("\n");
+  const payLine = payUrl ? `View and pay online: ${payUrl}` : null;
   const html = `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#201D16">${lines
-    .map((l) => (l === "" ? "" : `<p style="margin:0 0 4px">${escapeHtml(l)}</p>`))
+    .map((l) =>
+      l === ""
+        ? ""
+        : l === payLine && payUrl
+          ? `<p style="margin:0 0 4px"><a href="${escapeHtml(payUrl)}" style="color:#7A6200;font-weight:bold">View and pay online</a><br><span style="font-size:12px;color:#6B645A">${escapeHtml(payUrl)}</span></p>`
+          : `<p style="margin:0 0 4px">${escapeHtml(l)}</p>`
+    )
     .join("")}</body></html>`;
   return { subject, text, html };
 }

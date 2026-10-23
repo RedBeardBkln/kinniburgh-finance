@@ -6,7 +6,14 @@ import type { NextRequest } from "next/server";
 // real gate is per-request token validation in app/queue/[token]/page.tsx and in
 // every export of actions/review-queue.ts. Keep this entry exactly "/queue" -
 // the prefix match below then covers only /queue and /queue/... and nothing else.
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/privacy", "/offline", "/queue", "/api/logo", "/api/favicon", "/api/cron"];
+//
+// "/i" is the EK Consulting client's invoice link (/i/[token], its PDF, and the static /i/paid and
+// /i/cancelled pages) and "/api/stripe/webhook" is the Stripe webhook. Same rule: the gate is NOT
+// here. The link page, its PDF route and every export of actions/public-invoice.ts validate the
+// token on each request; the webhook verifies the Stripe signature on the raw body before anything
+// else. Keep these entries exact: "/i" covers only /i and /i/... (not /invoices, /income or
+// /insurance), and "/api/stripe/webhook" covers nothing else under /api/stripe.
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/privacy", "/offline", "/queue", "/api/logo", "/api/favicon", "/api/cron", "/i", "/api/stripe/webhook"];
 
 export function middleware(req: NextRequest) {
   const session =

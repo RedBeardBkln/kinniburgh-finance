@@ -10,11 +10,15 @@ import { formatCents } from "@/lib/invoicing/money";
 import { loadInvoicePdfSource } from "@/lib/invoicing/pdf-build";
 import { renderInvoicePdf } from "@/lib/invoicing/pdf/render";
 import { sendEmail } from "@/lib/resend";
-import { MAX_SHORT } from "@/lib/invoicing/constants";
+import { MAX_LIVE_LINKS_PER_INVOICE, MAX_SHORT } from "@/lib/invoicing/constants";
 import { loadInvoiceDetail } from "@/lib/invoicing/documents-build";
 import { CHANGED_IN_OTHER_TAB, InvoicingRefusal, userMessageFor } from "@/lib/invoicing/errors";
 import { requireInvoicingEntity, requireInvoicingOwner } from "@/lib/invoicing/gate-build";
 import * as store from "@/lib/invoicing/store";
+import { invoiceLinkUrl, mintInvoiceToken, tokenExpiry } from "@/lib/invoicing/access-token";
+import { loadPaySettings, type PaySettings } from "@/lib/invoicing/pay-build";
+import { payOnlineEligibility } from "@/lib/invoicing/stripe/eligibility";
+import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
 import { cleanText, parseCalendarDate, validateDraft, type DraftInput } from "@/lib/invoicing/validate";
 
 // Invoice drafts, issue, void, duplicate (plan task 1.7) and e-mail delivery (task 1.10: an invoice is e-mailed ONLY when the owner
@@ -231,6 +235,9 @@ export async function duplicateInvoice(input: z.input<typeof duplicateSchema>): 
 
 const sendSchema = z.object({ slug: slugSchema, documentId: z.string().uuid(), requestKey: z.string().uuid() });
 
+/** Whether the e-mail carried the client's view-and-pay link (Phase 2). */
+type PayLinkOutcome = "included" | "omitted_not_configured" | "not_applicable";
+
 /**
  * E-mails an ISSUED invoice, with its PDF attached, to the client's contacts ticked "Receives invoices" (owner only; only ever on an
  * explicit click), from the invoice sender INVOICE_EMAIL_FROM (never the app's EMAIL_FROM). Fails closed before any provider call when
@@ -242,7 +249,7 @@ const sendSchema = z.object({ slug: slugSchema, documentId: z.string().uuid(), r
  */
 export async function sendInvoice(
   input: z.input<typeof sendSchema>
-): Promise<{ success: true; recipientCount: number; sendCount: number } | (ActionError & { sendFailure?: SendFailureCategory })> {
+): Promise<{ success: true; recipientCount: number; sendCount: number; payLink: PayLinkOutcome } | (ActionError & { sendFailure?: SendFailureCategory })> {
   const user = await requireAuth();
   const parsed = sendSchema.safeParse(input);
   if (!parsed.success) return { error: "Invalid request." };
@@ -261,7 +268,61 @@ export async function sendInvoice(
 
     const source = await loadInvoicePdfSource(documentId);
     if (source.status !== "ok" || source.entityId !== entity.id) throw new InvoicingRefusal("That invoice was not found.");
-    const rendered = await renderInvoicePdf(source.input, { logo: source.logo });
+
+    // Phase 2 (plan P1 / P4): the client's view-and-pay link. When online payments apply, ONE new link is minted for THIS send (its
+    // mintKey is the send's requestKey, so a double-submitted click is refused here, before the provider is called, and two different
+    // links can never go out under one provider idempotency key). A configuration gap omits the link, never the e-mail.
+    let payLink: PayLinkOutcome = "not_applicable";
+    let payUrl: string | null = null;
+    let tokenId: string | null = null;
+    let settings: PaySettings;
+    try {
+      settings = await loadPaySettings(entity.id);
+    } catch (err) {
+      console.error("Online-payment settings could not be read", err instanceof Error ? err.name : "UnknownError");
+      settings = { status: "not_set_up" };
+    }
+    if (settings.status === "ok" && settings.stripePayEnabled) {
+      const env = payEnvironment(process.env);
+      const eligible = payOnlineEligibility({ enabled: true, configured: env.configured, baseUrl: env.baseUrl, status: detail.status, balanceCents: detail.balanceCents });
+      if (eligible.ok && env.baseUrl) {
+        const now = new Date();
+        const { token, tokenHash } = mintInvoiceToken();
+        const minted = await store.mintAccessToken({
+          entityId: entity.id,
+          documentId,
+          tokenHash,
+          mintKey: `send:${documentId}:${requestKey}`,
+          purpose: "email",
+          expiresAt: tokenExpiry(now, settings.publicTokenTtlDays),
+          createdById: user.id,
+          now,
+          maxLive: MAX_LIVE_LINKS_PER_INVOICE,
+        });
+        tokenId = minted.tokenId;
+        payUrl = invoiceLinkUrl(env.baseUrl, token);
+        payLink = "included";
+      } else if (!eligible.ok && (eligible.reason === "not_configured" || eligible.reason === "no_base_url")) {
+        payLink = "omitted_not_configured";
+      }
+    }
+    /** A minted link that did not go out is revoked (best effort, logged by name only). */
+    const revokeUnsent = async () => {
+      if (!tokenId) return;
+      try {
+        await store.revokeAccessTokenById({ entityId: entity.id, tokenId, userId: user.id, now: new Date() });
+      } catch (revErr) {
+        console.error("Unsent client link could not be revoked", revErr instanceof Error ? revErr.name : "UnknownError");
+      }
+    };
+
+    let rendered: Awaited<ReturnType<typeof renderInvoicePdf>>;
+    try {
+      rendered = await renderInvoicePdf(payUrl ? { ...source.input, payOnline: { url: payUrl } } : source.input, { logo: source.logo });
+    } catch (err) {
+      await revokeUnsent();
+      throw err;
+    }
     const pdf = source.input;
     const email = buildInvoiceEmail({
       displayNumber: pdf.displayNumber ?? "",
@@ -270,6 +331,7 @@ export async function sendInvoice(
       balanceText: formatCents(pdf.balanceCents),
       dueText: pdf.dueText,
       footerText: pdf.footerText,
+      payUrl,
     });
     const replyTo = profile.replyToEmail && isSendableAddress(profile.replyToEmail.trim()) ? profile.replyToEmail.trim() : undefined;
     try {
@@ -285,6 +347,7 @@ export async function sendInvoice(
       });
     } catch (err) {
       console.error("Invoice e-mail failed", err instanceof Error ? err.name : "UnknownError");
+      await revokeUnsent();
       try {
         await store.recordSendFailure({ entityId: entity.id, userId: user.id, documentId, category: "provider_error" });
       } catch (logErr) {
@@ -295,14 +358,37 @@ export async function sendInvoice(
     }
     let sendCount: number;
     try {
-      ({ sendCount } = await store.markInvoiceSent({ entityId: entity.id, userId: user.id, documentId, recipientCount: to.length, at: new Date() }));
+      ({ sendCount } = await store.markInvoiceSent({ entityId: entity.id, userId: user.id, documentId, recipientCount: to.length, at: new Date(), payLink: payLink === "included" }));
     } catch (err) {
       console.error("Invoice sent, but recording it failed", err instanceof Error ? err.name : "UnknownError");
       return { error: "The invoice was e-mailed, but recording the send failed. Reload the page before sending again." };
     }
-    await audit(user.id, "invoicing_invoice_email", { entityId: entity.id, documentId, recipientCount: to.length, sendNumber: sendCount });
+    await audit(user.id, "invoicing_invoice_email", { entityId: entity.id, documentId, recipientCount: to.length, sendNumber: sendCount, payLink: payLink === "included" });
     pages(slug, documentId);
-    return { success: true, recipientCount: to.length, sendCount };
+    return { success: true, recipientCount: to.length, sendCount, payLink };
+  } catch (err) {
+    return { error: userMessageFor(err) };
+  }
+}
+
+const flagSchema = z.object({ slug: slugSchema, flagEventId: z.string().uuid() });
+
+/**
+ * Marks an online-payment flag (overpayment, a payment on a closed invoice, a failed bank payment, a refund or a dispute) as reviewed
+ * (owner only). Nothing is reversed or changed: the flag only stops being listed as open. Repeating it changes nothing.
+ */
+export async function markStripeFlagReviewed(input: z.input<typeof flagSchema>): Promise<{ success: true } | ActionError> {
+  const user = await requireAuth();
+  const parsed = flagSchema.safeParse(input);
+  if (!parsed.success) return { error: "Invalid request." };
+  try {
+    const { entity } = await requireInvoicingEntity(parsed.data.slug);
+    await requireInvoicingOwner(user.id, entity.name);
+    await store.markStripeFlagReviewed({ entityId: entity.id, userId: user.id, flagEventId: parsed.data.flagEventId });
+    await audit(user.id, "invoicing_stripe_flag_review", { entityId: entity.id, flagEventId: parsed.data.flagEventId });
+    pages(parsed.data.slug);
+    revalidatePath(`/business/${parsed.data.slug}/invoicing/payments-online`);
+    return { success: true };
   } catch (err) {
     return { error: userMessageFor(err) };
   }

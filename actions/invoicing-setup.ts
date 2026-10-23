@@ -7,6 +7,10 @@ import { audit, sessionUser, type ActionError } from "@/lib/invoicing/action-kit
 import { loadGlCodesLite } from "@/lib/invoicing/catalog-build";
 import { LOGO_MAX_BYTES, LOGO_MAX_LABEL, LOGO_MIME_TYPES, MAX_ADDRESS, MAX_NAME, MAX_NET_DAYS, MAX_NOTES, MAX_NUMBER_PAD, GL_ROLES } from "@/lib/invoicing/constants";
 import { userMessageFor, InvoicingRefusal } from "@/lib/invoicing/errors";
+import { PAY_FEATURE_NOT_SET_UP, PUBLIC_TOKEN_TTL_MAX_DAYS, PUBLIC_TOKEN_TTL_MIN_DAYS } from "@/lib/invoicing/constants";
+import { loadPaySettings } from "@/lib/invoicing/pay-build";
+import { STRIPE_MODE_MISMATCH_MESSAGE, STRIPE_NOT_CONFIGURED_MESSAGE } from "@/lib/invoicing/stripe/preflight";
+import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
 import { requireInvoicingEntity, requireInvoicingEntityForSetup, requireInvoicingOwner } from "@/lib/invoicing/gate-build";
 import { validateGlMap } from "@/lib/invoicing/gl-map";
 import { QUOTE_PREFIX_RULE_MESSAGE, isValidDocumentNumber, isValidPrefix, isValidQuotePrefix } from "@/lib/invoicing/numbering";
@@ -388,6 +392,62 @@ export async function removeInvoiceLogo(input: z.input<typeof revealSchema>): Pr
     await requireInvoicingOwner(user.id, entity.name);
     await store.setLogo(entity.id, null, null);
     await audit(user.id, "invoicing_logo_removed", { entityId: entity.id });
+    paths(parsed.data.slug);
+    return { success: true };
+  } catch (err) {
+    return { error: userMessageFor(err) };
+  }
+}
+
+const onlineSchema = z.object({ slug: slugSchema, enabled: z.boolean() });
+
+/**
+ * Turns "Online payments" (the Stripe pay link in e-mails, PDFs and on the client's link page) on or off (owner only; default off).
+ * Turning it ON is refused unless STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and STRIPE_MODE pass the pre-flight (a key of the same mode)
+ * and NEXTAUTH_URL gives a usable public address (https in live mode). The refusal names the variables, never a value. Turning it OFF is
+ * always allowed.
+ */
+export async function setOnlinePayments(input: z.input<typeof onlineSchema>): Promise<Result> {
+  const user = await requireAuth();
+  const parsed = onlineSchema.safeParse(input);
+  if (!parsed.success) return { error: "Invalid request." };
+  try {
+    const { entity } = await requireInvoicingEntity(parsed.data.slug);
+    await requireInvoicingOwner(user.id, entity.name);
+    const settings = await loadPaySettings(entity.id);
+    if (settings.status !== "ok") return { error: PAY_FEATURE_NOT_SET_UP };
+    if (parsed.data.enabled) {
+      const env = payEnvironment(process.env);
+      if (!env.preflight.ok) return { error: env.preflight.category === "mode_mismatch" ? STRIPE_MODE_MISMATCH_MESSAGE : STRIPE_NOT_CONFIGURED_MESSAGE };
+      if (!env.baseUrl) {
+        return { error: env.mode === "live" ? "Online payments need the app's public https address: NEXTAUTH_URL must start with https:// in live mode." : "Online payments need the app's public address: set NEXTAUTH_URL in Vercel." };
+      }
+    }
+    await store.updatePaySettings(entity.id, { stripePayEnabled: parsed.data.enabled });
+    await audit(user.id, "invoicing_online_payments", { entityId: entity.id, enabled: parsed.data.enabled });
+    paths(parsed.data.slug);
+    return { success: true };
+  } catch (err) {
+    return { error: userMessageFor(err) };
+  }
+}
+
+const ttlSchema = z.object({ slug: slugSchema, days: z.number().int() });
+
+/** Sets how long a NEW client link stays valid, in days (7 to 365; owner only). Links already made keep their own expiry. */
+export async function setPublicLinkTtl(input: z.input<typeof ttlSchema>): Promise<Result> {
+  const user = await requireAuth();
+  const parsed = ttlSchema.safeParse(input);
+  if (!parsed.success) return { error: "Enter a whole number of days." };
+  try {
+    const { entity } = await requireInvoicingEntity(parsed.data.slug);
+    await requireInvoicingOwner(user.id, entity.name);
+    const days = parsed.data.days;
+    if (days < PUBLIC_TOKEN_TTL_MIN_DAYS || days > PUBLIC_TOKEN_TTL_MAX_DAYS) return { error: `A link must stay valid between ${PUBLIC_TOKEN_TTL_MIN_DAYS} and ${PUBLIC_TOKEN_TTL_MAX_DAYS} days.` };
+    const settings = await loadPaySettings(entity.id);
+    if (settings.status !== "ok") return { error: PAY_FEATURE_NOT_SET_UP };
+    await store.updatePaySettings(entity.id, { publicTokenTtlDays: days });
+    await audit(user.id, "invoicing_link_ttl", { entityId: entity.id, days });
     paths(parsed.data.slug);
     return { success: true };
   } catch (err) {

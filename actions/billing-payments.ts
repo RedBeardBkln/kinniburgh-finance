@@ -8,6 +8,9 @@ import { userMessageFor } from "@/lib/invoicing/errors";
 import { requireInvoicingEntity, requireInvoicingOwner } from "@/lib/invoicing/gate-build";
 import { loadClient } from "@/lib/invoicing/clients-build";
 import { loadDepositCandidates, loadPayment, type DepositCandidateView } from "@/lib/invoicing/payments-build";
+import { loadPayoutCandidates, loadStripePaymentForFee, type PayoutCandidateView } from "@/lib/invoicing/pay-build";
+import { retrievePaymentIntentFee } from "@/lib/invoicing/stripe/client";
+import { STRIPE_NOT_CONFIGURED_MESSAGE, stripePreflight } from "@/lib/invoicing/stripe/preflight";
 import * as store from "@/lib/invoicing/store";
 import { cleanText, parseCalendarDate, validatePayment } from "@/lib/invoicing/validate";
 import { parseDollarsToCents } from "@/lib/money-input";
@@ -211,6 +214,85 @@ export async function searchDepositCandidates(input: z.input<typeof searchSchema
     if (!client) return { error: "That client was not found." };
     const candidates = await loadDepositCandidates(entity.id, { amountCents: amount.cents, feeCents: fee.cents, receivedOn, clientName: client.name, paymentId: parsed.data.paymentId });
     return { success: true, candidates };
+  } catch (err) {
+    return { error: userMessageFor(err) };
+  }
+}
+
+// ── Phase 2: online (Stripe) payments ─────────────────────────────────────────────
+
+const feeSchema = z.object({ slug: slugSchema, paymentId: z.string().uuid() });
+
+/**
+ * "Fetch fee" (owner only): re-reads the Stripe fee of an online payment whose fee was not known when it was recorded, and stores it
+ * once (unknown -> known). Refused once a bank deposit is linked to the payment. Stripe errors are logged by name only.
+ */
+export async function refreshStripeFee(input: z.input<typeof feeSchema>): Promise<{ success: true } | ActionError> {
+  const user = await requireAuth();
+  const parsed = feeSchema.safeParse(input);
+  if (!parsed.success) return { error: "Invalid request." };
+  try {
+    const { entity } = await requireInvoicingEntity(parsed.data.slug);
+    await requireInvoicingOwner(user.id, entity.name);
+    const pay = await loadStripePaymentForFee(entity.id, parsed.data.paymentId);
+    if (!pay) return { error: "That online payment was not found." };
+    if (pay.feeKnown) return { error: "The Stripe fee of this payment is already recorded." };
+    if (pay.depositLinked) return { error: "A bank deposit is already linked to this payment, so its fee can no longer change." };
+    if (!stripePreflight(process.env).ok) return { error: STRIPE_NOT_CONFIGURED_MESSAGE };
+    let fee: number | null;
+    try {
+      ({ feeCents: fee } = await retrievePaymentIntentFee(pay.paymentIntentId));
+    } catch (err) {
+      console.error("Stripe fee could not be read", err instanceof Error ? err.name : "UnknownError");
+      return { error: "Stripe could not be reached just now. Try again shortly." };
+    }
+    if (fee === null) return { error: "Stripe has not reported the fee of this payment yet (bank payments can take a few days). Try again later." };
+    await store.refreshStripeFee({ entityId: entity.id, userId: user.id, paymentId: parsed.data.paymentId, feeCents: fee });
+    await audit(user.id, "invoicing_stripe_fee", { entityId: entity.id, paymentId: parsed.data.paymentId });
+    pages(parsed.data.slug);
+    revalidatePath(`/business/${parsed.data.slug}/invoicing/payments-online`);
+    return { success: true };
+  } catch (err) {
+    return { error: userMessageFor(err) };
+  }
+}
+
+const payoutSearchSchema = z.object({ slug: slugSchema, paymentIds: z.array(z.string().uuid()).min(1).max(100) });
+
+/** Suggests the bank deposit that is the Stripe payout of the chosen payments (owner only; a read, nothing is linked). */
+export async function searchPayoutCandidates(input: z.input<typeof payoutSearchSchema>): Promise<{ success: true; netCents: number; candidates: PayoutCandidateView[] } | ActionError> {
+  const user = await requireAuth();
+  const parsed = payoutSearchSchema.safeParse(input);
+  if (!parsed.success) return { error: "Choose at least one payment." };
+  try {
+    const { entity } = await requireInvoicingEntity(parsed.data.slug);
+    await requireInvoicingOwner(user.id, entity.name);
+    const found = await loadPayoutCandidates(entity.id, parsed.data.paymentIds);
+    if (!found) return { error: "One of the chosen payments was not found, is void, or already has a deposit linked. Reload the page." };
+    return { success: true, netCents: found.netCents, candidates: found.candidates };
+  } catch (err) {
+    return { error: userMessageFor(err) };
+  }
+}
+
+const payoutLinkSchema = z.object({ slug: slugSchema, depositTransactionId: z.string().uuid(), paymentIds: z.array(z.string().uuid()).min(1).max(100) });
+
+/**
+ * Links ONE bank deposit (a Stripe payout) to SEVERAL payments in one step (owner only; task 2.6). Every Stripe payment needs a known fee
+ * (the payout is net of fees), and the sum of the nets may not exceed the deposit. The deposit itself is never changed.
+ */
+export async function linkPayoutDeposit(input: z.input<typeof payoutLinkSchema>): Promise<{ success: true } | ActionError> {
+  const user = await requireAuth();
+  const parsed = payoutLinkSchema.safeParse(input);
+  if (!parsed.success) return { error: "Invalid request." };
+  try {
+    const { entity } = await requireInvoicingEntity(parsed.data.slug);
+    await requireInvoicingOwner(user.id, entity.name);
+    await store.linkDepositToPayments({ entityId: entity.id, userId: user.id, depositTransactionId: parsed.data.depositTransactionId, paymentIds: parsed.data.paymentIds });
+    await audit(user.id, "invoicing_payout_link", { entityId: entity.id, transactionId: parsed.data.depositTransactionId, paymentCount: new Set(parsed.data.paymentIds).size });
+    pages(parsed.data.slug);
+    revalidatePath(`/business/${parsed.data.slug}/invoicing/payments-online`);
+    return { success: true };
   } catch (err) {
     return { error: userMessageFor(err) };
   }

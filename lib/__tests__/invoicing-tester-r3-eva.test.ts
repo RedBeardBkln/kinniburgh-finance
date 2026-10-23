@@ -23,6 +23,7 @@ import * as clients from "@/actions/clients";
 import * as items from "@/actions/reimbursable-items";
 import * as pay from "@/actions/billing-payments";
 import * as setup from "@/actions/invoicing-setup";
+import * as links from "@/actions/invoice-links";
 import { INVOICING_OWNER_UNKNOWN_MESSAGE, NOT_INVOICING_OWNER_MESSAGE } from "@/lib/invoicing/owner";
 import { Prisma } from "@prisma/client";
 
@@ -134,11 +135,21 @@ const CALLS: Record<string, Call> = {
   createItem: () => items.createItem({ slug: SLUG, name: "Binders", unit: "ea", unitCost: "2.00", pricingMode: "markup", markupPercent: "10", glCodeId: GL } as never),
   updateItem: (i) => items.updateItem({ slug: SLUG, id: i.item, name: "Prints2", unit: "ea", unitCost: "3.00", pricingMode: "markup", markupPercent: "10", glCodeId: GL } as never),
   archiveItem: (i) => items.archiveItem({ slug: SLUG, id: i.item }),
+  // Phase 2 (ek-consulting-stripe-pay-link, deliberate update by the Coder): the online-payment owner actions are in the matrix too.
+  markStripeFlagReviewed: (i) => invoices.markStripeFlagReviewed({ slug: SLUG, flagEventId: i.payment }),
+  refreshStripeFee: (i) => pay.refreshStripeFee({ slug: SLUG, paymentId: i.payment }),
+  searchPayoutCandidates: (i) => pay.searchPayoutCandidates({ slug: SLUG, paymentIds: [i.payment] }),
+  linkPayoutDeposit: (i) => pay.linkPayoutDeposit({ slug: SLUG, depositTransactionId: i.deposit, paymentIds: [i.payment] }),
+  setOnlinePayments: () => setup.setOnlinePayments({ slug: SLUG, enabled: true }),
+  setPublicLinkTtl: () => setup.setPublicLinkTtl({ slug: SLUG, days: 30 }),
+  createPayLink: (i) => links.createPayLink({ slug: SLUG, documentId: i.invoice, requestKey: "77777777-7777-4777-8777-777777777777" }),
+  revokePayLinks: (i) => links.revokePayLinks({ slug: SLUG, documentId: i.invoice }),
+  replacePayLink: (i) => links.replacePayLink({ slug: SLUG, documentId: i.invoice, requestKey: "88888888-8888-4888-8888-888888888888" }),
 };
 
 function exportedNamesFromSource(): string[] {
   const out: string[] = [];
-  for (const f of ["billing-payments", "clients", "invoices", "invoicing-setup", "reimbursable-items"]) {
+  for (const f of ["billing-payments", "clients", "invoices", "invoicing-setup", "reimbursable-items", "invoice-links"]) {
     const src = readFileSync(resolve(ROOT, `actions/${f}.ts`), "utf8");
     for (const m of src.matchAll(/^export\s+(?:async\s+)?function\s+(\w+)/gm)) out.push(m[1]!);
     // any other runtime export form would be an action we do not enumerate
@@ -148,17 +159,17 @@ function exportedNamesFromSource(): string[] {
 }
 
 describe("independent Eva / stranger / anonymous refusal matrix", () => {
-  it("the call table covers exactly the exports read from the source (35), no more, no fewer", () => {
+  it("the call table covers exactly the exports read from the source (44), no more, no fewer", () => {
     const names = exportedNamesFromSource();
     expect(names.filter((n) => n.startsWith("NONFUNCTION_EXPORT"))).toEqual([]);
-    expect(names).toHaveLength(35);
+    expect(names).toHaveLength(44);
     expect([...names].sort()).toEqual(Object.keys(CALLS).sort());
   });
 
   it.each([
     ["Eva (real household user, not the owner)", EVA, NOT_INVOICING_OWNER_MESSAGE],
     ["a signed-in id that is in no user row", NOBODY, NOT_INVOICING_OWNER_MESSAGE],
-  ])("%s: all 35 actions refuse with the owner message, nothing changes, nothing leaks", async (_l, who, msg) => {
+  ])("%s: all 44 actions refuse with the owner message, nothing changes, nothing leaks", async (_l, who, msg) => {
     const ids = await build();
     const before = snapshot();
     asUser(who);

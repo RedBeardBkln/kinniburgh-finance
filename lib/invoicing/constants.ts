@@ -99,3 +99,36 @@ export const LOGO_MIME_TYPES = ["image/png", "image/jpeg"] as const;
 export const DEPOSIT_WINDOW_DAYS = 14;
 
 export const INVOICING_NOT_SET_UP = "Invoicing is not set up yet (the database update that adds it has not been applied).";
+/** First setup of a profile on a database without the online-payments migration (P2022 on the INSERT; see lib/invoicing/store.ts). */
+export const INVOICING_SETUP_NEEDS_PAY_UPDATE =
+  "Invoicing cannot be set up yet (the database update for online payments has not been applied). Nothing was saved.";
+
+// ── Phase 2: online payments (Stripe Checkout) and the client's view link (.claude/pipeline/ek-consulting-stripe-pay-link/01-plan.md) ──
+
+/** Stripe's minimum charge in US cents (https://docs.stripe.com/currencies.md: 0.50 USD). Below it no pay link is offered. */
+export const STRIPE_MIN_CHARGE_CENTS = 50;
+/** At most this many live (unrevoked, unexpired) client links per invoice; the next one is refused ("Revoke old links first"). */
+export const MAX_LIVE_LINKS_PER_INVOICE = 20;
+/** Lifetime of a client link in days (InvoicingProfile.publicTokenTtlDays): default 90, the owner may set 7 to 365. */
+export const PUBLIC_TOKEN_TTL_DEFAULT_DAYS = 90;
+export const PUBLIC_TOKEN_TTL_MIN_DAYS = 7;
+export const PUBLIC_TOKEN_TTL_MAX_DAYS = 365;
+/** Checkout idempotency time bucket: 10 minutes. Two clicks in the same bucket for the same balance reuse one Checkout Session. */
+export const CHECKOUT_BUCKET_MS = 600_000;
+/** A Checkout Session expires 2 hours after the start of its bucket (Stripe allows 30 minutes to 24 hours after creation). */
+export const CHECKOUT_SESSION_LIFETIME_S = 7_200;
+
+/** Why the webhook flagged a Stripe event for the owner. Flags never reverse anything. */
+export const STRIPE_FLAG_REASONS = ["overpayment", "invoice_not_open", "ach_failed", "refunded", "disputed"] as const;
+export type StripeFlagReason = (typeof STRIPE_FLAG_REASONS)[number];
+export const STRIPE_FLAG_LABELS: Record<StripeFlagReason, string> = {
+  overpayment: "Paid more than the balance: the rest is a deposit on account",
+  invoice_not_open: "Paid an invoice that was not open: the whole amount is a deposit on account",
+  ach_failed: "A bank (ACH) payment failed",
+  refunded: "Refunded in Stripe (nothing was reversed here)",
+  disputed: "Disputed in Stripe (nothing was reversed here)",
+};
+
+export const PAY_FEATURE_NOT_SET_UP = "Online payments are not set up yet (the database update has not been applied).";
+/** The one sentence every invalid, revoked, expired or unknown client link shows (no reason is ever leaked). */
+export const INVALID_LINK_MESSAGE = "This link is no longer valid. Please contact the sender for a new one.";

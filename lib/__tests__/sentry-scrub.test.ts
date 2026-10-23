@@ -61,3 +61,39 @@ describe("Sentry config wiring", () => {
     }
   });
 });
+
+describe("the client's invoice link and the Stripe signature (ek-consulting-stripe-pay-link)", () => {
+  const ITOKEN = "Qq9-_Zz1".repeat(5) + "abc"; // 43 base64url chars
+  const IURL = `https://finance.example.test/i/${ITOKEN}`;
+  it("rewrites /i/<token> (and its PDF path) to /i/[token]", () => {
+    expect(ITOKEN).toHaveLength(43);
+    expect(scrubQueueTokens(IURL)).toBe("https://finance.example.test/i/[token]");
+    expect(scrubQueueTokens(`/i/${ITOKEN}/pdf`)).toBe("/i/[token]/pdf");
+    expect(scrubQueueTokens(`GET /i/${ITOKEN}`)).toBe("GET /i/[token]");
+  });
+  it("leaves /i/paid, /i/cancelled, /invoices/... and /api/... alone", () => {
+    for (const s of ["/i/paid", "/i/cancelled", "/invoices/x", "/business/ek-consulting/invoices/33333333-3333-4333-8333-333333333333", "/api/invoicing/33333333-3333-4333-8333-333333333333/pdf", "/ai/abcdefghijklmnopqrstuvwxyz"]) {
+      expect(scrubQueueTokens(s), s).toBe(s);
+    }
+  });
+  it("scrubs the token from url, transaction name, breadcrumbs and nested headers, and blanks a Stripe-Signature header", () => {
+    const sig = "t=1,v1=" + "f".repeat(64);
+    const event = {
+      transaction: `GET /i/${ITOKEN}`,
+      request: { url: IURL, headers: { referer: IURL, "Stripe-Signature": sig, "stripe-signature": sig, accept: "*/*" } },
+      breadcrumbs: [{ data: { url: IURL }, message: `fetch ${IURL}` }],
+      contexts: { trace: { data: { "url.full": IURL } } },
+    };
+    const out = scrubQueueTokensFromEvent(event);
+    const text = JSON.stringify(out);
+    expect(text).not.toContain(ITOKEN);
+    expect(text).not.toContain(sig);
+    expect(out.request.headers["Stripe-Signature"]).toBe("[scrubbed]");
+    expect(out.request.headers["stripe-signature"]).toBe("[scrubbed]");
+    expect(out.request.headers.accept).toBe("*/*");
+    expect(out.transaction).toBe("GET /i/[token]");
+  });
+  it("the /queue cases still pass alongside", () => {
+    expect(scrubQueueTokens(`/queue/${TOKEN} and /i/${ITOKEN}`)).toBe("/queue/[token] and /i/[token]");
+  });
+});

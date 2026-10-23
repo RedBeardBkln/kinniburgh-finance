@@ -21,6 +21,12 @@ import { loadClientPayments, loadOpenInvoices } from "@/lib/invoicing/payments-b
 import { DISPLAY_STATE_LABELS, formatNyDateTime, nyToday } from "@/lib/invoicing/state";
 import { toIsoDate, isUuid } from "@/lib/invoicing/validate";
 import { TableScroll } from "@/components/ui/table-scroll";
+import { PayLinksCard } from "@/components/invoicing/pay-links";
+import { StripeFlagsList } from "@/components/invoicing/online-payments";
+import { PAY_FEATURE_NOT_SET_UP, STRIPE_FLAG_LABELS, type StripeFlagReason } from "@/lib/invoicing/constants";
+import { loadInvoiceLinks, loadInvoiceStripeFlags, loadPaySettings } from "@/lib/invoicing/pay-build";
+import { payLinkSendNote, payOnlineEligibility } from "@/lib/invoicing/stripe/eligibility";
+import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
 
 // Rendering and e-mailing the PDF runs inside this page's server actions ("Save as final and send", "Send invoice").
 export const maxDuration = 30;
@@ -44,6 +50,13 @@ const EVENT_LABELS: Record<string, string> = {
   deposit_unlinked: "Bank deposit unlinked",
   emailed: "Sent by e-mail",
   email_failed: "E-mail not delivered",
+  link_created: "Client link created",
+  link_revoked: "Client link revoked",
+  link_viewed: "Client opened the link",
+  checkout_started: "Online payment started",
+  stripe_flag: "Online payment flagged",
+  stripe_flag_reviewed: "Flag reviewed",
+  fee_recorded: "Stripe fee recorded",
 };
 
 function eventLabel(kind: string, data: Record<string, string | number | boolean | null>): string {
@@ -51,14 +64,17 @@ function eventLabel(kind: string, data: Record<string, string | number | boolean
   if (kind === "emailed") {
     const n = typeof data.recipientCount === "number" ? data.recipientCount : null;
     const resent = typeof data.sendNumber === "number" && data.sendNumber > 1;
-    return `${resent ? "Resent by e-mail" : base}${n ? ` to ${n} recipient${n === 1 ? "" : "s"}` : ""}`;
+    return `${resent ? "Resent by e-mail" : base}${n ? ` to ${n} recipient${n === 1 ? "" : "s"}` : ""}${data.payLink === true ? ", with a pay link" : ""}`;
   }
+  if (kind === "stripe_flag" && typeof data.reason === "string" && data.reason in STRIPE_FLAG_LABELS) return `${base}: ${STRIPE_FLAG_LABELS[data.reason as StripeFlagReason]}`;
+  if (kind === "link_revoked" && typeof data.count === "number" && data.count > 1) return `${data.count} client links revoked`;
   return base;
 }
 
 // "Save as final and send" lands here with ?send=<outcome>; only these fixed values are read (never echoed text).
 const SEND_NOTICE: Record<string, { ok: boolean; text: string }> = {
   ok: { ok: true, text: "Saved as final and e-mailed." },
+  ok_nolink: { ok: true, text: "Saved as final and e-mailed, without a pay link: online payments are on but not set up (see Invoicing settings)." },
   ...Object.fromEntries(
     (Object.keys(SEND_FAILURE_MESSAGES) as SendFailureCategory[]).map((k) => [k, { ok: false, text: `Saved as final, but not e-mailed. ${SEND_FAILURE_MESSAGES[k]}` }])
   ),
@@ -122,11 +138,19 @@ export default async function InvoiceDetailPage({ params, searchParams }: PagePr
     );
   }
 
-  const [openInvoices, clientPayments, client] = await Promise.all([
+  const [openInvoices, clientPayments, client, pay, links, flags] = await Promise.all([
     loadOpenInvoices(ctx.entity.id, detail.clientId),
     loadClientPayments(ctx.entity.id, detail.clientId),
     loadClient(ctx.entity.id, detail.clientId, { includeArchived: true }),
+    loadPaySettings(ctx.entity.id),
+    loadInvoiceLinks(ctx.entity.id, detail.id, new Date()),
+    loadInvoiceStripeFlags(ctx.entity.id, detail.id),
   ]);
+  // Online payments (Phase 2): what the next e-mail will carry, decided here on the server (booleans and fixed sentences only).
+  const onlineOn = pay.status === "ok" && pay.stripePayEnabled;
+  const payEnv = payEnvironment(process.env);
+  const eligible = payOnlineEligibility({ enabled: onlineOn, configured: payEnv.configured, baseUrl: payEnv.baseUrl, status: detail.status, balanceCents: detail.balanceCents });
+  const payLinkNote = payLinkSendNote(onlineOn, eligible);
   const recipients = client ? invoiceRecipients(client.contacts) : [];
   const related = clientPayments.filter((p) => p.allocations.some((a) => a.invoiceId === detail.id));
   const activeApplications = detail.allocations.filter((a) => a.voidedAt === null);
@@ -159,6 +183,7 @@ export default async function InvoiceDetailPage({ params, searchParams }: PagePr
           lastSentText={detail.lastSentAt ? formatNyDateTime(detail.lastSentAt) : null}
           recipients={recipients}
           emailReady={emailPreflight(process.env).ok}
+          payLinkNote={payLinkNote}
         />
       ) : detail.lastSentAt ? (
         <p className="text-xs text-muted-foreground">
@@ -168,6 +193,9 @@ export default async function InvoiceDetailPage({ params, searchParams }: PagePr
       ) : null}
 
       <InvoiceActions slug={slug} documentId={detail.id} status={detail.status} canEdit={ctx.owner.allowed} voidBlockedReason={voidBlockedReason} />
+      {onlineOn && detail.status === "issued" ? (
+        <p className="text-xs text-muted-foreground">Downloaded PDFs do not include the pay link. E-mailed copies do, and so does the PDF on the client&apos;s link page.</p>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -248,6 +276,33 @@ export default async function InvoiceDetailPage({ params, searchParams }: PagePr
           {detail.notes ? <p className="mt-4 whitespace-pre-line text-sm text-muted-foreground">{detail.notes}</p> : null}
         </CardContent>
       </Card>
+
+      {flags.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Needs your review</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-xs text-muted-foreground">Online payments that need a look. Nothing was reversed: decide what to do (for example apply a deposit on account), then mark it reviewed.</p>
+            <StripeFlagsList slug={slug} flags={flags} canEdit={ctx.owner.allowed} showInvoice={false} />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {detail.status === "issued" || (links.status === "ok" && links.links.length > 0) ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Client link</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {links.status === "ok" ? (
+              <PayLinksCard slug={slug} documentId={detail.id} links={links.links} canEdit={ctx.owner.allowed} issued={detail.status === "issued"} />
+            ) : (
+              <p className="text-sm text-muted-foreground">{PAY_FEATURE_NOT_SET_UP}</p>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {detail.status === "issued" ? (
         <Card>

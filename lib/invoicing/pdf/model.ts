@@ -51,6 +51,11 @@ export interface PdfInput {
   termsText: string | null;
   footerText: string | null;
   remit: { payableTo: string | null; mailingLines: string[]; bankLines: string[] };
+  /**
+   * Phase 2: the client's view-and-pay link, printed under "Pay online" in the left payment column. Only on an e-mailed copy and on the
+   * client's own link page, and only while online payments apply (on, configured, a balance due); absent or null everywhere else.
+   */
+  payOnline?: { url: string } | null;
   /** "Invoice" for now; quotes reuse the model later (task 1.11). */
   documentLabel: string;
 }
@@ -317,6 +322,14 @@ export function buildPdfModel(input: PdfInput, measure: Measure, logoHeight = 0)
     payLeft.push({ style: "space", text: "" }, { style: "label", text: "Mail checks to" });
     paymentLines.push("Mail checks to:");
     for (const l of [...(input.remit.payableTo ? [input.remit.payableTo] : []), ...input.remit.mailingLines]) {
+      for (const text of fit(l, colW)) payLeft.push({ style: "muted", text });
+      paymentLines.push(`  ${l}`);
+    }
+  }
+  if (input.payOnline && input.payOnline.url.trim() !== "") {
+    payLeft.push({ style: "space", text: "" }, { style: "label", text: "Pay online" });
+    paymentLines.push("Pay online:");
+    for (const l of ["Pay by card or bank transfer (ACH):", input.payOnline.url]) {
       for (const text of fit(l, colW)) payLeft.push({ style: "muted", text });
       paymentLines.push(`  ${l}`);
     }

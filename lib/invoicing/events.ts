@@ -19,6 +19,14 @@ export const EVENT_KINDS = [
   "deposit_unlinked",
   "emailed",
   "email_failed",
+  // Phase 2 (online payments and the client's view link)
+  "link_created",
+  "link_revoked",
+  "link_viewed",
+  "checkout_started",
+  "stripe_flag",
+  "stripe_flag_reviewed",
+  "fee_recorded",
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 

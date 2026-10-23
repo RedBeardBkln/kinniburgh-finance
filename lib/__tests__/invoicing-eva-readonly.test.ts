@@ -1,5 +1,5 @@
 // Round 3 (owner decision 2026-10-16): Eva, and any other signed-in non-owner, has READ-ONLY access to the invoicing suite.
-// Every exported action of the five invoicing action files must refuse a non-owner BEFORE doing any work, and must change nothing.
+// Every exported action of the invoicing action files (five in Phase 1, plus actions/invoice-links.ts in Phase 2) must refuse a non-owner BEFORE doing any work, and must change nothing.
 // The harness runs the real actions + store + gate over the in-memory fake db with an Eva-like non-owner user.
 //
 // The test also fails when a new export is added without an input factory below, so the next action cannot slip in ungated.
@@ -22,6 +22,7 @@ import * as clients from "@/actions/clients";
 import * as items from "@/actions/reimbursable-items";
 import * as payments from "@/actions/billing-payments";
 import * as setup from "@/actions/invoicing-setup";
+import * as links from "@/actions/invoice-links";
 import { NOT_INVOICING_OWNER_MESSAGE } from "@/lib/invoicing/owner";
 
 const fake = db as unknown as FakeDb;
@@ -62,6 +63,7 @@ const CALLS: Record<string, () => Promise<unknown>> = {
   archiveDraft: () => invoices.archiveDraft({ slug: SLUG, documentId: U, expectedUpdatedAt: STAMP }),
   duplicateInvoice: () => invoices.duplicateInvoice({ slug: SLUG, documentId: U }),
   sendInvoice: () => invoices.sendInvoice({ slug: SLUG, documentId: U, requestKey: U }),
+  markStripeFlagReviewed: () => invoices.markStripeFlagReviewed({ slug: SLUG, flagEventId: U }),
   // clients
   createClient: () => clients.createClient({ slug: SLUG, name: "Acme" }),
   updateClient: () => clients.updateClient({ slug: SLUG, id: U, name: "Acme" }),
@@ -84,6 +86,13 @@ const CALLS: Record<string, () => Promise<unknown>> = {
   linkDeposit: () => payments.linkDeposit({ slug: SLUG, paymentId: U, depositTransactionId: U }),
   unlinkDeposit: () => payments.unlinkDeposit({ slug: SLUG, paymentId: U }),
   searchDepositCandidates: () => payments.searchDepositCandidates({ slug: SLUG, paymentId: null, clientId: U, amount: "1.00", receivedOn: "2026-12-01" }),
+  refreshStripeFee: () => payments.refreshStripeFee({ slug: SLUG, paymentId: U }),
+  searchPayoutCandidates: () => payments.searchPayoutCandidates({ slug: SLUG, paymentIds: [U] }),
+  linkPayoutDeposit: () => payments.linkPayoutDeposit({ slug: SLUG, depositTransactionId: U, paymentIds: [U] }),
+  // client links (Phase 2)
+  createPayLink: () => links.createPayLink({ slug: SLUG, documentId: U, requestKey: U }),
+  revokePayLinks: () => links.revokePayLinks({ slug: SLUG, documentId: U }),
+  replacePayLink: () => links.replacePayLink({ slug: SLUG, documentId: U, requestKey: U }),
   // settings
   setupInvoicing: () => setup.setupInvoicing(setupInput),
   updateInvoicingProfile: () => setup.updateInvoicingProfile(profileInput),
@@ -95,6 +104,8 @@ const CALLS: Record<string, () => Promise<unknown>> = {
   revealBusinessEin: () => setup.revealBusinessEin({ slug: SLUG }),
   uploadInvoiceLogo: () => setup.uploadInvoiceLogo(pngForm()),
   removeInvoiceLogo: () => setup.removeInvoiceLogo({ slug: SLUG }),
+  setOnlinePayments: () => setup.setOnlinePayments({ slug: SLUG, enabled: true }),
+  setPublicLinkTtl: () => setup.setPublicLinkTtl({ slug: SLUG, days: 30 }),
 };
 
 const MODULES: [string, Record<string, unknown>][] = [
@@ -103,6 +114,7 @@ const MODULES: [string, Record<string, unknown>][] = [
   ["actions/reimbursable-items", items],
   ["actions/billing-payments", payments],
   ["actions/invoicing-setup", setup],
+  ["actions/invoice-links", links],
 ];
 const exportsOf = (m: Record<string, unknown>) => Object.keys(m).filter((k) => typeof m[k] === "function");
 
@@ -114,7 +126,7 @@ function seed() {
     { id: "p1", entityId: E, enabled: true, goLiveOn: new Date("2026-10-01T00:00:00Z"), invoicePrefix: "", nextInvoiceNumber: 3100, quotePrefix: "Q-", nextQuoteNumber: 2001, numberPad: 0, defaultNetDays: 0, termsLabel: "Due upon receipt", businessAddress: "1 Test Road", showEinOnInvoice: false, includeRemitToByDefault: false, remitToUpdatedAt: null, glMap: GL },
   ];
   fake.glCode.rows = Object.values(GL).map((id) => ({ id, entityId: E, code: "1", name: "x", type: "revenue", archivedAt: null }));
-  for (const t of [fake.client, fake.clientContact, fake.billingDocument, fake.billingLine, fake.billingPayment, fake.billingAllocation, fake.billingEvent, fake.auditLog, fake.transaction, fake.document, fake.reimbursableItem]) t.rows = [];
+  for (const t of [fake.client, fake.clientContact, fake.billingDocument, fake.billingLine, fake.billingPayment, fake.billingAllocation, fake.billingEvent, fake.auditLog, fake.transaction, fake.document, fake.reimbursableItem, fake.billingAccessToken, fake.stripeEvent]) t.rows = [];
 }
 const snapshot = () => JSON.stringify(Object.values(fake).filter((v): v is FakeTable => v instanceof FakeTable).map((t) => t.rows));
 

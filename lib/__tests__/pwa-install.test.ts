@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isReviewQueuePath, shouldShowInstallBanner } from "@/lib/pwa-install";
+import { isPublicInvoicePath, isReviewQueuePath, shouldShowInstallBanner } from "@/lib/pwa-install";
 
 describe("shouldShowInstallBanner", () => {
   it("shows when a deferred prompt exists, not standalone, not dismissed", () => {
@@ -59,5 +59,22 @@ describe("isReviewQueuePath", () => {
     }
     expect(isReviewQueuePath(null)).toBe(false);
     expect(isReviewQueuePath(undefined)).toBe(false);
+  });
+});
+
+describe("isPublicInvoicePath (the client's invoice link: no install banner there)", () => {
+  it("is true for /i and anything under /i/", () => {
+    for (const p of ["/i", "/i/abc", "/i/paid", "/i/cancelled"]) expect(isPublicInvoicePath(p), p).toBe(true);
+  });
+  it("is false for look-alikes and a missing pathname; the queue rule is unchanged", () => {
+    for (const p of ["/", "/invoices", "/income", "/insurance", "/ix", "/business/ek-consulting/invoices", "/api/i/x"]) expect(isPublicInvoicePath(p), p).toBe(false);
+    expect(isPublicInvoicePath(null)).toBe(false);
+    expect(isReviewQueuePath("/i/abc")).toBe(false);
+  });
+  it("the install prompt hides on both", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const src = readFileSync(join(process.cwd(), "components/pwa-install-prompt.tsx"), "utf8");
+    expect(src).toMatch(/isReviewQueuePath\(pathname\) \|\| isPublicInvoicePath\(pathname\)/);
   });
 });

@@ -20,6 +20,7 @@ export function SendInvoiceButton({
   lastSentText,
   recipients,
   emailReady,
+  payLinkNote = null,
 }: {
   slug: string;
   documentId: string;
@@ -28,10 +29,12 @@ export function SendInvoiceButton({
   lastSentText: string | null;
   recipients: string[];
   emailReady: boolean;
+  /** Phase 2: a plain sentence about the pay link this send will (or will not) carry, decided on the server; null = none. */
+  payLinkNote?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [requestKey, setRequestKey] = useState("");
-  const { pending, error, ok, run, setError } = useRunner();
+  const { pending, error, ok, run, setError, setOk } = useRunner();
   const resend = sendCount > 0;
   const label = resend ? "Resend invoice" : "Send invoice";
   const blocked = !emailReady ? "E-mail is not set up yet (INVOICE_EMAIL_FROM is not set in Vercel, or is not an address on the verified domain)." : recipients.length === 0 ? "No contact of this client is ticked \"Receives invoices\"." : null;
@@ -75,6 +78,7 @@ export function SendInvoiceButton({
                   ))}
                 </ul>
                 {resend ? <p className="text-xs text-muted-foreground">It was already sent {lastSentText ? `on ${lastSentText}` : "before"}; this sends it again.</p> : null}
+                {payLinkNote ? <p className="text-xs text-muted-foreground">{payLinkNote}</p> : null}
                 <p className="text-xs text-muted-foreground">Recipients come from the client&apos;s contacts ticked &quot;Receives invoices&quot;.</p>
               </div>
             )}
@@ -93,8 +97,17 @@ export function SendInvoiceButton({
                       return r;
                     },
                     {
-                      okMessage: `Invoice ${displayNumber} was e-mailed.`,
-                      onSuccess: () => setOpen(false),
+                      onSuccess: (r) => {
+                        setOpen(false);
+                        const link = "payLink" in r ? r.payLink : "not_applicable";
+                        setOk(
+                          link === "included"
+                            ? `Invoice ${displayNumber} was e-mailed. Included a pay link.`
+                            : link === "omitted_not_configured"
+                              ? `Invoice ${displayNumber} was e-mailed, without a pay link: online payments are not set up (see Invoicing settings).`
+                              : `Invoice ${displayNumber} was e-mailed.`
+                        );
+                      },
                     }
                   )
                 }
