@@ -10,6 +10,7 @@ import { formatCents } from "@/lib/invoicing/money";
 import { loadInvoicePdfSource } from "@/lib/invoicing/pdf-build";
 import { renderInvoicePdf } from "@/lib/invoicing/pdf/render";
 import { sendEmail } from "@/lib/resend";
+import { emailFailureCode } from "@/lib/email-failure";
 import { MAX_LIVE_LINKS_PER_INVOICE, MAX_SHORT } from "@/lib/invoicing/constants";
 import { loadInvoiceDetail } from "@/lib/invoicing/documents-build";
 import { CHANGED_IN_OTHER_TAB, InvoicingRefusal, userMessageFor } from "@/lib/invoicing/errors";
@@ -358,7 +359,7 @@ export async function sendInvoice(
         idempotencyKey: `invoice-send/${documentId}/${requestKey}`,
       });
     } catch (err) {
-      console.error("Invoice e-mail failed", err instanceof Error ? err.name : "UnknownError");
+      console.error("Invoice e-mail failed", emailFailureCode(err));
       await revokeUnsent();
       try {
         await store.recordSendFailure({ entityId: entity.id, userId: user.id, documentId, category: "provider_error" });

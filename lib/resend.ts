@@ -41,5 +41,13 @@ export async function sendEmail({
     html !== undefined ? { ...base, html, ...(text !== undefined ? { text } : {}) } : { ...base, text: text as string },
     idempotencyKey !== undefined ? { idempotencyKey } : undefined
   );
-  if (error) throw new Error(`Email failed: ${error.message}`);
+  if (error) {
+    // `providerCode` / `statusCode` are Resend's short error name (e.g. "validation_error") and HTTP status: safe to log, unlike the
+    // message, which can contain addresses.
+    const err = new Error(`Email failed: ${error.message}`) as Error & { providerCode?: string; statusCode?: number | null };
+    err.providerCode = typeof error.name === "string" && /^[a-z_]{1,60}$/.test(error.name) ? error.name : "unknown";
+    err.statusCode = "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : null;
+    throw err;
+  }
 }
+
