@@ -155,10 +155,12 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
       orderBy: { nickname: "asc" },
       select: { id: true, nickname: true, mask: true },
     }),
+    // Completed projects are loaded too: a transaction keeps its link after its project is completed, and its row
+    // must still show that project (InlineProjectCell offers a completed project only on the rows already linked to it).
     db.project.findMany({
-      where: { archivedAt: null, status: { not: "completed" } },
+      where: { archivedAt: null },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, status: true },
     }),
     db.account.count({
       where: {

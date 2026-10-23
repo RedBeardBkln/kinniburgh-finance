@@ -57,6 +57,7 @@ export interface TagOption {
 export interface ProjectOption {
   id: string;
   name: string;
+  status?: string;
 }
 
 interface Props {
@@ -124,7 +125,8 @@ function formatAmount(amountStr: string) {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export function TransactionsTable({ transactions, allTags, allProjects, assign = null }: Props) {
-  const hasProjects = allProjects.length > 0;
+  // The column shows while a project can still be chosen, or while a row on this page is linked to one (even a completed one).
+  const hasProjects = allProjects.some((p) => p.status !== "completed") || transactions.some((tx) => tx.projectId);
   const visibleCols = COLS.filter((c) => c.key !== "project" || hasProjects);
   const canAssign = assign !== null;
 

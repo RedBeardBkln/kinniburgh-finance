@@ -7,6 +7,7 @@ import { updateTransactionProject } from "@/actions/transactions";
 interface Project {
   id: string;
   name: string;
+  status?: string;
 }
 
 interface Props {
@@ -29,7 +30,9 @@ export function InlineProjectCell({ transactionId, projects, initialProjectId }:
     });
   }
 
-  if (projects.length === 0) return null;
+  // A completed project is not offered for new links, but the row already linked to it keeps showing it.
+  const options = projects.filter((p) => p.status !== "completed" || p.id === projectId);
+  if (options.length === 0) return null;
 
   return (
     <select
@@ -40,8 +43,8 @@ export function InlineProjectCell({ transactionId, projects, initialProjectId }:
       title="Assign to project"
     >
       <option value="">No project</option>
-      {projects.map((p) => (
-        <option key={p.id} value={p.id}>{p.name}</option>
+      {options.map((p) => (
+        <option key={p.id} value={p.id}>{p.status === "completed" ? `${p.name} (completed)` : p.name}</option>
       ))}
     </select>
   );
