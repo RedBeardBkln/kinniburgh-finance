@@ -11,9 +11,10 @@ export function PayOnlineButton({ token, amountText }: { token: string; amountTe
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-2 sm:items-end">
       <Button
         size="lg"
+        className="bg-[#292F49] text-white hover:bg-[#3A4266]"
         disabled={pending}
         onClick={() => {
           setError(null);
@@ -30,7 +31,7 @@ export function PayOnlineButton({ token, amountText }: { token: string; amountTe
       >
         {pending ? "Opening secure checkout…" : `Pay ${amountText} online`}
       </Button>
-      <p className="text-xs text-muted-foreground">Card or US bank account (ACH), through Stripe. {ACH_PREFERRED_TEXT}</p>
+      <p className="max-w-xs text-xs text-[#6B645A] sm:text-right">Card or US bank account (ACH), through Stripe. {ACH_PREFERRED_TEXT}</p>
       {error ? (
         <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}

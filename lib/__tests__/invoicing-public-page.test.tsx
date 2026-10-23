@@ -47,7 +47,7 @@ const html = (i: PdfInput, canPayOnline = true) => renderToStaticMarkup(<PublicI
 describe("the client's invoice page", () => {
   it("shows the number, the business (dba), the client name, lines, totals, paid and the balance, and a PDF link", () => {
     const h = html(input());
-    for (const s of ["INVOICE 3100", "LaunchTime Solutions", "Acme Robotics", "Consulting", "10 hr", "$1,000.00", "$250.00", "$750.00", "Balance due", "Thanks for the project.", "Payment due on receipt."]) expect(h, s).toContain(s);
+    for (const s of ["INVOICE", "3100", "LaunchTime Solutions", "Acme Robotics", "Consulting", "10 hr", "$1,000.00", "$250.00", "$750.00", "Balance due", "Thanks for the project.", "Payment due on receipt."]) expect(h, s).toContain(s);
     expect(h).toContain(`/i/${TOKEN}/pdf`);
     expect(h).toContain("Pay $750.00 online");
   });
@@ -175,5 +175,21 @@ describe("source pins of the public surfaces", () => {
     expect(block).toMatch(/Referrer-Policy", value: "no-referrer"/);
     expect(block).toMatch(/Cache-Control", value: "private, no-store"/);
     expect(cfg).toMatch(/"\/i\/\*\*": \["\.\/data\/invoicing\/\*\*\/\*"\]/);
+  });
+});
+
+describe("the client's invoice page: logo and layout", () => {
+  it("shows the business logo when the page passes one, and nothing when it does not", () => {
+    const logo = "data:image/png;base64,iVBORw0KGgo=";
+    const withLogo = renderToStaticMarkup(<PublicInvoice view={toPublicInvoiceView(input(), { canPayOnline: true })} token={TOKEN} track={false} logoSrc={logo} />);
+    expect(withLogo).toContain(`src="${logo}"`);
+    expect(withLogo).toContain('alt="LaunchTime Solutions"');
+    expect(html(input())).not.toContain("<img");
+  });
+  it("the page inlines only an image logo (png, jpeg, webp) and no longer skips it", () => {
+    const src = read("app/i/[token]/page.tsx");
+    expect(src).toMatch(/LOGO_MIMES = new Set\(\["image\/png", "image\/jpeg", "image\/webp"\]\)/);
+    expect(src).not.toMatch(/noLogo: true/);
+    expect(src).toMatch(/hideEin: true/);
   });
 });

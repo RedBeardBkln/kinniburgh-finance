@@ -15,6 +15,8 @@ import { nyToday } from "@/lib/invoicing/state";
 // counted from the client after mount).
 
 export const dynamic = "force-dynamic";
+
+const LOGO_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
 // "Pay online" runs startCheckout (one Stripe call) under this route's limit.
 export const maxDuration = 30;
 
@@ -29,7 +31,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
   const access = await resolvePublicAccess(token, new Date());
   if (!access.ok) return <InvalidInvoiceLink />;
 
-  const [source, settings] = await Promise.all([loadInvoicePdfSource(access.documentId, { hideEin: true, noLogo: true }), loadPaySettings(access.entityId)]);
+  const [source, settings] = await Promise.all([loadInvoicePdfSource(access.documentId, { hideEin: true }), loadPaySettings(access.entityId)]);
   if (source.status !== "ok" || source.entityId !== access.entityId) return <InvalidInvoiceLink />;
   const env = payEnvironment(process.env);
   // A bank (ACH) payment still processing hides "Pay online" (plan D-2). A failed read fails CLOSED: no button and no notice.
@@ -50,5 +52,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
     bankPending: pendingUnknown || pending !== null,
   });
   const bankPending = pending ? { text: publicBankPendingText(pending), overdue: pending.overdue } : null;
-  return <PublicInvoice view={toPublicInvoiceView(source.input, { canPayOnline: eligible.ok, bankPending })} token={token} />;
+  // The same logo as the PDF (an uploaded one, else the LaunchTime logo), inlined so the page needs no extra request on the pay domain.
+  const logoSrc = source.logo && LOGO_MIMES.has(source.logo.mime) ? `data:${source.logo.mime};base64,${Buffer.from(source.logo.bytes).toString("base64")}` : null;
+  return <PublicInvoice view={toPublicInvoiceView(source.input, { canPayOnline: eligible.ok, bankPending })} token={token} logoSrc={logoSrc} />;
 }
