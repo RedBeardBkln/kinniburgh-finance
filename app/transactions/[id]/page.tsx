@@ -9,16 +9,23 @@ import Link from "next/link";
 import { TransactionTagsEditor } from "@/components/transactions/transaction-tags-editor";
 import { TransactionNotesEditor } from "@/components/transactions/transaction-notes-editor";
 import type { Route } from "next";
+import { ArrowLeft } from "lucide-react";
+import { transactionsReturnHref } from "@/lib/transactions-return-link";
 
 export default async function TransactionDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string | string[] }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login" as Route);
 
   const { id } = await params;
+  const { from } = await searchParams;
+  // Back to the same page, filters and row of the list this transaction was opened from (plain list without `from`).
+  const returnHref = transactionsReturnHref(id, typeof from === "string" ? from : null) as Route;
 
   const [tx, allTags] = await Promise.all([
     db.transaction.findUnique({
@@ -47,8 +54,15 @@ export default async function TransactionDetailPage({
     <AppShell userName={session.user.name ?? undefined}>
       <div className="space-y-6 max-w-2xl">
         <div>
+          <Link
+            href={returnHref}
+            className="mb-3 inline-flex h-9 items-center gap-1 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+            Return to transactions
+          </Link>
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-            <Link href={"/transactions" as Route} className="hover:underline">
+            <Link href={returnHref} className="hover:underline">
               Transactions
             </Link>
             <span>/</span>

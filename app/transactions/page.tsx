@@ -26,6 +26,7 @@ import {
   transferVisibilityWhere,
 } from "@/lib/transactions-list-filter";
 import { loadOwnAccountByMask } from "@/lib/own-account-masks-build";
+import { sanitizeListQuery } from "@/lib/transactions-return-link";
 
 interface PageProps {
   searchParams: Promise<{
@@ -133,6 +134,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         payeeRaw: true,
         payeeNormalized: true,
         description: true,
+        notes: true,
         amount: true,
         accountId: true,
         entityId: true,
@@ -359,6 +361,8 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
             payeeRaw: tx.payeeRaw,
             payeeNormalized: tx.payeeNormalized,
             description: tx.description,
+            notes: tx.notes,
+            pending: tx.pending,
             amount: new Prisma.Decimal(tx.amount).toString(),
             accountId: tx.accountId,
             accountNickname: tx.account.nickname,
@@ -375,6 +379,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
           allTags={allTags}
           allProjects={allProjects}
           assign={assignConfig}
+          listQuery={sanitizeListQuery({ ...params, bucket, tab, page: String(page) })}
         />
 
         {/* Pagination */}

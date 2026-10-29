@@ -14,7 +14,15 @@ import {
 import { InlineTagCell } from "./inline-tag-cell";
 import { InlineProjectCell } from "./inline-project-cell";
 import { Card, CardContent } from "@/components/ui/card";
+import { StickyNote } from "lucide-react";
 import type { Route } from "next";
+import { rowAnchorId, transactionDetailHref, transactionIdFromHash } from "@/lib/transactions-return-link";
+import {
+  HOVER_CARD_ID,
+  TransactionHoverCard,
+  type HoverCardAnchor,
+  type HoverCardData,
+} from "./transaction-hover-card";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,6 +32,10 @@ export interface TxRow {
   payeeRaw: string | null;
   payeeNormalized: string | null;
   description: string | null;
+  /** The user's note; null or blank = none. */
+  notes?: string | null;
+  /** Shown in the hover card. */
+  pending?: boolean;
   amount: string;
   accountId: string;
   accountNickname: string;
@@ -65,6 +77,8 @@ interface Props {
   allTags: TagOption[];
   allProjects: ProjectOption[];
   assign?: AssignConfig | null;
+  /** The list's own query (bucket, tab, page, filters, sort), carried to the detail page for "Return to transactions". */
+  listQuery?: string;
 }
 
 // ── Column definitions ────────────────────────────────────────────────────────
@@ -86,6 +100,9 @@ const ACTIONS_WIDTH = 60;
 const CHECK_WIDTH = 36;
 const MIN_WIDTH = 40;
 const STORAGE_KEY = "txn-col-widths-v1";
+// How long the pointer rests on a row before its hover card opens, and how long a returned-to row stays highlighted.
+const HOVER_DELAY_MS = 450;
+const RETURN_HIGHLIGHT_MS = 2500;
 
 function loadWidths(): Record<ColKey, number> {
   const defaults = Object.fromEntries(COLS.map((c) => [c.key, c.defaultWidth])) as Record<ColKey, number>;
@@ -124,7 +141,7 @@ function formatAmount(amountStr: string) {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-export function TransactionsTable({ transactions, allTags, allProjects, assign = null }: Props) {
+export function TransactionsTable({ transactions, allTags, allProjects, assign = null, listQuery = "" }: Props) {
   // The column shows while a project can still be chosen, or while a row on this page is linked to one (even a completed one).
   const hasProjects = allProjects.some((p) => p.status !== "completed") || transactions.some((tx) => tx.projectId);
   const visibleCols = COLS.filter((c) => c.key !== "project" || hasProjects);
@@ -147,6 +164,90 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
   const cell = "max-md:block max-md:p-0";
 
   const [widths, setWidths] = useState<Record<ColKey, number>>(loadWidths);
+
+  // ── Hover card ──
+  const [hover, setHover] = useState<{ id: string; anchor: HoverCardAnchor } | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearHoverTimer = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+  }, []);
+  const hideHover = useCallback(() => {
+    clearHoverTimer();
+    setHover(null);
+  }, [clearHoverTimer]);
+  const showHoverFor = useCallback((id: string, row: HTMLElement) => {
+    // Anchored under the payee cell so the card does not cover the row's own amount and tags.
+    const payeeCell = row.querySelector<HTMLElement>("[data-payee-cell]") ?? row;
+    const r = row.getBoundingClientRect();
+    setHover({ id, anchor: { left: payeeCell.getBoundingClientRect().left, top: r.top, bottom: r.bottom } });
+  }, []);
+  function onRowEnter(id: string, e: React.MouseEvent<HTMLTableRowElement>) {
+    // Touch screens have no hover: tapping opens the transaction instead.
+    if (!window.matchMedia("(hover: hover)").matches) return;
+    const row = e.currentTarget;
+    clearHoverTimer();
+    hoverTimer.current = setTimeout(() => showHoverFor(id, row), HOVER_DELAY_MS);
+  }
+  // A scroll moves the row away from the fixed card: close it.
+  useEffect(() => {
+    if (!hover) return;
+    window.addEventListener("scroll", hideHover, true);
+    return () => window.removeEventListener("scroll", hideHover, true);
+  }, [hover, hideHover]);
+  useEffect(() => clearHoverTimer, [clearHoverTimer]);
+
+  // ── Return to transactions: scroll to and briefly highlight the row named by the URL hash ──
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [returnedRowMissing, setReturnedRowMissing] = useState(false);
+  useEffect(() => {
+    // Once, on arrival from the detail page (after the first paint, so the row has its final position).
+    const id = transactionIdFromHash(window.location.hash);
+    if (!id) return;
+    let clearTimer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      const row = document.getElementById(rowAnchorId(id));
+      if (!row) {
+        setReturnedRowMissing(true);
+        return;
+      }
+      row.scrollIntoView({ block: "center" });
+      setHighlightId(id);
+      clearTimer = setTimeout(() => setHighlightId(null), RETURN_HIGHLIGHT_MS);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (clearTimer) clearTimeout(clearTimer);
+    };
+  }, []);
+
+  const tagNameById = new Map(allTags.map((t) => [t.id, t.name]));
+  const projectNameById = new Map(allProjects.map((p) => [p.id, p.name]));
+  function hoverData(tx: TxRow): HoverCardData {
+    const { display, isOutflow } = formatAmount(tx.amount);
+    const transferKind = tx.transferKind ?? (tx.transferPairId !== null ? "paired" : null);
+    const status = [
+      tx.pending ? "Pending" : "Posted",
+      transferKind === "one_sided" ? "Transfer (one side)" : transferKind === "paired" ? "Transfer" : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const note = tx.notes?.trim();
+    return {
+      payee: tx.payeeRaw ?? tx.payeeNormalized ?? "—",
+      date: formatDate(tx.postedAt),
+      amount: `${isOutflow ? "-" : "+"}${display}`,
+      isOutflow,
+      account: tx.accountMask ? `${tx.accountNickname} ···${tx.accountMask}` : tx.accountNickname,
+      status,
+      description: tx.description,
+      normalizedPayee: tx.payeeNormalized && tx.payeeNormalized !== tx.payeeRaw ? tx.payeeNormalized : null,
+      tags: tx.tagIds.map((id) => tagNameById.get(id)).filter((n): n is string => !!n),
+      project: tx.projectId ? (projectNameById.get(tx.projectId) ?? null) : null,
+      notes: note ? note : null,
+    };
+  }
+  const hoveredTx = hover ? transactions.find((t) => t.id === hover.id) : undefined;
 
   // ── Assignment (Eric-side) ──
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -266,6 +367,22 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
   return (
     <Card>
       <CardContent className="p-0">
+        {returnedRowMissing && (
+          <p className="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
+            <span>
+              The transaction you opened is no longer on this page of the list (for example, it was tagged and left
+              Needs Review).
+            </span>
+            <button
+              type="button"
+              onClick={() => setReturnedRowMissing(false)}
+              className="shrink-0 hover:text-foreground"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </p>
+        )}
         {/* Phones: the thead (and its select-all box) is hidden, so the same select-all control sits above the stacked rows. */}
         {canAssign && (
           <label className="flex items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground md:hidden">
@@ -343,10 +460,14 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
               // A row that already has tags is no longer "with Eva" in any useful
               // sense (Eric or a rule tagged it since): hide a stale chip.
               const chipKind = visibleChipKind(tx.assignKind ?? null, tx.tagIds.length);
+              const hasNote = !!tx.notes?.trim();
               return (
                 <tr
                   key={tx.id}
-                  className={`border-b last:border-0 hover:bg-muted/30 max-md:grid max-md:gap-x-3 max-md:gap-y-1 max-md:px-3 max-md:py-3 ${m.row} ${isTransfer ? "opacity-70" : ""}`}
+                  className={`border-b last:border-0 transition-colors hover:bg-muted/30 max-md:grid max-md:gap-x-3 max-md:gap-y-1 max-md:px-3 max-md:py-3 ${m.row} ${isTransfer ? "opacity-70" : ""} ${highlightId === tx.id ? "bg-primary/10" : ""}`}
+                  onMouseEnter={(e) => onRowEnter(tx.id, e)}
+                  onMouseLeave={hideHover}
+                  onMouseDown={hideHover}
                 >
                   {canAssign && (
                     <td className={`px-2 py-2 ${cell} max-md:col-start-1 max-md:row-span-3 max-md:row-start-1 max-md:pt-0.5`}>
@@ -363,13 +484,25 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                   <td className={`px-2 py-2 text-muted-foreground whitespace-nowrap text-xs ${cell} ${m.main} max-md:row-start-2`}>
                     {formatDate(tx.postedAt)}
                   </td>
-                  <td className={`px-2 py-2 min-w-0 ${cell} ${m.main} max-md:row-start-1`}>
-                    <Link
-                      href={`/transactions/${tx.id}` as Route}
-                      className="font-medium hover:underline block truncate"
-                    >
-                      {tx.payeeRaw ?? tx.payeeNormalized ?? "—"}
-                    </Link>
+                  {/* The payee cell carries the row's anchor (the "Return to transactions" target). */}
+                  <td id={rowAnchorId(tx.id)} data-payee-cell className={`scroll-mt-24 px-2 py-2 min-w-0 ${cell} ${m.main} max-md:row-start-1`}>
+                    <div className="flex min-w-0 items-center gap-1">
+                      <Link
+                        href={transactionDetailHref(tx.id, listQuery) as Route}
+                        className="min-w-0 truncate font-medium hover:underline"
+                        aria-describedby={hover?.id === tx.id ? HOVER_CARD_ID : undefined}
+                        onFocus={(e) => {
+                          const row = e.currentTarget.closest("tr");
+                          if (row && window.matchMedia("(hover: hover)").matches) showHoverFor(tx.id, row);
+                        }}
+                        onBlur={hideHover}
+                      >
+                        {tx.payeeRaw ?? tx.payeeNormalized ?? "—"}
+                      </Link>
+                      {hasNote && (
+                        <StickyNote className="h-3.5 w-3.5 shrink-0 text-amber-600" role="img" aria-label="Has a note" />
+                      )}
+                    </div>
                     {tx.description && (
                       <p className="text-xs text-muted-foreground truncate">{tx.description}</p>
                     )}
@@ -472,6 +605,7 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
           </tbody>
         </table>
         </div>
+        {hover && hoveredTx && <TransactionHoverCard data={hoverData(hoveredTx)} anchor={hover.anchor} />}
       </CardContent>
       {canAssign && (selectedOnPage.length > 0 || assignError) && (
         <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-background px-4 py-2 shadow-lg max-md:left-3 max-md:right-20 max-md:translate-x-0 max-md:flex-wrap">
