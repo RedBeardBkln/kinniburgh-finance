@@ -11,7 +11,9 @@ import {
   batchProgress,
   classifyQueueItem,
   resolveAssignee,
+  waitingByAddedDay,
   type AssigneeResolution,
+  type WaitingGroup,
   type AssignmentChipKind,
 } from "@/lib/review-queue";
 import {
@@ -438,6 +440,10 @@ export interface BatchStatusRow {
   resolved: number;
   returned: number;
   pending: number;
+  /** Still-waiting items by the day they were added (later sends are appended to the open batch). */
+  waitingGroups: WaitingGroup[];
+  /** When the newest item in the batch was added. */
+  lastAddedAt: string | null; // ISO
 }
 
 /** The creator's most recent submitted/completed batches (newest first). */
@@ -461,7 +467,7 @@ export async function loadBatchStatuses(
       reminderStatus: true,
       reminderSentAt: true,
       reminderError: true,
-      assignments: { select: { status: true } },
+      assignments: { select: { status: true, createdAt: true } },
     },
   });
   return batches.map((b) => ({
@@ -477,5 +483,10 @@ export async function loadBatchStatuses(
     reminderSentAt: b.reminderSentAt?.toISOString() ?? null,
     reminderError: b.reminderError,
     ...batchProgress(b.assignments.map((a) => a.status)),
+    waitingGroups: waitingByAddedDay(b.assignments),
+    lastAddedAt:
+      b.assignments.length > 0
+        ? new Date(Math.max(...b.assignments.map((a) => a.createdAt.getTime()))).toISOString()
+        : null,
   }));
 }

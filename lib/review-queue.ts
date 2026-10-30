@@ -343,3 +343,82 @@ export function isActiveAssignment(batchStatus: string, assignmentStatus: string
     (ACTIVE_BATCH_STATUSES as readonly string[]).includes(batchStatus)
   );
 }
+
+// ── Eric's panel: what is still waiting, by when it was added ──────────────────
+
+export interface WaitingGroup {
+  /** America/New_York calendar day the item was added, YYYY-MM-DD. */
+  day: string;
+  count: number;
+}
+
+const NY_DAY = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/**
+ * Pending items of one batch grouped by the New York day they were added, newest day first. A batch stays open while
+ * anything is waiting and later submissions are appended to it, so this is how Eric sees each send separately.
+ */
+export function waitingByAddedDay(
+  assignments: ReadonlyArray<{ status: string; createdAt: Date }>
+): WaitingGroup[] {
+  const counts = new Map<string, number>();
+  for (const a of assignments) {
+    if (a.status !== "pending") continue;
+    const day = NY_DAY.format(a.createdAt);
+    counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0))
+    .map(([day, count]) => ({ day, count }));
+}
+
+// ── Eva's page: unsaved tag choices kept on her device until they are saved ─────
+
+export const QUEUE_CHOICES_STORAGE_KEY = "review-queue-choices-v1";
+
+export interface StoredQueueChoice {
+  tagId: string;
+  ruleOn: boolean;
+  pattern: string;
+}
+
+/**
+ * Restores choices saved in the browser, keeping only items still on the page and tags that still exist. Anything
+ * malformed is dropped (never trusted: the server re-validates every save anyway).
+ */
+export function restoreQueueChoices(
+  raw: string | null,
+  itemIds: ReadonlySet<string>,
+  tagIds: ReadonlySet<string>
+): Record<string, StoredQueueChoice> {
+  if (!raw) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const out: Record<string, StoredQueueChoice> = {};
+  for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!itemIds.has(id) || !value || typeof value !== "object") continue;
+    const v = value as Record<string, unknown>;
+    if (typeof v.tagId !== "string" || !tagIds.has(v.tagId)) continue;
+    out[id] = {
+      tagId: v.tagId,
+      ruleOn: v.ruleOn === true,
+      pattern: typeof v.pattern === "string" ? v.pattern.slice(0, 255) : "",
+    };
+  }
+  return out;
+}
+
+/** The stored map after this page's choices change: other pages' entries are dropped (one queue per device). */
+export function serializeQueueChoices(choices: Record<string, StoredQueueChoice>): string | null {
+  return Object.keys(choices).length === 0 ? null : JSON.stringify(choices);
+}

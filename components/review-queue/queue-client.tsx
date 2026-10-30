@@ -10,7 +10,14 @@ import {
   type CreateTagForQueueResult,
   type QueueTag,
 } from "@/actions/review-queue";
-import { findSimilarItems, isUsableRulePattern, type QueueItemSaveResult } from "@/lib/review-queue";
+import {
+  QUEUE_CHOICES_STORAGE_KEY,
+  findSimilarItems,
+  isUsableRulePattern,
+  restoreQueueChoices,
+  serializeQueueChoices,
+  type QueueItemSaveResult,
+} from "@/lib/review-queue";
 import { normalizePayee, suggestPayeePattern } from "@/lib/tags";
 import type { QueueItem } from "@/lib/review-queue-server";
 import { TagPickerSheet } from "./tag-picker-sheet";
@@ -67,6 +74,8 @@ export function QueueClient({ token, items: initialItems, tags: initialTags, ass
   const [itemErrors, setItemErrors] = useState<Record<string, string>>({});
   const [notices, setNotices] = useState<string[]>([]);
   const [banner, setBanner] = useState<string | null>(null);
+  // A failed Save is shown next to the Save button (the banner is at the top, out of view after scrolling).
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [finished, setFinished] = useState(initialItems.length === 0);
   const [totals, setTotals] = useState({ saved: 0, sentBack: 0 });
   const [isSaving, startSave] = useTransition();
@@ -81,10 +90,52 @@ export function QueueClient({ token, items: initialItems, tags: initialTags, ass
     markOpened(token).catch(() => {});
   }, [token]);
 
+  // Unsaved choices are kept on this device (localStorage) so a reload, a closed tab or a failed Save does not lose
+  // them. Restored after mount (the server render has none), then written through on every change.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      let raw: string | null = null;
+      try {
+        raw = localStorage.getItem(QUEUE_CHOICES_STORAGE_KEY);
+      } catch {}
+      const restored = restoreQueueChoices(
+        raw,
+        new Set(initialItems.map((i) => i.transactionId)),
+        new Set(initialTags.map((t) => t.id))
+      );
+      restoredRef.current = true;
+      if (Object.keys(restored).length > 0) {
+        setChoices((prev) => ({ ...restored, ...prev }));
+        setBanner("Your unsaved choices from last time are back. Press Save to keep them.");
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [initialItems, initialTags]);
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    try {
+      const value = serializeQueueChoices(choices);
+      if (value === null) localStorage.removeItem(QUEUE_CHOICES_STORAGE_KEY);
+      else localStorage.setItem(QUEUE_CHOICES_STORAGE_KEY, value);
+    } catch {}
+  }, [choices]);
+
   const closeSheet = useCallback(() => setSheetFor(null), []);
 
   const tagById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
   const readyCount = items.filter((i) => choices[i.transactionId]).length;
+
+  // Leaving with unsaved choices asks first (the browser shows its own wording).
+  useEffect(() => {
+    if (readyCount === 0) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [readyCount]);
 
   const similarityItems = useMemo(
     () =>
@@ -179,20 +230,23 @@ export function QueueClient({ token, items: initialItems, tags: initialTags, ass
       });
     if (payload.length === 0) return;
     setBanner(null);
+    setSaveError(null);
 
     startSave(async () => {
       try {
         const res = await saveQueue(token, { items: payload });
         if (!res.ok) {
-          setBanner(res.error);
+          setSaveError(res.error);
           return;
         }
         applyResults(res.results, res.completed);
       } catch {
-        setBanner(
-          "Couldn't save. Check your connection and try again. If it keeps happening, your link may have expired - ask " +
+        // Also what happens when the page was open across an app update: a reload fixes it, and the choices survive it.
+        setSaveError(
+          "Nothing was saved. Your choices are kept on this phone: reload the page and press Save again. If it keeps " +
+            "happening, ask " +
             senderName +
-            " for a new one."
+            " for a new link."
         );
       }
     });
@@ -465,6 +519,11 @@ export function QueueClient({ token, items: initialItems, tags: initialTags, ass
       </ul>
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+        {saveError && (
+          <p role="alert" className="pb-2 text-sm font-medium text-destructive">
+            {saveError}
+          </p>
+        )}
         <button
           type="button"
           onClick={handleSave}

@@ -35,6 +35,13 @@ function formatDateTime(iso: string): string {
   }).format(new Date(iso));
 }
 
+/** A YYYY-MM-DD New York calendar day, e.g. "Oct 29". */
+function formatDay(day: string): string {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(
+    new Date(`${day}T00:00:00Z`)
+  );
+}
+
 function LinkBox({ link }: { link: ShownLink }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState(false);
@@ -235,16 +242,19 @@ export function EricReviewPanel({ assigneeName, draftCount, batches }: Props) {
               <li key={b.id} className="rounded-md border bg-background p-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs">
+                    {/* Later sends are appended to the open list, so "first sent" and the waiting-by-day line show each send. */}
                     <p className="font-medium">
-                      {b.status === "completed"
-                        ? "Completed"
-                        : b.firstOpenedAt
-                          ? `Opened ${formatDateTime(b.firstOpenedAt)}`
-                          : "Not opened yet"}
+                      {b.status === "completed" ? "Completed" : "Open list"}
                       {b.submittedAt && (
                         <span className="font-normal text-muted-foreground">
                           {" "}
-                          · submitted {formatDateTime(b.submittedAt)}
+                          · first sent {formatDateTime(b.submittedAt)}
+                        </span>
+                      )}
+                      {b.lastAddedAt && b.submittedAt && b.lastAddedAt > b.submittedAt && (
+                        <span className="font-normal text-muted-foreground">
+                          {" "}
+                          · last added {formatDateTime(b.lastAddedAt)}
                         </span>
                       )}
                     </p>
@@ -253,6 +263,18 @@ export function EricReviewPanel({ assigneeName, draftCount, batches }: Props) {
                       {b.returned > 0 ? ` · ${b.returned} sent back` : ""}
                       {b.pending > 0 ? ` · ${b.pending} waiting` : ""}
                     </p>
+                    {b.status === "submitted" && b.waitingGroups.length > 0 && (
+                      <p className="text-muted-foreground">
+                        Waiting: {b.waitingGroups.map((g) => `${g.count} added ${formatDay(g.day)}`).join(" · ")}
+                      </p>
+                    )}
+                    {b.status === "submitted" && (
+                      <p className="text-muted-foreground">
+                        {b.firstOpenedAt
+                          ? `First opened ${formatDateTime(b.firstOpenedAt)} (later opens aren't recorded)`
+                          : "Not opened yet"}
+                      </p>
+                    )}
                   </div>
                   {b.status === "submitted" && (
                     <div className="flex gap-2">
