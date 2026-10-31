@@ -21,6 +21,8 @@ import { loadBankPendingFor, loadPaySettings, type PaySettings } from "@/lib/inv
 import { payOnlineEligibility } from "@/lib/invoicing/stripe/eligibility";
 import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
 import { cleanText, parseCalendarDate, validateDraft, type DraftInput } from "@/lib/invoicing/validate";
+import { documentTimeEntryIds } from "@/lib/invoicing/benchtop/time-lines";
+import { syncInvoiceTime } from "@/lib/invoicing/benchtop/sync";
 
 // Invoice drafts, issue, void, duplicate (plan task 1.7) and e-mail delivery (task 1.10: an invoice is e-mailed ONLY when the owner
 // clicks Send / Resend or "Save as final and send"; nothing sends on issue, on a schedule or from a cron). Every export starts with `await requireAuth();` (a test pins it), then
@@ -153,6 +155,8 @@ export async function issueInvoice(input: z.input<typeof issueSchema>): Promise<
       glCodeIds,
     });
     await audit(user.id, "invoicing_invoice_issue", { entityId: entity.id, documentId, number: issued.number, totalCents: detail.totalCents });
+    // Benchtop time on this invoice is now billed there too (a failure is on the timeline; the invoice page offers a retry)
+    await syncInvoiceTime({ entityId: entity.id, userId: user.id, documentId, direction: "bill", invoiceRef: issued.displayNumber, entryIds: documentTimeEntryIds(detail.lines) });
     pages(slug, documentId);
     return { success: true, displayNumber: issued.displayNumber };
   } catch (err) {
@@ -178,6 +182,11 @@ export async function voidInvoice(input: z.input<typeof voidSchema>): Promise<{ 
     if (!reason.ok) return { error: reason.error };
     await store.voidInvoice({ entityId: entity.id, userId: user.id, documentId, reason: reason.value ?? "" });
     await audit(user.id, "invoicing_invoice_void", { entityId: entity.id, documentId });
+    // Its Benchtop time is unbilled there again, so it can go on a new invoice
+    const voided = await loadInvoiceDetail(entity.id, documentId, todayNY());
+    if (voided?.displayNumber) {
+      await syncInvoiceTime({ entityId: entity.id, userId: user.id, documentId, direction: "unbill", invoiceRef: voided.displayNumber, entryIds: documentTimeEntryIds(voided.lines) });
+    }
     pages(slug, documentId);
     return { success: true };
   } catch (err) {

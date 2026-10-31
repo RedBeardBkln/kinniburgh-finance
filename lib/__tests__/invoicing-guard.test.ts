@@ -71,6 +71,8 @@ const PURE_FILES = [
   "lib/invoicing/stripe/checkout-params.ts",
   "lib/invoicing/stripe/apply-event.ts",
   "lib/invoicing/stripe/flags.ts",
+  // Benchtop time import
+  "lib/invoicing/benchtop/time-lines.ts",
 ];
 const BUILD_FILES = [
   "lib/invoicing/gate-build.ts",
@@ -80,6 +82,7 @@ const BUILD_FILES = [
   "lib/invoicing/payments-build.ts",
   "lib/invoicing/pdf-build.ts",
   "lib/invoicing/pay-build.ts",
+  "lib/invoicing/benchtop-build.ts",
 ];
 const STORE_FILES = ["lib/invoicing/store.ts", "lib/invoicing/tin-store.ts"];
 /** Phase 2 public surface (client view link, Stripe webhook, the token-gated public actions): in scope of the import and vocabulary guards. */
@@ -92,6 +95,7 @@ const ACTION_FILES = [
   "actions/invoices.ts",
   "actions/billing-payments.ts",
   "actions/invoice-links.ts",
+  "actions/benchtop-time.ts",
 ];
 const MODEL_ACCESS = /\b(?:db|tx)\.(invoicingProfile|client|clientContact|reimbursableItem|billingDocument|billingLine|billingPayment|billingAllocation|billingEvent|billingAccessToken|stripeEvent)\b/;
 
@@ -179,7 +183,7 @@ describe("encrypted columns", () => {
     for (const f of SOURCE_FILES) {
       const src = noComments(read(f));
       if (f === "lib/invoicing/tin-store.ts") continue;
-      expect(src, f).not.toMatch(/\b(einEncrypted|remitToEncrypted)\s*:\s*true/);
+      expect(src, f).not.toMatch(/\b(einEncrypted|remitToEncrypted|benchtopKeyEncrypted)\s*:\s*true/);
     }
   });
   it("tin-store.ts is the only file that imports decrypt for invoicing columns", () => {
@@ -201,7 +205,7 @@ describe("pure modules stay pure", () => {
 });
 
 describe("import direction", () => {
-  const FORBIDDEN_TARGET = /["']@\/(lib\/invoicing|lib\/contractors|actions\/(invoicing-setup|clients|reimbursable-items|invoices|quotes|billing-payments|public-invoice|contractors)|components\/(invoicing|contractors))/;
+  const FORBIDDEN_TARGET = /["']@\/(lib\/invoicing|lib\/contractors|actions\/(invoicing-setup|clients|reimbursable-items|invoices|quotes|billing-payments|public-invoice|contractors|benchtop-time)|components\/(invoicing|contractors))/;
   it("the tax engine, the AI reviewer, tax computation, the ledger P&L and the advisor never import invoicing code", () => {
     const guarded = SOURCE_FILES.filter(
       (f) =>

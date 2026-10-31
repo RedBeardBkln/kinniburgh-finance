@@ -30,6 +30,11 @@ export const EVENT_KINDS = [
   // A US bank (ACH) payment that is still processing, and the owner's "Stop waiting for this payment" (stripe-ach-pending-hide-pay)
   "bank_payment_pending",
   "bank_payment_released",
+  // Benchtop time import: the invoice's time marked billed in Benchtop at issue / unbilled at void, or the attempt that failed
+  "time_billed",
+  "time_bill_failed",
+  "time_unbilled",
+  "time_unbill_failed",
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 

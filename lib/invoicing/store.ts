@@ -377,8 +377,34 @@ async function replaceDraftLines(tx: Tx, entityId: string, documentId: string, l
         markupBps: l.markupBps,
         costTransactionId: l.costTransactionId,
         receiptId: l.receiptId,
+        timeEntryIds: l.timeEntryIds,
       })),
     });
+  }
+}
+
+/**
+ * Benchtop time import: refuses when any of these Benchtop time entries is already billed on ANOTHER live invoice of the entity (a
+ * draft, or an issued one; void invoices and archived drafts released theirs), so the same time is never billed twice.
+ */
+async function assertTimeEntriesFree(tx: Tx, entityId: string, documentId: string | null, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const lines = await tx.billingLine.findMany({
+    where: { timeEntryIds: { hasSome: ids }, ...(documentId ? { documentId: { not: documentId } } : {}) },
+    select: { documentId: true },
+  });
+  const docIds = [...new Set(lines.map((l) => l.documentId))];
+  if (docIds.length === 0) return;
+  const other = await tx.billingDocument.findFirst({
+    where: { id: { in: docIds }, entityId, status: { not: "void" }, archivedAt: null },
+    select: { displayNumber: true },
+  });
+  if (other) {
+    throw new InvoicingRefusal(
+      other.displayNumber
+        ? `Some of this Benchtop time is already billed on invoice ${other.displayNumber}. Remove those lines first.`
+        : "Some of this Benchtop time is already on another draft invoice. Remove those lines from one of the drafts first."
+    );
   }
 }
 
@@ -451,6 +477,7 @@ export async function saveDraft(args: { entityId: string; userId: string; docume
       id = documentId;
       await appendEvent(tx, { entityId, kind: "edited", actorId: userId, documentId: id, clientId: draft.clientId, data: { lineCount: draft.lines.length, totalCents: data.totalCents } });
     }
+    await assertTimeEntriesFree(tx, entityId, id, draft.lines.flatMap((l) => l.timeEntryIds));
     await replaceDraftLines(tx, entityId, id, draft.lines);
     const fresh = await tx.billingDocument.findUnique({ where: { id }, select: { updatedAt: true } });
     return { id, updatedAt: fresh?.updatedAt ?? new Date() };
@@ -491,6 +518,8 @@ export async function issueInvoice(args: {
     if (!draft) throw new InvoicingRefusal(CHANGED_IN_OTHER_TAB);
     const owner = await tx.client.findFirst({ where: { id: draft.clientId, entityId }, select: { archivedAt: true } });
     if (!owner || Boolean(owner.archivedAt)) throw new InvoicingRefusal("This invoice's client is archived, so the draft cannot be issued.");
+    const timeLines = await tx.billingLine.findMany({ where: { documentId }, select: { timeEntryIds: true } });
+    await assertTimeEntriesFree(tx, entityId, documentId, timeLines.flatMap((l) => l.timeEntryIds ?? []));
     // The row lock on the profile serialises concurrent issues; the returned value is the number this issue takes.
     const rows = await tx.$queryRaw<{ n: number; prefix: string; pad: number }[]>`
       UPDATE "InvoicingProfile" SET "nextInvoiceNumber" = "nextInvoiceNumber" + 1
@@ -1149,4 +1178,29 @@ export async function linkDepositToPayments(args: { entityId: string; userId: st
     if (res.count !== ids.length) throw new InvoicingRefusal(CHANGED_IN_OTHER_TAB);
     for (const p of pays) await appendEvent(tx, { entityId, kind: "deposit_linked", actorId: userId, paymentId: p.id, data: { batchSize: ids.length } });
   }, TX_OPTIONS);
+}
+
+// ── Benchtop time import ─────────────────────────────────────────────────────────
+
+/** Stores (or with null, removes) the owner's Benchtop connection key, already encrypted by tin-store.ts. */
+export async function setBenchtopKeyEncrypted(entityId: string, encrypted: string | null, last4: string | null): Promise<void> {
+  const res = await db.invoicingProfile.updateMany({ where: { entityId }, data: { benchtopKeyEncrypted: encrypted, benchtopKeyLast4: last4 } });
+  if (res.count !== 1) throw new InvoicingRefusal("Invoicing is not set up for this business.");
+}
+
+/** Links a client to its Benchtop client (null unlinks) and sets its default hourly rate for imported time (null clears it). */
+export async function setClientBenchtop(entityId: string, clientId: string, data: { benchtopClientId: string | null; hourlyRateCents: number | null }): Promise<void> {
+  const res = await db.client.updateMany({ where: { id: clientId, entityId, archivedAt: null }, data });
+  if (res.count !== 1) throw new InvoicingRefusal("That client was not found.");
+}
+
+/** Records on the invoice's timeline whether its Benchtop time was marked billed / unbilled (counts only). */
+export async function recordTimeSync(args: {
+  entityId: string;
+  userId: string;
+  documentId: string;
+  kind: "time_billed" | "time_bill_failed" | "time_unbilled" | "time_unbill_failed";
+  data: Record<string, number>;
+}): Promise<void> {
+  await appendEvent(db, { entityId: args.entityId, kind: args.kind, actorId: args.userId, documentId: args.documentId, data: args.data });
 }

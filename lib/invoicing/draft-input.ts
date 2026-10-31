@@ -35,6 +35,8 @@ export function detailToDraftInput(d: InvoiceDetail, opts: { forDuplicate?: bool
       markupBps: l.markupBps,
       costTransactionId: opts.forDuplicate ? null : l.costTransactionId,
       receiptId: opts.forDuplicate ? null : l.receiptId,
+      // A copy never bills the same Benchtop time again
+      timeEntryIds: opts.forDuplicate ? [] : l.timeEntryIds,
     })),
   };
 }

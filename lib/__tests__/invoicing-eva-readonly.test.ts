@@ -23,6 +23,7 @@ import * as items from "@/actions/reimbursable-items";
 import * as payments from "@/actions/billing-payments";
 import * as setup from "@/actions/invoicing-setup";
 import * as links from "@/actions/invoice-links";
+import * as benchtop from "@/actions/benchtop-time";
 import { NOT_INVOICING_OWNER_MESSAGE } from "@/lib/invoicing/owner";
 
 const fake = db as unknown as FakeDb;
@@ -94,6 +95,12 @@ const CALLS: Record<string, () => Promise<unknown>> = {
   createPayLink: () => links.createPayLink({ slug: SLUG, documentId: U, requestKey: U }),
   revokePayLinks: () => links.revokePayLinks({ slug: SLUG, documentId: U }),
   replacePayLink: () => links.replacePayLink({ slug: SLUG, documentId: U, requestKey: U }),
+  // Benchtop time import
+  saveBenchtopKey: () => benchtop.saveBenchtopKey({ slug: SLUG, key: "" }),
+  listBenchtopClients: () => benchtop.listBenchtopClients({ slug: SLUG }),
+  linkClientToBenchtop: () => benchtop.linkClientToBenchtop({ slug: SLUG, clientId: U, benchtopClientId: U, hourlyRate: "175" }),
+  fetchBenchtopTime: () => benchtop.fetchBenchtopTime({ slug: SLUG, clientId: U, documentId: null, from: null, to: null }),
+  syncBenchtopTime: () => benchtop.syncBenchtopTime({ slug: SLUG, documentId: U }),
   // settings
   setupInvoicing: () => setup.setupInvoicing(setupInput),
   updateInvoicingProfile: () => setup.updateInvoicingProfile(profileInput),
@@ -116,6 +123,7 @@ const MODULES: [string, Record<string, unknown>][] = [
   ["actions/billing-payments", payments],
   ["actions/invoicing-setup", setup],
   ["actions/invoice-links", links],
+  ["actions/benchtop-time", benchtop],
 ];
 const exportsOf = (m: Record<string, unknown>) => Object.keys(m).filter((k) => typeof m[k] === "function");
 

@@ -10,6 +10,7 @@ import { loadClients } from "@/lib/invoicing/clients-build";
 import { emailPreflight, invoiceRecipients } from "@/lib/invoicing/email";
 import { loadCostTransactionOptions, loadGlCodes, loadItems } from "@/lib/invoicing/catalog-build";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
+import { loadBenchtopStatus } from "@/lib/invoicing/benchtop-build";
 import { nyToday } from "@/lib/invoicing/state";
 
 // Rendering and e-mailing the PDF runs inside this page's server actions ("Save as final and send").
@@ -52,11 +53,12 @@ export default async function NewInvoicePage({ params, searchParams }: PageProps
   }
 
   const today = nyToday(new Date());
-  const [clients, items, gl, costs] = await Promise.all([
+  const [clients, items, gl, costs, benchtop] = await Promise.all([
     loadClients(ctx.entity.id),
     loadItems(ctx.entity.id),
     loadGlCodes(ctx.entity.id),
     loadCostTransactionOptions(ctx.entity.id, today),
+    loadBenchtopStatus(ctx.entity.id),
   ]);
   if (clients.length === 0) {
     return shell(
@@ -71,8 +73,9 @@ export default async function NewInvoicePage({ params, searchParams }: PageProps
   return shell(
     <InvoiceEditor
       slug={slug}
-      clients={clients.map((c) => ({ id: c.id, name: c.name, defaultNetDays: c.defaultNetDays, defaultTaxable: c.defaultTaxable, recipients: invoiceRecipients(c.contacts) }))}
+      clients={clients.map((c) => ({ id: c.id, name: c.name, defaultNetDays: c.defaultNetDays, defaultTaxable: c.defaultTaxable, recipients: invoiceRecipients(c.contacts), benchtopClientId: c.benchtopClientId, hourlyRateCents: c.hourlyRateCents }))}
       emailReady={emailPreflight(process.env).ok}
+      benchtopConnected={benchtop.connected}
       items={items}
       glOptions={incomeAccounts}
       costOptions={costs}

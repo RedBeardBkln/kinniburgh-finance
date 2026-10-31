@@ -27,7 +27,7 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 
 const client: ClientView = {
   id: "c1", name: "Acme Robotics", addressLine1: "2 Client Way", addressLine2: null, city: "Clientown", state: "NY", postalCode: "11111", country: "US", einLast4: "6789",
-  defaultNetDays: null, defaultTaxable: false, w9DocumentId: null, w9OnFile: false, w9ReceivedOn: null, w9Label: null, notes: null, contacts: [],
+  defaultNetDays: null, defaultTaxable: false, w9DocumentId: null, w9OnFile: false, w9ReceivedOn: null, w9Label: null, notes: null, benchtopClientId: null, hourlyRateCents: null, contacts: [],
 };
 const contact: ContactView = { id: "k1", name: "Pat Payer", email: "pat@example.com", phone: null, role: "billing", roleLabel: null, receivesInvoices: true };
 const item = { id: "i1", name: "Prints", unit: "ea", unitCostCents: 100, pricingMode: "markup", markupBps: 1000, billedUnitPriceCents: null, billedPriceCents: 110, glCodeId: "g1", glLabel: "4100 Billable", taxable: false } as unknown as ItemView;

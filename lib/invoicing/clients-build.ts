@@ -31,6 +31,9 @@ export interface ClientView {
   w9ReceivedOn: string | null;
   w9Label: string | null;
   notes: string | null;
+  /** Benchtop time import: the linked Benchtop client's id, and the default hourly rate for imported time. */
+  benchtopClientId: string | null;
+  hourlyRateCents: number | null;
   contacts: ContactView[];
 }
 
@@ -49,6 +52,8 @@ const CLIENT_SELECT = {
   w9DocumentId: true,
   w9ReceivedOn: true,
   notes: true,
+  benchtopClientId: true,
+  hourlyRateCents: true,
   w9: { select: { id: true, archivedAt: true, docType: true, documentName: true } },
   contacts: {
     where: { archivedAt: null },
@@ -86,6 +91,8 @@ function toView(r: ClientRow): ClientView {
     w9ReceivedOn: r.w9ReceivedOn ? toIsoDate(r.w9ReceivedOn) : null,
     w9Label: onFile ? (r.w9?.documentName ?? "W-9") : null,
     notes: r.notes,
+    benchtopClientId: r.benchtopClientId ?? null,
+    hourlyRateCents: r.hourlyRateCents ?? null,
     contacts: r.contacts,
   };
 }

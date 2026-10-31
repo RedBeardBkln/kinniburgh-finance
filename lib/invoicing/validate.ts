@@ -22,6 +22,7 @@ import {
   type PaymentMethod,
 } from "@/lib/invoicing/constants";
 import { computeDocumentTotals, parsePercentToBps, parseQuantityMilli, type DiscountInput, type DocumentTotals } from "@/lib/invoicing/money";
+import { MAX_TIME_ENTRIES_PER_DOCUMENT, MAX_TIME_ENTRIES_PER_LINE } from "@/lib/invoicing/benchtop/time-lines";
 
 export type Checked<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -138,6 +139,8 @@ export interface DraftLineInput {
   markupBps?: number | null;
   costTransactionId?: string | null;
   receiptId?: string | null;
+  /** Benchtop time entries the line bills (Benchtop time import). */
+  timeEntryIds?: string[] | null;
 }
 
 export interface DraftInput {
@@ -172,6 +175,7 @@ export interface ValidatedLine {
   markupBps: number | null;
   costTransactionId: string | null;
   receiptId: string | null;
+  timeEntryIds: string[];
 }
 
 export interface ValidatedDraft {
@@ -250,6 +254,7 @@ export function validateDraft(input: DraftInput, ctx: DraftContext): Checked<Val
   if (ctx.forIssue && input.lines.length === 0) return { ok: false, error: "Add at least one line before issuing." };
 
   const lines: ValidatedLine[] = [];
+  const timeEntrySeen = new Set<string>();
   for (let i = 0; i < input.lines.length; i += 1) {
     const l = input.lines[i]!;
     const where = `Line ${i + 1}`;
@@ -278,6 +283,15 @@ export function validateDraft(input: DraftInput, ctx: DraftContext): Checked<Val
     if (cost !== null && (!Number.isSafeInteger(cost) || cost < 0)) return { ok: false, error: `${where}: the cost snapshot is invalid.` };
     const mk = l.markupBps ?? null;
     if (mk !== null && (!Number.isSafeInteger(mk) || mk < 0)) return { ok: false, error: `${where}: the markup snapshot is invalid.` };
+    const timeEntryIds = l.timeEntryIds ?? [];
+    if (!Array.isArray(timeEntryIds) || timeEntryIds.length > MAX_TIME_ENTRIES_PER_LINE || !timeEntryIds.every(isUuid)) {
+      return { ok: false, error: `${where}: the Benchtop time it bills is invalid.` };
+    }
+    for (const id of timeEntryIds) {
+      if (timeEntrySeen.has(id)) return { ok: false, error: `${where}: a Benchtop time entry is billed on two lines.` };
+      timeEntrySeen.add(id);
+    }
+    if (timeEntrySeen.size > MAX_TIME_ENTRIES_PER_DOCUMENT) return { ok: false, error: `At most ${MAX_TIME_ENTRIES_PER_DOCUMENT} Benchtop time entries per invoice.` };
     lines.push({
       sortOrder: i,
       description: desc.value ?? "",
@@ -294,6 +308,7 @@ export function validateDraft(input: DraftInput, ctx: DraftContext): Checked<Val
       markupBps: mk,
       costTransactionId: l.costTransactionId || null,
       receiptId: l.receiptId || null,
+      timeEntryIds: timeEntryIds.map((id) => id.toLowerCase()),
     });
   }
 

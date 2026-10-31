@@ -14,10 +14,11 @@ import { parseDollarsToCents } from "@/lib/money-input";
 import type { CostTransactionOption, GlOption, ItemView } from "@/lib/invoicing/catalog-build";
 import type { InvoiceDetail } from "@/lib/invoicing/documents-build";
 import { ErrorLine, Field, INPUT, OkLine } from "@/components/invoicing/shared";
+import { BenchtopImportDialog, type ImportedTime } from "@/components/invoicing/benchtop-time";
 
 // The invoice editor. The totals shown while typing come from lib/invoicing/money.ts, the SAME module the server recomputes with
-// (nothing the browser computes is trusted). Quantity x rate lines cover hourly work (hours typed directly; there is no time log or
-// timer), project and retainer billing. Issuing is owner-only and numbers the invoice; issued invoices are read-only.
+// (nothing the browser computes is trusted). Quantity x rate lines cover hourly work (hours typed, or imported from the Benchtop time log
+// with "Import time from Benchtop"), project and retainer billing. Issuing is owner-only and numbers the invoice; issued invoices are read-only.
 // One "Save" button opens a dialog: save as draft, save as final (issue), or save as final and send (issue, then e-mail it to the
 // client's contacts ticked "Receives invoices"). Nothing is ever e-mailed except by that last choice or the Send button.
 
@@ -37,6 +38,8 @@ interface LineState {
   markupBps: number | null;
   costTransactionId: string;
   receiptId: string;
+  /** Benchtop time entries this line bills (imported; carried through every save) */
+  timeEntryIds: string[];
 }
 
 export interface EditorClient {
@@ -46,6 +49,9 @@ export interface EditorClient {
   defaultTaxable: boolean;
   /** The client's invoice e-mail addresses (contacts ticked "Receives invoices"). */
   recipients: string[];
+  /** Benchtop time import: the linked Benchtop client, and the client's default hourly rate. */
+  benchtopClientId: string | null;
+  hourlyRateCents: number | null;
 }
 
 export interface EditorProfile {
@@ -74,6 +80,7 @@ function emptyLine(key: number, glCodeId: string, over: Partial<LineState> = {})
     markupBps: null,
     costTransactionId: "",
     receiptId: "",
+    timeEntryIds: [],
     ...over,
   };
 }
@@ -131,6 +138,7 @@ export function InvoiceEditor({
   initial,
   preselectClientId,
   emailReady,
+  benchtopConnected,
 }: {
   slug: string;
   clients: EditorClient[];
@@ -145,6 +153,8 @@ export function InvoiceEditor({
   preselectClientId?: string;
   /** E-mail is configured (decided on the server; no value of the environment is passed). */
   emailReady: boolean;
+  /** A Benchtop connection key is saved (Benchtop time import). */
+  benchtopConnected: boolean;
 }) {
   const router = useRouter();
   const blankLine = (key: number, over: Partial<LineState> = {}): LineState => emptyLine(key, defaultGlId ?? "", over);
@@ -179,6 +189,7 @@ export function InvoiceEditor({
             markupBps: l.markupBps,
             costTransactionId: l.costTransactionId ?? "",
             receiptId: l.receiptId ?? "",
+            timeEntryIds: l.timeEntryIds,
           })
         )
       : [blankLine(0)]
@@ -190,6 +201,7 @@ export function InvoiceEditor({
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const hourly = billingModel === "hourly";
   const client = clients.find((c) => c.id === clientId);
@@ -217,10 +229,38 @@ export function InvoiceEditor({
     });
   }
 
+  /** Adds the imported Benchtop time as hourly lines (replacing the one empty starter line) and switches the invoice to hourly. */
+  function addImportedTime(t: ImportedTime) {
+    setImporting(false);
+    const added = t.lines.map((l, i) =>
+      blankLine(nextKey + i, {
+        description: l.description,
+        quantity: l.quantity,
+        unit: l.unit,
+        unitPrice: t.rate,
+        workDate: l.workDate,
+        taxable: client?.defaultTaxable ?? false,
+        timeEntryIds: l.timeEntryIds,
+      })
+    );
+    const starter = (l: LineState) => l.description === "" && l.unitPrice === "" && l.timeEntryIds.length === 0;
+    setLines((ls) => [...(ls.length === 1 && starter(ls[0]!) ? [] : ls), ...added]);
+    setNextKey((k) => k + added.length);
+    setBillingModel("hourly");
+    setOk(`Added ${added.length} ${added.length === 1 ? "line" : "lines"} of Benchtop time. Save to keep them; issuing the invoice marks the time billed in Benchtop.`);
+  }
+
   function pickClient(id: string) {
     setClientId(id);
     const c = clients.find((x) => x.id === id);
     if (c && lines.length === 1 && lines[0] && lines[0].description === "") setLines([{ ...lines[0], taxable: c.defaultTaxable }]);
+    // Imported time belongs to the client it was logged for
+    if (id !== clientId && lines.some((l) => l.timeEntryIds.length > 0)) {
+      const rest = lines.filter((l) => l.timeEntryIds.length === 0);
+      setLines(rest.length > 0 ? rest : [blankLine(nextKey, { taxable: c?.defaultTaxable ?? false })]);
+      setNextKey((k) => k + 1);
+      setOk("The Benchtop time lines of the previous client were removed.");
+    }
   }
 
   function payload() {
@@ -252,6 +292,7 @@ export function InvoiceEditor({
         markupBps: l.itemId ? l.markupBps : null,
         costTransactionId: l.costTransactionId || null,
         receiptId: l.receiptId || null,
+        timeEntryIds: l.timeEntryIds,
       })),
     };
   }
@@ -453,6 +494,11 @@ export function InvoiceEditor({
                     </select>
                   </label>
                 ) : null}
+                {l.timeEntryIds.length > 0 ? (
+                  <span className="text-xs text-muted-foreground">
+                    Benchtop time: {l.timeEntryIds.length} {l.timeEntryIds.length === 1 ? "entry" : "entries"} (marked billed there when issued)
+                  </span>
+                ) : null}
                 {lines.length > 1 ? (
                   <Button size="sm" variant="ghost" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}>
                     Remove line
@@ -468,6 +514,15 @@ export function InvoiceEditor({
           }}>
           Add line
         </Button>
+        {benchtopConnected && client ? (
+          client.benchtopClientId ? (
+            <Button variant="outline" size="sm" className="ml-2" onClick={() => setImporting(true)}>
+              Import time from Benchtop
+            </Button>
+          ) : (
+            <span className="ml-2 text-xs text-muted-foreground">Link this client to Benchtop on its page to import logged time.</span>
+          )
+        ) : null}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -544,6 +599,19 @@ export function InvoiceEditor({
           </Button>
         ) : null}
       </div>
+      {importing && client?.benchtopClientId ? (
+        <BenchtopImportDialog
+          slug={slug}
+          clientId={client.id}
+          clientName={client.name}
+          benchtopClientId={client.benchtopClientId}
+          documentId={docId}
+          defaultRateCents={client.hourlyRateCents}
+          inEditor={new Set(lines.flatMap((l) => l.timeEntryIds))}
+          onCancel={() => setImporting(false)}
+          onImport={addImportedTime}
+        />
+      ) : null}
       {choosing ? (
         <SaveChoiceDialog
           finalBlocked={!canIssue ? "Only the owner can issue an invoice." : setupMissing.length > 0 ? `Saving as final is turned off until ${setupMissing.join(" and ")} ${setupMissing.length === 1 ? "is" : "are"} set in settings.` : null}

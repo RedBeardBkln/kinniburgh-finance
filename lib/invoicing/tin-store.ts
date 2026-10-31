@@ -1,4 +1,4 @@
-// The ONLY file that reads an encrypted invoicing column (client EIN, business EIN, remit-to bank text) or turns plaintext into
+// The ONLY file that reads an encrypted invoicing column (client EIN, business EIN, remit-to bank text, Benchtop key) or turns plaintext into
 // ciphertext for one (plan section 12 items 1 and 3; a guard test pins it). Server only. No auth here: callers (actions and the
 // PDF route) have already authenticated and applied the owner rule.
 //
@@ -40,4 +40,16 @@ export async function readRemitText(entityId: string): Promise<string | null> {
   const row = await db.invoicingProfile.findUnique({ where: { entityId }, select: { remitToEncrypted: true } });
   if (!row?.remitToEncrypted) return null;
   return decrypt(row.remitToEncrypted);
+}
+
+/** Encrypts the owner's Benchtop connection key for storage (Benchtop time import). */
+export function encryptBenchtopKey(key: string): string {
+  return encrypt(key);
+}
+
+/** The decrypted Benchtop connection key, only ever sent to Benchtop (lib/invoicing/benchtop/client.ts); null when none is stored. */
+export async function readBenchtopKey(entityId: string): Promise<string | null> {
+  const row = await db.invoicingProfile.findUnique({ where: { entityId }, select: { benchtopKeyEncrypted: true } });
+  if (!row?.benchtopKeyEncrypted) return null;
+  return decrypt(row.benchtopKeyEncrypted);
 }

@@ -13,6 +13,8 @@ import { payBaseUrlProblemMessage, payEnvironment } from "@/lib/invoicing/stripe
 import { STRIPE_MODE_MISMATCH_MESSAGE, STRIPE_NOT_CONFIGURED_MESSAGE } from "@/lib/invoicing/stripe/preflight";
 import { loadGlCodes, loadGlCodesLite } from "@/lib/invoicing/catalog-build";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
+import { loadBenchtopStatus } from "@/lib/invoicing/benchtop-build";
+import { BenchtopKeyForm } from "@/components/invoicing/benchtop-time";
 import { suggestGlMap } from "@/lib/invoicing/gl-map";
 import { formatDisplayNumber, formatQuoteNumber } from "@/lib/invoicing/numbering";
 import { downloadLogoFile } from "@/lib/supabase-storage";
@@ -67,7 +69,7 @@ export default async function InvoicingSettingsPage({ params }: PageProps) {
   }
 
   const { profile, owner } = ctx;
-  const [glOptions, pay] = await Promise.all([loadGlCodes(ctx.entity.id), loadPaySettings(ctx.entity.id)]);
+  const [glOptions, pay, benchtop] = await Promise.all([loadGlCodes(ctx.entity.id), loadPaySettings(ctx.entity.id), loadBenchtopStatus(ctx.entity.id)]);
   // Online payments (Phase 2): booleans and a mode word only, never an env value.
   const env = payEnvironment(process.env);
   const payEnv: OnlinePaymentsEnvView = {
@@ -171,6 +173,14 @@ export default async function InvoicingSettingsPage({ params }: PageProps) {
               ) : (
                 <p className="text-sm text-muted-foreground">{PAY_FEATURE_NOT_SET_UP}</p>
               )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Benchtop time</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <BenchtopKeyForm slug={slug} keyLast4={benchtop.keyLast4} />
             </CardContent>
           </Card>
           <Card>

@@ -1334,6 +1334,9 @@ model InvoicingProfile {
   // Phase-1 pages keep working on a database without this migration.
   stripePayEnabled       Boolean   @default(false)
   publicTokenTtlDays     Int       @default(90)
+  // Benchtop time import: the owner's Benchtop connection key, AES-GCM via lib/encrypt.ts, read only by tin-store.ts; last four shown
+  benchtopKeyEncrypted   String?
+  benchtopKeyLast4       String?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
@@ -1357,6 +1360,9 @@ model Client {
   w9DocumentId     String?
   w9ReceivedOn     DateTime?
   notes            String?
+  // Benchtop time import: the linked Benchtop client (its id there, no FK) and the default rate for imported hours
+  benchtopClientId String?
+  hourlyRateCents  Int?
   createdById      String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -1494,6 +1500,7 @@ model BillingLine {
   markupBps        Int?
   costTransactionId String? // display + margin report only; no accounting effect
   receiptId        String?
+  timeEntryIds     String[] @default([]) // Benchtop time entries this line bills (Benchtop time import)
 
   document        BillingDocument   @relation(fields: [documentId], references: [id])
   glCode          GlCode?           @relation("BillingLineGl", fields: [glCodeId], references: [id])

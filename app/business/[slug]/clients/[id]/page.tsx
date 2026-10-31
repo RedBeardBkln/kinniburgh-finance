@@ -13,6 +13,8 @@ import { loadW9Documents } from "@/lib/invoicing/catalog-build";
 import { loadClient } from "@/lib/invoicing/clients-build";
 import { loadInvoiceRows } from "@/lib/invoicing/documents-build";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
+import { loadBenchtopStatus } from "@/lib/invoicing/benchtop-build";
+import { BenchtopClientLink } from "@/components/invoicing/benchtop-time";
 import { formatCents } from "@/lib/invoicing/money";
 import { loadClientPayments, loadOpenInvoices } from "@/lib/invoicing/payments-build";
 import { DISPLAY_STATE_LABELS, nyToday } from "@/lib/invoicing/state";
@@ -45,11 +47,12 @@ export default async function ClientDetailPage({ params }: PageProps) {
   const client = await loadClient(ctx.entity.id, id);
   if (!client) notFound();
   const today = nyToday(new Date());
-  const [rows, payments, openInvoices, w9Options] = await Promise.all([
+  const [rows, payments, openInvoices, w9Options, benchtop] = await Promise.all([
     loadInvoiceRows(ctx.entity.id, today),
     loadClientPayments(ctx.entity.id, id),
     loadOpenInvoices(ctx.entity.id, id),
     loadW9Documents(ctx.entity.id),
+    loadBenchtopStatus(ctx.entity.id),
   ]);
   const invoices = rows.filter((r) => r.clientId === id);
   const balance = invoices.filter((r) => r.status === "issued").reduce((s, r) => s + r.balanceCents, 0);
@@ -140,6 +143,22 @@ export default async function ClientDetailPage({ params }: PageProps) {
         </CardHeader>
         <CardContent>
           <ContactsPanel slug={slug} clientId={id} contacts={client.contacts} readOnly={readOnly} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Benchtop time</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <BenchtopClientLink
+            slug={slug}
+            clientId={id}
+            linkedId={client.benchtopClientId}
+            rateCents={client.hourlyRateCents}
+            connected={benchtop.connected}
+            readOnly={readOnly}
+          />
         </CardContent>
       </Card>
 

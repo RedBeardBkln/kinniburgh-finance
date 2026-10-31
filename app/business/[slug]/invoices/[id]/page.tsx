@@ -16,6 +16,7 @@ import { emailPreflight, invoiceRecipients, SEND_FAILURE_MESSAGES, type SendFail
 import { loadCostTransactionOptions, loadGlCodes, loadItems } from "@/lib/invoicing/catalog-build";
 import { loadInvoiceDetail } from "@/lib/invoicing/documents-build";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
+import { loadBenchtopStatus } from "@/lib/invoicing/benchtop-build";
 import { formatCents } from "@/lib/invoicing/money";
 import { loadClientPayments, loadOpenInvoices } from "@/lib/invoicing/payments-build";
 import { DISPLAY_STATE_LABELS, formatNyDateTime, nyToday } from "@/lib/invoicing/state";
@@ -28,6 +29,8 @@ import { loadBankPendingFor, loadInvoiceLinks, loadInvoiceStripeFlags, loadPaySe
 import { OWNER_BANK_PENDING_UNREADABLE, type BankPendingState } from "@/lib/invoicing/stripe/bank-pending";
 import { payLinkSendNote, payOnlineEligibility } from "@/lib/invoicing/stripe/eligibility";
 import { payEnvironment } from "@/lib/invoicing/stripe/pay-env";
+import { BenchtopSyncStatus } from "@/components/invoicing/benchtop-time";
+import { documentTimeEntryIds, pendingTimeSync } from "@/lib/invoicing/benchtop/time-lines";
 
 // Rendering and e-mailing the PDF runs inside this page's server actions ("Save as final and send", "Send invoice").
 export const maxDuration = 30;
@@ -60,6 +63,10 @@ const EVENT_LABELS: Record<string, string> = {
   fee_recorded: "Stripe fee recorded",
   bank_payment_pending: "Bank payment processing (ACH)",
   bank_payment_released: "Stopped waiting for a bank payment",
+  time_billed: "Benchtop time marked billed",
+  time_bill_failed: "Benchtop time could not be marked billed",
+  time_unbilled: "Benchtop time marked unbilled",
+  time_unbill_failed: "Benchtop time could not be marked unbilled",
 };
 
 function eventLabel(kind: string, data: Record<string, string | number | boolean | null>): string {
@@ -71,6 +78,10 @@ function eventLabel(kind: string, data: Record<string, string | number | boolean
   }
   if (kind === "stripe_flag" && typeof data.reason === "string" && data.reason in STRIPE_FLAG_LABELS) return `${base}: ${STRIPE_FLAG_LABELS[data.reason as StripeFlagReason]}`;
   if (kind === "link_revoked" && typeof data.count === "number" && data.count > 1) return `${data.count} client links revoked`;
+  if ((kind === "time_billed" || kind === "time_unbilled") && typeof data.changed === "number") {
+    const skipped = (typeof data.conflicts === "number" ? data.conflicts : 0) + (typeof data.missing === "number" ? data.missing : 0);
+    return `${base} (${data.changed} ${data.changed === 1 ? "entry" : "entries"}${skipped > 0 ? `, ${skipped} skipped` : ""})`;
+  }
   return base;
 }
 
@@ -110,11 +121,12 @@ export default async function InvoiceDetailPage({ params, searchParams }: PagePr
   if (!detail) notFound();
 
   if (detail.status === "draft" && ctx.owner.allowed) {
-    const [clients, items, gl, costs] = await Promise.all([
+    const [clients, items, gl, costs, benchtop] = await Promise.all([
       loadClients(ctx.entity.id),
       loadItems(ctx.entity.id),
       loadGlCodes(ctx.entity.id),
       loadCostTransactionOptions(ctx.entity.id, today),
+      loadBenchtopStatus(ctx.entity.id),
     ]);
     const incomeAccounts = gl.filter((g) => g.type === "revenue");
     const services = incomeAccounts.find((g) => g.name.trim().toLowerCase() === "services") ?? null;
@@ -122,8 +134,9 @@ export default async function InvoiceDetailPage({ params, searchParams }: PagePr
       "Draft invoice",
       <InvoiceEditor
         slug={slug}
-        clients={clients.map((c) => ({ id: c.id, name: c.name, defaultNetDays: c.defaultNetDays, defaultTaxable: c.defaultTaxable, recipients: invoiceRecipients(c.contacts) }))}
+        clients={clients.map((c) => ({ id: c.id, name: c.name, defaultNetDays: c.defaultNetDays, defaultTaxable: c.defaultTaxable, recipients: invoiceRecipients(c.contacts), benchtopClientId: c.benchtopClientId, hourlyRateCents: c.hourlyRateCents }))}
         emailReady={emailPreflight(process.env).ok}
+        benchtopConnected={benchtop.connected}
         items={items}
         glOptions={incomeAccounts}
         costOptions={costs}
@@ -177,6 +190,8 @@ export default async function InvoiceDetailPage({ params, searchParams }: PagePr
   const related = clientPayments.filter((p) => p.allocations.some((a) => a.invoiceId === detail.id));
   const activeApplications = detail.allocations.filter((a) => a.voidedAt === null);
   const voidBlockedReason = activeApplications.length > 0 ? "This invoice has payments applied. Remove those applications (or void the payments) first, then void the invoice." : null;
+  const timeEntryIds = documentTimeEntryIds(detail.lines);
+  const timeSync = pendingTimeSync(detail.status, timeEntryIds.length, detail.events);
   const stateVariant = detail.state === "paid" ? "success" : detail.state === "void" ? "secondary" : detail.overdue ? "destructive" : "outline";
 
   return shell(
@@ -298,6 +313,17 @@ export default async function InvoiceDetailPage({ params, searchParams }: PagePr
           {detail.notes ? <p className="mt-4 whitespace-pre-line text-sm text-muted-foreground">{detail.notes}</p> : null}
         </CardContent>
       </Card>
+
+      {timeEntryIds.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Benchtop time</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BenchtopSyncStatus slug={slug} documentId={detail.id} entryCount={timeEntryIds.length} pending={timeSync} canAct={ctx.owner.allowed} />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {bankRows.length > 0 || bankPendingFailed ? (
         <Card>

@@ -95,6 +95,8 @@ export interface LineView {
   markupBps: number | null;
   costTransactionId: string | null;
   receiptId: string | null;
+  /** Benchtop time entries this line bills (Benchtop time import). */
+  timeEntryIds: string[];
 }
 
 export interface AllocationView {
@@ -176,7 +178,7 @@ export async function loadInvoiceDetail(entityId: string, id: string, today: Dat
         select: {
           id: true, sortOrder: true, description: true, quantity: true, unit: true, unitPriceCents: true, discountKind: true, discountValue: true,
           lineTotalCents: true, glCodeId: true, taxable: true, workDate: true, itemId: true, unitCostCents: true, markupBps: true,
-          costTransactionId: true, receiptId: true,
+          costTransactionId: true, receiptId: true, timeEntryIds: true,
         },
         orderBy: { sortOrder: "asc" },
       },
@@ -246,6 +248,7 @@ export async function loadInvoiceDetail(entityId: string, id: string, today: Dat
       markupBps: l.markupBps,
       costTransactionId: l.costTransactionId,
       receiptId: l.receiptId,
+      timeEntryIds: l.timeEntryIds ?? [],
     })),
     allocations: r.allocations.map((a) => ({
       id: a.id,
