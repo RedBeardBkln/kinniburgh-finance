@@ -616,15 +616,16 @@ export function InlineTagCell({
           </Badge>
         ))}
 
+        {/* Phones: every transaction needs a tag, so this is a real "Add tag" button there, not just a small "+". */}
         {tagIds.length === 0 && (
           <button
             ref={buttonRef}
             type="button"
             onClick={handleOpen}
-            className="inline-flex h-5 w-5 items-center justify-center rounded-full border text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            className="inline-flex h-5 w-5 items-center justify-center rounded-full border text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors max-md:h-8 max-md:w-auto max-md:gap-1 max-md:rounded-md max-md:border-primary/40 max-md:bg-primary/10 max-md:px-3 max-md:text-sm max-md:font-medium max-md:text-primary"
             title="Add tag"
           >
-            +
+            +<span className="md:hidden">Add tag</span>
           </button>
         )}
 

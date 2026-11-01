@@ -581,7 +581,8 @@ export function TransactionsTable({ transactions, allTags, allProjects, assign =
                     />
                   </td>
                   {hasProjects && (
-                    <td className={`px-2 py-2 ${cell} ${m.main} max-md:row-start-4 max-md:min-w-0`}>
+                    // Phones: most rows have no project, so it is a small link off to the side, under Delete.
+                    <td className={`px-2 py-2 ${cell} ${m.side} max-md:row-start-4 max-md:min-w-0 max-md:max-w-[9rem] max-md:text-right`}>
                       <InlineProjectCell
                         transactionId={tx.id}
                         projects={allProjects}

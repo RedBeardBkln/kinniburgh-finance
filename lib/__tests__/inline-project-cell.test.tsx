@@ -40,3 +40,17 @@ describe("InlineProjectCell and completed projects", () => {
     expect(render(DONE.id, [DONE])).toContain("Kitchen (completed)");
   });
 });
+
+describe("InlineProjectCell on phones", () => {
+  it("shows a small phone-only link instead of the select (the select is desktop-only)", () => {
+    const html = render(null);
+    expect(html).toMatch(/<select[^>]*class="[^"]*max-md:hidden/);
+    expect(html).toMatch(/<button[^>]*class="[^"]*md:hidden[^"]*"[^>]*>Assign project<\/button>/);
+  });
+
+  it("names the linked project on the link, and the picker stays closed until tapped", () => {
+    const html = render(ACTIVE.id);
+    expect(html).toContain(">Project: Deck</button>");
+    expect(html).not.toContain('role="dialog"');
+  });
+});

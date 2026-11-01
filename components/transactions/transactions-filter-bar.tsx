@@ -30,6 +30,12 @@ interface Props {
   currentSortDir: string;
 }
 
+// Each filter's caption shows only on phones, where the boxes stack and an empty date box or select says nothing.
+const CAPTION = "text-xs font-medium text-muted-foreground sm:hidden";
+const FIELD = "flex min-w-0 flex-col gap-1";
+const CONTROL =
+  "h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary";
+
 export function TransactionsFilterBar({
   bucket,
   tab,
@@ -111,56 +117,76 @@ export function TransactionsFilterBar({
 
   return (
     <div className="space-y-2 rounded-lg border bg-card/50 p-3">
-      {/* Filter row */}
-      <div className="flex flex-wrap gap-2 items-end">
-        <input
-          type="text"
-          placeholder="Search payee or description…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") apply(); }}
-          className="h-9 min-w-[200px] flex-1 max-sm:min-w-0 max-sm:basis-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-        />
+      {/* Filter row. Phones: a two-column grid where every field has its own caption (the desktop row needs none). */}
+      <div className="flex flex-wrap gap-2 items-end max-sm:grid max-sm:grid-cols-2">
+        <label className="flex min-w-[200px] flex-1 flex-col gap-1 max-sm:col-span-2 max-sm:min-w-0">
+          <span className={CAPTION}>Search</span>
+          <input
+            type="text"
+            placeholder="Search payee or description…"
+            aria-label="Search payee or description"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") apply(); }}
+            className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+        </label>
 
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary max-sm:min-w-0 max-sm:flex-1"
-          title="From date"
-        />
-        <span className="text-xs text-muted-foreground self-center">to</span>
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary max-sm:min-w-0 max-sm:flex-1"
-          title="To date"
-        />
+        <label className={FIELD}>
+          <span className={CAPTION}>From date</span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className={`${CONTROL} max-sm:w-full`}
+            title="From date"
+            aria-label="From date"
+          />
+        </label>
+        <span className="text-xs text-muted-foreground self-center max-sm:hidden">to</span>
+        <label className={FIELD}>
+          <span className={CAPTION}>To date</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className={`${CONTROL} max-sm:w-full`}
+            title="To date"
+            aria-label="To date"
+          />
+        </label>
 
-        <select
-          value={accountId}
-          onChange={(e) => setAccountId(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary max-w-full max-sm:min-w-0 max-sm:flex-1"
-        >
-          <option value="">All accounts</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.nickname}{a.mask ? ` ···${a.mask}` : ""}
-            </option>
-          ))}
-        </select>
+        <label className={`${FIELD} max-w-full max-sm:col-span-2`}>
+          <span className={CAPTION}>Account</span>
+          <select
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+            aria-label="Account"
+            className={`${CONTROL} max-w-full max-sm:w-full`}
+          >
+            <option value="">All accounts</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.nickname}{a.mask ? ` ···${a.mask}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
 
-        <select
-          value={tagId}
-          onChange={(e) => setTagId(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary max-w-full max-sm:min-w-0 max-sm:flex-1"
-        >
-          <option value="">All tags</option>
-          {tags.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
+        <label className={`${FIELD} max-w-full max-sm:col-span-2`}>
+          <span className={CAPTION}>Tag</span>
+          <select
+            value={tagId}
+            onChange={(e) => setTagId(e.target.value)}
+            aria-label="Tag"
+            className={`${CONTROL} max-w-full max-sm:w-full`}
+          >
+            <option value="">All tags</option>
+            {tags.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </label>
 
         <button
           onClick={apply}
