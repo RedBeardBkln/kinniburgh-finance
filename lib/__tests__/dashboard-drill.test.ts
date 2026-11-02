@@ -152,6 +152,15 @@ describe("drill-down payload: September 2026", () => {
     expect(v.sections.flatMap((s) => s.rows).every((r) => r.tagIds !== null)).toBe(true); // rows can be re-tagged
   });
 
+  it("every transaction row in the Spent view (and the not-counted groups) can be re-tagged", () => {
+    const v = buildDrillView(data, { kind: "spent" });
+    const txRows = [...v.sections, ...v.excludedSections].flatMap((s) => s.rows).filter((r) => r.txId !== null);
+    expect(txRows.length).toBeGreaterThan(0);
+    expect(txRows.every((r) => r.tagIds !== null)).toBe(true);
+    // the correction row (no transaction) stays plain text
+    expect(v.sections.flatMap((s) => s.rows).filter((r) => r.txId === null).every((r) => r.tagIds === null)).toBe(true);
+  });
+
   it("the credit card line explains why it shows no spending", () => {
     const v = buildDrillView(data, { kind: "line", lineId: "L-ccpay" });
     expect(v.headline.cents).toBe(0);

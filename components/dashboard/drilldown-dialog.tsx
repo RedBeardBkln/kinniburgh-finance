@@ -58,6 +58,9 @@ export function DrilldownDialog({ data, target, allTags, returnFocusTo, onClose 
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key === "Escape") {
+      // Escape in the tag picker (portalled outside the panel, but its key events still bubble here through React)
+      // closes only the picker, not the whole dialog.
+      if (!panelRef.current?.contains(e.target as Node)) return;
       e.stopPropagation();
       onClose();
       return;
@@ -278,7 +281,14 @@ function RowList({ rows, allTags, depth = 0, signed = false }: { rows: DrillRow[
             {row.tagIds ? (
               row.txId && (
                 <div className="mt-0.5">
-                  <InlineTagCell transactionId={row.txId} allTags={allTags} initialTagIds={row.tagIds} />
+                  <InlineTagCell
+                    transactionId={row.txId}
+                    allTags={allTags}
+                    initialTagIds={row.tagIds}
+                    mode="replace"
+                    payeeNormalized={row.label}
+                    defaultAmount={(Math.abs(row.cents) / 100).toFixed(2)}
+                  />
                 </div>
               )
             ) : row.tags ? (

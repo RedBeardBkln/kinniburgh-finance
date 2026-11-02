@@ -33,6 +33,12 @@ interface Props {
   accountId?: string;
   accountNickname?: string;
   accountMask?: string | null;
+  /**
+   * "add" (default): the "+" shows only while the row has no tag, and picking a tag adds it.
+   * "replace": a tagged row also gets a "Change" button, and picking a tag REPLACES the row's tags with it (used where
+   * miscategorized transactions are corrected, e.g. the dashboard Spent drill-down).
+   */
+  mode?: "add" | "replace";
 }
 
 interface RulePrompt {
@@ -237,6 +243,7 @@ export function InlineTagCell({
   accountId,
   accountNickname,
   accountMask,
+  mode = "add",
 }: Props) {
   const router = useRouter();
   const [tagIds, setTagIds] = useState(initialTagIds);
@@ -352,6 +359,22 @@ export function InlineTagCell({
   }
 
   function toggle(tagId: string) {
+    if (mode === "replace" && tagIds.length > 0) {
+      setOpen(false);
+      setQuery("");
+      // Picking the row's only tag again changes nothing.
+      if (tagIds.length === 1 && tagIds[0] === tagId) return;
+      const next = [tagId];
+      setTagIds(next);
+      const tag = localTags.find((t) => t.id === tagId);
+      if (tag && !tagIds.includes(tagId)) {
+        setPendingTagSave(next);
+        setRulePrompt({ tagId, tagName: tag.name });
+        return;
+      }
+      commitTags(next);
+      return;
+    }
     const isAdding = !tagIds.includes(tagId);
     const next = isAdding
       ? [...tagIds, tagId]
@@ -421,7 +444,7 @@ export function InlineTagCell({
         setQuery("");
 
         // Select the new tag and show rule prompt (bypass toggle — tag is already in localTags now)
-        const next = [...tagIds, id];
+        const next = mode === "replace" ? [id] : [...tagIds, id];
         setTagIds(next);
         setPendingTagSave(next);
         setRulePrompt({ tagId: id, tagName: newTag.name });
@@ -455,6 +478,13 @@ export function InlineTagCell({
       {!createMode ? (
         <>
           <div className="p-2 border-b border-border">
+            {mode === "replace" && tagIds.length > 0 && (
+              <p className="mb-1.5 text-[11px] text-muted-foreground">
+                {tagIds.length === 1
+                  ? "Pick the tag this transaction should have instead."
+                  : `Picking a tag replaces the ${tagIds.length} tags on this transaction.`}
+              </p>
+            )}
             <Input
               autoFocus
               placeholder="Search tags…"
@@ -626,6 +656,18 @@ export function InlineTagCell({
             title="Add tag"
           >
             +<span className="md:hidden">Add tag</span>
+          </button>
+        )}
+
+        {mode === "replace" && tagIds.length > 0 && (
+          <button
+            ref={buttonRef}
+            type="button"
+            onClick={handleOpen}
+            className="inline-flex h-5 items-center rounded px-1.5 text-xs text-primary underline-offset-2 hover:underline max-md:h-7"
+            title="Change this transaction's tag"
+          >
+            Change
           </button>
         )}
 

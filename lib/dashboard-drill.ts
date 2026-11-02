@@ -358,7 +358,7 @@ function excludedSection(data: DrillData, g: DrillExcluded): DrillSection {
     subtotalNote: "net, as the bank records it (+ money in, - money out)",
     moneyInCents: moneyIn,
     moneyOutCents: moneyOut,
-    rows: rowsFor(data, g.txIds, "bank", false, `x:${g.cls}`, false),
+    rows: rowsFor(data, g.txIds, "bank", true, `x:${g.cls}`, false),
     emptyNote: null,
   };
 }
@@ -385,6 +385,8 @@ export function buildDrillView(data: DrillData, target: DrillTarget): DrillView 
   }
 }
 
+// Every transaction row in the Spent view (and the "not counted" groups) can be re-tagged in place, so a miscategorized
+// transaction is fixed from the dialog; the page refreshes and the row moves to its new section.
 function spentView(data: DrillData): DrillView {
   const lines = lineIndex(data);
   const sections: DrillSection[] = [];
@@ -414,7 +416,7 @@ function spentView(data: DrillData): DrillView {
         depth: line.depth,
         subtotalCents: line.hasChildren ? line.rolledCents : line.ownCents,
         subtotalNote: line.hasChildren ? "including nested lines" : null,
-        rows: rowsFor(data, line.txIds, "spend", false, `l:${line.id}`),
+        rows: rowsFor(data, line.txIds, "spend", true, `l:${line.id}`),
         emptyNote: null,
       });
       first = false;
@@ -431,7 +433,7 @@ function spentView(data: DrillData): DrillView {
       depth: 0,
       subtotalCents: bucket.cents,
       subtotalNote: null,
-      rows: rowsFor(data, bucket.txIds, "spend", false, bucket.key),
+      rows: rowsFor(data, bucket.txIds, "spend", true, bucket.key),
       emptyNote: null,
     });
     firstUnbudgeted = false;
@@ -446,7 +448,7 @@ function spentView(data: DrillData): DrillView {
       depth: 0,
       subtotalCents: data.untagged.cents,
       subtotalNote: null,
-      rows: rowsFor(data, data.untagged.txIds, "spend", false, "untagged"),
+      rows: rowsFor(data, data.untagged.txIds, "spend", true, "untagged"),
       emptyNote: null,
     });
   }
