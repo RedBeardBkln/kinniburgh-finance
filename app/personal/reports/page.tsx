@@ -21,7 +21,7 @@ export default async function ReportsPage() {
       href: "/personal/reports/monthly" as Route,
       icon: FileBarChart,
       title: "Month-end summary",
-      text: "Every budget category for a month: budgeted, spent and what is left, with the overspent lines and the money outside any line. One page.",
+      text: "Every budget category for a month: budgeted, spent and what is left, with the overspent lines and the money outside any line. Two pages: Primary Checking, then the other accounts.",
     },
   ];
 
@@ -30,7 +30,7 @@ export default async function ReportsPage() {
       <div className="mx-auto max-w-3xl space-y-4 p-4 md:p-6">
         <div>
           <h1 className="text-2xl font-semibold">Reports</h1>
-          <p className="text-sm text-muted-foreground">Printable one-page reports for the Personal budget. Open one and press Print.</p>
+          <p className="text-sm text-muted-foreground">Printable reports for the Personal budget. Open one and press Print.</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           {reports.map(({ href, icon: Icon, title, text }) => (

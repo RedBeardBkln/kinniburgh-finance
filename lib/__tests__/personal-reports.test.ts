@@ -10,6 +10,8 @@ import {
   nyCalendarDay,
   shiftPeriod,
   splitColumns,
+  splitPages,
+  splitRows,
 } from "@/lib/personal-reports";
 
 function line(over: Partial<DrillLine> & { id: string }): DrillLine {
@@ -216,6 +218,26 @@ describe("month-end summary", () => {
 
   it("flags a mismatch instead of hiding it", () => {
     expect(buildMonthlyReport({ ...d, spentCents: 99999 }).reconciles).toBe(false);
+  });
+
+  it("puts Primary Checking on page 1 and the other accounts on page 2, in order", () => {
+    const sec = (key: string, title: string, n: number) => ({ key, title, budgetCents: 0, spentCents: 0, rows: Array.from({ length: n }, () => buildMonthlyReport(d).sections[1]!.rows[0]!) });
+    const a = sec("a", "Bills", 3);
+    const p = sec("p", "Primary Checking", 2);
+    const c = sec("c", "Card", 9);
+    expect(splitPages([a, p, c])).toEqual({ first: p, rest: [a, c] });
+    // no account by that name: the one with the most lines
+    expect(splitPages([a, c]).first).toBe(c);
+    expect(splitPages([])).toEqual({ first: null, rest: [] });
+  });
+
+  it("splits a section's rows near the middle, never between a parent and its nested lines", () => {
+    const row = (key: string, depth: number) => ({ ...buildMonthlyReport(d).sections[1]!.rows[0]!, key, depth });
+    const rows = [row("A", 0), row("A1", 1), row("A2", 1), row("A3", 1), row("B", 0), row("C", 0)];
+    const [l, r] = splitRows(rows);
+    expect(l.map((x) => x.key)).toEqual(["A", "A1", "A2", "A3"]);
+    expect(r.map((x) => x.key)).toEqual(["B", "C"]);
+    expect(splitRows([row("A", 0), row("A1", 1)])).toEqual([[row("A", 0), row("A1", 1)], []]);
   });
 
   it("balances sections over two columns, keeping order", () => {

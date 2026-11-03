@@ -386,6 +386,28 @@ export function buildMonthlyReport(data: DrillData): MonthlyReport {
   };
 }
 
+/** Page 1 holds the Primary Checking account's lines (the household's main budget account; the section with the most
+ *  lines when no account has that name), page 2 every other account in their original order. */
+export function splitPages(sections: MonthlySection[]): { first: MonthlySection | null; rest: MonthlySection[] } {
+  if (sections.length === 0) return { first: null, rest: [] };
+  const named = sections.find((s) => /\bprimary\s+checking\b/i.test(s.title));
+  const first = named ?? sections.reduce((a, b) => (b.rows.length > a.rows.length ? b : a));
+  return { first, rest: sections.filter((s) => s !== first) };
+}
+
+/** Split one section's rows over two columns near the middle, only before a top-level line so a parent stays with
+ *  the lines nested under it. */
+export function splitRows(rows: MonthlyRow[]): [MonthlyRow[], MonthlyRow[]] {
+  if (rows.length < 2) return [rows, []];
+  const half = rows.length / 2;
+  let best = 0;
+  for (let i = 1; i < rows.length; i += 1) {
+    if (rows[i]?.depth !== 0) continue;
+    if (best === 0 || Math.abs(i - half) < Math.abs(best - half)) best = i;
+  }
+  return best === 0 ? [rows, []] : [rows.slice(0, best), rows.slice(best)];
+}
+
 /** Balance the sections over two print columns by row count (keeps each section whole, original order). */
 export function splitColumns(sections: MonthlySection[], extraRowsAtEnd: number): [MonthlySection[], MonthlySection[]] {
   const weight = (s: MonthlySection) => s.rows.length + 2;

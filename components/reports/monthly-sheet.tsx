@@ -1,13 +1,17 @@
-// The one-page month-end summary sheet (server component, no client JavaScript): every budget line of the month,
-// budgeted against spent, from lib/personal-reports.ts (buildMonthlyReport).
-import { splitColumns, type MonthlyReport, type MonthlyRow, type MonthlySection } from "@/lib/personal-reports";
+// The two-page month-end summary sheet (server component, no client JavaScript): every budget line of the month,
+// budgeted against spent, from lib/personal-reports.ts (buildMonthlyReport). Page 1 has the headline numbers and the
+// Primary Checking lines over two columns; page 2 the other accounts, the money outside any line and the total.
+import { splitColumns, splitPages, splitRows, type MonthlyReport, type MonthlyRow, type MonthlySection } from "@/lib/personal-reports";
 import { Stat } from "@/components/reports/report-parts";
 import { OVER, UsedMeter, whole } from "@/components/reports/report-charts";
 import { TableScroll } from "@/components/ui/table-scroll";
 
 export function MonthlySheet({ report: r, printedOn }: { report: MonthlyReport; printedOn: string }) {
   const over = r.remainingCents < 0;
-  const [left, right] = splitColumns(r.sections, r.outside.length > 0 ? r.outside.length + 2 : 0);
+  const { first, rest } = splitPages(r.sections);
+  const [firstLeft, firstRight] = first ? splitRows(first.rows) : [[], []];
+  const [left, right] = splitColumns(rest, r.outside.length > 0 ? r.outside.length + 2 : 0);
+  const hasPageTwo = rest.length > 0 || r.outside.length > 0;
   return (
     <article
       id="print-report"
@@ -47,24 +51,38 @@ export function MonthlySheet({ report: r, printedOn }: { report: MonthlyReport; 
         </p>
       )}
 
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 print:grid-cols-2">
-        <div className="space-y-2">
-          {left.map((s) => (
-            <SectionTable key={s.key} section={s} />
-          ))}
+      {first && (
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 print:grid-cols-2">
+          <SectionTable section={{ ...first, rows: firstLeft }} subtotal={firstRight.length === 0} />
+          {firstRight.length > 0 && <SectionTable section={{ ...first, title: `${first.title} (continued)`, rows: firstRight }} />}
+        </section>
+      )}
+
+      {hasPageTwo && (
+        <div className="space-y-3 border-t border-dashed border-[#d6d5d0] pt-3 print:break-before-page print:border-0 print:pt-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6b6a66]">
+            Personal · {r.periodLabel} · other accounts
+          </p>
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 print:grid-cols-2">
+            <div className="space-y-2">
+              {left.map((s) => (
+                <SectionTable key={s.key} section={s} />
+              ))}
+            </div>
+            <div className="space-y-2">
+              {right.map((s) => (
+                <SectionTable key={s.key} section={s} />
+              ))}
+              {r.outside.length > 0 && (
+                <SectionTable
+                  section={{ key: "outside", title: "Not in any budget line", budgetCents: 0, spentCents: r.outsideCents, rows: r.outside }}
+                  noBudget
+                />
+              )}
+            </div>
+          </section>
         </div>
-        <div className="space-y-2">
-          {right.map((s) => (
-            <SectionTable key={s.key} section={s} />
-          ))}
-          {r.outside.length > 0 && (
-            <SectionTable
-              section={{ key: "outside", title: "Not in any budget line", budgetCents: 0, spentCents: r.outsideCents, rows: r.outside }}
-              noBudget
-            />
-          )}
-        </div>
-      </section>
+      )}
 
       <section className="avoid-break border-t-2 border-[#1f1f1d] pt-1.5">
         <div className="flex flex-wrap justify-between gap-x-4 text-[12px] font-bold tabular-nums">
@@ -90,7 +108,7 @@ export function MonthlySheet({ report: r, printedOn }: { report: MonthlyReport; 
   );
 }
 
-function SectionTable({ section, noBudget = false }: { section: MonthlySection; noBudget?: boolean }) {
+function SectionTable({ section, noBudget = false, subtotal = true }: { section: MonthlySection; noBudget?: boolean; subtotal?: boolean }) {
   return (
     <TableScroll className="avoid-break">
       <table className="w-full border-collapse text-[10px] leading-tight tabular-nums">
@@ -107,7 +125,7 @@ function SectionTable({ section, noBudget = false }: { section: MonthlySection; 
           {section.rows.map((row) => (
             <Row key={row.key} row={row} />
           ))}
-          {!noBudget && (
+          {!noBudget && subtotal && (
             <tr className="border-t border-[#d6d5d0] font-semibold">
               <td className="py-0.5 pr-1">Subtotal</td>
               <td className="py-0.5 text-right">{whole(section.budgetCents)}</td>

@@ -49,7 +49,7 @@ export default async function MonthlyReportPage({ searchParams }: PageProps) {
               ← Reports
             </Link>
             <h1 className="text-2xl font-semibold">Month-end summary</h1>
-            <p className="text-sm text-muted-foreground">Personal, {label}. Prints on one Letter page.</p>
+            <p className="text-sm text-muted-foreground">Personal, {label}. Prints on two Letter pages: Primary Checking first, then the other accounts.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link href={href(prev)} className="inline-flex min-h-11 items-center gap-1 rounded-md border px-3 text-sm hover:bg-muted">
