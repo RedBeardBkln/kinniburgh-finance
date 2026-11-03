@@ -129,6 +129,56 @@
   }
 }
 
+/* Print: the one-page Personal reports (/personal/reports/weekly and /monthly) wrap the sheet in #print-report.
+   Same approach as #cpa-summary above (un-clamp the app shell, hide the chrome with the visibility trick, lay the
+   sheet out from the top-left), plus a named US Letter page with small margins and exact colours so the charts print
+   as they look on screen. Scoped with :has() so no other page's print changes. */
+@page report {
+  size: letter portrait;
+  margin: 0.35in;
+}
+@media print {
+  html:has(#print-report),
+  body:has(#print-report) {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  body:has(#print-report) * {
+    visibility: hidden;
+  }
+  body:has(#print-report) #print-report,
+  body:has(#print-report) #print-report * {
+    visibility: visible;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  body:has(#print-report) #print-report {
+    page: report;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  body:has(#print-report) .h-screen {
+    height: auto !important;
+  }
+  body:has(#print-report) .overflow-hidden,
+  body:has(#print-report) .overflow-y-auto,
+  body:has(#print-report) #print-report .overflow-x-auto {
+    overflow: visible !important;
+  }
+  body:has(#print-report) #print-report .avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
 /* Phones: iOS Safari zooms the page when a form field under 16px is focused and does not zoom back (mobile-layout-cleanup). 449 raw
    fields use text-sm/text-xs, so this is one rule instead of 449 edits. Screen only, below md; desktop and print unchanged. */
 @media screen and (max-width: 767.98px) {

@@ -67,6 +67,7 @@ describe("only the shared loader reads Budget rows for forward months", () => {
     "lib/advisor-context.ts",
     "lib/advisor/queries/budgets.ts",
     "app/forecast/page.tsx",
+    "lib/month-report-build.ts",
   ];
   it.each(CONSUMERS)("%s reads Budget rows through the loader", (file) => {
     const src = read(file);

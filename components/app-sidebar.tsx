@@ -102,6 +102,7 @@ function SidebarNavContent({
   ];
 
   const personalItems = [
+    { label: "Reports", base: "/personal/reports", href: "/personal/reports" as Route },
     { label: "Income", base: "/personal/income", href: "/personal/income" as Route },
     { label: "Net Worth", base: "/personal/net-worth", href: "/personal/net-worth" as Route },
     { label: "Mortgage", base: "/personal/mortgage", href: "/personal/mortgage" as Route },

@@ -231,7 +231,8 @@ describe("wiring / safety (static)", () => {
       }
     };
     for (const dir of ["app", "actions", "components", "lib"]) walk(path.join(root, dir));
-    expect(importers.sort()).toEqual(["app/forecast/page.tsx", "app/page.tsx"]);
+    // app/personal/reports/weekly/page.tsx added deliberately (printable weekly check-in: read-only "coming up" box, after auth())
+    expect(importers.sort()).toEqual(["app/forecast/page.tsx", "app/page.tsx", "app/personal/reports/weekly/page.tsx"]);
   });
   it("new components and pure modules do not import the db or server-only modules", () => {
     for (const f of ["lib/upcoming-ledger.ts", "lib/upcoming-ledger-view.ts", "components/upcoming/upcoming-widget.tsx", "components/upcoming/upcoming-agenda.tsx", "components/upcoming/upcoming-parts.tsx"]) {

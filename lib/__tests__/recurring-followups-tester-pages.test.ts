@@ -115,7 +115,8 @@ describe("tester: where the loader may be imported", () => {
       .filter((f) => /from "@\/lib\/upcoming-ledger-build"/.test(readFileSync(f, "utf8")))
       .map((f) => path.relative(root, f).replace(/\\/g, "/"))
       .sort();
-    expect(files).toEqual(["app/forecast/page.tsx", "app/page.tsx"]);
+    // app/personal/reports/weekly/page.tsx added deliberately (printable weekly check-in, read-only, after auth())
+    expect(files).toEqual(["app/forecast/page.tsx", "app/page.tsx", "app/personal/reports/weekly/page.tsx"]);
   });
   it("the new budget-hint loader is imported only by the forecast page and has no write verbs", () => {
     const importers = [...walk(path.join(root, "app")), ...walk(path.join(root, "components")), ...walk(path.join(root, "actions")), ...walk(path.join(root, "lib"))]
