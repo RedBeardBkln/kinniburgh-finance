@@ -167,6 +167,10 @@ describe("weekly check-in", () => {
     expect(r.dayOfMonth).toBe(31);
     expect(r.elapsedPct).toBe(100);
     expect(r.projectedCents).toBeNull();
+    expect(r.complete).toBe(true);
+    expect(r.daysLeft).toBe(0);
+    expect(r.lastSeven).toMatchObject({ fromDay: "Oct 25", toDay: "Oct 31" });
+    expect(buildWeeklyReport(d, null, "2026-11-14").complete).toBe(false);
   });
 });
 

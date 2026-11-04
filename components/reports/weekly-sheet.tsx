@@ -1,5 +1,6 @@
 // The one-page weekly check-in sheet (server component, no client JavaScript): the numbers come from
 // lib/personal-reports.ts (buildWeeklyReport), the "coming up" rows from the page's read of the Upcoming ledger.
+// A past month is drawn in the same format as the whole month (report.complete); it has no "coming up" box.
 import { firstWeekdayOf, type WeeklyReport } from "@/lib/personal-reports";
 import { Panel, Stat } from "@/components/reports/report-parts";
 import { BudgetRing, CategoryBullets, MonthCalendar, OVER, SplitBar, WeekBars, whole } from "@/components/reports/report-charts";
@@ -21,8 +22,10 @@ export function WeeklySheet({
   report: WeeklyReport;
   printedOn: string;
   period: string;
-  comingUp: { rows: ComingUp[]; totalCents: number; more: number } | null;
+  /** null = the read failed; undefined = a past month (the box is left out). */
+  comingUp?: { rows: ComingUp[]; totalCents: number; more: number } | null;
 }) {
+  const past = r.complete;
   const over = r.leftCents < 0;
   const aheadOfPace = r.usedPct !== null && r.usedPct > r.elapsedPct;
   return (
@@ -34,12 +37,14 @@ export function WeeklySheet({
       <header className="flex flex-wrap items-end justify-between gap-2 border-b border-[#d6d5d0] pb-2">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6b6a66]">Personal · Weekly check-in</p>
-          <h2 className="text-xl font-bold leading-tight">{r.periodLabel}: where we stand</h2>
+          <h2 className="text-xl font-bold leading-tight">
+            {r.periodLabel}: {past ? "how the month ended" : "where we stand"}
+          </h2>
         </div>
         <p className="text-right text-[11px] text-[#6b6a66]">
-          As of {printedOn}
+          {past ? `Whole month · printed ${printedOn}` : `As of ${printedOn}`}
           <br />
-          Day {r.dayOfMonth} of {r.daysInMonth} · {r.daysLeft} day{r.daysLeft === 1 ? "" : "s"} left
+          {past ? `All ${r.daysInMonth} days` : `Day ${r.dayOfMonth} of ${r.daysInMonth} · ${r.daysLeft} day${r.daysLeft === 1 ? "" : "s"} left`}
         </p>
       </header>
 
@@ -49,11 +54,11 @@ export function WeeklySheet({
           <BudgetRing usedPct={r.usedPct} elapsedPct={r.elapsedPct} size={118} />
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <Stat label="Spent so far" value={whole(r.spentCents)} sub={`of ${whole(r.budgetCents)} budgeted`} />
+          <Stat label={past ? "Spent" : "Spent so far"} value={whole(r.spentCents)} sub={`of ${whole(r.budgetCents)} budgeted`} />
           <Stat
-            label={over ? "Over budget by" : "Left in budget"}
+            label={over ? "Over budget by" : past ? "Left unspent" : "Left in budget"}
             value={whole(Math.abs(r.leftCents))}
-            sub={r.perDayLeftCents !== null ? `about ${whole(r.perDayLeftCents)} a day for ${r.daysLeft} days` : over ? "already past the month's budget" : "last day of the month"}
+            sub={r.perDayLeftCents !== null ? `about ${whole(r.perDayLeftCents)} a day for ${r.daysLeft} days` : over ? "past the month's budget" : past ? "at the end of the month" : "last day of the month"}
             alert={over}
           />
           <Stat
@@ -65,13 +70,13 @@ export function WeeklySheet({
           <Stat
             label="At this pace"
             value={r.projectedCents !== null ? whole(r.projectedCents) : "—"}
-            sub={r.projectedCents !== null ? "by month end (straight line)" : "shown from a quarter of the month on"}
+            sub={r.projectedCents !== null ? "by month end (straight line)" : past ? "month complete" : "shown from a quarter of the month on"}
             alert={r.projectedCents !== null && r.projectedCents > r.budgetCents}
           />
         </div>
         <div className="flex flex-col items-center gap-1">
           <MonthCalendar dayOfMonth={r.dayOfMonth} daysInMonth={r.daysInMonth} firstWeekday={firstWeekdayOf(period)} />
-          <p className="text-[10px] text-[#6b6a66]">{r.elapsedPct}% of the month gone (black tick on the ring)</p>
+          <p className="text-[10px] text-[#6b6a66]">{past ? "Month complete" : `${r.elapsedPct}% of the month gone (black tick on the ring)`}</p>
         </div>
       </section>
 
@@ -81,11 +86,11 @@ export function WeeklySheet({
           <WeekBars weeks={r.weeks} budgetCents={r.budgetCents} daysInMonth={r.daysInMonth} />
         </Panel>
         <div className="space-y-3">
-          <Panel title={`Last 7 days (${r.lastSeven.fromDay} to ${r.lastSeven.toDay})`}>
+          <Panel title={`${past ? "Last 7 days of the month" : "Last 7 days"} (${r.lastSeven.fromDay} to ${r.lastSeven.toDay})`}>
             <p className="text-2xl font-bold leading-none">{whole(r.lastSeven.spentCents)}</p>
             <p className="text-[11px] text-[#6b6a66]">
               {r.lastSeven.count} purchase{r.lastSeven.count === 1 ? "" : "s"}
-              {r.pendingCount > 0 && ` · ${r.pendingCount} pending this month (counted)`}
+              {r.pendingCount > 0 && ` · ${r.pendingCount} pending in the month (counted)`}
             </p>
           </Panel>
           <Panel title="Fixed vs variable" note={r.splitFromHistory ? undefined : "Recent months could not be read: everything is counted as variable."}>
@@ -101,7 +106,7 @@ export function WeeklySheet({
       {/* Row 3: every category */}
       <Panel
         title="Categories against budget"
-        note={`Bar: spent as a share of the category's budget (scale to 150%). Black tick: ${r.elapsedPct}% (an even pace today). ${r.overspentCount} of ${r.lineCount} lines over budget.`}
+        note={`Bar: spent as a share of the category's budget (scale to 150%). Black tick: ${past ? "100% (the full budget)" : `${r.elapsedPct}% (an even pace today)`}. ${r.overspentCount} of ${r.lineCount} lines over budget.`}
       >
         {r.categories.length > 0 ? (
           <CategoryBullets bars={r.categories} elapsedPct={r.elapsedPct} />
@@ -111,7 +116,13 @@ export function WeeklySheet({
       </Panel>
 
       {/* Row 4: lists */}
-      <section className="avoid-break grid grid-cols-1 gap-3 sm:grid-cols-3 print:grid-cols-3">
+      <section
+        className={
+          comingUp === undefined
+            ? "avoid-break grid grid-cols-1 gap-3 sm:grid-cols-2 print:grid-cols-2"
+            : "avoid-break grid grid-cols-1 gap-3 sm:grid-cols-3 print:grid-cols-3"
+        }
+      >
         <Panel title="Worth a look">
           {r.watch.length > 0 ? (
             <ul className="space-y-1">
@@ -122,10 +133,12 @@ export function WeeklySheet({
               ))}
             </ul>
           ) : (
-            <p className="text-[11px] text-[#6b6a66]">No variable line is over budget or on pace to pass it.</p>
+            <p className="text-[11px] text-[#6b6a66]">
+              {past ? "No variable line ended over budget or well above its usual month." : "No variable line is over budget or on pace to pass it."}
+            </p>
           )}
         </Panel>
-        <Panel title="Biggest purchases, last 7 days">
+        <Panel title={past ? "Biggest purchases, last 7 days of the month" : "Biggest purchases, last 7 days"}>
           {r.biggest.length > 0 ? (
             <ul className="space-y-1">
               {r.biggest.map((b) => (
@@ -140,9 +153,10 @@ export function WeeklySheet({
               ))}
             </ul>
           ) : (
-            <p className="text-[11px] text-[#6b6a66]">No purchases in the last 7 days.</p>
+            <p className="text-[11px] text-[#6b6a66]">No purchases in {past ? "the month's last 7 days" : "the last 7 days"}.</p>
           )}
         </Panel>
+        {comingUp !== undefined && (
         <Panel title="Coming up, next 7 days">
           {comingUp === null ? (
             <p className="text-[11px] text-[#6b6a66]">Upcoming bills are unavailable right now.</p>
@@ -168,11 +182,12 @@ export function WeeklySheet({
             </>
           )}
         </Panel>
+        )}
       </section>
 
       <footer className="border-t border-[#d6d5d0] pt-2 text-[9px] leading-snug text-[#6b6a66]">
-        Spent = money out on Personal accounts this month minus refunds (transfers between our own accounts, card payments
-        and loan-account mirrors are not counted), the same figure as the dashboard. Income deposits this month:{" "}
+        Spent = money out on Personal accounts in the month minus refunds (transfers between our own accounts, card payments
+        and loan-account mirrors are not counted), the same figure as the dashboard. Income deposits in the month:{" "}
         {whole(r.incomeCents)}. Observations from our own records, not financial advice.
         {!r.reconciles && (
           <span style={{ color: OVER }}> The weekly bars do not add up to Spent; check the dashboard before relying on them.</span>

@@ -91,6 +91,8 @@ export interface WeeklyReport {
   periodLabel: string;
   /** YYYY-MM-DD, New York calendar day the report is for. */
   today: string;
+  /** A past month: shown as the whole month, with no pace projection. */
+  complete: boolean;
   dayOfMonth: number;
   daysInMonth: number;
   daysLeft: number;
@@ -237,6 +239,7 @@ export function buildWeeklyReport(data: DrillData, overview: Overview | null, to
   return {
     periodLabel: data.periodLabel,
     today,
+    complete: !inMonth,
     dayOfMonth,
     daysInMonth,
     daysLeft,

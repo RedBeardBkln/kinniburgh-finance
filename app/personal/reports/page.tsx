@@ -15,7 +15,7 @@ export default async function ReportsPage() {
       href: "/personal/reports/weekly" as Route,
       icon: CalendarCheck,
       title: "Weekly check-in",
-      text: "Where the current month stands: budget used against the month gone, spending by week, every category against its budget, the last 7 days and what is coming up. One page, mostly charts.",
+      text: "Where the current month stands (or how an earlier month ended): budget used against the month gone, spending by week, every category against its budget, the last 7 days and what is coming up. One page, mostly charts.",
     },
     {
       href: "/personal/reports/monthly" as Route,
