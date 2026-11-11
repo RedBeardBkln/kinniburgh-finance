@@ -50,29 +50,61 @@ export async function loadInvoiceRows(entityId: string, today: Date): Promise<In
     orderBy: [{ number: "desc" }, { createdAt: "desc" }],
     take: 1000,
   });
-  return rows.map((r) => {
-    const allocatedCents = r.allocations.reduce((s, a) => s + a.amountCents, 0);
-    const d = deriveInvoiceState({ status: r.status, sentAt: r.sentAt, totalCents: r.totalCents, allocatedCents, dueDate: r.dueDate, today });
-    return {
-      id: r.id,
-      clientId: r.clientId,
-      clientName: r.client.name,
-      status: r.status,
-      displayNumber: r.displayNumber,
-      title: r.title,
-      issueDate: r.issueDate ? toIsoDate(r.issueDate) : null,
-      dueDate: r.dueDate ? toIsoDate(r.dueDate) : null,
-      totalCents: r.totalCents,
-      allocatedCents,
-      balanceCents: d.balanceCents,
-      state: d.state,
-      overdue: d.overdue,
-      daysPastDue: d.daysPastDue,
-      sentAt: r.sentAt ? r.sentAt.toISOString() : null,
-      voidedAt: r.voidedAt ? r.voidedAt.toISOString() : null,
-      updatedAt: r.updatedAt.toISOString(),
-    };
+  return rows.map((r) => toInvoiceRow(r, today));
+}
+
+/**
+ * Drafts the owner archived (only a never-numbered draft can be archived; issued invoices are voided). Read only for the
+ * Invoices list's "Show archived" view; their detail page stays unavailable, so the list shows them without a link.
+ */
+export async function loadArchivedDraftRows(entityId: string, today: Date): Promise<InvoiceRow[]> {
+  const rows = await db.billingDocument.findMany({
+    where: { entityId, kind: "invoice", archivedAt: { not: null } },
+    select: ROW_SELECT,
+    orderBy: [{ updatedAt: "desc" }],
+    take: 200,
   });
+  return rows.map((r) => toInvoiceRow(r, today));
+}
+
+type RowRecord = {
+  id: string;
+  clientId: string;
+  status: string;
+  displayNumber: string | null;
+  title: string | null;
+  issueDate: Date | null;
+  dueDate: Date | null;
+  totalCents: number;
+  sentAt: Date | null;
+  voidedAt: Date | null;
+  updatedAt: Date;
+  client: { name: string };
+  allocations: { amountCents: number }[];
+};
+
+function toInvoiceRow(r: RowRecord, today: Date): InvoiceRow {
+  const allocatedCents = r.allocations.reduce((s, a) => s + a.amountCents, 0);
+  const d = deriveInvoiceState({ status: r.status, sentAt: r.sentAt, totalCents: r.totalCents, allocatedCents, dueDate: r.dueDate, today });
+  return {
+    id: r.id,
+    clientId: r.clientId,
+    clientName: r.client.name,
+    status: r.status,
+    displayNumber: r.displayNumber,
+    title: r.title,
+    issueDate: r.issueDate ? toIsoDate(r.issueDate) : null,
+    dueDate: r.dueDate ? toIsoDate(r.dueDate) : null,
+    totalCents: r.totalCents,
+    allocatedCents,
+    balanceCents: d.balanceCents,
+    state: d.state,
+    overdue: d.overdue,
+    daysPastDue: d.daysPastDue,
+    sentAt: r.sentAt ? r.sentAt.toISOString() : null,
+    voidedAt: r.voidedAt ? r.voidedAt.toISOString() : null,
+    updatedAt: r.updatedAt.toISOString(),
+  };
 }
 
 export interface LineView {

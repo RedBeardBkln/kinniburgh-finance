@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { InvoicingNav } from "@/components/invoicing/invoicing-nav";
 import { NeedsSetupNotice, NotMigratedNotice, SetupIncompleteNotice } from "@/components/invoicing/gate-notices";
-import { loadInvoiceRows } from "@/lib/invoicing/documents-build";
+import { loadArchivedDraftRows, loadInvoiceRows } from "@/lib/invoicing/documents-build";
+import { buildInvoiceList, parseShowArchived } from "@/lib/invoicing/invoice-list";
 import { loadInvoicingContext } from "@/lib/invoicing/gate-build";
 import { formatCents } from "@/lib/invoicing/money";
 import { DISPLAY_STATE_LABELS, nyToday } from "@/lib/invoicing/state";
@@ -15,12 +16,14 @@ import { TableScroll } from "@/components/ui/table-scroll";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ archived?: string | string[] }>;
 }
 
-export default async function InvoicesPage({ params }: PageProps) {
+export default async function InvoicesPage({ params, searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login" as Route);
   const { slug } = await params;
+  const showArchived = parseShowArchived((await searchParams).archived);
   const ctx = await loadInvoicingContext(slug, session.user.id);
   if (ctx.status === "not_allowed") notFound();
 
@@ -47,7 +50,8 @@ export default async function InvoicesPage({ params }: PageProps) {
   if (ctx.status === "needs_setup") return shell(<NeedsSetupNotice slug={slug} />);
 
   const today = nyToday(new Date());
-  const rows = await loadInvoiceRows(ctx.entity.id, today);
+  const [rows, archivedDrafts] = await Promise.all([loadInvoiceRows(ctx.entity.id, today), loadArchivedDraftRows(ctx.entity.id, today)]);
+  const list = buildInvoiceList(rows, archivedDrafts, showArchived);
   const issued = rows.filter((r) => r.status === "issued");
   const outstanding = issued.reduce((s, r) => s + r.balanceCents, 0);
   const overdue = issued.filter((r) => r.overdue).reduce((s, r) => s + r.balanceCents, 0);
@@ -72,12 +76,22 @@ export default async function InvoicesPage({ params }: PageProps) {
         ))}
       </div>
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">All invoices</CardTitle>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+          <CardTitle className="text-base">{showArchived ? "All invoices, including archived" : "Invoices"}</CardTitle>
+          {list.hiddenCount > 0 ? (
+            <Link
+              href={(showArchived ? `/business/${slug}/invoices` : `/business/${slug}/invoices?archived=1`) as Route}
+              className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+            >
+              {showArchived ? "Hide archived" : `Show archived (${list.hiddenCount})`}
+            </Link>
+          ) : null}
         </CardHeader>
         <CardContent>
-          {rows.length === 0 ? (
+          {list.empty ? (
             <p className="text-sm text-muted-foreground">No invoices yet.</p>
+          ) : list.rows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No active invoices. Void invoices and archived drafts are hidden.</p>
           ) : (
             <TableScroll>
               <table className="w-full text-sm">
@@ -93,18 +107,24 @@ export default async function InvoicesPage({ params }: PageProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.id} className="border-b last:border-0">
+                  {list.rows.map((r) => (
+                    <tr key={r.id} className={r.archivedDraft || r.status === "void" ? "border-b text-muted-foreground last:border-0" : "border-b last:border-0"}>
                       <td className="py-2">
-                        <Link className="font-medium text-primary underline" href={`/business/${slug}/invoices/${r.id}` as Route}>
-                          {r.displayNumber ?? "Draft"}
-                        </Link>
+                        {r.archivedDraft ? (
+                          <span className="font-medium">Draft</span>
+                        ) : (
+                          <Link className="font-medium text-primary underline" href={`/business/${slug}/invoices/${r.id}` as Route}>
+                            {r.displayNumber ?? "Draft"}
+                          </Link>
+                        )}
                       </td>
                       <td>{r.clientName}</td>
                       <td>{r.issueDate ?? "—"}</td>
                       <td>{r.dueDate ?? "—"}</td>
                       <td>
-                        <Badge variant={r.state === "paid" ? "success" : r.state === "void" ? "secondary" : r.overdue ? "destructive" : "outline"}>{DISPLAY_STATE_LABELS[r.state]}</Badge>
+                        <Badge variant={r.state === "paid" ? "success" : r.state === "void" || r.archivedDraft ? "secondary" : r.overdue ? "destructive" : "outline"}>
+                          {r.archivedDraft ? "Archived draft" : DISPLAY_STATE_LABELS[r.state]}
+                        </Badge>
                         {r.overdue ? <span className="ml-1 text-xs text-red-700">overdue {r.daysPastDue}d</span> : null}
                       </td>
                       <td className="text-right">{formatCents(r.totalCents)}</td>
