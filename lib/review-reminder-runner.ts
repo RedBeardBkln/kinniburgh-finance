@@ -17,10 +17,10 @@
 import { db } from "@/lib/db";
 import { REMINDER_DELAY_MS, isReminderDue, isWithinSendWindow } from "@/lib/review-reminder";
 import { loadQueueItems, mintReminderToken } from "@/lib/review-queue-server";
+import { resolveReviewRecipient } from "@/lib/review-recipient-server";
 import {
   GENERIC_SEND_ERROR,
   getSmsSender,
-  resolveDeliveryAddress,
   resolveAppBaseUrl,
   sendReviewSms,
   type SmsSender,
@@ -73,7 +73,7 @@ export async function runReviewReminders(
       reminderStatus: true,
       expiresAt: true,
       createdBy: { select: { name: true } },
-      assignee: { select: { email: true } },
+      assignee: { select: { id: true, email: true } },
     },
   });
   summary.considered = candidates.length;
@@ -112,8 +112,11 @@ export async function runReviewReminders(
     let error: string | null = null;
     try {
       const { token } = await mintReminderToken(batch.id, batch.expiresAt);
+      // Same recipient path as the initial text (twilio = the assignee's consented number, never a fallback).
+      const recipient = await resolveReviewRecipient({ id: batch.assignee.id, email: batch.assignee.email });
       const result = await sendReviewSms({
-        address: resolveDeliveryAddress(batch.assignee.email),
+        address: recipient.address,
+        addressError: recipient.addressError,
         baseUrl: resolveAppBaseUrl(),
         token,
         kind: "reminder",

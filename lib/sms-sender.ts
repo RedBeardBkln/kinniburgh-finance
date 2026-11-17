@@ -1,13 +1,19 @@
 // SMS sending for the "Assign to Eva" review queue.
 //
-// Today a text is an email to the assignee's carrier email-to-SMS gateway
-// address, sent through the existing Resend setup (lib/resend.ts). The
-// `SmsSender` interface is the swap point for a real provider (Twilio) later:
-// nothing outside getSmsSender() knows how a text is actually delivered.
+// Three channels (REVIEW_DELIVERY): `email` (the default: a plain-text email to
+// the assignee's account email), `sms` (an email to the carrier email-to-SMS
+// gateway address in EVA_SMS_GATEWAY_ADDRESS, through lib/resend.ts) and
+// `twilio` (lib/twilio-sms.ts: a real text through Twilio's Messages API to the
+// assignee's OWN number with current consent, resolved by
+// lib/review-recipient-server.ts; never a fallback to another channel). The
+// `SmsSender` interface is the swap point: nothing outside getSmsSender() knows
+// how a text is actually delivered.
 //
 // Privacy rules for this file (a test pins them): NEVER log the recipient
 // address, the message body, or the link; error strings returned to callers
 // never contain an email address, a URL, or a token.
+
+import { createRefusingSmsSender, createTwilioSmsSender, getTwilioConfig } from "@/lib/twilio-sms";
 
 export type SmsResult = { ok: true } | { ok: false; error: string };
 
@@ -21,7 +27,7 @@ export interface SmsSender {
 }
 
 /** How a review link reaches the assignee. Email is the default. */
-export type ReviewDeliveryChannel = "email" | "sms";
+export type ReviewDeliveryChannel = "email" | "sms" | "twilio";
 
 export type ReviewSmsKind = "initial" | "reminder" | "resend";
 
@@ -57,7 +63,9 @@ export function getAssigneeSmsAddress(env: Env = process.env): string | null {
  * messages containing links); set REVIEW_DELIVERY=sms to use the gateway.
  */
 export function getDeliveryChannel(env: Env = process.env): ReviewDeliveryChannel {
-  return env.REVIEW_DELIVERY?.trim().toLowerCase() === "sms" ? "sms" : "email";
+  const v = env.REVIEW_DELIVERY?.trim().toLowerCase();
+  if (v === "twilio") return "twilio";
+  return v === "sms" ? "sms" : "email";
 }
 
 /**
@@ -69,7 +77,11 @@ export function resolveDeliveryAddress(
   assigneeEmail: string | null | undefined,
   env: Env = process.env
 ): string | null {
-  if (getDeliveryChannel(env) === "sms") return getAssigneeSmsAddress(env);
+  const channel = getDeliveryChannel(env);
+  // The Twilio recipient is the assignee's consented number from the database
+  // (lib/review-recipient-server.ts); env or email can never supply it.
+  if (channel === "twilio") return null;
+  if (channel === "sms") return getAssigneeSmsAddress(env);
   const email = assigneeEmail?.trim();
   return email && EMAIL_SHAPE.test(email) ? email : null;
 }
@@ -187,7 +199,14 @@ export function createEmailLinkSender(send: SendEmailFn = defaultSendEmail): Sms
 
 /** The sender in use. Swap this one function to change how links are delivered. */
 export function getSmsSender(env: Env = process.env): SmsSender {
-  return getDeliveryChannel(env) === "sms" ? createEmailGatewaySmsSender() : createEmailLinkSender();
+  const channel = getDeliveryChannel(env);
+  if (channel === "twilio") {
+    // Pre-flight fails closed: a missing / malformed variable gives a sender
+    // that records a visible failure and never touches the network.
+    const cfg = getTwilioConfig(env);
+    return cfg.ok ? createTwilioSmsSender(cfg.config) : createRefusingSmsSender(cfg.error);
+  }
+  return channel === "sms" ? createEmailGatewaySmsSender() : createEmailLinkSender();
 }
 
 /**
@@ -195,8 +214,10 @@ export function getSmsSender(env: Env = process.env): SmsSender {
  * DB-aware recording lives in lib/review-sms-server.ts. Never throws.
  */
 export async function sendReviewSms(input: {
-  /** From getAssigneeSmsAddress(); null -> a recorded, visible failure. */
+  /** From the recipient resolver; null -> a recorded, visible failure. */
   address: string | null;
+  /** Why `address` is null (e.g. no consent); defaults to SMS_NOT_CONFIGURED_ERROR. */
+  addressError?: string;
   /** From resolveAppBaseUrl(); null -> a recorded, visible failure. */
   baseUrl: string | null;
   /** The raw token for the link (never logged or stored by this function). */
@@ -206,7 +227,7 @@ export async function sendReviewSms(input: {
   senderName?: string;
   sender: SmsSender;
 }): Promise<SmsResult> {
-  if (!input.address) return { ok: false, error: SMS_NOT_CONFIGURED_ERROR };
+  if (!input.address) return { ok: false, error: input.addressError ?? SMS_NOT_CONFIGURED_ERROR };
   if (!input.baseUrl) return { ok: false, error: BASE_URL_NOT_CONFIGURED_ERROR };
   const body = buildReviewSmsBody({
     kind: input.kind,

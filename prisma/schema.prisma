@@ -58,6 +58,7 @@ model User {
   advisorConversations       AdvisorConversation[] @relation("AdvisorConversationOwner")
   advisorMemoriesAuthored    AdvisorMemory[]     @relation("AdvisorMemoryAuthor")
   advisorUsages              AdvisorUsage[]      @relation("AdvisorUsageUser")
+  smsConsentEvents           SmsConsentEvent[]   @relation("SmsConsentAuthor")
 }
 
 model PasswordResetToken {
@@ -1866,4 +1867,23 @@ model AdvisorUsage {
   user User @relation("AdvisorUsageUser", fields: [userId], references: [id], onDelete: Restrict)
 
   @@index([userId, at])
+}
+
+// Append-only SMS consent log (twilio-sms-consent). Consent and withdrawal are each a NEW row; never updated or deleted.
+// Current state of a user = the row with the highest seq. Only lib/sms-consent-store.ts reads or writes it.
+model SmsConsentEvent {
+  id             String   @id @default(uuid())
+  userId         String
+  seq            Int      // 1, 2, 3 ... per user; the unique index makes two racing tabs safe
+  kind           String   // "consented" | "withdrawn" (app-validated, no DB enum)
+  phoneE164      String   // the number consented to, or (withdrawn) the number whose consent is withdrawn
+  wordingVersion String   // SMS_CONSENT_VERSION in force (consented) / of the consent withdrawn (withdrawn)
+  wordingSha256  String   // hex sha256 of that exact wording
+  method         String   // "settings_web_form" (the only value today)
+  createdAt      DateTime @default(now())
+
+  user User @relation("SmsConsentAuthor", fields: [userId], references: [id])
+
+  @@unique([userId, seq])
+  @@index([userId, createdAt])
 }

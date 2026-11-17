@@ -9,10 +9,10 @@
 // the recipient address, the body, or the link.
 
 import { db } from "@/lib/db";
+import { resolveReviewRecipient } from "@/lib/review-recipient-server";
 import {
   GENERIC_SEND_ERROR,
   getSmsSender,
-  resolveDeliveryAddress,
   resolveAppBaseUrl,
   sendReviewSms,
   type SmsResult,
@@ -42,13 +42,16 @@ export async function sendBatchText(
         where: { id: batchId },
         select: {
           createdBy: { select: { name: true } },
-          assignee: { select: { email: true } },
+          assignee: { select: { id: true, email: true } },
         },
       }),
       db.transactionAssignment.count({ where: { batchId, status: "pending" } }),
     ]);
+    // Same recipient path as the reminder cron (twilio = the assignee's consented number, never a fallback).
+    const recipient = await resolveReviewRecipient({ id: batch?.assignee.id, email: batch?.assignee.email });
     result = await sendReviewSms({
-      address: resolveDeliveryAddress(batch?.assignee.email),
+      address: recipient.address,
+      addressError: recipient.addressError,
       baseUrl: resolveAppBaseUrl(),
       token,
       kind,

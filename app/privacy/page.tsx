@@ -1,4 +1,14 @@
 import Link from "next/link";
+import {
+  PRIVACY_SMS_FREQUENCY,
+  PRIVACY_SMS_NO_SHARING,
+  PRIVACY_SMS_OPTIONAL,
+  PRIVACY_SMS_PROVIDER,
+  PRIVACY_SMS_RATES,
+  PRIVACY_SMS_RECORDS,
+  PRIVACY_SMS_STOP_HELP,
+  PRIVACY_SMS_WHAT,
+} from "@/lib/sms-consent-text";
 
 export const metadata = {
   title: "Privacy Policy — Banana Stand",
@@ -19,7 +29,7 @@ export default function PrivacyPage() {
 
         <h1 className="text-2xl font-bold tracking-tight mb-2">Privacy Policy</h1>
         <p className="text-sm text-muted-foreground mb-8">
-          Effective date: July 7, 2026 &nbsp;·&nbsp; Last updated: July 7, 2026
+          Effective date: November 16, 2026 &nbsp;·&nbsp; Last updated: November 16, 2026
         </p>
 
         <div className="prose prose-sm max-w-none space-y-8 text-sm leading-relaxed text-foreground">
@@ -56,6 +66,10 @@ export default function PrivacyPage() {
                 <strong>Uploaded documents:</strong> Receipt images and financial documents
                 uploaded voluntarily for record-keeping purposes.
               </li>
+              <li>
+                <strong>Mobile phone number (optional):</strong> only if you choose to receive
+                text messages; see Text Messages below.
+              </li>
             </ul>
           </section>
 
@@ -89,8 +103,24 @@ export default function PrivacyPage() {
             </p>
           </section>
 
+          <section id="text-messages" className="space-y-3">
+            <h2 className="text-base font-semibold">5. Text Messages (SMS)</h2>
+            <p>{PRIVACY_SMS_WHAT}</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>{PRIVACY_SMS_FREQUENCY}</li>
+              <li>{PRIVACY_SMS_RATES}</li>
+              <li>{PRIVACY_SMS_STOP_HELP}</li>
+              <li>{PRIVACY_SMS_OPTIONAL}</li>
+            </ul>
+            <p>{PRIVACY_SMS_PROVIDER}</p>
+            <p>
+              <strong>{PRIVACY_SMS_NO_SHARING}</strong>
+            </p>
+            <p>{PRIVACY_SMS_RECORDS}</p>
+          </section>
+
           <section className="space-y-3">
-            <h2 className="text-base font-semibold">5. Data Storage and Security</h2>
+            <h2 className="text-base font-semibold">6. Data Storage and Security</h2>
             <p>
               Data is stored in a private PostgreSQL database hosted on Supabase (SOC 2 Type II
               certified). The application is hosted on Vercel (SOC 2 Type II certified).
@@ -103,16 +133,18 @@ export default function PrivacyPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-base font-semibold">6. Data Retention</h2>
+            <h2 className="text-base font-semibold">7. Data Retention</h2>
             <p>
               Financial data is retained for as long as an account is active. If you request
               account deletion, all personal and financial data associated with your account
-              will be permanently removed within 30 days.
+              will be permanently removed within 30 days, except for records of text-message
+              consent and opt-outs (described in section 5), which we keep as proof of consent
+              and use for no other purpose.
             </p>
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-base font-semibold">7. Your Rights</h2>
+            <h2 className="text-base font-semibold">8. Your Rights</h2>
             <p>You may request at any time to:</p>
             <ul className="list-disc pl-5 space-y-1">
               <li>Access the personal and financial data stored about you.</li>
@@ -126,7 +158,7 @@ export default function PrivacyPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-base font-semibold">8. Changes to This Policy</h2>
+            <h2 className="text-base font-semibold">9. Changes to This Policy</h2>
             <p>
               We may update this policy from time to time. The effective date at the top of
               this page will reflect the most recent revision. Continued use of the application
@@ -135,7 +167,7 @@ export default function PrivacyPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-base font-semibold">9. Contact</h2>
+            <h2 className="text-base font-semibold">10. Contact</h2>
             <p>
               Questions about this policy may be directed to:
               <br />

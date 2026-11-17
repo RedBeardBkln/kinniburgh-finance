@@ -5,6 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PushSubscribeButton } from "@/components/notifications/push-subscribe-button";
 import { NotifPrefsForm } from "@/components/notifications/notif-prefs-form";
 import { getNotifPrefs, hasPushSubscription } from "@/actions/notifications";
+import { SmsConsentCard } from "@/components/settings/sms-consent-card";
+import { saveSmsConsent, withdrawSmsConsent } from "@/actions/sms-consent";
+import { loadSmsConsentState } from "@/lib/sms-consent-store";
+import { maskPhone } from "@/lib/sms-consent";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -12,7 +16,19 @@ export default async function NotificationSettingsPage() {
   const session = await auth();
   if (!session?.user) redirect("/login" as Route);
 
-  const [prefs, isSubscribed] = await Promise.all([getNotifPrefs(), hasPushSubscription()]);
+  const userId = session.user.id;
+  const [prefs, isSubscribed, sms] = await Promise.all([
+    getNotifPrefs(),
+    hasPushSubscription(),
+    // Fail-soft (never throws): a missing table shows "Text messages are not set up yet."
+    userId ? loadSmsConsentState(userId) : Promise.resolve({ state: "error" as const }),
+  ]);
+  const smsOn = sms.state === "ok" && sms.consent.status === "on" ? sms.consent : null;
+  const smsSince = smsOn
+    ? new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "short", day: "numeric" }).format(
+        smsOn.since
+      )
+    : null;
 
   async function runChecks() {
     "use server";
@@ -43,6 +59,22 @@ export default async function NotificationSettingsPage() {
               Receive alerts in your browser even when the app is in the background.
             </p>
             <PushSubscribeButton initialSubscribed={isSubscribed} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Text messages</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SmsConsentCard
+              load={sms.state}
+              status={smsOn ? "on" : "off"}
+              masked={smsOn ? maskPhone(smsOn.phoneE164) : null}
+              sinceLabel={smsSince}
+              save={saveSmsConsent}
+              withdraw={withdrawSmsConsent}
+            />
           </CardContent>
         </Card>
 
