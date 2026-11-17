@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { maskPhone, normalizeUsMobile } from "@/lib/sms-consent";
 import { appendConsentEvent } from "@/lib/sms-consent-store";
 import { SMS_NOT_SET_UP_TEXT } from "@/lib/sms-consent-text";
+import { describeOptInConfirmation, sendOptInConfirmation } from "@/lib/sms-opt-in-confirmation";
 
 // The signed-in person's own consent to review-queue text messages (twilio-sms-consent). Each call adds at most one row to the
 // append-only consent log; nothing is updated or deleted. The user id ALWAYS comes from the session: no export takes a user id,
@@ -45,11 +46,14 @@ export async function saveSmsConsent(input: { phone: string; agreed: boolean; wo
     });
     if (!res.ok) return { ok: false, error: res.code === "table_missing" ? SMS_NOT_SET_UP_TEXT : res.error };
     revalidatePath(PATH);
+    // A NEW consent row (first opt-in or a changed number) is confirmed by text; "already on" sends nothing. The confirmation
+    // never fails the save: its outcome is only one more sentence in the message.
+    const confirmation = res.written ? describeOptInConfirmation(await sendOptInConfirmation(phone.e164)) : null;
     return {
       ok: true,
       status: "on",
       masked: maskPhone(phone.e164),
-      message: res.written ? "Texts are on." : res.message,
+      message: res.written ? `Texts are on. ${confirmation}` : res.message,
     };
   } catch (e) {
     console.error("[sms-consent] saving consent failed:", e instanceof Error ? e.name : "unknown error");

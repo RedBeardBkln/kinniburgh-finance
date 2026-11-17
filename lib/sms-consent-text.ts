@@ -11,6 +11,13 @@ export const SMS_CONSENT_TEXT =
 /** Version of SMS_CONSENT_TEXT; bump it whenever the wording changes. */
 export const SMS_CONSENT_VERSION = "2026-11-v1";
 
+/**
+ * The text sent right after a person opts in on the Settings page (and the START reply set in the Twilio console). It names
+ * the brand, frequency, rates, HELP and STOP, and fits one 160-character GSM-7 segment (a test pins both).
+ */
+export const SMS_OPT_IN_CONFIRMATION_TEXT =
+  "Banana Stand: You're signed up for review alerts. Msg freq varies. Msg & data rates may apply. Reply HELP for help, STOP to opt out.";
+
 export const SMS_OPTIONAL_TEXT = "Text messages are optional. Consent is not a condition of using Banana Stand.";
 
 export const SMS_NOT_SET_UP_TEXT = "Text messages are not set up yet.";

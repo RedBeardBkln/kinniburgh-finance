@@ -134,7 +134,12 @@ export type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
 
 export const TWILIO_TIMEOUT_MS = 10_000;
 
-export function createTwilioSmsSender(config: TwilioConfig, fetchFn: FetchFn = (i, init) => fetch(i, init)): SmsSender {
+export function createTwilioSmsSender(
+  config: TwilioConfig,
+  fetchFn: FetchFn = (i, init) => fetch(i, init),
+  /** How the body is written on the wire. Default: brand prefix + STOP footer. The opt-in confirmation is already complete, so it is sent as-is. */
+  format: (body: string) => string = formatTwilioBody
+): SmsSender {
   const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.accountSid)}/Messages.json`;
   const authorization = `Basic ${btoa(`${config.apiKeySid}:${config.apiKeySecret}`)}`;
   return {
@@ -151,7 +156,7 @@ export function createTwilioSmsSender(config: TwilioConfig, fetchFn: FetchFn = (
           body: new URLSearchParams({
             To: to,
             MessagingServiceSid: config.messagingServiceSid,
-            Body: formatTwilioBody(body),
+            Body: format(body),
           }).toString(),
           signal: AbortSignal.timeout(TWILIO_TIMEOUT_MS),
           cache: "no-store",

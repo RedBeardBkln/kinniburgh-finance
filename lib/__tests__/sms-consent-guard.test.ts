@@ -192,7 +192,7 @@ describe("actions", () => {
     authMock.auth.mockResolvedValue({ user: { id: "u-session" } });
     tx.smsConsentEvent.findMany.mockResolvedValue([]);
     const res = await saveSmsConsent({ phone: "(202) 555-0123", agreed: true, wordingVersion: SMS_CONSENT_VERSION });
-    expect(res).toEqual({ ok: true, status: "on", masked: "ending 0123", message: "Texts are on." });
+    expect(res).toEqual({ ok: true, status: "on", masked: "ending 0123", message: "Texts are on. No confirmation text was sent because texting is not set up yet." });
     expect(tx.smsConsentEvent.findMany.mock.calls[0]![0].where).toEqual({ userId: "u-session" });
     expect(tx.smsConsentEvent.create.mock.calls[0]![0].data.userId).toBe("u-session");
   });
