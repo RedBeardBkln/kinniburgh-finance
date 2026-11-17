@@ -400,7 +400,7 @@ describe("middleware", () => {
     const mw = read("middleware.ts");
     const list = /const PUBLIC_PATHS = \[([^\]]*)\]/.exec(mw)?.[1] ?? "";
     const entries = [...list.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
-    expect(entries).toEqual(["/login", "/forgot-password", "/reset-password", "/privacy", "/offline", "/queue", "/api/logo", "/api/favicon", "/api/cron", "/i", "/api/stripe/webhook"]);
+    expect(entries).toEqual(["/login", "/forgot-password", "/reset-password", "/privacy", "/terms", "/offline", "/queue", "/api/logo", "/api/favicon", "/api/cron", "/i", "/api/stripe/webhook"]);
   });
 });
 

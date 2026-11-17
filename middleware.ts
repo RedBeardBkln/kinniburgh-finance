@@ -14,7 +14,7 @@ import { invoicePayHost, isPayHostPath } from "@/lib/invoicing/public-base-url";
 // token on each request; the webhook verifies the Stripe signature on the raw body before anything
 // else. Keep these entries exact: "/i" covers only /i and /i/... (not /invoices, /income or
 // /insurance), and "/api/stripe/webhook" covers nothing else under /api/stripe.
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/privacy", "/offline", "/queue", "/api/logo", "/api/favicon", "/api/cron", "/i", "/api/stripe/webhook"];
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/privacy", "/terms", "/offline", "/queue", "/api/logo", "/api/favicon", "/api/cron", "/i", "/api/stripe/webhook"];
 
 // The pay domain (INVOICE_PUBLIC_BASE_URL, e.g. a separate host for client invoice links) serves ONLY the invoice pages: on that host
 // every path outside isPayHostPath() is a plain 404 (no redirect, no login page, nothing naming the main app's host). This branch only

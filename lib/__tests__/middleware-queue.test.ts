@@ -43,7 +43,7 @@ describe("middleware /queue exemption", () => {
   });
 
   it("existing public paths are unchanged", () => {
-    for (const p of ["/login", "/forgot-password", "/reset-password/abc", "/privacy", "/offline", "/api/cron/notifications"]) {
+    for (const p of ["/login", "/forgot-password", "/reset-password/abc", "/privacy", "/terms", "/offline", "/api/cron/notifications"]) {
       expect(isRedirectToLogin(run(p)), p).toBe(false);
     }
   });
